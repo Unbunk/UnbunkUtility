@@ -5,6 +5,7 @@
 ## Version: 1.0
 ## SavedVariables: HealerRangeDB
 
+Media/Media.lua
 UI/Shared/Dropdown.lua
 UI/Shared/TextEditor.lua
 UI/Shared/PositionEditor.lua

@@ -4,7 +4,7 @@ HealerRangeDB = {}
 
 local DEFAULTS = {
     soundPath    = nil,
-    soundKey     = "None",
+    soundKey     = "UnbunkUtility: No Heal",
     enableSound  = true,
     fontPath     = nil,
     fontKey      = "2002 Bold",
@@ -17,6 +17,7 @@ local DEFAULTS = {
 }
 
 local FALLBACK_SOUND_ID = 8959
+local FALLBACK_SOUND_NAME = "UnbunkUtility: No Heal"
 
 local function InitDB()
     for k, v in pairs(DEFAULTS) do
@@ -47,7 +48,13 @@ function HealerRangePlaySound()
     if path then
         PlaySoundFile(path, "Master")
     else
-        PlaySound(FALLBACK_SOUND_ID)
+        local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+        local fallbackPath = LSM and LSM:Fetch("sound", FALLBACK_SOUND_NAME)
+        if fallbackPath then
+            PlaySoundFile(fallbackPath, "Master")
+        else
+            PlaySound(FALLBACK_SOUND_ID)
+        end
     end
 end
 
