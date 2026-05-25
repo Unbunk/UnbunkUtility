@@ -1,6 +1,17 @@
 -- UI/SoundPicker.lua
 
-function HealerRange_CreateSoundPicker(parent, LSM)
+function HealerRange_CreateSoundPicker(parent, LSM, config)
+    config = config or {}
+    local getSoundKey    = config.getSoundKey    or function() return HealerRangeCfg_Get("soundKey") end
+    local getSoundEnable = config.getSoundEnable or function() return HealerRangeCfg_Get("enableSound") end
+    local onSoundSelect  = config.onSoundSelect  or function(key, path)
+        HealerRangeCfg_Set("soundKey", key)
+        HealerRangeCfg_Set("soundPath", path)
+    end
+    local onEnableToggle = config.onEnableToggle or function(val)
+        HealerRangeCfg_Set("enableSound", val)
+    end
+    local onTest = config.onTest or HealerRangePlaySound
     local container = CreateFrame("Frame", nil, parent)
     container:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
     container:SetWidth(518)
@@ -12,10 +23,10 @@ function HealerRange_CreateSoundPicker(parent, LSM)
     local soundCheckbox = CreateFrame("CheckButton", nil, container, "UICheckButtonTemplate")
     soundCheckbox:SetSize(24, 24)
     soundCheckbox:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
-    soundCheckbox:SetChecked(HealerRangeCfg_Get("enableSound") ~= false)
-    soundCheckbox:SetScript("OnClick", function(self)
-        HealerRangeCfg_Set("enableSound", self:GetChecked())
-    end)
+    soundCheckbox:SetChecked(getSoundEnable() ~= false)
+        soundCheckbox:SetScript("OnClick", function(self)
+            onEnableToggle(self:GetChecked())
+        end)
 
     local soundCheckLabel = container:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     soundCheckLabel:SetPoint("LEFT", soundCheckbox, "RIGHT", 2, 0)
@@ -38,14 +49,13 @@ function HealerRange_CreateSoundPicker(parent, LSM)
             itemHeight    = 20,
             visibleItems  = 10,
             getList       = function() return LSM:List("sound") end,
-            getCurrentKey = function() return HealerRangeCfg_Get("soundKey") end,
+            getCurrentKey = getSoundKey,
             onSelect      = function(name)
                 local path = LSM:Fetch("sound", name)
-                HealerRangeCfg_Set("soundKey",  name)
-                HealerRangeCfg_Set("soundPath", path)
+                onSoundSelect(name, path)
             end,
         })
-        dd.selectedText:SetText(HealerRangeCfg_Get("soundKey") or "(select a sound)")
+        dd.selectedText:SetText(getSoundKey() or "(select a sound)")
         selectedText = dd.selectedText
 
         local soundTest = CreateFrame("Button", nil, container)
@@ -53,7 +63,7 @@ function HealerRange_CreateSoundPicker(parent, LSM)
         soundTest:SetPoint("LEFT", dd.toggleBtn, "RIGHT", 6, 0)
         soundTest:SetNormalTexture("Interface/Common/VoiceChat-Speaker")
         soundTest:SetHighlightTexture("Interface/Common/VoiceChat-On")
-        soundTest:SetScript("OnClick", HealerRangePlaySound)
+        soundTest:SetScript("OnClick", onTest)
 
         height = height + 30
     else
@@ -94,9 +104,9 @@ function HealerRange_CreateSoundPicker(parent, LSM)
     result.selectedText  = selectedText
 
     function result.Refresh()
-        soundCheckbox:SetChecked(HealerRangeCfg_Get("enableSound") ~= false)
+        soundCheckbox:SetChecked(getSoundEnable() ~= false)
         if selectedText then
-            selectedText:SetText(HealerRangeCfg_Get("soundKey") or "(select a sound)")
+            selectedText:SetText(getSoundKey() or "(select a sound)")
         end
     end
 

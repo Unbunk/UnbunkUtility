@@ -3,17 +3,18 @@
 HealerRangeDB = {}
 
 local DEFAULTS = {
-    soundPath    = nil,
-    soundKey     = "UnbunkUtility: No Heal",
-    enableSound  = true,
-    fontPath     = nil,
-    fontKey      = "2002 Bold",
-    fontSize     = 22,
-    outline      = "",
-    alertMessage = "Out of healer range!",
-    color        = { r = 1.0, g = 0.06, b = 0.0, a = 1.0 },
-    posX         = 0,
-    posY         = 100,
+    soundPath     = nil,
+    soundKey      = "UnbunkUtility: No Heal",
+    enableSound   = true,
+    fontPath      = nil,
+    fontKey       = "2002 Bold",
+    fontSize      = 22,
+    outline       = "OUTLINE",
+    alertMessage  = "No Heal",
+    color         = { r = 1.0, g = 0.059, b = 0.0, a = 1.0 },
+    posX          = 0,
+    posY          = 100,
+    alertDuration = 5,
 }
 
 local FALLBACK_SOUND_ID = 8959

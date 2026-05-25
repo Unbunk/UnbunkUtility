@@ -78,6 +78,7 @@ function HealerRangeAlert_SetUnlocked(unlocked)
         alertFrame:SetScript("OnDragStart", nil)
         alertFrame:SetScript("OnDragStop", nil)
         alertFrame:SetBackdrop(nil)
+        alertFrame:Hide()
     end
 end
 

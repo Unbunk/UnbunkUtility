@@ -9,7 +9,9 @@ initMedia:SetScript("OnEvent", function(self, event, addonName)
     if LSM then
         local ADDON_PATH = "Interface\\AddOns\\UnbunkUtility\\Media\\"
         local sounds = {
-            ["UnbunkUtility: No Heal"] = ADDON_PATH .. "Sounds\\NoHeal.mp3",
+            ["UnbunkUtility: No Heal"]    = ADDON_PATH .. "Sounds\\NoHeal.mp3",
+            ["UnbunkUtility: Tank Died"]  = ADDON_PATH .. "Sounds\\TankDied.mp3",
+            ["UnbunkUtility: Healer Died"] = ADDON_PATH .. "Sounds\\HealerDied.mp3",
         }
         for name, path in pairs(sounds) do
             LSM:Register("sound", name, path)
@@ -17,3 +19,7 @@ initMedia:SetScript("OnEvent", function(self, event, addonName)
     end
     self:UnregisterEvent("ADDON_LOADED")
 end)
+
+-- Textures
+local ICON_PATH = "Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\"
+UNBUNK_ICON_DROPDOWN_ARROW = "Interface\\Buttons\\Arrow-Down-Disabled" 

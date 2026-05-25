@@ -3,14 +3,18 @@
 ## Notes: Utility addon
 ## Author: You
 ## Version: 1.0
-## SavedVariables: HealerRangeDB
+## SavedVariables: HealerRangeDB, DeathAlertDB
 
 Media/Media.lua
+UI/Shared/ScrollBar.lua
+UI/Shared/Button.lua
 UI/Shared/Dropdown.lua
+UI/Shared/CollapsibleSection.lua
 UI/Shared/TextEditor.lua
 UI/Shared/PositionEditor.lua
 UI/Shared/SoundPicker.lua
 UI/Shared/FontPicker.lua
+UI/Shared/DurationEditor.lua
 Core/Core.lua
 Core/SlashCommands.lua
 Modules/HealerRange/Libs/LibHealerRange.lua
@@ -18,3 +22,7 @@ Modules/HealerRange/Core/Config.lua
 Modules/HealerRange/Core/Alert.lua
 Modules/HealerRange/Core/RangeCheck.lua
 Modules/HealerRange/UI/ConfigWindow.lua
+Modules/DeathAlert/Core/Config.lua
+Modules/DeathAlert/Core/Alert.lua
+Modules/DeathAlert/Core/DeathCheck.lua
+Modules/DeathAlert/UI/ConfigWindow.lua

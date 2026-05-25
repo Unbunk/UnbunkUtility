@@ -60,27 +60,34 @@ function HealerRange_CreatePositionEditor(parent, config)
     xBox:SetScript("OnEnterPressed", function(self) ApplyPos() self:ClearFocus() end)
     yBox:SetScript("OnEnterPressed", function(self) ApplyPos() self:ClearFocus() end)
 
-    local unlockBtn = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
-    unlockBtn:SetSize(80, 22)
+    local unlockBtnWidget = Unbunk_CreateButton({
+        parent = container,
+        label  = isUnlocked and isUnlocked() and "Lock" or "Unlock",
+        width  = 80,
+        height = 22,
+    })
+    local unlockBtn = unlockBtnWidget.frame
     unlockBtn:SetPoint("LEFT", yBox, "RIGHT", 10, 2)
-    unlockBtn:SetText(isUnlocked and isUnlocked() and "Lock" or "Unlock")
     result.unlockBtn = unlockBtn
 
+    local currentlyUnlocked = false
+
     unlockBtn:SetScript("OnClick", function()
-        local unlocked = isUnlocked and isUnlocked() or false
-        if unlocked then
-            unlockBtn:SetText("Unlock")
+        currentlyUnlocked = not currentlyUnlocked
+        if currentlyUnlocked then
+            unlockBtnWidget.SetText("Lock")
+            if onUnlock then onUnlock() end
+        else
+            unlockBtnWidget.SetText("Unlock")
             xBox:SetText(tostring(getX() or 0))
             yBox:SetText(tostring(getY() or 0))
             if onLock then onLock() end
-        else
-            unlockBtn:SetText("Lock")
-            if onUnlock then onUnlock() end
         end
     end)
 
     parent:HookScript("OnHide", function()
-        unlockBtn:SetText("Unlock")
+        currentlyUnlocked = false
+        unlockBtnWidget.SetText("Unlock")
     end)
 
     height = height + 30
@@ -92,7 +99,8 @@ function HealerRange_CreatePositionEditor(parent, config)
     function result.Refresh()
         xBox:SetText(tostring(getX() or 0))
         yBox:SetText(tostring(getY() or 0))
-        unlockBtn:SetText(isUnlocked and isUnlocked() and "Lock" or "Unlock")
+        currentlyUnlocked = isUnlocked and isUnlocked() or false
+        unlockBtnWidget.SetText(currentlyUnlocked and "Lock" or "Unlock")
     end
 
     return result

@@ -25,15 +25,18 @@ local function CreateHealerRangePanel(parent)
 
     local testFrame = CreateFrame("Frame", nil, content)
     testFrame:SetHeight(30)
-    local testAlertBtn = CreateFrame("Button", nil, testFrame, "UIPanelButtonTemplate")
-    testAlertBtn:SetSize(100, 22)
-    testAlertBtn:SetPoint("TOPLEFT", testFrame, "TOPLEFT", 0, -4)
-    testAlertBtn:SetText("Test Alert")
-    testAlertBtn:SetScript("OnClick", function()
-        if SlashCmdList["UNBUNKUTILITY"] then
-            SlashCmdList["UNBUNKUTILITY"]("test")
-        end
-    end)
+    local testAlertBtn = Unbunk_CreateButton({
+        parent  = testFrame,
+        label   = "Test Alert",
+        width   = 100,
+        height  = 22,
+        onClick = function()
+            if SlashCmdList["UNBUNKUTILITY"] then
+                SlashCmdList["UNBUNKUTILITY"]("test")
+            end
+        end,
+    })
+    testAlertBtn.frame:SetPoint("TOPLEFT", testFrame, "TOPLEFT", 0, -4)
     AddModule(testFrame, 30)
 
     -- ── Sound picker ──────────────────────────────────────────────────────────
@@ -75,6 +78,15 @@ local function CreateHealerRangePanel(parent)
         end,
     })
     AddModule(te.frame, te.height)
+
+    -- ── Duration editor ───────────────────────────────────────────────────────
+
+    local de = Unbunk_CreateDurationEditor({
+        parent           = content,
+        getDuration      = function() return HealerRangeCfg_Get("alertDuration") end,
+        onDurationChange = function(val) HealerRangeCfg_Set("alertDuration", val) end,
+    })
+    AddModule(de.frame, de.height)
 
     -- ── Position editor ───────────────────────────────────────────────────────
 
@@ -146,6 +158,7 @@ local function CreateHealerRangePanel(parent)
         soundResult.Refresh()
         te.Refresh()
         pe.Refresh()
+        de.Refresh()
         RefreshProbeStatus()
     end)
 

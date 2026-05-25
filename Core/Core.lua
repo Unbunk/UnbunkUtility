@@ -103,11 +103,13 @@ local function CreateMainWindow()
     window:SetScript("OnDragStart", function(self) self:StartMoving() end)
     window:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
     window:SetBackdrop({
-        bgFile   = "Interface/DialogFrame/UI-DialogBox-Background",
-        edgeFile = "Interface/DialogFrame/UI-DialogBox-Border",
-        edgeSize = 32,
-        insets   = { left = 8, right = 8, top = 8, bottom = 8 },
+        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
+        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+        edgeSize = 12,
+        insets   = { left = 3, right = 3, top = 3, bottom = 3 },
     })
+    window:SetBackdropColor(0.08, 0.08, 0.08, 0.95)
+    window:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
     window:Hide()
 
     local titleBar = window:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -129,9 +131,40 @@ local function CreateMainWindow()
     sep:SetPoint("TOPRIGHT", navbar, "BOTTOMRIGHT", 0, -4)
     sep:SetHeight(1)
 
-    contentArea = CreateFrame("Frame", nil, window)
-    contentArea:SetPoint("TOPLEFT", sep, "BOTTOMLEFT", 0, -8)
-    contentArea:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -16, 16)
+    local scrollFrame = CreateFrame("ScrollFrame", nil, window)
+    scrollFrame:SetPoint("TOPLEFT", sep, "BOTTOMLEFT", 0, -8)
+    scrollFrame:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -28, 16)
+
+    contentArea = CreateFrame("Frame", nil, scrollFrame)
+    contentArea:SetWidth(scrollFrame:GetWidth() or 550)
+    contentArea:SetHeight(1000)
+    scrollFrame:SetScrollChild(contentArea)
+
+    scrollFrame:EnableMouseWheel(true)
+    scrollFrame:SetScript("OnMouseWheel", function(self, delta)
+        local current = self:GetVerticalScroll()
+        local max     = self:GetVerticalScrollRange()
+        local new     = math.max(0, math.min(max, current - delta * 30))
+        self:SetVerticalScroll(new)
+    end)
+
+    -- Scrollbar
+    local sb = Unbunk_CreateScrollBar({
+        parent       = window,
+        scrollFrame  = scrollFrame,
+        itemHeight   = 30,
+        visibleItems = 10,
+        getListSize  = function() return 20 end,
+    })
+    sb.track:SetPoint("TOPRIGHT", window, "TOPRIGHT", -6, -80)
+    sb.track:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -6, 16)
+    sb.track:Show()
+
+    window:HookScript("OnShow", function()
+        C_Timer.After(0.1, function()
+            sb.Update()
+        end)
+    end)
 
     BuildNavbar()
 

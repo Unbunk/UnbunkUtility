@@ -50,6 +50,13 @@ local function StartChecking()
             isOutOfRange = true
             alertFrame:Show()
             HealerRangePlaySound()
+            local duration = HealerRangeCfg_Get("alertDuration") or 5
+            C_Timer.After(duration, function()
+                if not HealerRangeAlert_IsUnlocked() and not HealerRangeAlert_IsTesting() then
+                    alertFrame:Hide()
+                    isOutOfRange = false
+                end
+            end)
         elseif result == true and isOutOfRange then
             isOutOfRange = false
             alertFrame:Hide()

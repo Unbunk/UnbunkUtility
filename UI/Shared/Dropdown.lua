@@ -50,11 +50,19 @@ function HealerRange_CreateDropdown(config)
 
     local selectedText = toggleBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     selectedText:SetPoint("LEFT", 6, 0)
-    selectedText:SetPoint("RIGHT", -6, 0)
+    selectedText:SetPoint("RIGHT", -22, 0)
     selectedText:SetJustifyH("LEFT")
     selectedText:SetText("(select...)")
     result.selectedText = selectedText
     result.toggleBtn    = toggleBtn
+
+    if UNBUNK_ICON_DROPDOWN_ARROW then
+        local arrowTex = toggleBtn:CreateTexture(nil, "OVERLAY")
+        arrowTex:SetSize(14, 14)
+        arrowTex:SetPoint("RIGHT", toggleBtn, "RIGHT", -4, 0)
+        arrowTex:SetTexture(UNBUNK_ICON_DROPDOWN_ARROW)
+        arrowTex:SetVertexColor(1, 1, 1, 1)
+    end
 
     -- ── Drop frame ────────────────────────────────────────────────────────────
 
@@ -85,79 +93,19 @@ function HealerRange_CreateDropdown(config)
 
     -- ── Scrollbar ─────────────────────────────────────────────────────────────
 
-    local scrollTrack = CreateFrame("Frame", nil, dropFrame, "BackdropTemplate")
-    scrollTrack:SetPoint("TOPRIGHT", dropFrame, "TOPRIGHT", -4, -4)
-    scrollTrack:SetPoint("BOTTOMRIGHT", dropFrame, "BOTTOMRIGHT", -4, 4)
-    scrollTrack:SetWidth(8)
-    scrollTrack:SetBackdrop({ bgFile = "Interface/Tooltips/UI-Tooltip-Background" })
-    scrollTrack:SetBackdropColor(0.2, 0.2, 0.2, 0.8)
-    scrollTrack:Hide()
+    local sb = Unbunk_CreateScrollBar({
+        parent       = dropFrame,
+        scrollFrame  = scrollFrame,
+        itemHeight   = itemHeight,
+        visibleItems = visibleItems,
+        getListSize  = function() return #getList() end,
+    })
+    sb.track:SetPoint("TOPRIGHT", dropFrame, "TOPRIGHT", -3, -4)
+    sb.track:SetPoint("BOTTOMRIGHT", dropFrame, "BOTTOMRIGHT", -3, 4)
 
-    local scrollThumb
-    local UpdateScrollBar
-
-    UpdateScrollBar = function()
-        local list = getList()
-        local max = scrollFrame:GetVerticalScrollRange()
-        if not dropFrame:IsShown() or max <= 0 then
-            scrollTrack:Hide()
-            return
-        end
-        scrollTrack:Show()
-        local ratio     = scrollFrame:GetVerticalScroll() / max
-        local trackH    = scrollTrack:GetHeight()
-        local thumbH    = math.max(12, trackH * (itemHeight * visibleItems / (itemHeight * #list)))
-        local maxOffset = trackH - thumbH
-        scrollThumb:SetHeight(thumbH)
-        scrollThumb:ClearAllPoints()
-        scrollThumb:SetPoint("TOP", scrollTrack, "TOP", 0, -(ratio * maxOffset))
-    end
-
-    scrollThumb = CreateFrame("Button", nil, scrollTrack)
-    scrollThumb:SetWidth(8)
-    scrollThumb:SetHeight(12)
-    local scrollThumbTex = scrollThumb:CreateTexture(nil, "OVERLAY")
-    scrollThumbTex:SetAllPoints()
-    scrollThumbTex:SetColorTexture(0.6, 0.6, 0.6, 0.8)
-
-    scrollTrack:EnableMouse(true)
-    scrollTrack:SetScript("OnMouseDown", function(self, button)
-        if button ~= "LeftButton" then return end
-        local _, trackY = scrollTrack:GetCenter()
-        local _, cursorY = GetCursorPosition()
-        local scale = UIParent:GetEffectiveScale()
-        cursorY = cursorY / scale
-        local trackH = scrollTrack:GetHeight()
-        local thumbH = scrollThumb:GetHeight()
-        local maxOffset = trackH - thumbH
-        local ratio = math.max(0, math.min(1, (trackY + trackH/2 - cursorY) / maxOffset))
-        local maxScroll = scrollFrame:GetVerticalScrollRange()
-        scrollFrame:SetVerticalScroll(ratio * maxScroll)
-        UpdateScrollBar()
-    end)
-
-    scrollFrame:SetScript("OnVerticalScroll", function(self, offset)
-        self:SetVerticalScroll(offset)
-        UpdateScrollBar()
-    end)
-
-    scrollFrame:EnableMouseWheel(true)
-    scrollFrame:SetScript("OnMouseWheel", function(self, delta)
-        local current = self:GetVerticalScroll()
-        local max     = self:GetVerticalScrollRange()
-        local new     = math.max(0, math.min(max, current - delta * itemHeight * 2))
-        self:SetVerticalScroll(new)
-        UpdateScrollBar()
-    end)
-
-    dropFrame:EnableMouseWheel(true)
-    dropFrame:SetScript("OnMouseWheel", function(self, delta)
-        local current = scrollFrame:GetVerticalScroll()
-        local max     = scrollFrame:GetVerticalScrollRange()
-        local new     = math.max(0, math.min(max, current - delta * itemHeight * 2))
-        scrollFrame:SetVerticalScroll(new)
-        UpdateScrollBar()
-    end)
+    local scrollTrack = sb.track
+    local scrollThumb = sb.thumb
+    local UpdateScrollBar = sb.Update
 
     -- ── List items ────────────────────────────────────────────────────────────
 
@@ -254,7 +202,7 @@ function HealerRange_CreateDropdown(config)
     end)
 
     dropFrame:SetScript("OnHide", function()
-        scrollTrack:Hide()
+        sb.track:Hide()
         dropFrame:EnableMouse(false)
         scrollFrame:EnableMouse(false)
         scrollChild:EnableMouse(false)
