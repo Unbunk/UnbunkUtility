@@ -1,6 +1,8 @@
 -- Modules/PlayerDeathAnimation/Core/PlayerDeathAnimation.lua
 
 local _, ns = ...
+ns.PlayerDeath = ns.PlayerDeath or {}
+local PD = ns.PlayerDeath
 
 local animFrame = CreateFrame("Frame", "PlayerDeathAnimFrame", UIParent, "BackdropTemplate")
 animFrame:SetFrameStrata("TOOLTIP")
@@ -14,7 +16,7 @@ local animTimer    = nil
 local animActive   = false
 
 local function GetCurrentAnim()
-    local idx = PlayerDeathCfg_Get("animIndex") or 1
+    local idx = PD.CfgGet("animIndex") or 1
     if UNBUNK_ANIMATIONS and UNBUNK_ANIMATIONS[idx] then
         return UNBUNK_ANIMATIONS[idx]
     end
@@ -32,18 +34,18 @@ local function StopAnimation()
 end
 
 local function ApplySize()
-    local w = PlayerDeathCfg_Get("animWidth") or 300
-    local h = PlayerDeathCfg_Get("animHeight") or 300
+    local w = PD.CfgGet("animWidth") or 300
+    local h = PD.CfgGet("animHeight") or 300
     animFrame:SetSize(w, h)
     animFrame:ClearAllPoints()
     animFrame:SetPoint("CENTER", UIParent, "CENTER",
-        PlayerDeathCfg_Get("posX") or 0,
-        PlayerDeathCfg_Get("posY") or 0)
+        PD.CfgGet("posX") or 0,
+        PD.CfgGet("posY") or 0)
 end
 
 local function PlayAnimation()
-    if not PlayerDeathCfg_Get("enabled") then return end
-    if not PlayerDeathCfg_Get("animEnabled") then return end
+    if not PD.CfgGet("enabled") then return end
+    if not PD.CfgGet("animEnabled") then return end
 
     local anim = GetCurrentAnim()
     if not anim then return end
@@ -55,12 +57,12 @@ local function PlayAnimation()
     animActive = true
     animFrame:Show()
 
-    local duration    = PlayerDeathCfg_Get("animDuration") or 3
-    local fps         = PlayerDeathCfg_Get("animFPS") or 24
+    local duration    = PD.CfgGet("animDuration") or 3
+    local fps         = PD.CfgGet("animFPS") or 24
     local totalFrames = anim.frameCount
     local frameTime   = 1 / fps
 
-    local loop = PlayerDeathCfg_Get("animLoop")
+    local loop = PD.CfgGet("animLoop")
 
     local function ShowNextFrame()
         if not animActive then return end
@@ -86,22 +88,22 @@ end
 
 -- ── Public API ────────────────────────────────────────────────────────────────
 
-function PlayerDeathAnim_Play()     PlayAnimation()  end
-function PlayerDeathAnim_Stop()     StopAnimation()  end
-function PlayerDeathAnim_IsActive() return animActive end
+function PD.Play()     PlayAnimation()  end
+function PD.Stop()     StopAnimation()  end
+function PD.IsActive() return animActive end
 
-function PlayerDeathAnim_ApplyPosition()
+function PD.ApplyPosition()
     animFrame:ClearAllPoints()
     animFrame:SetPoint("CENTER", UIParent, "CENTER",
-        PlayerDeathCfg_Get("posX") or 0,
-        PlayerDeathCfg_Get("posY") or 0)
+        PD.CfgGet("posX") or 0,
+        PD.CfgGet("posY") or 0)
 end
 
-function PlayerDeathAnim_ApplySize()
+function PD.ApplySize()
     ApplySize()
 end
 
-function PlayerDeathAnim_SetUnlocked(val)
+function PD.SetUnlocked(val)
     if val then
         animFrame:SetMovable(true)
         animFrame:EnableMouse(true)
@@ -110,9 +112,9 @@ function PlayerDeathAnim_SetUnlocked(val)
         animFrame:SetScript("OnDragStop", function(self)
             self:StopMovingOrSizing()
             local _, _, _, x, y = self:GetPoint()
-            PlayerDeathCfg_Set("posX", math.floor(x))
-            PlayerDeathCfg_Set("posY", math.floor(y))
-            if PlayerDeathPE then PlayerDeathPE.Refresh() end
+            PD.CfgSet("posX", math.floor(x))
+            PD.CfgSet("posY", math.floor(y))
+            if PD.pe then PD.pe.Refresh() end
         end)
         animFrame:SetBackdrop({
             edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
@@ -134,7 +136,7 @@ function PlayerDeathAnim_SetUnlocked(val)
     end
 end
 
-function PlayerDeathAnim_IsUnlocked()
+function PD.IsUnlocked()
     return animFrame:IsMovable() and animFrame:IsMouseEnabled()
 end
 
@@ -147,9 +149,9 @@ eventFrame:RegisterEvent("PLAYER_UNGHOST")
 
 eventFrame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_DEAD" then
-        if not PlayerDeathCfg_Get("enabled") then return end
-        if PlayerDeathCfg_Get("soundEnabled") then
-            PlayerDeath_PlaySound()
+        if not PD.CfgGet("enabled") then return end
+        if PD.CfgGet("soundEnabled") then
+            PD.PlaySound()
         end
         PlayAnimation()
     elseif event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
@@ -158,14 +160,14 @@ eventFrame:SetScript("OnEvent", function(self, event)
 end)
 
 ns.RegisterReloadHook(function()
-    PlayerDeathAnim_ApplyPosition()
-    PlayerDeathAnim_ApplySize()
+    PD.ApplyPosition()
+    PD.ApplySize()
 end)
 
 local initAnim = CreateFrame("Frame")
 initAnim:RegisterEvent("PLAYER_LOGIN")
 initAnim:SetScript("OnEvent", function(self)
-    PlayerDeathAnim_ApplyPosition()
-    PlayerDeathAnim_ApplySize()
+    PD.ApplyPosition()
+    PD.ApplySize()
     self:UnregisterEvent("PLAYER_LOGIN")
 end)
