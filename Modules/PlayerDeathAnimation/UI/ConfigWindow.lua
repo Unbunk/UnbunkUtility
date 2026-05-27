@@ -1,5 +1,9 @@
 -- Modules/PlayerDeathAnimation/UI/ConfigWindow.lua
 
+local _, ns = ...
+ns.PlayerDeath = ns.PlayerDeath or {}
+local PD = ns.PlayerDeath
+
 local function CreatePlayerDeathPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
@@ -26,8 +30,8 @@ local function CreatePlayerDeathPanel(parent)
     local enableCb = Unbunk_CreateCheckbox({
         parent  = enableFrame,
         label   = "Enable Player Death Animation",
-        checked = PlayerDeathCfg_Get("enabled") ~= false,
-        onClick = function(val) PlayerDeathCfg_Set("enabled", val) end,
+        checked = PD.CfgGet("enabled") ~= false,
+        onClick = function(val) PD.CfgSet("enabled", val) end,
     })
     enableCb.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
     AddModule(enableFrame, 24)
@@ -42,10 +46,10 @@ local function CreatePlayerDeathPanel(parent)
         width   = 80,
         height  = 22,
         onClick = function()
-            if PlayerDeathCfg_Get("soundEnabled") then
-                PlayerDeath_PlaySound()
+            if PD.CfgGet("soundEnabled") then
+                PD.PlaySound()
             end
-            PlayerDeathAnim_Play()
+            PD.Play()
         end,
     })
     testBtn.frame:SetPoint("TOPLEFT", testFrame, "TOPLEFT", 0, -2)
@@ -55,14 +59,14 @@ local function CreatePlayerDeathPanel(parent)
 
     local soundResult = HealerRange_CreateSoundPicker(content, LSM, {
         label          = "Sound on death",
-        getSoundKey    = function() return PlayerDeathCfg_Get("soundKey") end,
-        getSoundEnable = function() return PlayerDeathCfg_Get("soundEnabled") end,
+        getSoundKey    = function() return PD.CfgGet("soundKey") end,
+        getSoundEnable = function() return PD.CfgGet("soundEnabled") end,
         onSoundSelect  = function(key, path)
-            PlayerDeathCfg_Set("soundKey", key)
-            PlayerDeathCfg_Set("soundPath", path)
+            PD.CfgSet("soundKey", key)
+            PD.CfgSet("soundPath", path)
         end,
-        onEnableToggle = function(val) PlayerDeathCfg_Set("soundEnabled", val) end,
-        onTest         = function() PlayerDeath_PlaySound() end,
+        onEnableToggle = function(val) PD.CfgSet("soundEnabled", val) end,
+        onTest         = function() PD.PlaySound() end,
     })
     AddModule(soundResult.frame, soundResult.height)
 
@@ -73,8 +77,8 @@ local function CreatePlayerDeathPanel(parent)
     local animCb = Unbunk_CreateCheckbox({
         parent  = animCbFrame,
         label   = "Show animation on death",
-        checked = PlayerDeathCfg_Get("animEnabled") ~= false,
-        onClick = function(val) PlayerDeathCfg_Set("animEnabled", val) end,
+        checked = PD.CfgGet("animEnabled") ~= false,
+        onClick = function(val) PD.CfgSet("animEnabled", val) end,
     })
     animCb.frame:SetPoint("TOPLEFT", animCbFrame, "TOPLEFT", 0, 0)
     AddModule(animCbFrame, 24)
@@ -107,7 +111,7 @@ local function CreatePlayerDeathPanel(parent)
             return list
         end,
         getCurrentKey = function()
-            local idx = PlayerDeathCfg_Get("animIndex") or 1
+            local idx = PD.CfgGet("animIndex") or 1
             if UNBUNK_ANIMATIONS and UNBUNK_ANIMATIONS[idx] then
                 return UNBUNK_ANIMATIONS[idx].label
             end
@@ -117,7 +121,7 @@ local function CreatePlayerDeathPanel(parent)
             if UNBUNK_ANIMATIONS then
                 for i, anim in ipairs(UNBUNK_ANIMATIONS) do
                     if anim.label == label then
-                        PlayerDeathCfg_Set("animIndex", i)
+                        PD.CfgSet("animIndex", i)
                         break
                     end
                 end
@@ -150,10 +154,10 @@ local function CreatePlayerDeathPanel(parent)
         height     = 22,
         numeric    = true,
         maxLetters = 2,
-        text       = tostring(PlayerDeathCfg_Get("animFPS") or 24),
+        text       = tostring(PD.CfgGet("animFPS") or 24),
         onEnter    = function(val)
             if val and val > 0 then
-                PlayerDeathCfg_Set("animFPS", val)
+                PD.CfgSet("animFPS", val)
             end
         end,
     })
@@ -175,14 +179,14 @@ local function CreatePlayerDeathPanel(parent)
         local v = tonumber(fpsInput.GetText()) or 24
         v = math.max(1, v - 1)
         fpsInput.SetText(tostring(v))
-        PlayerDeathCfg_Set("animFPS", v)
+        PD.CfgSet("animFPS", v)
     end)
 
     fpsPlusBtn.frame:SetScript("OnClick", function()
         local v = tonumber(fpsInput.GetText()) or 24
         v = math.min(60, v + 1)
         fpsInput.SetText(tostring(v))
-        PlayerDeathCfg_Set("animFPS", v)
+        PD.CfgSet("animFPS", v)
     end)
 
     AddModule(fpsFrame, 46)
@@ -191,8 +195,8 @@ local function CreatePlayerDeathPanel(parent)
 
     local de = Unbunk_CreateDurationEditor({
         parent           = content,
-        getDuration      = function() return PlayerDeathCfg_Get("animDuration") end,
-        onDurationChange = function(val) PlayerDeathCfg_Set("animDuration", val) end,
+        getDuration      = function() return PD.CfgGet("animDuration") end,
+        onDurationChange = function(val) PD.CfgSet("animDuration", val) end,
     })
     AddModule(de.frame, de.height)
 
@@ -203,8 +207,8 @@ local function CreatePlayerDeathPanel(parent)
     local loopCb = Unbunk_CreateCheckbox({
         parent  = loopFrame,
         label   = "Loop animation until duration ends",
-        checked = PlayerDeathCfg_Get("animLoop") or false,
-        onClick = function(val) PlayerDeathCfg_Set("animLoop", val) end,
+        checked = PD.CfgGet("animLoop") or false,
+        onClick = function(val) PD.CfgSet("animLoop", val) end,
     })
     loopCb.frame:SetPoint("TOPLEFT", loopFrame, "TOPLEFT", 0, 0)
     AddModule(loopFrame, 24)
@@ -228,11 +232,11 @@ local function CreatePlayerDeathPanel(parent)
         height     = 22,
         numeric    = true,
         maxLetters = 4,
-        text       = tostring(PlayerDeathCfg_Get("animWidth") or 300),
+        text       = tostring(PD.CfgGet("animWidth") or 300),
         onEnter    = function(val)
             if val and val > 0 then
-                PlayerDeathCfg_Set("animWidth", val)
-                PlayerDeathAnim_ApplySize()
+                PD.CfgSet("animWidth", val)
+                PD.ApplySize()
             end
         end,
     })
@@ -248,11 +252,11 @@ local function CreatePlayerDeathPanel(parent)
         height     = 22,
         numeric    = true,
         maxLetters = 4,
-        text       = tostring(PlayerDeathCfg_Get("animHeight") or 300),
+        text       = tostring(PD.CfgGet("animHeight") or 300),
         onEnter    = function(val)
             if val and val > 0 then
-                PlayerDeathCfg_Set("animHeight", val)
-                PlayerDeathAnim_ApplySize()
+                PD.CfgSet("animHeight", val)
+                PD.ApplySize()
             end
         end,
     })
@@ -262,40 +266,40 @@ local function CreatePlayerDeathPanel(parent)
 
     -- ── Position editor ───────────────────────────────────────────────────────
 
-    PlayerDeathPE = HealerRange_CreatePositionEditor(content, {
+    PD.pe = HealerRange_CreatePositionEditor(content, {
         label      = "Animation position (offset from screen center)",
-        getX       = function() return PlayerDeathCfg_Get("posX") end,
-        getY       = function() return PlayerDeathCfg_Get("posY") end,
+        getX       = function() return PD.CfgGet("posX") end,
+        getY       = function() return PD.CfgGet("posY") end,
         onApply    = function(x, yv)
-            if x  then PlayerDeathCfg_Set("posX", x)  end
-            if yv then PlayerDeathCfg_Set("posY", yv) end
-            PlayerDeathAnim_ApplyPosition()
+            if x  then PD.CfgSet("posX", x)  end
+            if yv then PD.CfgSet("posY", yv) end
+            PD.ApplyPosition()
         end,
-        onUnlock   = function() PlayerDeathAnim_SetUnlocked(true) end,
+        onUnlock   = function() PD.SetUnlocked(true) end,
         onLock     = function()
-            PlayerDeathAnim_SetUnlocked(false)
-            if PlayerDeathPE then PlayerDeathPE.Refresh() end
+            PD.SetUnlocked(false)
+            if PD.pe then PD.pe.Refresh() end
         end,
-        isUnlocked = function() return PlayerDeathAnim_IsUnlocked() end,
+        isUnlocked = function() return PD.IsUnlocked() end,
     })
-    AddModule(PlayerDeathPE.frame, PlayerDeathPE.height)
+    AddModule(PD.pe.frame, PD.pe.height)
 
     -- ── OnShow refresh ────────────────────────────────────────────────────────
 
     parent:HookScript("OnShow", function()
-        enableCb.SetChecked(PlayerDeathCfg_Get("enabled") ~= false)
-        animCb.SetChecked(PlayerDeathCfg_Get("animEnabled") ~= false)
+        enableCb.SetChecked(PD.CfgGet("enabled") ~= false)
+        animCb.SetChecked(PD.CfgGet("animEnabled") ~= false)
         soundResult.Refresh()
         de.Refresh()
-        wInput.SetText(tostring(PlayerDeathCfg_Get("animWidth") or 300))
-        hInput.SetText(tostring(PlayerDeathCfg_Get("animHeight") or 300))
-        PlayerDeathPE.Refresh()
-        local idx = PlayerDeathCfg_Get("animIndex") or 1
+        wInput.SetText(tostring(PD.CfgGet("animWidth") or 300))
+        hInput.SetText(tostring(PD.CfgGet("animHeight") or 300))
+        PD.pe.Refresh()
+        local idx = PD.CfgGet("animIndex") or 1
         if UNBUNK_ANIMATIONS and UNBUNK_ANIMATIONS[idx] then
             animDD.selectedText:SetText(UNBUNK_ANIMATIONS[idx].label)
         end
-        fpsInput.SetText(tostring(PlayerDeathCfg_Get("animFPS") or 24))
-        loopCb.SetChecked(PlayerDeathCfg_Get("animLoop") or false)
+        fpsInput.SetText(tostring(PD.CfgGet("animFPS") or 24))
+        loopCb.SetChecked(PD.CfgGet("animLoop") or false)
     end)
 end
 
