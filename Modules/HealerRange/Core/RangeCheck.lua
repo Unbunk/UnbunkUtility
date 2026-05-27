@@ -1,6 +1,8 @@
 -- Modules/HealerRange/Core/RangeCheck.lua
 
 local _, ns = ...
+ns.HealerRange = ns.HealerRange or {}
+local HR = ns.HealerRange
 
 local CHECK_INTERVAL = 0.1
 local timer          = 0
@@ -12,10 +14,10 @@ local mainFrame      = CreateFrame("Frame")
 local RangeCheck = LibStub("LibRangeCheck-3.0")
 
 local function IsActiveInCurrentInstance()
-    return ns.IsActiveInInstance(HealerRangeCfg_Get("instanceFilter"))
+    return ns.IsActiveInInstance(HR.CfgGet("instanceFilter"))
 end
 
-function HealerRange_HasCombatProbe()
+function HR.HasCombatProbe()
     for _ in RangeCheck:GetFriendCheckers(true) do
         return true
     end
@@ -37,7 +39,7 @@ end
 
 local function IsHealerInRange()
     if not IsInGroup() and not IsInRaid() then return nil end
-    if not HealerRange_HasCombatProbe() then return nil end
+    if not HR.HasCombatProbe() then return nil end
 
     local prefix = IsInRaid() and "raid" or "party"
     local count  = IsInRaid() and GetNumGroupMembers() or GetNumSubgroupMembers()
@@ -78,15 +80,15 @@ end
 local function StartChecking()
     timer = 0
     mainFrame:SetScript("OnUpdate", function(self, elapsed)
-        if not HealerRangeCfg_Get("enabled") then return end
+        if not HR.CfgGet("enabled") then return end
         if not IsActiveInCurrentInstance() then return end
-        if HealerRangeAlert_IsUnlocked() or HealerRangeAlert_IsTesting() then return end
+        if HR.IsUnlocked() or HR.IsTesting() then return end
 
         timer = timer + elapsed
         if timer < CHECK_INTERVAL then return end
         timer = 0
 
-        local alertFrame = HealerRangeAlert_GetFrame()
+        local alertFrame = HR.GetFrame()
         local result = IsHealerInRange()
 
         if result == nil then
@@ -98,10 +100,10 @@ local function StartChecking()
         if result == false and not isOutOfRange then
             isOutOfRange = true
             alertFrame:Show()
-            HealerRangePlaySound()
-            local duration = HealerRangeCfg_Get("alertDuration") or 5
+            HR.PlaySound()
+            local duration = HR.CfgGet("alertDuration") or 5
             C_Timer.After(duration, function()
-                if not HealerRangeAlert_IsUnlocked() and not HealerRangeAlert_IsTesting() then
+                if not HR.IsUnlocked() and not HR.IsTesting() then
                     alertFrame:Hide()
                     isOutOfRange = false
                 end
@@ -116,8 +118,8 @@ end
 local function StopChecking()
     mainFrame:SetScript("OnUpdate", nil)
     isOutOfRange = false
-    if not HealerRangeAlert_IsUnlocked() then
-        HealerRangeAlert_GetFrame():Hide()
+    if not HR.IsUnlocked() then
+        HR.GetFrame():Hide()
     end
 end
 

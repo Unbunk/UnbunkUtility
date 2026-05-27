@@ -1,6 +1,10 @@
 -- UI/FontPicker.lua
 -- Font picker widget.
 
+local _, ns = ...
+ns.HealerRange = ns.HealerRange or {}
+local HR = ns.HealerRange
+
 function HealerRange_CreateFontPicker(panel, y, LSM)
     local result = {}
 
@@ -16,16 +20,16 @@ function HealerRange_CreateFontPicker(panel, y, LSM)
             itemHeight    = 20,
             visibleItems  = 10,
             getList       = function() return LSM:List("font") end,
-            getCurrentKey = function() return HealerRangeCfg_Get("fontKey") end,
+            getCurrentKey = function() return HR.CfgGet("fontKey") end,
             onSelect      = function(name)
                 local path = LSM:Fetch("font", name)
-                HealerRangeCfg_Set("fontKey",  name)
-                HealerRangeCfg_Set("fontPath", path)
-                if HealerRangeAlert_ApplyFont then HealerRangeAlert_ApplyFont() end
+                HR.CfgSet("fontKey",  name)
+                HR.CfgSet("fontPath", path)
+                if HR.ApplyFont then HR.ApplyFont() end
             end,
         })
 
-        dd.selectedText:SetText(HealerRangeCfg_Get("fontKey") or "(select a font)")
+        dd.selectedText:SetText(HR.CfgGet("fontKey") or "(select a font)")
         result.fontSelectedText = dd.selectedText
 
         local sizeLbl = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
@@ -43,8 +47,8 @@ function HealerRange_CreateFontPicker(panel, y, LSM)
         sizeBox:SetScript("OnEnterPressed", function(self)
             local v = tonumber(self:GetText())
             if v and v > 0 then
-                HealerRangeCfg_Set("fontSize", v)
-                if HealerRangeAlert_ApplyFont then HealerRangeAlert_ApplyFont() end
+                HR.CfgSet("fontSize", v)
+                if HR.ApplyFont then HR.ApplyFont() end
             end
             self:ClearFocus()
         end)
@@ -61,33 +65,33 @@ function HealerRange_CreateFontPicker(panel, y, LSM)
         colorLbl:SetText("Color")
 
         local function RefreshSwatch()
-            local c = HealerRangeCfg_Get("color")
+            local c = HR.CfgGet("color")
             swatchTex:SetColorTexture(c.r, c.g, c.b, 1)
         end
         result.RefreshSwatch = RefreshSwatch
 
         colorSwatch:SetScript("OnClick", function()
-            local c = HealerRangeCfg_Get("color")
+            local c = HR.CfgGet("color")
             ColorPickerFrame:SetupColorPickerAndShow({
                 swatchFunc = function()
                     local r, g, b = ColorPickerFrame:GetColorRGB()
                     local a = ColorPickerFrame:GetColorAlpha()
-                    HealerRangeCfg_Set("color", { r = r, g = g, b = b, a = a })
+                    HR.CfgSet("color", { r = r, g = g, b = b, a = a })
                     RefreshSwatch()
-                    if HealerRangeAlert_ApplyColor then HealerRangeAlert_ApplyColor() end
+                    if HR.ApplyColor then HR.ApplyColor() end
                 end,
                 opacityFunc = function()
                     local r, g, b = ColorPickerFrame:GetColorRGB()
                     local a = ColorPickerFrame:GetColorAlpha()
-                    HealerRangeCfg_Set("color", { r = r, g = g, b = b, a = a })
+                    HR.CfgSet("color", { r = r, g = g, b = b, a = a })
                     RefreshSwatch()
-                    if HealerRangeAlert_ApplyColor then HealerRangeAlert_ApplyColor() end
+                    if HR.ApplyColor then HR.ApplyColor() end
                 end,
                 cancelFunc = function(prev)
                     local a = prev.a or (prev.opacity and (1 - prev.opacity)) or 1
-                    HealerRangeCfg_Set("color", { r = prev.r, g = prev.g, b = prev.b, a = a })
+                    HR.CfgSet("color", { r = prev.r, g = prev.g, b = prev.b, a = a })
                     RefreshSwatch()
-                    if HealerRangeAlert_ApplyColor then HealerRangeAlert_ApplyColor() end
+                    if HR.ApplyColor then HR.ApplyColor() end
                 end,
                 r = c.r, g = c.g, b = c.b, opacity = c.a,
                 hasOpacity = true,
@@ -110,14 +114,14 @@ function HealerRange_CreateFontPicker(panel, y, LSM)
         sizeBox:SetScript("OnEnterPressed", function(self)
             local v = tonumber(self:GetText())
             if v and v > 0 then
-                HealerRangeCfg_Set("fontSize", v)
-                if HealerRangeAlert_ApplyFont then HealerRangeAlert_ApplyFont() end
+                HR.CfgSet("fontSize", v)
+                if HR.ApplyFont then HR.ApplyFont() end
             end
             self:ClearFocus()
         end)
 
         panel:HookScript("OnShow", function()
-            sizeBox:SetText(tostring(HealerRangeCfg_Get("fontSize") or 22))
+            sizeBox:SetText(tostring(HR.CfgGet("fontSize") or 22))
         end)
     end
 

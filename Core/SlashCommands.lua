@@ -1,5 +1,9 @@
 -- Core/SlashCommands.lua
 
+local _, ns = ...
+ns.HealerRange = ns.HealerRange or {}
+local HR = ns.HealerRange
+
 local function OpenConfig()
     if UnbunkUtility and UnbunkUtility.OpenWindow then
         UnbunkUtility.OpenWindow()
@@ -26,24 +30,24 @@ SlashCmdList["UNBUNKUTILITY"] = function(msg)
     elseif cmd == "help" then
         PrintHelp()
     elseif cmd == "test" then
-        HealerRangeAlert_SetTesting(true)
-        HealerRangeAlert_GetFrame():Show()
-        HealerRangePlaySound()
+        HR.SetTesting(true)
+        HR.GetFrame():Show()
+        HR.PlaySound()
         print("|cffff4444[UnbunkUtility]|r Alert test — disappears in 5 seconds.")
         C_Timer.After(5, function()
-            HealerRangeAlert_SetTesting(false)
-            if not HealerRangeAlert_IsUnlocked() then
-                HealerRangeAlert_GetFrame():Hide()
+            HR.SetTesting(false)
+            if not HR.IsUnlocked() then
+                HR.GetFrame():Hide()
             end
         end)
     elseif cmd == "lock" then
-        if HealerRangeAlert_SetUnlocked then HealerRangeAlert_SetUnlocked(false) end
-        if HealerRangePE then HealerRangePE.Refresh() end
+        if HR.SetUnlocked then HR.SetUnlocked(false) end
+        if HR.pe then HR.pe.Refresh() end
         print("|cffff4444[UnbunkUtility]|r Alert locked and position saved.")
     elseif cmd == "reset" then
-        HealerRangeCfg_Set("posX", 0)
-        HealerRangeCfg_Set("posY", 100)
-        HealerRangeAlert_ApplyPosition()
+        HR.CfgSet("posX", 0)
+        HR.CfgSet("posY", 100)
+        HR.ApplyPosition()
         print("|cffff4444[UnbunkUtility]|r Position reset.")
     elseif cmd == "debug" then
         local RangeCheck = LibStub("LibRangeCheck-3.0")

@@ -1,5 +1,9 @@
 -- Modules/HealerRange/UI/ConfigWindow.lua
 
+local _, ns = ...
+ns.HealerRange = ns.HealerRange or {}
+local HR = ns.HealerRange
+
 local function CreateHealerRangePanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
@@ -29,9 +33,9 @@ local function CreateHealerRangePanel(parent)
     local enableCheckbox = Unbunk_CreateCheckbox({
         parent  = enableFrame,
         label   = "Enable Healer Range",
-        checked = HealerRangeCfg_Get("enabled") ~= false,
+        checked = HR.CfgGet("enabled") ~= false,
         onClick = function(val)
-            HealerRangeCfg_Set("enabled", val)
+            HR.CfgSet("enabled", val)
         end,
     })
     enableCheckbox.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
@@ -71,11 +75,11 @@ local function CreateHealerRangePanel(parent)
 
     local iF = Unbunk_CreateInstanceFilter({
         parent    = content,
-        getConfig = function() return HealerRangeCfg_Get("instanceFilter") end,
+        getConfig = function() return HR.CfgGet("instanceFilter") end,
         setConfig = function(key, val)
-            local filter = HealerRangeCfg_Get("instanceFilter")
+            local filter = HR.CfgGet("instanceFilter")
             filter[key] = val
-            HealerRangeCfg_Set("instanceFilter", filter)
+            HR.CfgSet("instanceFilter", filter)
         end,
     })
     AddModule(iF.frame, iF.height)
@@ -84,12 +88,12 @@ local function CreateHealerRangePanel(parent)
 
     local ip = Unbunk_CreateIconPicker({
         parent    = content,
-        getConfig = function() return HealerRangeCfg_Get("icon") end,
+        getConfig = function() return HR.CfgGet("icon") end,
         setConfig = function(key, val)
-            local cfg = HealerRangeCfg_Get("icon")
+            local cfg = HR.CfgGet("icon")
             cfg[key] = val
-            HealerRangeCfg_Set("icon", cfg)
-            HealerRangeAlert_ApplyIcon()
+            HR.CfgSet("icon", cfg)
+            HR.ApplyIcon()
         end,
         icons = UNBUNK_ICONS or {},
     })
@@ -105,32 +109,32 @@ local function CreateHealerRangePanel(parent)
     local te = HealerRange_CreateTextEditor(content, {
         LSM             = LSM,
         label           = "Alert text",
-        getText         = function() return HealerRangeCfg_Get("alertMessage") end,
-        getFontKey      = function() return HealerRangeCfg_Get("fontKey") end,
-        getFontPath     = function() return HealerRangeCfg_Get("fontPath") end,
-        getFontSize     = function() return HealerRangeCfg_Get("fontSize") end,
-        getColor        = function() return HealerRangeCfg_Get("color") end,
-        getOutline      = function() return HealerRangeCfg_Get("outline") end,
+        getText         = function() return HR.CfgGet("alertMessage") end,
+        getFontKey      = function() return HR.CfgGet("fontKey") end,
+        getFontPath     = function() return HR.CfgGet("fontPath") end,
+        getFontSize     = function() return HR.CfgGet("fontSize") end,
+        getColor        = function() return HR.CfgGet("color") end,
+        getOutline      = function() return HR.CfgGet("outline") end,
         onTextChange    = function(txt)
-            HealerRangeCfg_Set("alertMessage", txt)
-            if HealerRangeAlert_ApplyMessage then HealerRangeAlert_ApplyMessage() end
+            HR.CfgSet("alertMessage", txt)
+            if HR.ApplyMessage then HR.ApplyMessage() end
         end,
         onFontChange    = function(key, path)
-            HealerRangeCfg_Set("fontKey", key)
-            HealerRangeCfg_Set("fontPath", path)
-            if HealerRangeAlert_ApplyFont then HealerRangeAlert_ApplyFont() end
+            HR.CfgSet("fontKey", key)
+            HR.CfgSet("fontPath", path)
+            if HR.ApplyFont then HR.ApplyFont() end
         end,
         onSizeChange    = function(size)
-            HealerRangeCfg_Set("fontSize", size)
-            if HealerRangeAlert_ApplyFont then HealerRangeAlert_ApplyFont() end
+            HR.CfgSet("fontSize", size)
+            if HR.ApplyFont then HR.ApplyFont() end
         end,
         onColorChange   = function(r, g, b, a)
-            HealerRangeCfg_Set("color", { r=r, g=g, b=b, a=a })
-            if HealerRangeAlert_ApplyColor then HealerRangeAlert_ApplyColor() end
+            HR.CfgSet("color", { r=r, g=g, b=b, a=a })
+            if HR.ApplyColor then HR.ApplyColor() end
         end,
         onOutlineChange = function(outline)
-            HealerRangeCfg_Set("outline", outline)
-            if HealerRangeAlert_ApplyFont then HealerRangeAlert_ApplyFont() end
+            HR.CfgSet("outline", outline)
+            if HR.ApplyFont then HR.ApplyFont() end
         end,
     })
     AddModule(te.frame, te.height)
@@ -139,37 +143,37 @@ local function CreateHealerRangePanel(parent)
 
     local de = Unbunk_CreateDurationEditor({
         parent           = content,
-        getDuration      = function() return HealerRangeCfg_Get("alertDuration") end,
-        onDurationChange = function(val) HealerRangeCfg_Set("alertDuration", val) end,
+        getDuration      = function() return HR.CfgGet("alertDuration") end,
+        onDurationChange = function(val) HR.CfgSet("alertDuration", val) end,
     })
     AddModule(de.frame, de.height)
 
     -- ── Position editor ───────────────────────────────────────────────────────
 
-    HealerRangePE = HealerRange_CreatePositionEditor(content, {
+    HR.pe = HealerRange_CreatePositionEditor(content, {
         label       = "Alert position (offset from screen center)",
-        getX        = function() return HealerRangeCfg_Get("posX") end,
-        getY        = function() return HealerRangeCfg_Get("posY") end,
+        getX        = function() return HR.CfgGet("posX") end,
+        getY        = function() return HR.CfgGet("posY") end,
         onApply     = function(x, yv)
-            if x  then HealerRangeCfg_Set("posX", x)  end
-            if yv then HealerRangeCfg_Set("posY", yv) end
-            if HealerRangeAlert_ApplyPosition then HealerRangeAlert_ApplyPosition() end
+            if x  then HR.CfgSet("posX", x)  end
+            if yv then HR.CfgSet("posY", yv) end
+            if HR.ApplyPosition then HR.ApplyPosition() end
         end,
         onUnlock    = function()
-            if HealerRangeAlert_SetUnlocked then HealerRangeAlert_SetUnlocked(true) end
+            if HR.SetUnlocked then HR.SetUnlocked(true) end
             print("|cffff4444[UnbunkUtility]|r Alert unlocked — drag to reposition, then /ubu lock to save.")
         end,
         onLock      = function()
-            if HealerRangeAlert_SetUnlocked then HealerRangeAlert_SetUnlocked(false) end
+            if HR.SetUnlocked then HR.SetUnlocked(false) end
         end,
         isUnlocked  = function()
-            return HealerRangeAlert_IsUnlocked and HealerRangeAlert_IsUnlocked() or false
+            return HR.IsUnlocked and HR.IsUnlocked() or false
         end,
     })
-    AddModule(HealerRangePE.frame, HealerRangePE.height)
+    AddModule(HR.pe.frame, HR.pe.height)
 
     local function RefreshProbeStatus()
-        if not HealerRange_HasCombatProbe() then
+        if not HR.HasCombatProbe() then
             probeMsg:SetText("|cffff4444Combat range detection unavailable — your class has no friendly spell probe usable in combat. The alert will not trigger.|r")
         else
             probeMsg:SetText("|cff00ff00Combat range detection available. Note: Evoker healers are ignored unless other healers are present in the group.|r")
@@ -177,11 +181,11 @@ local function CreateHealerRangePanel(parent)
     end
 
     parent:HookScript("OnShow", function()
-        enableCheckbox.SetChecked(HealerRangeCfg_Get("enabled") ~= false)
+        enableCheckbox.SetChecked(HR.CfgGet("enabled") ~= false)
         soundResult.Refresh()
         te.Refresh()
         de.Refresh()
-        if HealerRangePE then HealerRangePE.Refresh() end
+        if HR.pe then HR.pe.Refresh() end
         iF.Refresh()
         ip.Refresh()
         RefreshProbeStatus()

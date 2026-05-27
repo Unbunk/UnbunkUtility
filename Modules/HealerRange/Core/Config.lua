@@ -1,5 +1,9 @@
 -- Modules/HealerRange/Core/Config.lua
 
+local _, ns = ...
+ns.HealerRange = ns.HealerRange or {}
+local HR = ns.HealerRange
+
 HealerRangeDB = HealerRangeDB or {}
 
 local DEFAULTS = {
@@ -36,7 +40,7 @@ local DEFAULTS = {
 local FALLBACK_SOUND_ID = 8959
 local FALLBACK_SOUND_NAME = "UnbunkUtility: No Heal"
 
-function HealerRangeCfg_Init()
+function HR.CfgInit()
     for k, v in pairs(DEFAULTS) do
         if HealerRangeDB[k] == nil then
             if type(v) == "table" then
@@ -51,17 +55,17 @@ function HealerRangeCfg_Init()
     end
 end
 
-function HealerRangeCfg_Get(key)
+function HR.CfgGet(key)
     return HealerRangeDB[key]
 end
 
-function HealerRangeCfg_Set(key, value)
+function HR.CfgSet(key, value)
     HealerRangeDB[key] = value
 end
 
-function HealerRangePlaySound()
-    if not HealerRangeCfg_Get("enableSound") then return end
-    local path = HealerRangeCfg_Get("soundPath")
+function HR.PlaySound()
+    if not HR.CfgGet("enableSound") then return end
+    local path = HR.CfgGet("soundPath")
     if path then
         PlaySoundFile(path, "Master")
     else
@@ -79,6 +83,6 @@ local initDB = CreateFrame("Frame")
 initDB:RegisterEvent("ADDON_LOADED")
 initDB:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    HealerRangeCfg_Init()
+    HR.CfgInit()
     self:UnregisterEvent("ADDON_LOADED")
 end)
