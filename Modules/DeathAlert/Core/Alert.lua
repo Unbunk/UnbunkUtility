@@ -1,6 +1,8 @@
 -- Modules/DeathAlert/Core/Alert.lua
 
 local _, ns = ...
+ns.DeathAlert = ns.DeathAlert or {}
+local DA = ns.DeathAlert
 
 local TANK_KEY_MAP = {
     alertMessage = "tankMessage",
@@ -40,86 +42,86 @@ local DPS_KEY_MAP = {
 
 local tankAlert = Unbunk_CreateAlertFrame({
     name   = "DeathAlertTankFrame",
-    getCfg = function(key) return DeathAlertCfg_Get(TANK_KEY_MAP[key] or key) end,
+    getCfg = function(key) return DA.CfgGet(TANK_KEY_MAP[key] or key) end,
     onDragStop = function(x, y)
-        DeathAlertCfg_Set("tankPosX", x)
-        DeathAlertCfg_Set("tankPosY", y)
+        DA.CfgSet("tankPosX", x)
+        DA.CfgSet("tankPosY", y)
         if _G["DeathAlert_PE_tank"] then _G["DeathAlert_PE_tank"].Refresh() end
     end,
 })
 
 local healerAlert = Unbunk_CreateAlertFrame({
     name   = "DeathAlertHealerFrame",
-    getCfg = function(key) return DeathAlertCfg_Get(HEALER_KEY_MAP[key] or key) end,
+    getCfg = function(key) return DA.CfgGet(HEALER_KEY_MAP[key] or key) end,
     onDragStop = function(x, y)
-        DeathAlertCfg_Set("healerPosX", x)
-        DeathAlertCfg_Set("healerPosY", y)
+        DA.CfgSet("healerPosX", x)
+        DA.CfgSet("healerPosY", y)
         if _G["DeathAlert_PE_healer"] then _G["DeathAlert_PE_healer"].Refresh() end
     end,
 })
 
 local dpsAlert = Unbunk_CreateAlertFrame({
     name   = "DeathAlertDpsFrame",
-    getCfg = function(key) return DeathAlertCfg_Get(DPS_KEY_MAP[key] or key) end,
+    getCfg = function(key) return DA.CfgGet(DPS_KEY_MAP[key] or key) end,
     onDragStop = function(x, y)
-        DeathAlertCfg_Set("dpsPosX", x)
-        DeathAlertCfg_Set("dpsPosY", y)
+        DA.CfgSet("dpsPosX", x)
+        DA.CfgSet("dpsPosY", y)
         if _G["DeathAlert_PE_dps"] then _G["DeathAlert_PE_dps"].Refresh() end
     end,
 })
 
 -- Tank
-function DeathAlert_ApplyTankFont()     tankAlert.ApplyFont()     end
-function DeathAlert_ApplyTankColor()    tankAlert.ApplyColor()    end
-function DeathAlert_ApplyTankMessage()  tankAlert.ApplyMessage()  end
-function DeathAlert_ApplyTankPosition() tankAlert.ApplyPosition() end
-function DeathAlert_ApplyTankIcon()     tankAlert.ApplyIcon()     end
-function DeathAlert_SetTankUnlocked(v)  tankAlert.SetUnlocked(v)  end
-function DeathAlert_IsTankUnlocked()    return tankAlert.IsUnlocked() end
-function DeathAlert_SetTankTesting(v)   tankAlert.SetTesting(v)   end
-function DeathAlert_IsTankTesting()     return tankAlert.IsTesting()  end
-function DeathAlert_GetTankFrame()      return tankAlert.GetFrame()   end
+function DA.ApplyTankFont()     tankAlert.ApplyFont()     end
+function DA.ApplyTankColor()    tankAlert.ApplyColor()    end
+function DA.ApplyTankMessage()  tankAlert.ApplyMessage()  end
+function DA.ApplyTankPosition() tankAlert.ApplyPosition() end
+function DA.ApplyTankIcon()     tankAlert.ApplyIcon()     end
+function DA.SetTankUnlocked(v)  tankAlert.SetUnlocked(v)  end
+function DA.IsTankUnlocked()    return tankAlert.IsUnlocked() end
+function DA.SetTankTesting(v)   tankAlert.SetTesting(v)   end
+function DA.IsTankTesting()     return tankAlert.IsTesting()  end
+function DA.GetTankFrame()      return tankAlert.GetFrame()   end
 
 -- Healer
-function DeathAlert_ApplyHealerFont()     healerAlert.ApplyFont()     end
-function DeathAlert_ApplyHealerColor()    healerAlert.ApplyColor()    end
-function DeathAlert_ApplyHealerMessage()  healerAlert.ApplyMessage()  end
-function DeathAlert_ApplyHealerPosition() healerAlert.ApplyPosition() end
-function DeathAlert_ApplyHealerIcon()     healerAlert.ApplyIcon()     end
-function DeathAlert_SetHealerUnlocked(v)  healerAlert.SetUnlocked(v)  end
-function DeathAlert_IsHealerUnlocked()    return healerAlert.IsUnlocked() end
-function DeathAlert_SetHealerTesting(v)   healerAlert.SetTesting(v)   end
-function DeathAlert_IsHealerTesting()     return healerAlert.IsTesting()  end
-function DeathAlert_GetHealerFrame()      return healerAlert.GetFrame()   end
+function DA.ApplyHealerFont()     healerAlert.ApplyFont()     end
+function DA.ApplyHealerColor()    healerAlert.ApplyColor()    end
+function DA.ApplyHealerMessage()  healerAlert.ApplyMessage()  end
+function DA.ApplyHealerPosition() healerAlert.ApplyPosition() end
+function DA.ApplyHealerIcon()     healerAlert.ApplyIcon()     end
+function DA.SetHealerUnlocked(v)  healerAlert.SetUnlocked(v)  end
+function DA.IsHealerUnlocked()    return healerAlert.IsUnlocked() end
+function DA.SetHealerTesting(v)   healerAlert.SetTesting(v)   end
+function DA.IsHealerTesting()     return healerAlert.IsTesting()  end
+function DA.GetHealerFrame()      return healerAlert.GetFrame()   end
 
 -- DPS
-function DeathAlert_ApplyDpsFont()     dpsAlert.ApplyFont()     end
-function DeathAlert_ApplyDpsColor()    dpsAlert.ApplyColor()    end
-function DeathAlert_ApplyDpsMessage()  dpsAlert.ApplyMessage()  end
-function DeathAlert_ApplyDpsPosition() dpsAlert.ApplyPosition() end
-function DeathAlert_ApplyDpsIcon()     dpsAlert.ApplyIcon()     end
-function DeathAlert_SetDpsUnlocked(v)  dpsAlert.SetUnlocked(v)  end
-function DeathAlert_IsDpsUnlocked()    return dpsAlert.IsUnlocked() end
-function DeathAlert_SetDpsTesting(v)   dpsAlert.SetTesting(v)   end
-function DeathAlert_IsDpsTesting()     return dpsAlert.IsTesting()  end
-function DeathAlert_GetDpsFrame()      return dpsAlert.GetFrame()   end
+function DA.ApplyDpsFont()     dpsAlert.ApplyFont()     end
+function DA.ApplyDpsColor()    dpsAlert.ApplyColor()    end
+function DA.ApplyDpsMessage()  dpsAlert.ApplyMessage()  end
+function DA.ApplyDpsPosition() dpsAlert.ApplyPosition() end
+function DA.ApplyDpsIcon()     dpsAlert.ApplyIcon()     end
+function DA.SetDpsUnlocked(v)  dpsAlert.SetUnlocked(v)  end
+function DA.IsDpsUnlocked()    return dpsAlert.IsUnlocked() end
+function DA.SetDpsTesting(v)   dpsAlert.SetTesting(v)   end
+function DA.IsDpsTesting()     return dpsAlert.IsTesting()  end
+function DA.GetDpsFrame()      return dpsAlert.GetFrame()   end
 
 local function ApplyAll()
-    DeathAlert_ApplyTankFont()
-    DeathAlert_ApplyTankColor()
-    DeathAlert_ApplyTankMessage()
-    DeathAlert_ApplyTankPosition()
-    DeathAlert_ApplyTankIcon()
-    DeathAlert_ApplyHealerFont()
-    DeathAlert_ApplyHealerColor()
-    DeathAlert_ApplyHealerMessage()
-    DeathAlert_ApplyHealerPosition()
-    DeathAlert_ApplyHealerIcon()
-    DeathAlert_ApplyDpsFont()
-    DeathAlert_ApplyDpsColor()
-    DeathAlert_ApplyDpsMessage()
-    DeathAlert_ApplyDpsPosition()
-    DeathAlert_ApplyDpsIcon()
+    DA.ApplyTankFont()
+    DA.ApplyTankColor()
+    DA.ApplyTankMessage()
+    DA.ApplyTankPosition()
+    DA.ApplyTankIcon()
+    DA.ApplyHealerFont()
+    DA.ApplyHealerColor()
+    DA.ApplyHealerMessage()
+    DA.ApplyHealerPosition()
+    DA.ApplyHealerIcon()
+    DA.ApplyDpsFont()
+    DA.ApplyDpsColor()
+    DA.ApplyDpsMessage()
+    DA.ApplyDpsPosition()
+    DA.ApplyDpsIcon()
 end
 
 ns.RegisterReloadHook(ApplyAll)
