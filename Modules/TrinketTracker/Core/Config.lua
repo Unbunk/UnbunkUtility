@@ -1,5 +1,9 @@
 -- Modules/TrinketTracker/Core/Config.lua
 
+local _, ns = ...
+ns.TrinketTracker = ns.TrinketTracker or {}
+local TT = ns.TrinketTracker
+
 TrinketTrackerDB = TrinketTrackerDB or {}
 
 local DEFAULTS = {
@@ -52,7 +56,7 @@ local DEFAULTS = {
     },
 }
 
-function TrinketTrackerCfg_Init()
+function TT.CfgInit()
     for k, v in pairs(DEFAULTS) do
         if TrinketTrackerDB[k] == nil then
             if type(v) == "table" then
@@ -74,17 +78,17 @@ function TrinketTrackerCfg_Init()
     end
 end
 
-function TrinketTrackerCfg_Get(key)
+function TT.CfgGet(key)
     return TrinketTrackerDB[key]
 end
 
-function TrinketTrackerCfg_Set(key, value)
+function TT.CfgSet(key, value)
     TrinketTrackerDB[key] = value
 end
 
-function TrinketTracker_PlaySound(prefix, key)
+function TT.PlaySound(prefix, key)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-    local cfg = TrinketTrackerCfg_Get(prefix)
+    local cfg = TT.CfgGet(prefix)
     if not cfg then return end
     local pathKey, soundKeyKey
     if key == "soundUse" then
@@ -110,6 +114,6 @@ local initDB = CreateFrame("Frame")
 initDB:RegisterEvent("ADDON_LOADED")
 initDB:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    TrinketTrackerCfg_Init()
+    TT.CfgInit()
     self:UnregisterEvent("ADDON_LOADED")
 end)

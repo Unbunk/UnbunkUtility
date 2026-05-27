@@ -1,22 +1,24 @@
 -- Modules/TrinketTracker/Core/TrinketTracker.lua
 
 local _, ns = ...
+ns.TrinketTracker = ns.TrinketTracker or {}
+local TT = ns.TrinketTracker
 
 local function IsActiveInCurrentInstance()
-    return ns.IsActiveInInstance(TrinketTrackerCfg_Get("instanceFilter"))
+    return ns.IsActiveInInstance(TT.CfgGet("instanceFilter"))
 end
 
 local function CreateTrinketTracker(prefix, frameName)
     local function GetCfg(key)
-        local cfg = TrinketTrackerCfg_Get(prefix)
+        local cfg = TT.CfgGet(prefix)
         return cfg and cfg[key]
     end
 
     local function SetCfg(key, val)
-        local cfg = TrinketTrackerCfg_Get(prefix)
+        local cfg = TT.CfgGet(prefix)
         if cfg then
             cfg[key] = val
-            TrinketTrackerCfg_Set(prefix, cfg)
+            TT.CfgSet(prefix, cfg)
         end
     end
 
@@ -24,7 +26,7 @@ local function CreateTrinketTracker(prefix, frameName)
         frameName = frameName,
         getCfg    = function(key)
             if key == "enabled" then
-                return TrinketTrackerCfg_Get("enabled") and GetCfg("enabled") and IsActiveInCurrentInstance()
+                return TT.CfgGet("enabled") and GetCfg("enabled") and IsActiveInCurrentInstance()
             end
             return GetCfg(key)
         end,
@@ -42,7 +44,7 @@ local function CreateTrinketTracker(prefix, frameName)
         end,
         onReady = function()
             if GetCfg("soundOnReady") then
-                TrinketTracker_PlaySound(prefix, "soundReady")
+                TT.PlaySound(prefix, "soundReady")
             end
         end,
     })
@@ -64,8 +66,8 @@ end)
 
 local function ApplyLayout()
     if not trinket1Tracker or not trinket2Tracker then return end
-    local t1Cfg = TrinketTrackerCfg_Get("trinket1")
-    local t2Cfg = TrinketTrackerCfg_Get("trinket2")
+    local t1Cfg = TT.CfgGet("trinket1")
+    local t2Cfg = TT.CfgGet("trinket2")
     if not t1Cfg or not t2Cfg then return end
     trinket1Tracker.GetFrame():ClearAllPoints()
     trinket1Tracker.GetFrame():SetPoint("CENTER", UIParent, "CENTER", t1Cfg.posX, t1Cfg.posY)
@@ -73,15 +75,15 @@ local function ApplyLayout()
     trinket2Tracker.GetFrame():SetPoint("CENTER", UIParent, "CENTER", t2Cfg.posX, t2Cfg.posY)
 end
 
-function TrinketTracker_ApplyAll()
+function TT.ApplyAll()
     if not trinket1Tracker or not trinket2Tracker then return end
     ApplyLayout()
     trinket1Tracker.ApplyVisuals()
     trinket2Tracker.ApplyVisuals()
 end
 
-function TrinketTracker_GetTracker1() return trinket1Tracker end
-function TrinketTracker_GetTracker2() return trinket2Tracker end
+function TT.GetTracker1() return trinket1Tracker end
+function TT.GetTracker2() return trinket2Tracker end
 
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -93,38 +95,38 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         local unit, _, spellId = ...
         if unit ~= "player" then return end
         -- Détecte l'utilisation d'un trinket par son spell (slot configuré).
-        local t1Cfg = TrinketTrackerCfg_Get("trinket1")
-        local t2Cfg = TrinketTrackerCfg_Get("trinket2")
+        local t1Cfg = TT.CfgGet("trinket1")
+        local t2Cfg = TT.CfgGet("trinket2")
         local t1Id = t1Cfg and t1Cfg.slot and GetInventoryItemID("player", t1Cfg.slot)
         local t2Id = t2Cfg and t2Cfg.slot and GetInventoryItemID("player", t2Cfg.slot)
         local t1Spell = t1Id and select(2, C_Item.GetItemSpell(t1Id))
         local t2Spell = t2Id and select(2, C_Item.GetItemSpell(t2Id))
         if t1Spell and spellId == t1Spell then
-            if TrinketTrackerCfg_Get("trinket1").soundOnUse then
-                TrinketTracker_PlaySound("trinket1", "soundUse")
+            if TT.CfgGet("trinket1").soundOnUse then
+                TT.PlaySound("trinket1", "soundUse")
             end
         elseif t2Spell and spellId == t2Spell then
-            if TrinketTrackerCfg_Get("trinket2").soundOnUse then
-                TrinketTracker_PlaySound("trinket2", "soundUse")
+            if TT.CfgGet("trinket2").soundOnUse then
+                TT.PlaySound("trinket2", "soundUse")
             end
         end
     end
-    TrinketTracker_ApplyAll()
+    TT.ApplyAll()
 end)
 
 C_Timer.NewTicker(0.5, function()
     -- État stable : si le module est désactivé, les frames sont déjà cachés.
-    if not TrinketTrackerCfg_Get("enabled") then return end
-    TrinketTracker_ApplyAll()
+    if not TT.CfgGet("enabled") then return end
+    TT.ApplyAll()
 end)
 
-ns.RegisterReloadHook(function() TrinketTracker_ApplyAll() end)
+ns.RegisterReloadHook(function() TT.ApplyAll() end)
 
 local initTT = CreateFrame("Frame")
 initTT:RegisterEvent("PLAYER_LOGIN")
 initTT:SetScript("OnEvent", function(self)
     C_Timer.After(0.5, function()
-        TrinketTracker_ApplyAll()
+        TT.ApplyAll()
     end)
     self:UnregisterEvent("PLAYER_LOGIN")
 end)

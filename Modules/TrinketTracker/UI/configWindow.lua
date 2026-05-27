@@ -1,5 +1,9 @@
 -- Modules/TrinketTracker/UI/ConfigWindow.lua
 
+local _, ns = ...
+ns.TrinketTracker = ns.TrinketTracker or {}
+local TT = ns.TrinketTracker
+
 local function CreateTrinketSection(parent, prefix)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local height = 0
@@ -18,19 +22,19 @@ local function CreateTrinketSection(parent, prefix)
     end
 
     local function GetCfg(key)
-        local cfg = TrinketTrackerCfg_Get(prefix)
+        local cfg = TT.CfgGet(prefix)
         return cfg and cfg[key]
     end
 
     local function SetCfg(key, val)
-        local cfg = TrinketTrackerCfg_Get(prefix)
+        local cfg = TT.CfgGet(prefix)
         if cfg then
             cfg[key] = val
-            TrinketTrackerCfg_Set(prefix, cfg)
+            TT.CfgSet(prefix, cfg)
         end
     end
 
-    local tracker = prefix == "trinket1" and TrinketTracker_GetTracker1() or TrinketTracker_GetTracker2()
+    local tracker = prefix == "trinket1" and TT.GetTracker1() or TT.GetTracker2()
 
     -- ── Sound use ─────────────────────────────────────────────────────────────
 
@@ -43,7 +47,7 @@ local function CreateTrinketSection(parent, prefix)
             SetCfg("soundPathUse", path)
         end,
         onEnableToggle = function(val) SetCfg("soundOnUse", val) end,
-        onTest         = function() TrinketTracker_PlaySound(prefix, "soundUse") end,
+        onTest         = function() TT.PlaySound(prefix, "soundUse") end,
     })
     soundUseResult.frame:ClearAllPoints()
     AddWidget(soundUseResult.frame, soundUseResult.height)
@@ -59,7 +63,7 @@ local function CreateTrinketSection(parent, prefix)
             SetCfg("soundPathReady", path)
         end,
         onEnableToggle = function(val) SetCfg("soundOnReady", val) end,
-        onTest         = function() TrinketTracker_PlaySound(prefix, "soundReady") end,
+        onTest         = function() TT.PlaySound(prefix, "soundReady") end,
     })
     soundReadyResult.frame:ClearAllPoints()
     AddWidget(soundReadyResult.frame, soundReadyResult.height)
@@ -74,7 +78,7 @@ local function CreateTrinketSection(parent, prefix)
         checked = GetCfg("showIcon") ~= false,
         onClick = function(val)
             SetCfg("showIcon", val)
-            TrinketTracker_ApplyAll()
+            TT.ApplyAll()
         end,
     })
     showIconCb.frame:SetPoint("TOPLEFT", showIconFrame, "TOPLEFT", 0, 0)
@@ -143,7 +147,7 @@ local function CreateTrinketSection(parent, prefix)
         onApply    = function(x, yv)
             if x  then SetCfg("posX", x)  end
             if yv then SetCfg("posY", yv) end
-            TrinketTracker_ApplyAll()
+            TT.ApplyAll()
         end,
         onUnlock   = function() if tracker then tracker.SetUnlocked(true) end end,
         onLock     = function()
@@ -233,10 +237,10 @@ local function CreateTrinketTrackerPanel(parent)
     local enableCb = Unbunk_CreateCheckbox({
         parent  = enableFrame,
         label   = "Enable Trinket Tracker",
-        checked = TrinketTrackerCfg_Get("enabled") ~= false,
+        checked = TT.CfgGet("enabled") ~= false,
         onClick = function(val)
-            TrinketTrackerCfg_Set("enabled", val)
-            TrinketTracker_ApplyAll()
+            TT.CfgSet("enabled", val)
+            TT.ApplyAll()
         end,
     })
     enableCb.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
@@ -246,11 +250,11 @@ local function CreateTrinketTrackerPanel(parent)
 
     local iF = Unbunk_CreateInstanceFilter({
         parent    = content,
-        getConfig = function() return TrinketTrackerCfg_Get("instanceFilter") end,
+        getConfig = function() return TT.CfgGet("instanceFilter") end,
         setConfig = function(key, val)
-            local filter = TrinketTrackerCfg_Get("instanceFilter")
+            local filter = TT.CfgGet("instanceFilter")
             filter[key] = val
-            TrinketTrackerCfg_Set("instanceFilter", filter)
+            TT.CfgSet("instanceFilter", filter)
         end,
     })
     AddSection(iF.frame)
@@ -260,12 +264,12 @@ local function CreateTrinketTrackerPanel(parent)
     local trinket1CS = Unbunk_CreateCollapsibleSection({
         parent        = content,
         label         = "Trinket 1 (slot 1)",
-        isChecked     = function() return TrinketTrackerCfg_Get("trinket1") and TrinketTrackerCfg_Get("trinket1").enabled end,
+        isChecked     = function() return TT.CfgGet("trinket1") and TT.CfgGet("trinket1").enabled end,
         onCheck       = function(val)
-            local cfg = TrinketTrackerCfg_Get("trinket1")
+            local cfg = TT.CfgGet("trinket1")
             cfg.enabled = val
-            TrinketTrackerCfg_Set("trinket1", cfg)
-            TrinketTracker_ApplyAll()
+            TT.CfgSet("trinket1", cfg)
+            TT.ApplyAll()
         end,
         createContent = function(sectionParent)
             local h, fns = CreateTrinketSection(sectionParent, "trinket1")
@@ -280,12 +284,12 @@ local function CreateTrinketTrackerPanel(parent)
     local trinket2CS = Unbunk_CreateCollapsibleSection({
         parent        = content,
         label         = "Trinket 2 (slot 2)",
-        isChecked     = function() return TrinketTrackerCfg_Get("trinket2") and TrinketTrackerCfg_Get("trinket2").enabled end,
+        isChecked     = function() return TT.CfgGet("trinket2") and TT.CfgGet("trinket2").enabled end,
         onCheck       = function(val)
-            local cfg = TrinketTrackerCfg_Get("trinket2")
+            local cfg = TT.CfgGet("trinket2")
             cfg.enabled = val
-            TrinketTrackerCfg_Set("trinket2", cfg)
-            TrinketTracker_ApplyAll()
+            TT.CfgSet("trinket2", cfg)
+            TT.ApplyAll()
         end,
         createContent = function(sectionParent)
             local h, fns = CreateTrinketSection(sectionParent, "trinket2")
@@ -298,7 +302,7 @@ local function CreateTrinketTrackerPanel(parent)
     -- ── OnShow refresh ────────────────────────────────────────────────────────
 
     parent:HookScript("OnShow", function()
-        enableCb.SetChecked(TrinketTrackerCfg_Get("enabled") ~= false)
+        enableCb.SetChecked(TT.CfgGet("enabled") ~= false)
         iF.Refresh()
         trinket1CS.Refresh()
         trinket2CS.Refresh()
