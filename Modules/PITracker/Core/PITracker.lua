@@ -1,6 +1,8 @@
 -- Modules/PITracker/Core/PITracker.lua
 
 local _, ns = ...
+ns.PITracker = ns.PITracker or {}
+local PI = ns.PITracker
 
 local PI_SPELL_ID  = 10060
 local PI_ICON_ID   = 135960 -- icône native de Power Infusion
@@ -11,18 +13,18 @@ local hasBuff      = false
 
 local piIcon = Unbunk_CreateTimerIcon({
     name    = "PITrackerFrame",
-    getCfg  = function(key) return PITrackerCfg_Get(key) end,
+    getCfg  = function(key) return PI.CfgGet(key) end,
     onDragStop = function(x, y)
-        PITrackerCfg_Set("posX", x)
-        PITrackerCfg_Set("posY", y)
-        if PITrackerPE then PITrackerPE.Refresh() end
+        PI.CfgSet("posX", x)
+        PI.CfgSet("posY", y)
+        if PI.pe then PI.pe.Refresh() end
     end,
 })
 
 piIcon.onExpire = function() end
 
 local function IsActiveInCurrentInstance()
-    return ns.IsActiveInInstance(PITrackerCfg_Get("instanceFilter"))
+    return ns.IsActiveInInstance(PI.CfgGet("instanceFilter"))
 end
 
 local function CheckPlayerHasPI()
@@ -36,12 +38,12 @@ local function GetPIIcon()
     return spellInfo and spellInfo.iconID or PI_ICON_ID
 end
 
-function ApplyVisuals_PI()
-    if not PITrackerCfg_Get("enabled") or not IsActiveInCurrentInstance() then
+function PI.ApplyVisuals()
+    if not PI.CfgGet("enabled") or not IsActiveInCurrentInstance() then
         piIcon.Hide()
         return
     end
-    if not PITrackerCfg_Get("showIcon") then
+    if not PI.CfgGet("showIcon") then
         piIcon.Hide()
         return
     end
@@ -60,14 +62,14 @@ function ApplyVisuals_PI()
 end
 
 local function SyncBuff()
-    if not PITrackerCfg_Get("enabled") then return end
+    if not PI.CfgGet("enabled") then return end
     local aura = C_UnitAuras.GetPlayerAuraBySpellID(PI_SPELL_ID)
     if aura then
         if not hasBuff then
             hasBuff = true
             piIcon.SetGlow(true)
-            if PITrackerCfg_Get("soundOnPI") then
-                PITracker_PlaySound()
+            if PI.CfgGet("soundOnPI") then
+                PI.PlaySound()
             end
         end
         piIcon.SetTimer(aura.expirationTime, aura.duration, { r=1, g=1, b=0 })
@@ -77,17 +79,17 @@ local function SyncBuff()
         piIcon.SetGlow(false)
         piIcon.ClearTimer()
     end
-    ApplyVisuals_PI()
+    PI.ApplyVisuals()
 end
 
 -- ── Public API ────────────────────────────────────────────────────────────────
 
-function PITracker_ApplyFont()     piIcon.ApplyFont()     end
-function PITracker_ApplyPosition() piIcon.ApplyPosition() end
-function PITracker_ApplySize()     piIcon.ApplySize()     end
-function PITracker_SetUnlocked(v)  piIcon.SetUnlocked(v)  end
-function PITracker_IsUnlocked()    return piIcon.IsUnlocked() end
-function PITracker_GetFrame()      return piIcon.GetFrame()   end
+function PI.ApplyFont()     piIcon.ApplyFont()     end
+function PI.ApplyPosition() piIcon.ApplyPosition() end
+function PI.ApplySize()     piIcon.ApplySize()     end
+function PI.SetUnlocked(v)  piIcon.SetUnlocked(v)  end
+function PI.IsUnlocked()    return piIcon.IsUnlocked() end
+function PI.GetFrame()      return piIcon.GetFrame()   end
 
 -- ── Events ────────────────────────────────────────────────────────────────────
 
@@ -97,7 +99,7 @@ eventFrame:RegisterEvent("SPELLS_CHANGED")
 
 eventFrame:SetScript("OnEvent", function(self, event)
     CheckPlayerHasPI()
-    ApplyVisuals_PI()
+    PI.ApplyVisuals()
 end)
 
 C_Timer.NewTicker(0.5, function()
@@ -105,19 +107,19 @@ C_Timer.NewTicker(0.5, function()
 end)
 
 ns.RegisterReloadHook(function()
-    PITracker_ApplyPosition()
-    PITracker_ApplyFont()
-    PITracker_ApplySize()
-    ApplyVisuals_PI()
+    PI.ApplyPosition()
+    PI.ApplyFont()
+    PI.ApplySize()
+    PI.ApplyVisuals()
 end)
 
 local initPI = CreateFrame("Frame")
 initPI:RegisterEvent("PLAYER_LOGIN")
 initPI:SetScript("OnEvent", function(self)
     CheckPlayerHasPI()
-    PITracker_ApplyPosition()
-    PITracker_ApplyFont()
-    PITracker_ApplySize()
-    ApplyVisuals_PI()
+    PI.ApplyPosition()
+    PI.ApplyFont()
+    PI.ApplySize()
+    PI.ApplyVisuals()
     self:UnregisterEvent("PLAYER_LOGIN")
 end)

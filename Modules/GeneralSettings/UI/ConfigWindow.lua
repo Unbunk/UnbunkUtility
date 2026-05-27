@@ -1,5 +1,7 @@
 -- Modules/GeneralSettings/UI/ConfigWindow.lua
 
+local _, ns = ...
+
 local function CreateGeneralSettingsPanel(parent)
     local content = CreateFrame("Frame", nil, parent)
     content:SetAllPoints(parent)
@@ -255,7 +257,7 @@ local function CreateGeneralSettingsPanel(parent)
             BLTrackerCfg_Init()
             PotionTrackerCfg_Init()
             TrinketTrackerCfg_Init()
-            PITrackerCfg_Init()
+            ns.PITracker.CfgInit()
             UnbunkProfiles_SaveCurrent()
             UnbunkProfiles_ReloadAll()
             print("|cffff4444[UnbunkUtility]|r Profile reset to defaults: " .. name)

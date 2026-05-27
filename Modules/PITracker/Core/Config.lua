@@ -1,5 +1,9 @@
 -- Modules/PITracker/Core/Config.lua
 
+local _, ns = ...
+ns.PITracker = ns.PITracker or {}
+local PI = ns.PITracker
+
 PITrackerDB = PITrackerDB or {}
 
 local DEFAULTS = {
@@ -25,7 +29,7 @@ local DEFAULTS = {
     },
 }
 
-function PITrackerCfg_Init()
+function PI.CfgInit()
     for k, v in pairs(DEFAULTS) do
         if PITrackerDB[k] == nil then
             if type(v) == "table" then
@@ -40,16 +44,16 @@ function PITrackerCfg_Init()
     end
 end
 
-function PITrackerCfg_Get(key) return PITrackerDB[key] end
-function PITrackerCfg_Set(key, value) PITrackerDB[key] = value end
+function PI.CfgGet(key) return PITrackerDB[key] end
+function PI.CfgSet(key, value) PITrackerDB[key] = value end
 
-function PITracker_PlaySound()
+function PI.PlaySound()
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-    local path = PITrackerCfg_Get("soundPathPI")
+    local path = PI.CfgGet("soundPathPI")
     if path then
         PlaySoundFile(path, "Master")
     elseif LSM then
-        local soundKey = PITrackerCfg_Get("soundKeyPI")
+        local soundKey = PI.CfgGet("soundKeyPI")
         local soundPath = soundKey and LSM:Fetch("sound", soundKey)
         if soundPath then PlaySoundFile(soundPath, "Master") end
     end
@@ -59,6 +63,6 @@ local initDB = CreateFrame("Frame")
 initDB:RegisterEvent("ADDON_LOADED")
 initDB:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    PITrackerCfg_Init()
+    PI.CfgInit()
     self:UnregisterEvent("ADDON_LOADED")
 end)
