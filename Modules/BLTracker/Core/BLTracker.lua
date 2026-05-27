@@ -1,5 +1,7 @@
 -- Modules/BLTracker/Core/BLTracker.lua
 
+local _, ns = ...
+
 local BL_SPELLS = {
     [2825]   = { name = "Bloodlust",          icon = 136012,  debuff = 57724  },
     [32182]  = { name = "Heroism",             icon = 135413,  debuff = 57723  },
@@ -68,19 +70,7 @@ blIcon.onExpire = function() end
 -- ── Helpers ───────────────────────────────────────────────────────────────────
 
 local function IsActiveInCurrentInstance()
-    local filter = BLTrackerCfg_Get("instanceFilter")
-    if not filter then return true end
-    local inInstance, instanceType = IsInInstance()
-    if not inInstance then
-        return filter.outdoor ~= false
-    elseif instanceType == "party" then
-        return filter.dungeon ~= false
-    elseif instanceType == "raid" then
-        return filter.raid ~= false
-    elseif instanceType == "pvp" or instanceType == "arena" then
-        return filter.battleground ~= false
-    end
-    return false
+    return ns.IsActiveInInstance(BLTrackerCfg_Get("instanceFilter"))
 end
 
 local function CheckPlayerHasBL()
@@ -137,114 +127,70 @@ end
 
 -- ── Events ────────────────────────────────────────────────────────────────────
 
+-- Note : on n'écoute plus UNIT_SPELLCAST_SUCCEEDED des autres unités. Le spellId
+-- d'un sort lancé par un autre joueur est une "secret value" (protection Blizzard)
+-- qui ne peut pas servir de clé de table. La détection se fait via les auras du
+-- joueur (SyncDebuff), qui couvre tous les lanceurs et joue le son à l'acquisition.
+
 local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("UNIT_AURA")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("SPELLS_CHANGED")
-eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 
-eventFrame:SetScript("OnEvent", function(self, event, ...)
-    if event == "UNIT_SPELLCAST_SUCCEEDED" then
-        local unit, _, spellId = ...
-        if not spellId then return end
-        if not unit then return end
-        if unit ~= "player" 
-            and unit ~= "party1" and unit ~= "party2" and unit ~= "party3" and unit ~= "party4"
-            and not (unit and #unit >= 5 and unit:sub(1,4) == "raid") then
-            return
-        end
-        if BL_SPELLS[spellId] then
-            local spellInfo = C_Spell.GetSpellInfo(spellId)
-            currentIcon = spellInfo and spellInfo.iconID or BL_SPELLS[spellId].icon
-            if BLTrackerCfg_Get("soundOnBL") then
-                BLTracker_PlaySound("soundPathBL")
-            end
-            ApplyVisuals_BL()
-        end
-        return
+eventFrame:SetScript("OnEvent", function(self, event)
+    CheckPlayerHasBL()
+    if not hasDebuff and playerClass then
+        currentIcon = GetDefaultClassIcon(playerClass)
     end
-
-    if event == "PLAYER_ENTERING_WORLD" or event == "SPELLS_CHANGED" then
-        CheckPlayerHasBL()
-        if not hasDebuff and playerClass then
-            currentIcon = GetDefaultClassIcon(playerClass)
-        end
-        ApplyVisuals_BL()
-        return
-    end
-
-    if event == "UNIT_AURA" then
-        -- géré par le ticker
-        return
-    end
+    ApplyVisuals_BL()
 end)
 
-local ALL_BL_IDS = {}
-for debuffId in pairs(BL_DEBUFFS) do
-    ALL_BL_IDS[debuffId] = true
-end
-
 local hasBuff = false
+
+-- Cherche sur le joueur la première aura présente parmi un ensemble de spellIds.
+local function FindPlayerAura(idSet)
+    for spellId in pairs(idSet) do
+        local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellId)
+        if aura then return aura end
+    end
+    return nil
+end
 
 local function SyncDebuff()
     if not BLTrackerCfg_Get("enabled") then return end
 
-    -- Check buff positif d'abord
-    local foundBuff = false
-    for i = 1, 40 do
-        local success, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
-        if success and aura then
-            if BL_BUFFS[aura.spellId] then
-                foundBuff = true
-                currentIcon = aura.icon
-                if not hasBuff then
-                    hasBuff = true
-                end
-                blIcon.SetTimer(aura.expirationTime, aura.duration, { r=0, g=1, b=0 })
-                break
+    -- Buff positif (Bloodlust/Heroism/... actif) en priorité.
+    local buff = FindPlayerAura(BL_BUFFS)
+    if buff then
+        currentIcon = buff.icon
+        if not hasBuff then
+            hasBuff = true
+            -- Son joué à l'acquisition du buff (peu importe qui l'a lancé).
+            if BLTrackerCfg_Get("soundOnBL") then
+                BLTracker_PlaySound("soundPathBL")
             end
         end
-    end
-
-    if foundBuff then
         hasDebuff = false
+        blIcon.SetTimer(buff.expirationTime, buff.duration, { r=0, g=1, b=0 })
         ApplyVisuals_BL()
         return
     end
+    hasBuff = false
 
-    if hasBuff and not foundBuff then
-        hasBuff = false
-        -- Ne pas ClearTimer ici, on vérifie d'abord le debuff
-    end
-
-    -- Check debuff ensuite
-    local foundDebuff = false
-    for i = 1, 40 do
-        local success, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HARMFUL")
-        if success and aura then
-            if ALL_BL_IDS[aura.spellId] then
-                foundDebuff = true
-                currentIcon = aura.icon
-                if not hasDebuff then
-                    hasDebuff = true
-                end
-                blIcon.SetTimer(aura.expirationTime, aura.duration)
-                break
-            end
-        end
-    end
-
-    if not foundDebuff then
+    -- Sinon, debuff de fatigue (Sated/Exhaustion/...).
+    local debuff = FindPlayerAura(BL_DEBUFFS)
+    if debuff then
+        currentIcon = debuff.icon
+        hasDebuff   = true
+        blIcon.SetTimer(debuff.expirationTime, debuff.duration)
+    else
         if hasDebuff then
-            hasDebuff = false
+            hasDebuff   = false
             currentIcon = GetDefaultClassIcon(playerClass)
             if BLTrackerCfg_Get("soundOnReady") then
                 BLTracker_PlaySound("soundPathReady")
             end
-            blIcon.ClearTimer()
-        elseif not hasBuff then
-            blIcon.ClearTimer()
         end
+        blIcon.ClearTimer()
     end
 
     ApplyVisuals_BL()
@@ -252,6 +198,13 @@ end
 
 C_Timer.NewTicker(0.5, function()
     SyncDebuff()
+end)
+
+ns.RegisterReloadHook(function()
+    BLTracker_ApplyPosition()
+    BLTracker_ApplyFont()
+    BLTracker_ApplySize()
+    ApplyVisuals_BL()
 end)
 
 local initBL = CreateFrame("Frame")

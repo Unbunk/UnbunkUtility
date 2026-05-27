@@ -1,5 +1,7 @@
 -- Modules/PlayerDeathAnimation/Core/PlayerDeathAnimation.lua
 
+local _, ns = ...
+
 local animFrame = CreateFrame("Frame", "PlayerDeathAnimFrame", UIParent, "BackdropTemplate")
 animFrame:SetFrameStrata("TOOLTIP")
 animFrame:Hide()
@@ -72,7 +74,7 @@ local function PlayAnimation()
         end
         animTex:SetTexture(anim.path .. currentFrame .. ".tga")
         currentFrame = currentFrame + 1
-        animTimer = C_Timer.After(frameTime, ShowNextFrame)
+        animTimer = C_Timer.NewTimer(frameTime, ShowNextFrame)
     end
 
     ShowNextFrame()
@@ -153,6 +155,11 @@ eventFrame:SetScript("OnEvent", function(self, event)
     elseif event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
         StopAnimation()
     end
+end)
+
+ns.RegisterReloadHook(function()
+    PlayerDeathAnim_ApplyPosition()
+    PlayerDeathAnim_ApplySize()
 end)
 
 local initAnim = CreateFrame("Frame")

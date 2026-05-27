@@ -1,6 +1,6 @@
 -- Modules/HealerRange/Core/Config.lua
 
-HealerRangeDB = {}
+HealerRangeDB = HealerRangeDB or {}
 
 local DEFAULTS = {
     enabled       = true,

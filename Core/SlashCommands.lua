@@ -63,5 +63,3 @@ SlashCmdList["UNBUNKUTILITY"] = function(msg)
         print("|cffff4444[UnbunkUtility]|r Unknown command. Type |cffffd700/ubu help|r for the list.")
     end
 end
-
-print("|cffff4444[UnbunkUtility]|r Loaded. Type /ubu for help.")

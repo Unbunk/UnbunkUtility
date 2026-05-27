@@ -21,6 +21,8 @@
 --   ti.GetFrame()
 --   ti.onExpire = function() ... end  -- callback optionnel quand le timer expire
 
+local _, ns = ...
+
 function Unbunk_CreateTimerIcon(config)
     local name      = config.name
     local getCfg    = config.getCfg
@@ -139,8 +141,7 @@ function Unbunk_CreateTimerIcon(config)
         local fontPath = getCfg("timerFontPath")
         local fontSize = getCfg("timerFontSize") or 20
         local outline  = getCfg("timerOutline") or ""
-        local c        = getCfg("timerColor") or { r=1, g=1, b=1, a=1 }
-        timerText:SetFont(fontPath or "Fonts\\FRIZQT__.TTF", fontSize, outline)
+        timerText:SetFont(ns.ResolveFontPath(fontPath, getCfg("timerFontKey")), fontSize, outline)
     end
 
     function result.ApplyPosition()
@@ -157,7 +158,7 @@ function Unbunk_CreateTimerIcon(config)
         local fontSize = math.max(10, math.floor(math.min(w, h) * 0.4))
         local fontPath = getCfg("timerFontPath")
         local outline  = getCfg("timerOutline") or ""
-        timerText:SetFont(fontPath or "Fonts\\FRIZQT__.TTF", fontSize, outline)
+        timerText:SetFont(ns.ResolveFontPath(fontPath, getCfg("timerFontKey")), fontSize, outline)
         local checkSize = math.floor(math.min(w, h) * 0.6)
         checkTex:SetSize(checkSize, checkSize)
     end

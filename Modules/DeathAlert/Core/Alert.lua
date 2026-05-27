@@ -1,5 +1,7 @@
 -- Modules/DeathAlert/Core/Alert.lua
 
+local _, ns = ...
+
 local TANK_KEY_MAP = {
     alertMessage = "tankMessage",
     fontPath     = "tankFontPath",
@@ -102,9 +104,7 @@ function DeathAlert_SetDpsTesting(v)   dpsAlert.SetTesting(v)   end
 function DeathAlert_IsDpsTesting()     return dpsAlert.IsTesting()  end
 function DeathAlert_GetDpsFrame()      return dpsAlert.GetFrame()   end
 
-local initAlert = CreateFrame("Frame")
-initAlert:RegisterEvent("PLAYER_LOGIN")
-initAlert:SetScript("OnEvent", function(self)
+local function ApplyAll()
     DeathAlert_ApplyTankFont()
     DeathAlert_ApplyTankColor()
     DeathAlert_ApplyTankMessage()
@@ -120,5 +120,13 @@ initAlert:SetScript("OnEvent", function(self)
     DeathAlert_ApplyDpsMessage()
     DeathAlert_ApplyDpsPosition()
     DeathAlert_ApplyDpsIcon()
+end
+
+ns.RegisterReloadHook(ApplyAll)
+
+local initAlert = CreateFrame("Frame")
+initAlert:RegisterEvent("PLAYER_LOGIN")
+initAlert:SetScript("OnEvent", function(self)
+    ApplyAll()
     self:UnregisterEvent("PLAYER_LOGIN")
 end)

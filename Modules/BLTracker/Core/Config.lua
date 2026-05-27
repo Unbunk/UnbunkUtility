@@ -1,6 +1,6 @@
 -- Modules/BLTracker/Core/Config.lua
 
-BLTrackerDB = {}
+BLTrackerDB = BLTrackerDB or {}
 
 local DEFAULTS = {
     enabled         = true,

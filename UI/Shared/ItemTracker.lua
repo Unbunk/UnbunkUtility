@@ -76,21 +76,16 @@ function Unbunk_CreateItemTracker(config)
         local foundBuff = false
         local spellId = getCfg("spellId")
         if spellId then
-            for i = 1, 40 do
-                local success, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
-                if success and aura then
-                    if aura.spellId == spellId then
-                        foundBuff = true
-                        icon.SetTimer(aura.expirationTime, aura.duration, { r=0, g=1, b=0 })
-                        icon.HideCheck()
-                        break
-                    end
-                end
+            local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellId)
+            if aura then
+                foundBuff = true
+                icon.SetTimer(aura.expirationTime, aura.duration, { r=0, g=1, b=0 })
+                icon.HideCheck()
             end
         end
 
         if not foundBuff then
-            local start, duration = GetItemCooldown(itemId)
+            local start, duration = C_Item.GetItemCooldown(itemId)
             if start and duration and duration > 0 then
                 if not hasCooldown then
                     hasCooldown = true

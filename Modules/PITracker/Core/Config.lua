@@ -1,6 +1,6 @@
 -- Modules/PITracker/Core/Config.lua
 
-PITrackerDB = {}
+PITrackerDB = PITrackerDB or {}
 
 local DEFAULTS = {
     enabled        = true,

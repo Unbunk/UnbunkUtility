@@ -1,14 +1,16 @@
 ## Interface: 120005
 ## Title: Unbunk Utility
 ## Notes: Utility addon
-## Author: You
-## Version: 1.0
+## Author: Unbunk
+## Version: 2.0
 ## SavedVariables: HealerRangeDB, DeathAlertDB, BLTrackerDB, PotionTrackerDB, TrinketTrackerDB, UnbunkUtilityDB, PITrackerDB, PlayerDeathDB
 ## IconTexture: Interface\AddOns\UnbunkUtility\Media\Icons\Unbunk.tga
 
 Libs/LibStub-1.0/LibStub.lua
 Libs/CallbackHandler-1.0/CallbackHandler-1.0.lua
+Libs/LibSharedMedia-3.0/lib.xml
 Libs/LibRangeCheck-3.0/LibRangeCheck-3.0.lua
+Core/Shared.lua
 Media/Media.lua
 UI/Shared/IconPicker.lua
 UI/Shared/ScrollBar.lua

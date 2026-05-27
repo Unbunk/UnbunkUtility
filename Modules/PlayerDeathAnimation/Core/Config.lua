@@ -1,6 +1,6 @@
 -- Modules/PlayerDeathAnimation/Core/Config.lua
 
-PlayerDeathDB = {}
+PlayerDeathDB = PlayerDeathDB or {}
 
 local DEFAULTS = {
     enabled       = true,

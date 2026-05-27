@@ -20,6 +20,8 @@
 --   af.IsTesting()
 --   af.GetFrame()
 
+local _, ns = ...
+
 local ICON_ANCHORS = {
     TOP_LEFT      = { point = "BOTTOMLEFT",  relPoint = "TOPLEFT",     x = 0, y = 0 },
     TOP_CENTER    = { point = "BOTTOM",       relPoint = "TOP",         x = 0, y = 0 },
@@ -62,14 +64,16 @@ function Unbunk_CreateAlertFrame(config)
     ag:Play()
 
     -- ── Auto resize ───────────────────────────────────────────────────────────
+    -- Redimensionne au texte uniquement quand le contenu/la police change, plutôt
+    -- qu'à chaque frame via OnUpdate.
 
-    frame:SetScript("OnUpdate", function(self)
+    local function Resize()
         local w = text:GetStringWidth()
         local h = text:GetStringHeight()
         if w > 0 and h > 0 then
-            self:SetSize(w + 10, h + 10)
+            frame:SetSize(w + 10, h + 10)
         end
-    end)
+    end
 
     -- ── Icon ──────────────────────────────────────────────────────────────────
 
@@ -82,7 +86,8 @@ function Unbunk_CreateAlertFrame(config)
         local fontPath = getCfg("fontPath")
         local fontSize = getCfg("fontSize") or 22
         local outline  = getCfg("outline") or ""
-        text:SetFont(fontPath or "Fonts\\FRIZQT__.TTF", fontSize, outline)
+        text:SetFont(ns.ResolveFontPath(fontPath, getCfg("fontKey")), fontSize, outline)
+        Resize()
     end
 
     function result.ApplyColor()
@@ -92,6 +97,7 @@ function Unbunk_CreateAlertFrame(config)
 
     function result.ApplyMessage()
         text:SetText(getCfg("alertMessage") or "Alert!")
+        Resize()
     end
 
     function result.ApplyPosition()

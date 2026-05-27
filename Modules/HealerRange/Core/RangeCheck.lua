@@ -1,5 +1,7 @@
 -- Modules/HealerRange/Core/RangeCheck.lua
 
+local _, ns = ...
+
 local CHECK_INTERVAL = 0.1
 local timer          = 0
 local isOutOfRange   = false
@@ -10,22 +12,7 @@ local mainFrame      = CreateFrame("Frame")
 local RangeCheck = LibStub("LibRangeCheck-3.0")
 
 local function IsActiveInCurrentInstance()
-    local filter = HealerRangeCfg_Get("instanceFilter")
-    if not filter then return true end
-
-    local inInstance, instanceType = IsInInstance()
-
-    if not inInstance then
-        return filter.outdoor ~= false
-    elseif instanceType == "party" then
-        return filter.dungeon ~= false
-    elseif instanceType == "raid" then
-        return filter.raid ~= false
-    elseif instanceType == "pvp" or instanceType == "arena" then
-        return filter.battleground ~= false
-    end
-
-    return false
+    return ns.IsActiveInInstance(HealerRangeCfg_Get("instanceFilter"))
 end
 
 function HealerRange_HasCombatProbe()

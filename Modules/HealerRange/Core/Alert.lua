@@ -1,5 +1,7 @@
 -- Modules/HealerRange/Core/Alert.lua
 
+local _, ns = ...
+
 local alertFrame = Unbunk_CreateAlertFrame({
     name   = "HealerRangeAlert",
     getCfg = function(key) return HealerRangeCfg_Get(key) end,
@@ -26,13 +28,19 @@ function HealerRangeAlert_SetTesting(val)  alertFrame.SetTesting(val) end
 function HealerRangeAlert_IsTesting()      return alertFrame.IsTesting() end
 function HealerRangeAlert_GetFrame()       return alertFrame.GetFrame() end
 
-local initAlert = CreateFrame("Frame")
-initAlert:RegisterEvent("PLAYER_LOGIN")
-initAlert:SetScript("OnEvent", function(self)
+local function ApplyAll()
     HealerRangeAlert_ApplyColor()
     HealerRangeAlert_ApplyPosition()
     HealerRangeAlert_ApplyFont()
     HealerRangeAlert_ApplyMessage()
     HealerRangeAlert_ApplyIcon()
+end
+
+ns.RegisterReloadHook(ApplyAll)
+
+local initAlert = CreateFrame("Frame")
+initAlert:RegisterEvent("PLAYER_LOGIN")
+initAlert:SetScript("OnEvent", function(self)
+    ApplyAll()
     self:UnregisterEvent("PLAYER_LOGIN")
 end)

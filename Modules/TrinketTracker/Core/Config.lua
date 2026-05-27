@@ -1,6 +1,6 @@
 -- Modules/TrinketTracker/Core/Config.lua
 
-TrinketTrackerDB = {}
+TrinketTrackerDB = TrinketTrackerDB or {}
 
 local DEFAULTS = {
     enabled        = true,

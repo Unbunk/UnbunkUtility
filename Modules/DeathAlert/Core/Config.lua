@@ -1,6 +1,6 @@
 -- Modules/DeathAlert/Core/Config.lua
 
-DeathAlertDB = {}
+DeathAlertDB = DeathAlertDB or {}
 
 local DEFAULTS = {
     -- Tank alert

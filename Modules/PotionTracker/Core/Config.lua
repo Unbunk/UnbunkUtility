@@ -1,6 +1,6 @@
 -- Modules/PotionTracker/Core/Config.lua
 
-PotionTrackerDB = {}
+PotionTrackerDB = PotionTrackerDB or {}
 
 local DEFAULTS = {
     enabled         = true,

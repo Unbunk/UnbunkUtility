@@ -1,19 +1,9 @@
 -- Modules/TrinketTracker/Core/TrinketTracker.lua
 
+local _, ns = ...
+
 local function IsActiveInCurrentInstance()
-    local filter = TrinketTrackerCfg_Get("instanceFilter")
-    if not filter then return true end
-    local inInstance, instanceType = IsInInstance()
-    if not inInstance then
-        return filter.outdoor ~= false
-    elseif instanceType == "party" then
-        return filter.dungeon ~= false
-    elseif instanceType == "raid" then
-        return filter.raid ~= false
-    elseif instanceType == "pvp" or instanceType == "arena" then
-        return filter.battleground ~= false
-    end
-    return false
+    return ns.IsActiveInInstance(TrinketTrackerCfg_Get("instanceFilter"))
 end
 
 local function CreateTrinketTracker(prefix, frameName)
@@ -102,9 +92,11 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, _, spellId = ...
         if unit ~= "player" then return end
-        -- Détecte l'utilisation d'un trinket par son spell
-        local t1Id = TrinketTrackerCfg_Get("trinket1") and GetInventoryItemID("player", 13)
-        local t2Id = TrinketTrackerCfg_Get("trinket2") and GetInventoryItemID("player", 14)
+        -- Détecte l'utilisation d'un trinket par son spell (slot configuré).
+        local t1Cfg = TrinketTrackerCfg_Get("trinket1")
+        local t2Cfg = TrinketTrackerCfg_Get("trinket2")
+        local t1Id = t1Cfg and t1Cfg.slot and GetInventoryItemID("player", t1Cfg.slot)
+        local t2Id = t2Cfg and t2Cfg.slot and GetInventoryItemID("player", t2Cfg.slot)
         local t1Spell = t1Id and select(2, C_Item.GetItemSpell(t1Id))
         local t2Spell = t2Id and select(2, C_Item.GetItemSpell(t2Id))
         if t1Spell and spellId == t1Spell then
@@ -121,8 +113,12 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 end)
 
 C_Timer.NewTicker(0.5, function()
+    -- État stable : si le module est désactivé, les frames sont déjà cachés.
+    if not TrinketTrackerCfg_Get("enabled") then return end
     TrinketTracker_ApplyAll()
 end)
+
+ns.RegisterReloadHook(function() TrinketTracker_ApplyAll() end)
 
 local initTT = CreateFrame("Frame")
 initTT:RegisterEvent("PLAYER_LOGIN")

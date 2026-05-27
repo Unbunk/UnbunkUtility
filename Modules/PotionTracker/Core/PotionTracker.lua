@@ -1,19 +1,9 @@
 -- Modules/PotionTracker/Core/PotionTracker.lua
 
+local _, ns = ...
+
 local function IsActiveInCurrentInstance()
-    local filter = PotionTrackerCfg_Get("instanceFilter")
-    if not filter then return true end
-    local inInstance, instanceType = IsInInstance()
-    if not inInstance then
-        return filter.outdoor ~= false
-    elseif instanceType == "party" then
-        return filter.dungeon ~= false
-    elseif instanceType == "raid" then
-        return filter.raid ~= false
-    elseif instanceType == "pvp" or instanceType == "arena" then
-        return filter.battleground ~= false
-    end
-    return false
+    return ns.IsActiveInInstance(PotionTrackerCfg_Get("instanceFilter"))
 end
 
 local function CreatePotionTracker(prefix, frameName)
@@ -114,8 +104,13 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 end)
 
 C_Timer.NewTicker(0.5, function()
+    -- État stable : si le module est désactivé, les frames sont déjà cachés,
+    -- inutile de refaire le travail à chaque tick.
+    if not PotionTrackerCfg_Get("enabled") then return end
     PotionTracker_ApplyAll()
 end)
+
+ns.RegisterReloadHook(function() PotionTracker_ApplyAll() end)
 
 local initPT = CreateFrame("Frame")
 initPT:RegisterEvent("PLAYER_LOGIN")

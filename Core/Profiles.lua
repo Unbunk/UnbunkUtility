@@ -1,5 +1,7 @@
 -- Core/Profiles.lua
 
+local _, ns = ...
+
 local ALL_DBS = {
     HealerRange    = function() return HealerRangeDB    end,
     DeathAlert     = function() return DeathAlertDB     end,
@@ -52,12 +54,17 @@ local function Serialize(t, indent)
     return result .. "}"
 end
 
--- Désérialise une string en table
+-- Désérialise une string en table.
+-- IMPORTANT : la chaîne provient d'un import partagé entre joueurs. On exécute
+-- le chunk dans un environnement vide (setfenv) pour qu'il ne puisse rien faire
+-- d'autre que construire une table littérale — aucune fonction/global accessible.
 local function Deserialize(str)
     local fn, err = loadstring("return " .. str)
     if not fn then return nil, err end
+    setfenv(fn, {})
     local ok, result = pcall(fn)
     if not ok then return nil, result end
+    if type(result) ~= "table" then return nil, "invalid profile data" end
     return result
 end
 
@@ -176,57 +183,21 @@ function UnbunkProfiles_Import(str)
 end
 
 function UnbunkProfiles_ReloadAll()
-    -- HealerRange
-    if HealerRangeAlert_ApplyFont then HealerRangeAlert_ApplyFont() end
-    if HealerRangeAlert_ApplyColor then HealerRangeAlert_ApplyColor() end
-    if HealerRangeAlert_ApplyMessage then HealerRangeAlert_ApplyMessage() end
-    if HealerRangeAlert_ApplyPosition then HealerRangeAlert_ApplyPosition() end
-    if HealerRangeAlert_ApplyIcon then HealerRangeAlert_ApplyIcon() end
-    -- DeathAlert
-    if DeathAlert_ApplyTankFont then DeathAlert_ApplyTankFont() end
-    if DeathAlert_ApplyTankColor then DeathAlert_ApplyTankColor() end
-    if DeathAlert_ApplyTankMessage then DeathAlert_ApplyTankMessage() end
-    if DeathAlert_ApplyTankPosition then DeathAlert_ApplyTankPosition() end
-    if DeathAlert_ApplyTankIcon then DeathAlert_ApplyTankIcon() end
-    if DeathAlert_ApplyHealerFont then DeathAlert_ApplyHealerFont() end
-    if DeathAlert_ApplyHealerColor then DeathAlert_ApplyHealerColor() end
-    if DeathAlert_ApplyHealerMessage then DeathAlert_ApplyHealerMessage() end
-    if DeathAlert_ApplyHealerPosition then DeathAlert_ApplyHealerPosition() end
-    if DeathAlert_ApplyHealerIcon then DeathAlert_ApplyHealerIcon() end
-    if DeathAlert_ApplyDpsFont then DeathAlert_ApplyDpsFont() end
-    if DeathAlert_ApplyDpsColor then DeathAlert_ApplyDpsColor() end
-    if DeathAlert_ApplyDpsMessage then DeathAlert_ApplyDpsMessage() end
-    if DeathAlert_ApplyDpsPosition then DeathAlert_ApplyDpsPosition() end
-    if DeathAlert_ApplyDpsIcon then DeathAlert_ApplyDpsIcon() end
-    -- BLTracker
-    if BLTracker_ApplyFont then BLTracker_ApplyFont() end
-    if BLTracker_ApplyPosition then BLTracker_ApplyPosition() end
-    if BLTracker_ApplySize then BLTracker_ApplySize() end
-    -- PotionTracker
-    if PotionTracker_ApplyAll then PotionTracker_ApplyAll() end
-    -- TrinketTracker
-    if TrinketTracker_ApplyAll then TrinketTracker_ApplyAll() end
-    -- Refresh le panel actif si ouvert
+    -- Réapplique les réglages de chaque module via les hooks qu'ils ont enregistrés.
+    ns.RunReloadHooks()
+
+    -- Recrée les frames de config ouverts pour refléter le nouveau profil.
     if UnbunkUtility and UnbunkUtility.registeredModules then
         for _, mod in ipairs(UnbunkUtility.registeredModules) do
             if mod.frame then
-                -- Force recréation du frame pour tout refresher
                 mod.frame:Hide()
                 mod.frame = nil
             end
         end
-        -- Réaffiche le module actif
         if UnbunkUtility.ShowActiveModule then
-            UnbunkUtility.ShowActiveModule();
+            UnbunkUtility.ShowActiveModule()
         end
     end
-    -- PITracker
-    if PITracker_ApplyFont then PITracker_ApplyFont() end
-    if PITracker_ApplyPosition then PITracker_ApplyPosition() end
-    if PITracker_ApplySize then PITracker_ApplySize() end
-    -- PlayerDeathAnimation
-    if PlayerDeathAnim_ApplyPosition then PlayerDeathAnim_ApplyPosition() end
-    if PlayerDeathAnim_ApplySize then PlayerDeathAnim_ApplySize() end
 end
 
 local initProfiles = CreateFrame("Frame")

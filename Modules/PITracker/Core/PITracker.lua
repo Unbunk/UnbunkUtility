@@ -1,5 +1,7 @@
 -- Modules/PITracker/Core/PITracker.lua
 
+local _, ns = ...
+
 local PI_SPELL_ID  = 10060
 local PI_ICON_ID   = 135960 -- icône native de Power Infusion
 
@@ -20,19 +22,7 @@ local piIcon = Unbunk_CreateTimerIcon({
 piIcon.onExpire = function() end
 
 local function IsActiveInCurrentInstance()
-    local filter = PITrackerCfg_Get("instanceFilter")
-    if not filter then return true end
-    local inInstance, instanceType = IsInInstance()
-    if not inInstance then
-        return filter.outdoor ~= false
-    elseif instanceType == "party" then
-        return filter.dungeon ~= false
-    elseif instanceType == "raid" then
-        return filter.raid ~= false
-    elseif instanceType == "pvp" or instanceType == "arena" then
-        return filter.battleground ~= false
-    end
-    return false
+    return ns.IsActiveInInstance(PITrackerCfg_Get("instanceFilter"))
 end
 
 local function CheckPlayerHasPI()
@@ -46,7 +36,7 @@ local function GetPIIcon()
     return spellInfo and spellInfo.iconID or PI_ICON_ID
 end
 
-local function ApplyVisuals_PI()
+function ApplyVisuals_PI()
     if not PITrackerCfg_Get("enabled") or not IsActiveInCurrentInstance() then
         piIcon.Hide()
         return
@@ -71,26 +61,18 @@ end
 
 local function SyncBuff()
     if not PITrackerCfg_Get("enabled") then return end
-    local foundBuff = false
-    for i = 1, 40 do
-        local success, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
-        if success and aura then
-            if aura.spellId == PI_SPELL_ID then
-                foundBuff = true
-                if not hasBuff then
-                    hasBuff = true
-                    piIcon.SetGlow(true)
-                    if PITrackerCfg_Get("soundOnPI") then
-                        PITracker_PlaySound()
-                    end
-                end
-                piIcon.SetTimer(aura.expirationTime, aura.duration, { r=1, g=1, b=0 })
-                piIcon.HideCheck()
-                break
+    local aura = C_UnitAuras.GetPlayerAuraBySpellID(PI_SPELL_ID)
+    if aura then
+        if not hasBuff then
+            hasBuff = true
+            piIcon.SetGlow(true)
+            if PITrackerCfg_Get("soundOnPI") then
+                PITracker_PlaySound()
             end
         end
-    end
-    if not foundBuff and hasBuff then
+        piIcon.SetTimer(aura.expirationTime, aura.duration, { r=1, g=1, b=0 })
+        piIcon.HideCheck()
+    elseif hasBuff then
         hasBuff = false
         piIcon.SetGlow(false)
         piIcon.ClearTimer()
@@ -120,6 +102,13 @@ end)
 
 C_Timer.NewTicker(0.5, function()
     SyncBuff()
+end)
+
+ns.RegisterReloadHook(function()
+    PITracker_ApplyPosition()
+    PITracker_ApplyFont()
+    PITracker_ApplySize()
+    ApplyVisuals_PI()
 end)
 
 local initPI = CreateFrame("Frame")
