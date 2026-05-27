@@ -252,7 +252,7 @@ local function CreateGeneralSettingsPanel(parent)
             PotionTrackerDB  = {}
             TrinketTrackerDB = {}
             PITrackerDB      = {}
-            HealerRangeCfg_Init()
+            ns.HealerRange.CfgInit()
             DeathAlertCfg_Init()
             ns.BLTracker.CfgInit()
             PotionTrackerCfg_Init()

@@ -1,17 +1,21 @@
 -- UI/SoundPicker.lua
 
+local _, ns = ...
+ns.HealerRange = ns.HealerRange or {}
+local HR = ns.HealerRange
+
 function HealerRange_CreateSoundPicker(parent, LSM, config)
     config = config or {}
-    local getSoundKey    = config.getSoundKey    or function() return HealerRangeCfg_Get("soundKey") end
-    local getSoundEnable = config.getSoundEnable or function() return HealerRangeCfg_Get("enableSound") end
+    local getSoundKey    = config.getSoundKey    or function() return HR.CfgGet("soundKey") end
+    local getSoundEnable = config.getSoundEnable or function() return HR.CfgGet("enableSound") end
     local onSoundSelect  = config.onSoundSelect  or function(key, path)
-        HealerRangeCfg_Set("soundKey", key)
-        HealerRangeCfg_Set("soundPath", path)
+        HR.CfgSet("soundKey", key)
+        HR.CfgSet("soundPath", path)
     end
     local onEnableToggle = config.onEnableToggle or function(val)
-        HealerRangeCfg_Set("enableSound", val)
+        HR.CfgSet("enableSound", val)
     end
-    local onTest = config.onTest or HealerRangePlaySound
+    local onTest = config.onTest or HR.PlaySound
     local container = CreateFrame("Frame", nil, parent)
     container:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
     container:SetWidth(518)

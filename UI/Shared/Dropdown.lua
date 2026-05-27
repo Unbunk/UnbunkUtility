@@ -9,7 +9,7 @@
 --       itemHeight   = 20,
 --       visibleItems = 10,
 --       getList      = function() return { "Item1", "Item2" } end,
---       getCurrentKey = function() return HealerRangeCfg_Get("myKey") end,
+--       getCurrentKey = function() return MyModuleCfg_Get("myKey") end,
 --       onSelect     = function(name) ... end,
 --   })
 --   dd.selectedText  -- FontString du bouton toggle

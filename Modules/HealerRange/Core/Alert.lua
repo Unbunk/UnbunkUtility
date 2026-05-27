@@ -1,39 +1,41 @@
 -- Modules/HealerRange/Core/Alert.lua
 
 local _, ns = ...
+ns.HealerRange = ns.HealerRange or {}
+local HR = ns.HealerRange
 
 local alertFrame = Unbunk_CreateAlertFrame({
     name   = "HealerRangeAlert",
-    getCfg = function(key) return HealerRangeCfg_Get(key) end,
+    getCfg = function(key) return HR.CfgGet(key) end,
     onDragStop = function(x, y)
-        HealerRangeCfg_Set("posX", x)
-        HealerRangeCfg_Set("posY", y)
-        if HealerRangePE then HealerRangePE.Refresh() end
+        HR.CfgSet("posX", x)
+        HR.CfgSet("posY", y)
+        if HR.pe then HR.pe.Refresh() end
     end,
 })
 
-function HealerRangeAlert_ApplyColor()    alertFrame.ApplyColor()    end
-function HealerRangeAlert_ApplyPosition() alertFrame.ApplyPosition() end
-function HealerRangeAlert_ApplyMessage()  alertFrame.ApplyMessage()  end
-function HealerRangeAlert_ApplyFont()     alertFrame.ApplyFont()     end
-function HealerRangeAlert_ApplyIcon()     alertFrame.ApplyIcon()     end
+function HR.ApplyColor()    alertFrame.ApplyColor()    end
+function HR.ApplyPosition() alertFrame.ApplyPosition() end
+function HR.ApplyMessage()  alertFrame.ApplyMessage()  end
+function HR.ApplyFont()     alertFrame.ApplyFont()     end
+function HR.ApplyIcon()     alertFrame.ApplyIcon()     end
 
-function HealerRangeAlert_SetVisible(visible)
+function HR.SetVisible(visible)
     if visible then alertFrame.Show() else alertFrame.Hide() end
 end
 
-function HealerRangeAlert_SetUnlocked(val) alertFrame.SetUnlocked(val) end
-function HealerRangeAlert_IsUnlocked()     return alertFrame.IsUnlocked() end
-function HealerRangeAlert_SetTesting(val)  alertFrame.SetTesting(val) end
-function HealerRangeAlert_IsTesting()      return alertFrame.IsTesting() end
-function HealerRangeAlert_GetFrame()       return alertFrame.GetFrame() end
+function HR.SetUnlocked(val) alertFrame.SetUnlocked(val) end
+function HR.IsUnlocked()     return alertFrame.IsUnlocked() end
+function HR.SetTesting(val)  alertFrame.SetTesting(val) end
+function HR.IsTesting()      return alertFrame.IsTesting() end
+function HR.GetFrame()       return alertFrame.GetFrame() end
 
 local function ApplyAll()
-    HealerRangeAlert_ApplyColor()
-    HealerRangeAlert_ApplyPosition()
-    HealerRangeAlert_ApplyFont()
-    HealerRangeAlert_ApplyMessage()
-    HealerRangeAlert_ApplyIcon()
+    HR.ApplyColor()
+    HR.ApplyPosition()
+    HR.ApplyFont()
+    HR.ApplyMessage()
+    HR.ApplyIcon()
 end
 
 ns.RegisterReloadHook(ApplyAll)
