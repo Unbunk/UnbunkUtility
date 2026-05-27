@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(grep -nE \"BLTracker\\([^A-Za-z_]|$\\)|BLTrackerPanel|BLTrackerFrame\" Modules/BLTracker/UI/ConfigWindow.lua)"
-    ]
-  }
-}
