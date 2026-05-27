@@ -254,7 +254,7 @@ local function CreateGeneralSettingsPanel(parent)
             PITrackerDB      = {}
             HealerRangeCfg_Init()
             DeathAlertCfg_Init()
-            BLTrackerCfg_Init()
+            ns.BLTracker.CfgInit()
             PotionTrackerCfg_Init()
             TrinketTrackerCfg_Init()
             ns.PITracker.CfgInit()

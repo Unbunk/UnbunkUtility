@@ -1,5 +1,9 @@
 -- Modules/BLTracker/Core/Config.lua
 
+local _, ns = ...
+ns.BLTracker = ns.BLTracker or {}
+local BL = ns.BLTracker
+
 BLTrackerDB = BLTrackerDB or {}
 
 local DEFAULTS = {
@@ -28,7 +32,7 @@ local DEFAULTS = {
     },
 }
 
-function BLTrackerCfg_Init()
+function BL.CfgInit()
     for k, v in pairs(DEFAULTS) do
         if BLTrackerDB[k] == nil then
             if type(v) == "table" then
@@ -43,21 +47,21 @@ function BLTrackerCfg_Init()
     end
 end
 
-function BLTrackerCfg_Get(key)
+function BL.CfgGet(key)
     return BLTrackerDB[key]
 end
 
-function BLTrackerCfg_Set(key, value)
+function BL.CfgSet(key, value)
     BLTrackerDB[key] = value
 end
 
-function BLTracker_PlaySound(key)
+function BL.PlaySound(key)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-    local path = BLTrackerCfg_Get(key)
+    local path = BL.CfgGet(key)
     if path then
         PlaySoundFile(path, "Master")
     elseif LSM then
-        local soundKey = BLTrackerCfg_Get(key:gsub("Path", "Key"))
+        local soundKey = BL.CfgGet(key:gsub("Path", "Key"))
         local soundPath = soundKey and LSM:Fetch("sound", soundKey)
         if soundPath then PlaySoundFile(soundPath, "Master") end
     end
@@ -67,6 +71,6 @@ local initDB = CreateFrame("Frame")
 initDB:RegisterEvent("ADDON_LOADED")
 initDB:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    BLTrackerCfg_Init()
+    BL.CfgInit()
     self:UnregisterEvent("ADDON_LOADED")
 end)

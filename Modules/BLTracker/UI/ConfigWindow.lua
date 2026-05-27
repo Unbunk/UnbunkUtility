@@ -1,5 +1,9 @@
 -- Modules/BLTracker/UI/ConfigWindow.lua
 
+local _, ns = ...
+ns.BLTracker = ns.BLTracker or {}
+local BL = ns.BLTracker
+
 local function CreateBLTrackerPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
@@ -26,8 +30,8 @@ local function CreateBLTrackerPanel(parent)
     local enableCb = Unbunk_CreateCheckbox({
         parent  = enableFrame,
         label   = "Enable BL Tracker",
-        checked = BLTrackerCfg_Get("enabled") ~= false,
-        onClick = function(val) BLTrackerCfg_Set("enabled", val) end,
+        checked = BL.CfgGet("enabled") ~= false,
+        onClick = function(val) BL.CfgSet("enabled", val) end,
     })
     enableCb.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
     AddModule(enableFrame, 24)
@@ -36,38 +40,38 @@ local function CreateBLTrackerPanel(parent)
 
     local iF = Unbunk_CreateInstanceFilter({
         parent    = content,
-        getConfig = function() return BLTrackerCfg_Get("instanceFilter") end,
+        getConfig = function() return BL.CfgGet("instanceFilter") end,
         setConfig = function(key, val)
-            local filter = BLTrackerCfg_Get("instanceFilter")
+            local filter = BL.CfgGet("instanceFilter")
             filter[key] = val
-            BLTrackerCfg_Set("instanceFilter", filter)
+            BL.CfgSet("instanceFilter", filter)
         end,
     })
     AddModule(iF.frame, iF.height)
 
     local soundBLResult = HealerRange_CreateSoundPicker(content, LSM, {
         label          = "Sound on Bloodlust",
-        getSoundKey    = function() return BLTrackerCfg_Get("soundKeyBL") end,
-        getSoundEnable = function() return BLTrackerCfg_Get("soundOnBL") end,
+        getSoundKey    = function() return BL.CfgGet("soundKeyBL") end,
+        getSoundEnable = function() return BL.CfgGet("soundOnBL") end,
         onSoundSelect  = function(key, path)
-            BLTrackerCfg_Set("soundKeyBL", key)
-            BLTrackerCfg_Set("soundPathBL", path)
+            BL.CfgSet("soundKeyBL", key)
+            BL.CfgSet("soundPathBL", path)
         end,
-        onEnableToggle = function(val) BLTrackerCfg_Set("soundOnBL", val) end,
-        onTest         = function() BLTracker_PlaySound("soundPathBL") end,
+        onEnableToggle = function(val) BL.CfgSet("soundOnBL", val) end,
+        onTest         = function() BL.PlaySound("soundPathBL") end,
     })
     AddModule(soundBLResult.frame, soundBLResult.height)
 
     local soundReadyResult = HealerRange_CreateSoundPicker(content, LSM, {
         label          = "Sound when Bloodlust ready",
-        getSoundKey    = function() return BLTrackerCfg_Get("soundKeyReady") end,
-        getSoundEnable = function() return BLTrackerCfg_Get("soundOnReady") end,
+        getSoundKey    = function() return BL.CfgGet("soundKeyReady") end,
+        getSoundEnable = function() return BL.CfgGet("soundOnReady") end,
         onSoundSelect  = function(key, path)
-            BLTrackerCfg_Set("soundKeyReady", key)
-            BLTrackerCfg_Set("soundPathReady", path)
+            BL.CfgSet("soundKeyReady", key)
+            BL.CfgSet("soundPathReady", path)
         end,
-        onEnableToggle = function(val) BLTrackerCfg_Set("soundOnReady", val) end,
-        onTest         = function() BLTracker_PlaySound("soundPathReady") end,
+        onEnableToggle = function(val) BL.CfgSet("soundOnReady", val) end,
+        onTest         = function() BL.PlaySound("soundPathReady") end,
     })
     AddModule(soundReadyResult.frame, soundReadyResult.height)
 
@@ -78,10 +82,10 @@ local function CreateBLTrackerPanel(parent)
     local showIconCb = Unbunk_CreateCheckbox({
         parent  = showIconFrame,
         label   = "Show icon",
-        checked = BLTrackerCfg_Get("showIcon") ~= false,
+        checked = BL.CfgGet("showIcon") ~= false,
         onClick = function(val)
-            BLTrackerCfg_Set("showIcon", val)
-            ApplyVisuals_BL()
+            BL.CfgSet("showIcon", val)
+            BL.ApplyVisuals()
         end,
     })
     showIconCb.frame:SetPoint("TOPLEFT", showIconFrame, "TOPLEFT", 0, 0)
@@ -106,11 +110,11 @@ local function CreateBLTrackerPanel(parent)
         height     = 22,
         numeric    = true,
         maxLetters = 3,
-        text       = tostring(BLTrackerCfg_Get("iconWidth") or 64),
+        text       = tostring(BL.CfgGet("iconWidth") or 64),
         onEnter    = function(val)
             if val and val > 0 then
-                BLTrackerCfg_Set("iconWidth", val)
-                BLTracker_ApplySize()
+                BL.CfgSet("iconWidth", val)
+                BL.ApplySize()
             end
         end,
     })
@@ -126,11 +130,11 @@ local function CreateBLTrackerPanel(parent)
         height     = 22,
         numeric    = true,
         maxLetters = 3,
-        text       = tostring(BLTrackerCfg_Get("iconHeight") or 64),
+        text       = tostring(BL.CfgGet("iconHeight") or 64),
         onEnter    = function(val)
             if val and val > 0 then
-                BLTrackerCfg_Set("iconHeight", val)
-                BLTracker_ApplySize()
+                BL.CfgSet("iconHeight", val)
+                BL.ApplySize()
             end
         end,
     })
@@ -140,23 +144,23 @@ local function CreateBLTrackerPanel(parent)
 
     -- ── Position editor ───────────────────────────────────────────────────────
 
-    BLTrackerPE = HealerRange_CreatePositionEditor(content, {
+    BL.pe = HealerRange_CreatePositionEditor(content, {
         label      = "Icon position (offset from screen center)",
-        getX       = function() return BLTrackerCfg_Get("posX") end,
-        getY       = function() return BLTrackerCfg_Get("posY") end,
+        getX       = function() return BL.CfgGet("posX") end,
+        getY       = function() return BL.CfgGet("posY") end,
         onApply    = function(x, yv)
-            if x  then BLTrackerCfg_Set("posX", x)  end
-            if yv then BLTrackerCfg_Set("posY", yv) end
-            BLTracker_ApplyPosition()
+            if x  then BL.CfgSet("posX", x)  end
+            if yv then BL.CfgSet("posY", yv) end
+            BL.ApplyPosition()
         end,
-        onUnlock   = function() BLTracker_SetUnlocked(true) end,
+        onUnlock   = function() BL.SetUnlocked(true) end,
         onLock     = function()
-            BLTracker_SetUnlocked(false)
-            if BLTrackerPE then BLTrackerPE.Refresh() end
+            BL.SetUnlocked(false)
+            if BL.pe then BL.pe.Refresh() end
         end,
-        isUnlocked = function() return BLTracker_IsUnlocked() end,
+        isUnlocked = function() return BL.IsUnlocked() end,
     })
-    AddModule(BLTrackerPE.frame, BLTrackerPE.height)
+    AddModule(BL.pe.frame, BL.pe.height)
 
     -- ── Timer text style ──────────────────────────────────────────────────────
 
@@ -168,27 +172,27 @@ local function CreateBLTrackerPanel(parent)
         showSize     = true,
         showColor    = true,
         showOutline  = true,
-        getFontKey   = function() return BLTrackerCfg_Get("timerFontKey") end,
-        getFontPath  = function() return BLTrackerCfg_Get("timerFontPath") end,
-        getFontSize  = function() return BLTrackerCfg_Get("timerFontSize") end,
-        getColor     = function() return BLTrackerCfg_Get("timerColor") end,
-        getOutline   = function() return BLTrackerCfg_Get("timerOutline") end,
+        getFontKey   = function() return BL.CfgGet("timerFontKey") end,
+        getFontPath  = function() return BL.CfgGet("timerFontPath") end,
+        getFontSize  = function() return BL.CfgGet("timerFontSize") end,
+        getColor     = function() return BL.CfgGet("timerColor") end,
+        getOutline   = function() return BL.CfgGet("timerOutline") end,
         onFontChange = function(key, path)
-            BLTrackerCfg_Set("timerFontKey", key)
-            BLTrackerCfg_Set("timerFontPath", path)
-            BLTracker_ApplyFont()
+            BL.CfgSet("timerFontKey", key)
+            BL.CfgSet("timerFontPath", path)
+            BL.ApplyFont()
         end,
         onSizeChange = function(size)
-            BLTrackerCfg_Set("timerFontSize", size)
-            BLTracker_ApplyFont()
+            BL.CfgSet("timerFontSize", size)
+            BL.ApplyFont()
         end,
         onColorChange = function(r, g, b, a)
-            BLTrackerCfg_Set("timerColor", { r=r, g=g, b=b, a=a })
-            BLTracker_ApplyFont()
+            BL.CfgSet("timerColor", { r=r, g=g, b=b, a=a })
+            BL.ApplyFont()
         end,
         onOutlineChange = function(outline)
-            BLTrackerCfg_Set("timerOutline", outline)
-            BLTracker_ApplyFont()
+            BL.CfgSet("timerOutline", outline)
+            BL.ApplyFont()
         end,
     })
     AddModule(te.frame, te.height)
@@ -196,14 +200,14 @@ local function CreateBLTrackerPanel(parent)
     -- ── OnShow refresh ────────────────────────────────────────────────────────
 
     parent:HookScript("OnShow", function()
-        enableCb.SetChecked(BLTrackerCfg_Get("enabled") ~= false)
+        enableCb.SetChecked(BL.CfgGet("enabled") ~= false)
         iF.Refresh()
         soundBLResult.Refresh()
         soundReadyResult.Refresh()
         te.Refresh()
-        wInput.SetText(tostring(BLTrackerCfg_Get("iconWidth") or 64))
-        hInput.SetText(tostring(BLTrackerCfg_Get("iconHeight") or 64))
-        BLTrackerPE.Refresh()
+        wInput.SetText(tostring(BL.CfgGet("iconWidth") or 64))
+        hInput.SetText(tostring(BL.CfgGet("iconHeight") or 64))
+        BL.pe.Refresh()
     end)
 end
 

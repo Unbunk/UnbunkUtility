@@ -1,6 +1,8 @@
 -- Modules/BLTracker/Core/BLTracker.lua
 
 local _, ns = ...
+ns.BLTracker = ns.BLTracker or {}
+local BL = ns.BLTracker
 
 local BL_SPELLS = {
     [2825]   = { name = "Bloodlust",          icon = 136012,  debuff = 57724  },
@@ -57,11 +59,11 @@ local hasDebuff    = false
 
 local blIcon = Unbunk_CreateTimerIcon({
     name    = "BLTrackerFrame",
-    getCfg  = function(key) return BLTrackerCfg_Get(key) end,
+    getCfg  = function(key) return BL.CfgGet(key) end,
     onDragStop = function(x, y)
-        BLTrackerCfg_Set("posX", x)
-        BLTrackerCfg_Set("posY", y)
-        if BLTrackerPE then BLTrackerPE.Refresh() end
+        BL.CfgSet("posX", x)
+        BL.CfgSet("posY", y)
+        if BL.pe then BL.pe.Refresh() end
     end,
 })
 
@@ -70,7 +72,7 @@ blIcon.onExpire = function() end
 -- ── Helpers ───────────────────────────────────────────────────────────────────
 
 local function IsActiveInCurrentInstance()
-    return ns.IsActiveInInstance(BLTrackerCfg_Get("instanceFilter"))
+    return ns.IsActiveInInstance(BL.CfgGet("instanceFilter"))
 end
 
 local function CheckPlayerHasBL()
@@ -79,12 +81,12 @@ local function CheckPlayerHasBL()
     playerHasBL = BL_CLASSES[class] or BL_PET_CLASSES[class] or false
 end
 
-function ApplyVisuals_BL()
-    if not BLTrackerCfg_Get("enabled") or not IsActiveInCurrentInstance() then
+function BL.ApplyVisuals()
+    if not BL.CfgGet("enabled") or not IsActiveInCurrentInstance() then
         blIcon.Hide()
         return
     end
-    if not BLTrackerCfg_Get("showIcon") then
+    if not BL.CfgGet("showIcon") then
         blIcon.Hide()
     else
         local icon = currentIcon or (playerClass and GetDefaultClassIcon(playerClass))
@@ -106,20 +108,20 @@ end
 
 -- ── Public API ────────────────────────────────────────────────────────────────
 
-function BLTracker_ApplyFont()     blIcon.ApplyFont()     end
-function BLTracker_ApplyPosition() blIcon.ApplyPosition() end
-function BLTracker_ApplySize()     blIcon.ApplySize()     end
-function BLTracker_SetUnlocked(v)  blIcon.SetUnlocked(v)  end
-function BLTracker_IsUnlocked()    return blIcon.IsUnlocked() end
-function BLTracker_GetFrame()      return blIcon.GetFrame() end
+function BL.ApplyFont()     blIcon.ApplyFont()     end
+function BL.ApplyPosition() blIcon.ApplyPosition() end
+function BL.ApplySize()     blIcon.ApplySize()     end
+function BL.SetUnlocked(v)  blIcon.SetUnlocked(v)  end
+function BL.IsUnlocked()    return blIcon.IsUnlocked() end
+function BL.GetFrame()      return blIcon.GetFrame() end
 
-function BLTracker_PlaySound(key)
+function BL.PlaySound(key)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-    local path = BLTrackerCfg_Get(key)
+    local path = BL.CfgGet(key)
     if path then
         PlaySoundFile(path, "Master")
     elseif LSM then
-        local soundKey = BLTrackerCfg_Get(key:gsub("Path", "Key"))
+        local soundKey = BL.CfgGet(key:gsub("Path", "Key"))
         local soundPath = soundKey and LSM:Fetch("sound", soundKey)
         if soundPath then PlaySoundFile(soundPath, "Master") end
     end
@@ -141,7 +143,7 @@ eventFrame:SetScript("OnEvent", function(self, event)
     if not hasDebuff and playerClass then
         currentIcon = GetDefaultClassIcon(playerClass)
     end
-    ApplyVisuals_BL()
+    BL.ApplyVisuals()
 end)
 
 local hasBuff = false
@@ -156,7 +158,7 @@ local function FindPlayerAura(idSet)
 end
 
 local function SyncDebuff()
-    if not BLTrackerCfg_Get("enabled") then return end
+    if not BL.CfgGet("enabled") then return end
 
     -- Buff positif (Bloodlust/Heroism/... actif) en priorité.
     local buff = FindPlayerAura(BL_BUFFS)
@@ -165,13 +167,13 @@ local function SyncDebuff()
         if not hasBuff then
             hasBuff = true
             -- Son joué à l'acquisition du buff (peu importe qui l'a lancé).
-            if BLTrackerCfg_Get("soundOnBL") then
-                BLTracker_PlaySound("soundPathBL")
+            if BL.CfgGet("soundOnBL") then
+                BL.PlaySound("soundPathBL")
             end
         end
         hasDebuff = false
         blIcon.SetTimer(buff.expirationTime, buff.duration, { r=0, g=1, b=0 })
-        ApplyVisuals_BL()
+        BL.ApplyVisuals()
         return
     end
     hasBuff = false
@@ -186,14 +188,14 @@ local function SyncDebuff()
         if hasDebuff then
             hasDebuff   = false
             currentIcon = GetDefaultClassIcon(playerClass)
-            if BLTrackerCfg_Get("soundOnReady") then
-                BLTracker_PlaySound("soundPathReady")
+            if BL.CfgGet("soundOnReady") then
+                BL.PlaySound("soundPathReady")
             end
         end
         blIcon.ClearTimer()
     end
 
-    ApplyVisuals_BL()
+    BL.ApplyVisuals()
 end
 
 C_Timer.NewTicker(0.5, function()
@@ -201,10 +203,10 @@ C_Timer.NewTicker(0.5, function()
 end)
 
 ns.RegisterReloadHook(function()
-    BLTracker_ApplyPosition()
-    BLTracker_ApplyFont()
-    BLTracker_ApplySize()
-    ApplyVisuals_BL()
+    BL.ApplyPosition()
+    BL.ApplyFont()
+    BL.ApplySize()
+    BL.ApplyVisuals()
 end)
 
 local initBL = CreateFrame("Frame")
@@ -212,9 +214,9 @@ initBL:RegisterEvent("PLAYER_LOGIN")
 initBL:SetScript("OnEvent", function(self)
     CheckPlayerHasBL()
     currentIcon = GetDefaultClassIcon(playerClass)
-    BLTracker_ApplyPosition()
-    BLTracker_ApplyFont()
-    BLTracker_ApplySize()
-    ApplyVisuals_BL()
+    BL.ApplyPosition()
+    BL.ApplyFont()
+    BL.ApplySize()
+    BL.ApplyVisuals()
     self:UnregisterEvent("PLAYER_LOGIN")
 end)
