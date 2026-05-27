@@ -1,13 +1,15 @@
 -- Modules/DeathAlert/Core/DeathCheck.lua
 
 local _, ns = ...
+ns.DeathAlert = ns.DeathAlert or {}
+local DA = ns.DeathAlert
 
 local TANK_ROLES   = { TANK = true }
 local HEALER_ROLES = { HEALER = true }
 local DPS_ROLES    = { DAMAGER = true }
 
 local function IsDeathAlertActiveInCurrentInstance(prefix)
-    return ns.IsActiveInInstance(DeathAlertCfg_Get(prefix .. "InstanceFilter"))
+    return ns.IsActiveInInstance(DA.CfgGet(prefix .. "InstanceFilter"))
 end
 
 local function ShowAlert(frame, duration)
@@ -43,20 +45,20 @@ local function CheckUnitDeath(unit)
 
     local role = UnitGroupRolesAssigned(unit)
 
-    if TANK_ROLES[role] and DeathAlertCfg_Get("tankEnabled") and IsDeathAlertActiveInCurrentInstance("tank") then
-        if not DeathAlert_IsTankTesting() then
-            ShowAlert(DeathAlert_GetTankFrame(), DeathAlertCfg_Get("tankAlertDuration") or 5)
-            DeathAlertPlaySound("tank")
+    if TANK_ROLES[role] and DA.CfgGet("tankEnabled") and IsDeathAlertActiveInCurrentInstance("tank") then
+        if not DA.IsTankTesting() then
+            ShowAlert(DA.GetTankFrame(), DA.CfgGet("tankAlertDuration") or 5)
+            DA.PlaySound("tank")
         end
-    elseif HEALER_ROLES[role] and DeathAlertCfg_Get("healerEnabled") and IsDeathAlertActiveInCurrentInstance("healer") then
-        if not DeathAlert_IsHealerTesting() then
-            ShowAlert(DeathAlert_GetHealerFrame(), DeathAlertCfg_Get("healerAlertDuration") or 5)
-            DeathAlertPlaySound("healer")
+    elseif HEALER_ROLES[role] and DA.CfgGet("healerEnabled") and IsDeathAlertActiveInCurrentInstance("healer") then
+        if not DA.IsHealerTesting() then
+            ShowAlert(DA.GetHealerFrame(), DA.CfgGet("healerAlertDuration") or 5)
+            DA.PlaySound("healer")
         end
-    elseif DPS_ROLES[role] and DeathAlertCfg_Get("dpsEnabled") and IsDeathAlertActiveInCurrentInstance("dps") then
-        if not DeathAlert_IsDpsTesting() then
-            ShowAlert(DeathAlert_GetDpsFrame(), DeathAlertCfg_Get("dpsAlertDuration") or 5)
-            DeathAlertPlaySound("dps")
+    elseif DPS_ROLES[role] and DA.CfgGet("dpsEnabled") and IsDeathAlertActiveInCurrentInstance("dps") then
+        if not DA.IsDpsTesting() then
+            ShowAlert(DA.GetDpsFrame(), DA.CfgGet("dpsAlertDuration") or 5)
+            DA.PlaySound("dps")
         end
     end
 end

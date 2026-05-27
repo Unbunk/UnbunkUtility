@@ -1,5 +1,9 @@
 -- Modules/DeathAlert/Core/Config.lua
 
+local _, ns = ...
+ns.DeathAlert = ns.DeathAlert or {}
+local DA = ns.DeathAlert
+
 DeathAlertDB = DeathAlertDB or {}
 
 local DEFAULTS = {
@@ -92,7 +96,7 @@ local DEFAULTS = {
     },
 }
 
-function DeathAlertCfg_Init()
+function DA.CfgInit()
     for k, v in pairs(DEFAULTS) do
         if DeathAlertDB[k] == nil then
             if type(v) == "table" then
@@ -107,18 +111,18 @@ function DeathAlertCfg_Init()
     end
 end
 
-function DeathAlertCfg_Get(key)
+function DA.CfgGet(key)
     return DeathAlertDB[key]
 end
 
-function DeathAlertCfg_Set(key, value)
+function DA.CfgSet(key, value)
     DeathAlertDB[key] = value
 end
 
-function DeathAlertPlaySound(prefix)
-    if not DeathAlertCfg_Get(prefix .. "EnableSound") then return end
-    local path = DeathAlertCfg_Get(prefix .. "SoundPath")
-    local key  = DeathAlertCfg_Get(prefix .. "SoundKey")
+function DA.PlaySound(prefix)
+    if not DA.CfgGet(prefix .. "EnableSound") then return end
+    local path = DA.CfgGet(prefix .. "SoundPath")
+    local key  = DA.CfgGet(prefix .. "SoundKey")
     if path then
         PlaySoundFile(path, "Master")
     else
@@ -136,6 +140,6 @@ local initDB = CreateFrame("Frame")
 initDB:RegisterEvent("ADDON_LOADED")
 initDB:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    DeathAlertCfg_Init()
+    DA.CfgInit()
     self:UnregisterEvent("ADDON_LOADED")
 end)
