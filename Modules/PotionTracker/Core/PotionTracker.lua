@@ -1,22 +1,24 @@
 -- Modules/PotionTracker/Core/PotionTracker.lua
 
 local _, ns = ...
+ns.PotionTracker = ns.PotionTracker or {}
+local PT = ns.PotionTracker
 
 local function IsActiveInCurrentInstance()
-    return ns.IsActiveInInstance(PotionTrackerCfg_Get("instanceFilter"))
+    return ns.IsActiveInInstance(PT.CfgGet("instanceFilter"))
 end
 
 local function CreatePotionTracker(prefix, frameName)
     local function GetCfg(key)
-        local cfg = PotionTrackerCfg_Get(prefix)
+        local cfg = PT.CfgGet(prefix)
         return cfg and cfg[key]
     end
 
     local function SetCfg(key, val)
-        local cfg = PotionTrackerCfg_Get(prefix)
+        local cfg = PT.CfgGet(prefix)
         if cfg then
             cfg[key] = val
-            PotionTrackerCfg_Set(prefix, cfg)
+            PT.CfgSet(prefix, cfg)
         end
     end
 
@@ -24,7 +26,7 @@ local function CreatePotionTracker(prefix, frameName)
         frameName = frameName,
         getCfg    = function(key)
             if key == "enabled" then
-                return PotionTrackerCfg_Get("enabled") and GetCfg("enabled") and IsActiveInCurrentInstance()
+                return PT.CfgGet("enabled") and GetCfg("enabled") and IsActiveInCurrentInstance()
             end
             return GetCfg(key)
         end,
@@ -37,7 +39,7 @@ local function CreatePotionTracker(prefix, frameName)
         end,
         onReady = function()
             if GetCfg("soundOnReady") then
-                PotionTracker_PlaySound(prefix, "soundReady")
+                PT.PlaySound(prefix, "soundReady")
             end
         end,
     })
@@ -59,8 +61,8 @@ end)
 
 local function ApplyLayout()
     if not healthTracker or not combatTracker then return end
-    local healthCfg = PotionTrackerCfg_Get("health")
-    local combatCfg = PotionTrackerCfg_Get("combat")
+    local healthCfg = PT.CfgGet("health")
+    local combatCfg = PT.CfgGet("combat")
     if not healthCfg or not combatCfg then return end
     healthTracker.GetFrame():ClearAllPoints()
     healthTracker.GetFrame():SetPoint("CENTER", UIParent, "CENTER", healthCfg.posX, healthCfg.posY)
@@ -68,15 +70,15 @@ local function ApplyLayout()
     combatTracker.GetFrame():SetPoint("CENTER", UIParent, "CENTER", combatCfg.posX, combatCfg.posY)
 end
 
-function PotionTracker_ApplyAll()
+function PT.ApplyAll()
     if not healthTracker or not combatTracker then return end
     ApplyLayout()
     healthTracker.ApplyVisuals()
     combatTracker.ApplyVisuals()
 end
 
-function PotionTracker_GetHealthTracker() return healthTracker end
-function PotionTracker_GetCombatTracker() return combatTracker end
+function PT.GetHealthTracker() return healthTracker end
+function PT.GetCombatTracker() return combatTracker end
 
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -88,39 +90,39 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, _, spellId = ...
         if unit ~= "player" then return end
-        local healthSpellId = PotionTrackerCfg_Get("health") and PotionTrackerCfg_Get("health").spellId
-        local combatSpellId = PotionTrackerCfg_Get("combat") and PotionTrackerCfg_Get("combat").spellId
+        local healthSpellId = PT.CfgGet("health") and PT.CfgGet("health").spellId
+        local combatSpellId = PT.CfgGet("combat") and PT.CfgGet("combat").spellId
         if healthSpellId and spellId == healthSpellId then
-            if PotionTrackerCfg_Get("health").soundOnUse then
-                PotionTracker_PlaySound("health", "soundUse")
+            if PT.CfgGet("health").soundOnUse then
+                PT.PlaySound("health", "soundUse")
             end
         elseif combatSpellId and spellId == combatSpellId then
-            if PotionTrackerCfg_Get("combat").soundOnUse then
-                PotionTracker_PlaySound("combat", "soundUse")
+            if PT.CfgGet("combat").soundOnUse then
+                PT.PlaySound("combat", "soundUse")
             end
         end
     end
-    PotionTracker_ApplyAll()
+    PT.ApplyAll()
 end)
 
 C_Timer.NewTicker(0.5, function()
     -- État stable : si le module est désactivé, les frames sont déjà cachés,
     -- inutile de refaire le travail à chaque tick.
-    if not PotionTrackerCfg_Get("enabled") then return end
-    PotionTracker_ApplyAll()
+    if not PT.CfgGet("enabled") then return end
+    PT.ApplyAll()
 end)
 
-ns.RegisterReloadHook(function() PotionTracker_ApplyAll() end)
+ns.RegisterReloadHook(function() PT.ApplyAll() end)
 
 local initPT = CreateFrame("Frame")
 initPT:RegisterEvent("PLAYER_LOGIN")
 initPT:SetScript("OnEvent", function(self)
-    local healthId = PotionTrackerCfg_Get("health") and PotionTrackerCfg_Get("health").itemId
-    local combatId = PotionTrackerCfg_Get("combat") and PotionTrackerCfg_Get("combat").itemId
+    local healthId = PT.CfgGet("health") and PT.CfgGet("health").itemId
+    local combatId = PT.CfgGet("combat") and PT.CfgGet("combat").itemId
     if healthId then C_Item.RequestLoadItemDataByID(healthId) end
     if combatId then C_Item.RequestLoadItemDataByID(combatId) end
     C_Timer.After(0.5, function()
-        PotionTracker_ApplyAll()
+        PT.ApplyAll()
     end)
     self:UnregisterEvent("PLAYER_LOGIN")
 end)

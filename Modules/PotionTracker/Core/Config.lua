@@ -1,5 +1,9 @@
 -- Modules/PotionTracker/Core/Config.lua
 
+local _, ns = ...
+ns.PotionTracker = ns.PotionTracker or {}
+local PT = ns.PotionTracker
+
 PotionTrackerDB = PotionTrackerDB or {}
 
 local DEFAULTS = {
@@ -54,7 +58,7 @@ local DEFAULTS = {
     },
 }
 
-function PotionTrackerCfg_Init()
+function PT.CfgInit()
     for k, v in pairs(DEFAULTS) do
         if PotionTrackerDB[k] == nil then
             if type(v) == "table" then
@@ -76,17 +80,17 @@ function PotionTrackerCfg_Init()
     end
 end
 
-function PotionTrackerCfg_Get(key)
+function PT.CfgGet(key)
     return PotionTrackerDB[key]
 end
 
-function PotionTrackerCfg_Set(key, value)
+function PT.CfgSet(key, value)
     PotionTrackerDB[key] = value
 end
 
-function PotionTracker_PlaySound(prefix, key)
+function PT.PlaySound(prefix, key)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-    local cfg = PotionTrackerCfg_Get(prefix)
+    local cfg = PT.CfgGet(prefix)
     if not cfg then return end
     local pathKey, soundKeyKey
     if key == "soundUse" then
@@ -112,6 +116,6 @@ local initDB = CreateFrame("Frame")
 initDB:RegisterEvent("ADDON_LOADED")
 initDB:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    PotionTrackerCfg_Init()
+    PT.CfgInit()
     self:UnregisterEvent("ADDON_LOADED")
 end)

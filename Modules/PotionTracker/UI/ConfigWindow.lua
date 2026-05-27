@@ -1,5 +1,9 @@
 -- Modules/PotionTracker/UI/ConfigWindow.lua
 
+local _, ns = ...
+ns.PotionTracker = ns.PotionTracker or {}
+local PT = ns.PotionTracker
+
 local function CreatePotionSection(parent, prefix)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local height = 0
@@ -18,19 +22,19 @@ local function CreatePotionSection(parent, prefix)
     end
 
     local function GetCfg(key)
-        local cfg = PotionTrackerCfg_Get(prefix)
+        local cfg = PT.CfgGet(prefix)
         return cfg and cfg[key]
     end
 
     local function SetCfg(key, val)
-        local cfg = PotionTrackerCfg_Get(prefix)
+        local cfg = PT.CfgGet(prefix)
         if cfg then
             cfg[key] = val
-            PotionTrackerCfg_Set(prefix, cfg)
+            PT.CfgSet(prefix, cfg)
         end
     end
 
-    local tracker = prefix == "health" and PotionTracker_GetHealthTracker() or PotionTracker_GetCombatTracker()
+    local tracker = prefix == "health" and PT.GetHealthTracker() or PT.GetCombatTracker()
 
     -- ── Sound use ─────────────────────────────────────────────────────────────
 
@@ -43,7 +47,7 @@ local function CreatePotionSection(parent, prefix)
             SetCfg("soundPathUse", path)
         end,
         onEnableToggle = function(val) SetCfg("soundOnUse", val) end,
-        onTest         = function() PotionTracker_PlaySound(prefix, "soundUse") end,
+        onTest         = function() PT.PlaySound(prefix, "soundUse") end,
     })
     soundUseResult.frame:ClearAllPoints()
     AddWidget(soundUseResult.frame, soundUseResult.height)
@@ -59,7 +63,7 @@ local function CreatePotionSection(parent, prefix)
             SetCfg("soundPathReady", path)
         end,
         onEnableToggle = function(val) SetCfg("soundOnReady", val) end,
-        onTest         = function() PotionTracker_PlaySound(prefix, "soundReady") end,
+        onTest         = function() PT.PlaySound(prefix, "soundReady") end,
     })
     soundReadyResult.frame:ClearAllPoints()
     AddWidget(soundReadyResult.frame, soundReadyResult.height)
@@ -143,7 +147,7 @@ local function CreatePotionSection(parent, prefix)
         onApply    = function(x, yv)
             if x  then SetCfg("posX", x)  end
             if yv then SetCfg("posY", yv) end
-            PotionTracker_ApplyAll()
+            PT.ApplyAll()
         end,
         onUnlock   = function() tracker.SetUnlocked(true) end,
         onLock     = function()
@@ -233,10 +237,10 @@ local function CreatePotionTrackerPanel(parent)
     local enableCb = Unbunk_CreateCheckbox({
         parent  = enableFrame,
         label   = "Enable Potion Tracker",
-        checked = PotionTrackerCfg_Get("enabled") ~= false,
+        checked = PT.CfgGet("enabled") ~= false,
         onClick = function(val)
-            PotionTrackerCfg_Set("enabled", val)
-            PotionTracker_ApplyAll()
+            PT.CfgSet("enabled", val)
+            PT.ApplyAll()
         end,
     })
     enableCb.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
@@ -246,11 +250,11 @@ local function CreatePotionTrackerPanel(parent)
 
     local iF = Unbunk_CreateInstanceFilter({
         parent    = content,
-        getConfig = function() return PotionTrackerCfg_Get("instanceFilter") end,
+        getConfig = function() return PT.CfgGet("instanceFilter") end,
         setConfig = function(key, val)
-            local filter = PotionTrackerCfg_Get("instanceFilter")
+            local filter = PT.CfgGet("instanceFilter")
             filter[key] = val
-            PotionTrackerCfg_Set("instanceFilter", filter)
+            PT.CfgSet("instanceFilter", filter)
         end,
     })
     AddSection(iF.frame)
@@ -260,12 +264,12 @@ local function CreatePotionTrackerPanel(parent)
     local healthCS = Unbunk_CreateCollapsibleSection({
         parent        = content,
         label         = "Health Potion",
-        isChecked     = function() return PotionTrackerCfg_Get("health") and PotionTrackerCfg_Get("health").enabled end,
+        isChecked     = function() return PT.CfgGet("health") and PT.CfgGet("health").enabled end,
         onCheck       = function(val)
-            local cfg = PotionTrackerCfg_Get("health")
+            local cfg = PT.CfgGet("health")
             cfg.enabled = val
-            PotionTrackerCfg_Set("health", cfg)
-            PotionTracker_ApplyAll()
+            PT.CfgSet("health", cfg)
+            PT.ApplyAll()
         end,
         createContent = function(sectionParent)
             local h, fns = CreatePotionSection(sectionParent, "health")
@@ -280,12 +284,12 @@ local function CreatePotionTrackerPanel(parent)
     local combatCS = Unbunk_CreateCollapsibleSection({
         parent        = content,
         label         = "Combat Potion",
-        isChecked     = function() return PotionTrackerCfg_Get("combat") and PotionTrackerCfg_Get("combat").enabled end,
+        isChecked     = function() return PT.CfgGet("combat") and PT.CfgGet("combat").enabled end,
         onCheck       = function(val)
-            local cfg = PotionTrackerCfg_Get("combat")
+            local cfg = PT.CfgGet("combat")
             cfg.enabled = val
-            PotionTrackerCfg_Set("combat", cfg)
-            PotionTracker_ApplyAll()
+            PT.CfgSet("combat", cfg)
+            PT.ApplyAll()
         end,
         createContent = function(sectionParent)
             local h, fns = CreatePotionSection(sectionParent, "combat")
@@ -298,7 +302,7 @@ local function CreatePotionTrackerPanel(parent)
     -- ── OnShow refresh ────────────────────────────────────────────────────────
 
     parent:HookScript("OnShow", function()
-        enableCb.SetChecked(PotionTrackerCfg_Get("enabled") ~= false)
+        enableCb.SetChecked(PT.CfgGet("enabled") ~= false)
         iF.Refresh()
         healthCS.Refresh()
         combatCS.Refresh()
