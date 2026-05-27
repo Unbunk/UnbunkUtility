@@ -1,5 +1,9 @@
 -- Modules/PITracker/UI/ConfigWindow.lua
 
+local _, ns = ...
+ns.PITracker = ns.PITracker or {}
+local PI = ns.PITracker
+
 local function CreatePITrackerPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
@@ -26,10 +30,10 @@ local function CreatePITrackerPanel(parent)
     local enableCb = Unbunk_CreateCheckbox({
         parent  = enableFrame,
         label   = "Enable PI Tracker",
-        checked = PITrackerCfg_Get("enabled") ~= false,
+        checked = PI.CfgGet("enabled") ~= false,
         onClick = function(val)
-            PITrackerCfg_Set("enabled", val)
-            ApplyVisuals_PI()
+            PI.CfgSet("enabled", val)
+            PI.ApplyVisuals()
         end,
     })
     enableCb.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
@@ -39,11 +43,11 @@ local function CreatePITrackerPanel(parent)
 
     local iF = Unbunk_CreateInstanceFilter({
         parent    = content,
-        getConfig = function() return PITrackerCfg_Get("instanceFilter") end,
+        getConfig = function() return PI.CfgGet("instanceFilter") end,
         setConfig = function(key, val)
-            local filter = PITrackerCfg_Get("instanceFilter")
+            local filter = PI.CfgGet("instanceFilter")
             filter[key] = val
-            PITrackerCfg_Set("instanceFilter", filter)
+            PI.CfgSet("instanceFilter", filter)
         end,
     })
     AddModule(iF.frame, iF.height)
@@ -52,14 +56,14 @@ local function CreatePITrackerPanel(parent)
 
     local soundResult = HealerRange_CreateSoundPicker(content, LSM, {
         label          = "Sound on PI",
-        getSoundKey    = function() return PITrackerCfg_Get("soundKeyPI") end,
-        getSoundEnable = function() return PITrackerCfg_Get("soundOnPI") end,
+        getSoundKey    = function() return PI.CfgGet("soundKeyPI") end,
+        getSoundEnable = function() return PI.CfgGet("soundOnPI") end,
         onSoundSelect  = function(key, path)
-            PITrackerCfg_Set("soundKeyPI", key)
-            PITrackerCfg_Set("soundPathPI", path)
+            PI.CfgSet("soundKeyPI", key)
+            PI.CfgSet("soundPathPI", path)
         end,
-        onEnableToggle = function(val) PITrackerCfg_Set("soundOnPI", val) end,
-        onTest         = function() PITracker_PlaySound() end,
+        onEnableToggle = function(val) PI.CfgSet("soundOnPI", val) end,
+        onTest         = function() PI.PlaySound() end,
     })
     AddModule(soundResult.frame, soundResult.height)
 
@@ -70,10 +74,10 @@ local function CreatePITrackerPanel(parent)
     local showIconCb = Unbunk_CreateCheckbox({
         parent  = showIconFrame,
         label   = "Show icon",
-        checked = PITrackerCfg_Get("showIcon") ~= false,
+        checked = PI.CfgGet("showIcon") ~= false,
         onClick = function(val)
-            PITrackerCfg_Set("showIcon", val)
-            ApplyVisuals_PI()
+            PI.CfgSet("showIcon", val)
+            PI.ApplyVisuals()
         end,
     })
     showIconCb.frame:SetPoint("TOPLEFT", showIconFrame, "TOPLEFT", 0, 0)
@@ -98,11 +102,11 @@ local function CreatePITrackerPanel(parent)
         height     = 22,
         numeric    = true,
         maxLetters = 3,
-        text       = tostring(PITrackerCfg_Get("iconWidth") or 64),
+        text       = tostring(PI.CfgGet("iconWidth") or 64),
         onEnter    = function(val)
             if val and val > 0 then
-                PITrackerCfg_Set("iconWidth", val)
-                PITracker_ApplySize()
+                PI.CfgSet("iconWidth", val)
+                PI.ApplySize()
             end
         end,
     })
@@ -118,11 +122,11 @@ local function CreatePITrackerPanel(parent)
         height     = 22,
         numeric    = true,
         maxLetters = 3,
-        text       = tostring(PITrackerCfg_Get("iconHeight") or 64),
+        text       = tostring(PI.CfgGet("iconHeight") or 64),
         onEnter    = function(val)
             if val and val > 0 then
-                PITrackerCfg_Set("iconHeight", val)
-                PITracker_ApplySize()
+                PI.CfgSet("iconHeight", val)
+                PI.ApplySize()
             end
         end,
     })
@@ -132,23 +136,23 @@ local function CreatePITrackerPanel(parent)
 
     -- ── Position editor ───────────────────────────────────────────────────────
 
-    PITrackerPE = HealerRange_CreatePositionEditor(content, {
+    PI.pe = HealerRange_CreatePositionEditor(content, {
         label      = "Icon position (offset from screen center)",
-        getX       = function() return PITrackerCfg_Get("posX") end,
-        getY       = function() return PITrackerCfg_Get("posY") end,
+        getX       = function() return PI.CfgGet("posX") end,
+        getY       = function() return PI.CfgGet("posY") end,
         onApply    = function(x, yv)
-            if x  then PITrackerCfg_Set("posX", x)  end
-            if yv then PITrackerCfg_Set("posY", yv) end
-            PITracker_ApplyPosition()
+            if x  then PI.CfgSet("posX", x)  end
+            if yv then PI.CfgSet("posY", yv) end
+            PI.ApplyPosition()
         end,
-        onUnlock   = function() PITracker_SetUnlocked(true) end,
+        onUnlock   = function() PI.SetUnlocked(true) end,
         onLock     = function()
-            PITracker_SetUnlocked(false)
-            if PITrackerPE then PITrackerPE.Refresh() end
+            PI.SetUnlocked(false)
+            if PI.pe then PI.pe.Refresh() end
         end,
-        isUnlocked = function() return PITracker_IsUnlocked() end,
+        isUnlocked = function() return PI.IsUnlocked() end,
     })
-    AddModule(PITrackerPE.frame, PITrackerPE.height)
+    AddModule(PI.pe.frame, PI.pe.height)
 
     -- ── Timer text ────────────────────────────────────────────────────────────
 
@@ -160,27 +164,27 @@ local function CreatePITrackerPanel(parent)
         showSize     = true,
         showColor    = true,
         showOutline  = true,
-        getFontKey   = function() return PITrackerCfg_Get("timerFontKey") end,
-        getFontPath  = function() return PITrackerCfg_Get("timerFontPath") end,
-        getFontSize  = function() return PITrackerCfg_Get("timerFontSize") end,
-        getColor     = function() return PITrackerCfg_Get("timerColor") end,
-        getOutline   = function() return PITrackerCfg_Get("timerOutline") end,
+        getFontKey   = function() return PI.CfgGet("timerFontKey") end,
+        getFontPath  = function() return PI.CfgGet("timerFontPath") end,
+        getFontSize  = function() return PI.CfgGet("timerFontSize") end,
+        getColor     = function() return PI.CfgGet("timerColor") end,
+        getOutline   = function() return PI.CfgGet("timerOutline") end,
         onFontChange = function(key, path)
-            PITrackerCfg_Set("timerFontKey", key)
-            PITrackerCfg_Set("timerFontPath", path)
-            PITracker_ApplyFont()
+            PI.CfgSet("timerFontKey", key)
+            PI.CfgSet("timerFontPath", path)
+            PI.ApplyFont()
         end,
         onSizeChange = function(size)
-            PITrackerCfg_Set("timerFontSize", size)
-            PITracker_ApplyFont()
+            PI.CfgSet("timerFontSize", size)
+            PI.ApplyFont()
         end,
         onColorChange = function(r, g, b, a)
-            PITrackerCfg_Set("timerColor", { r=r, g=g, b=b, a=a })
-            PITracker_ApplyFont()
+            PI.CfgSet("timerColor", { r=r, g=g, b=b, a=a })
+            PI.ApplyFont()
         end,
         onOutlineChange = function(outline)
-            PITrackerCfg_Set("timerOutline", outline)
-            PITracker_ApplyFont()
+            PI.CfgSet("timerOutline", outline)
+            PI.ApplyFont()
         end,
     })
     AddModule(te.frame, te.height)
@@ -188,13 +192,13 @@ local function CreatePITrackerPanel(parent)
     -- ── OnShow refresh ────────────────────────────────────────────────────────
 
     parent:HookScript("OnShow", function()
-        enableCb.SetChecked(PITrackerCfg_Get("enabled") ~= false)
-        showIconCb.SetChecked(PITrackerCfg_Get("showIcon") ~= false)
+        enableCb.SetChecked(PI.CfgGet("enabled") ~= false)
+        showIconCb.SetChecked(PI.CfgGet("showIcon") ~= false)
         iF.Refresh()
         soundResult.Refresh()
-        wInput.SetText(tostring(PITrackerCfg_Get("iconWidth") or 64))
-        hInput.SetText(tostring(PITrackerCfg_Get("iconHeight") or 64))
-        PITrackerPE.Refresh()
+        wInput.SetText(tostring(PI.CfgGet("iconWidth") or 64))
+        hInput.SetText(tostring(PI.CfgGet("iconHeight") or 64))
+        PI.pe.Refresh()
         te.Refresh()
     end)
 end
