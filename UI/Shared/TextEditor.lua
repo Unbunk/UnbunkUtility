@@ -63,7 +63,7 @@ function HealerRange_CreateTextEditor(parent, config)
         textInput.frame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
         result.textBox = textInput.editBox
 
-        -- Color à droite
+        -- Color swatch to the right of the text input.
         if showColor then
             local colorSwatch = CreateFrame("Button", nil, container)
             colorSwatch:SetSize(16, 16)
@@ -104,7 +104,7 @@ function HealerRange_CreateTextEditor(parent, config)
                 })
             end)
 
-            -- Size à droite de la couleur
+            -- Size input to the right of the color swatch.
             if showSize then
                 local sizeLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
                 sizeLbl:SetPoint("LEFT", colorLbl, "RIGHT", 10, 0)
@@ -145,6 +145,78 @@ function HealerRange_CreateTextEditor(parent, config)
         end
 
         height = height + 30
+    elseif (showSize and getFontSize and onSizeChange) or (showColor and getColor and onColorChange) then
+        -- Standalone Size + Color row when there is no text input above.
+        local rightAnchor
+
+        if showSize and getFontSize and onSizeChange then
+            local sizeLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            sizeLbl:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
+            sizeLbl:SetText("Size")
+
+            local sizeInput = Unbunk_CreateTextInput({
+                parent     = container,
+                width      = 46,
+                height     = 22,
+                numeric    = true,
+                maxLetters = 3,
+                text       = tostring(getFontSize() or 22),
+                onEnter    = function(val)
+                    if val and val > 0 then onSizeChange(val) end
+                end,
+            })
+            sizeInput.frame:SetPoint("LEFT", sizeLbl, "RIGHT", 4, 0)
+            result.sizeBox = sizeInput.editBox
+            rightAnchor = sizeInput.frame
+        end
+
+        if showColor and getColor and onColorChange then
+            local colorSwatch = CreateFrame("Button", nil, container)
+            colorSwatch:SetSize(16, 16)
+            if rightAnchor then
+                colorSwatch:SetPoint("LEFT", rightAnchor, "RIGHT", 14, 0)
+            else
+                colorSwatch:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -(height + 4))
+            end
+
+            local swatchTex = colorSwatch:CreateTexture(nil, "BACKGROUND")
+            swatchTex:SetAllPoints()
+
+            local colorLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            colorLbl:SetPoint("LEFT", colorSwatch, "RIGHT", 4, 0)
+            colorLbl:SetText("Color")
+
+            local function RefreshSwatch()
+                local c = getColor()
+                if c then swatchTex:SetColorTexture(c.r, c.g, c.b, 1) end
+            end
+            RefreshSwatch()
+            result.RefreshSwatch = RefreshSwatch
+
+            colorSwatch:SetScript("OnClick", function()
+                local c = getColor() or { r = 1, g = 1, b = 1, a = 1 }
+                ColorPickerFrame:SetupColorPickerAndShow({
+                    swatchFunc = function()
+                        local r, g, b = ColorPickerFrame:GetColorRGB()
+                        local a = ColorPickerFrame:GetColorAlpha()
+                        onColorChange(r, g, b, a); RefreshSwatch()
+                    end,
+                    opacityFunc = function()
+                        local r, g, b = ColorPickerFrame:GetColorRGB()
+                        local a = ColorPickerFrame:GetColorAlpha()
+                        onColorChange(r, g, b, a); RefreshSwatch()
+                    end,
+                    cancelFunc = function(prev)
+                        local a = prev.a or (prev.opacity and (1 - prev.opacity)) or 1
+                        onColorChange(prev.r, prev.g, prev.b, a); RefreshSwatch()
+                    end,
+                    r = c.r, g = c.g, b = c.b, opacity = c.a,
+                    hasOpacity = true,
+                })
+            end)
+        end
+
+        height = height + 28
     end
 
     -- ── Font dropdown ─────────────────────────────────────────────────────────
@@ -173,7 +245,7 @@ function HealerRange_CreateTextEditor(parent, config)
 
         height = height + 30
 
-        -- Outline en dessous de la font
+        -- Outline picker stacked below the font picker.
         if showOutline then
             local outlineLabel = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
             outlineLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)

@@ -2,8 +2,8 @@
 ## Title: Unbunk Utility
 ## Notes: Utility addon
 ## Author: Unbunk
-## Version: 2.0.5
-## SavedVariables: HealerRangeDB, DeathAlertDB, BLTrackerDB, PotionTrackerDB, TrinketTrackerDB, UnbunkUtilityDB, PITrackerDB, PlayerDeathDB
+## Version: 3.0.0
+## SavedVariables: HealerRangeDB, DeathAlertDB, BLTrackerDB, PotionTrackerDB, TrinketTrackerDB, UnbunkUtilityDB, PITrackerDB, PlayerDeathDB, BResTrackerDB, HealthstoneTrackerDB
 ## IconTexture: Interface\AddOns\UnbunkUtility\Media\Icons\Unbunk.tga
 
 Libs/LibStub-1.0/LibStub.lua
@@ -46,12 +46,20 @@ Modules/BLTracker/UI/ConfigWindow.lua
 Modules/PotionTracker/Core/Config.lua
 Modules/PotionTracker/Core/PotionTracker.lua
 Modules/PotionTracker/UI/ConfigWindow.lua
+Modules/HealthstoneTracker/Core/Config.lua
+Modules/HealthstoneTracker/Core/HealthstoneTracker.lua
+Modules/HealthstoneTracker/UI/ConfigWindow.lua
 Modules/TrinketTracker/Core/Config.lua
 Modules/TrinketTracker/Core/TrinketTracker.lua
 Modules/TrinketTracker/UI/ConfigWindow.lua
 Modules/PITracker/Core/Config.lua
 Modules/PITracker/Core/PITracker.lua
 Modules/PITracker/UI/ConfigWindow.lua
+Modules/BResTracker/Core/Config.lua
+Modules/BResTracker/Core/BResTracker.lua
+Modules/BResTracker/Core/PlayerList.lua
+Modules/BResTracker/UI/ConfigWindow.lua
 Modules/PlayerDeathAnimation/Core/Config.lua
 Modules/PlayerDeathAnimation/Core/PlayerDeathAnimation.lua
 Modules/PlayerDeathAnimation/UI/ConfigWindow.lua
+Modules/Profiles/UI/ConfigWindow.lua

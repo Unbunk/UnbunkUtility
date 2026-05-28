@@ -53,7 +53,7 @@ function Unbunk_CreateItemTracker(config)
             return
         end
 
-        -- Vérifie si l'item est utilisable (a un spell)
+        -- Skip items that have no spell (not usable).
         local spellName = itemId and C_Item.GetItemSpell and select(1, C_Item.GetItemSpell(itemId))
         if not spellName then
             icon.Hide()
@@ -96,9 +96,11 @@ function Unbunk_CreateItemTracker(config)
                 if hasCooldown then
                     hasCooldown = false
                     if config.onReady then config.onReady() end
+                    icon.ClearTimer()
+                    icon.BlinkCheck()  -- flash once, then auto-hide
+                else
+                    icon.ClearTimer()
                 end
-                icon.ClearTimer()
-                icon.ShowCheck()
             end
         end
     end

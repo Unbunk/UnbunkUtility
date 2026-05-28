@@ -28,10 +28,10 @@ local DEFAULTS = {
         timerOutline  = "OUTLINE",
         timerColor    = { r=1, g=1, b=1, a=1 },
         soundOnUse    = true,
-        soundKeyUse   = "UnbunkUtility: Trinket",
+        soundKeyUse   = "UnbunkUtility: Trinket High",
         soundPathUse  = nil,
         soundOnReady  = true,
-        soundKeyReady = "UnbunkUtility: Trinket Ready",
+        soundKeyReady = "UnbunkUtility: Trinket Ready High",
         soundPathReady= nil,
     },
     trinket2 = {
@@ -48,15 +48,16 @@ local DEFAULTS = {
         timerOutline  = "OUTLINE",
         timerColor    = { r=1, g=1, b=1, a=1 },
         soundOnUse    = true,
-        soundKeyUse   = "UnbunkUtility: Trinket",
+        soundKeyUse   = "UnbunkUtility: Trinket High",
         soundPathUse  = nil,
         soundOnReady  = true,
-        soundKeyReady = "UnbunkUtility: Trinket Ready",
+        soundKeyReady = "UnbunkUtility: Trinket Ready High",
         soundPathReady= nil,
     },
 }
 
 function TT.CfgInit()
+    ns.MigrateSoundKeys(TrinketTrackerDB)
     for k, v in pairs(DEFAULTS) do
         if TrinketTrackerDB[k] == nil then
             if type(v) == "table" then

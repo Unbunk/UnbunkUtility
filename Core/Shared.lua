@@ -1,13 +1,13 @@
 -- Core/Shared.lua
--- Namespace partagé entre tous les fichiers de l'addon (2e vararg passé à chaque
--- chunk). Centralise les utilitaires communs pour éviter la duplication.
+-- Shared namespace across all addon files (the 2nd vararg passed to every
+-- chunk). Centralizes common utilities so they don't get duplicated.
 
 local ADDON, ns = ...
 
--- ── Filtre d'instance ───────────────────────────────────────────────────────
--- Retourne true si le module doit être actif dans l'instance courante, selon
--- la table de filtre { dungeon, raid, battleground, outdoor }.
--- Un filtre absent (nil) => toujours actif.
+-- ── Instance filter ─────────────────────────────────────────────────────────
+-- Returns true when the module should be active in the current instance,
+-- based on the filter table { dungeon, raid, battleground, outdoor }.
+-- A nil filter means "always active".
 function ns.IsActiveInInstance(filter)
     if not filter then return true end
 
@@ -25,10 +25,10 @@ function ns.IsActiveInInstance(filter)
     return false
 end
 
--- ── Polices ─────────────────────────────────────────────────────────────────
--- Résout un chemin de police utilisable : chemin explicite > clé LSM > FRIZQT.
--- Évite que la police par défaut (stockée sous forme de clé "2002 Bold") ne soit
--- jamais appliquée tant que l'utilisateur n'a pas rouvert le sélecteur.
+-- ── Fonts ───────────────────────────────────────────────────────────────────
+-- Resolves a usable font path: explicit path > LSM key > FRIZQT fallback.
+-- Prevents the default font (stored as an LSM key like "2002 Bold") from
+-- silently falling back to FRIZQT until the user reopens the font picker.
 function ns.ResolveFontPath(path, key)
     if path then return path end
     if key then
@@ -41,9 +41,9 @@ function ns.ResolveFontPath(path, key)
     return "Fonts\\FRIZQT__.TTF"
 end
 
--- ── Hooks de rechargement de profil ─────────────────────────────────────────
--- Chaque module enregistre une fonction qui ré-applique ses réglages. Évite la
--- liste manuelle dans UnbunkProfiles_ReloadAll.
+-- ── Profile reload hooks ────────────────────────────────────────────────────
+-- Each module registers a function that re-applies its settings. Avoids the
+-- giant manual list that used to live in UnbunkProfiles_ReloadAll.
 
 ns.reloadHooks = {}
 
@@ -61,3 +61,190 @@ function ns.RunReloadHooks()
         end
     end
 end
+
+-- ── Combo sound coordinator ─────────────────────────────────────────────────
+-- Each tracker (BL / Potion / Trinket) routes its on-trigger sound through
+-- ns.combo.Notify. The coordinator delays for COMBO_WINDOW seconds and then
+-- decides:
+--   * BL + anything else → play the "bl_combo" sound
+--   * Potion + Trinket   → play the "potion_combo" sound
+--   * single category    → play that category's normal sound
+-- Config lives in UnbunkUtilityDB.combo (global, not profile-scoped).
+
+local COMBO_WINDOW = 0.5
+
+ns.combo = ns.combo or {}
+ns.combo.pending = {}
+ns.combo.timer   = nil
+
+local function ComboCfg() return UnbunkUtilityDB and UnbunkUtilityDB.combo end
+
+function ns.combo.IsEnabled()
+    local c = ComboCfg()
+    return c and c.enabled == true
+end
+
+local function PlayConfiguredSound(pathKey, soundKey)
+    local cfg = ComboCfg()
+    if not cfg then return end
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    local path = cfg[pathKey]
+    if path then
+        PlaySoundFile(path, "Master")
+    elseif LSM then
+        local key = cfg[soundKey]
+        local resolved = key and LSM:Fetch("sound", key)
+        if resolved then PlaySoundFile(resolved, "Master") end
+    end
+end
+
+function ns.combo.PlayBLCombo()     PlayConfiguredSound("blPath",     "blKey")     end
+function ns.combo.PlayPotionCombo() PlayConfiguredSound("potionPath", "potionKey") end
+
+function ns.combo.Flush()
+    local pending = ns.combo.pending
+    ns.combo.pending = {}
+    ns.combo.timer = nil
+
+    local hasBL      = pending.bl      ~= nil
+    local hasPotion  = pending.potion  ~= nil
+    local hasTrinket = pending.trinket ~= nil
+    local cfg        = ComboCfg() or {}
+
+    if hasBL and (hasPotion or hasTrinket) and cfg.blEnabled then
+        ns.combo.PlayBLCombo()
+        return
+    end
+    if hasPotion and hasTrinket and (not hasBL) and cfg.potionEnabled then
+        ns.combo.PlayPotionCombo()
+        return
+    end
+    -- No matching combo (or that combo is disabled): play each individual.
+    for _, fn in pairs(pending) do pcall(fn) end
+end
+
+-- Called by trackers in place of playing their sound directly.
+function ns.combo.Notify(category, fallbackSoundFn)
+    if not ns.combo.IsEnabled() then
+        if fallbackSoundFn then fallbackSoundFn() end
+        return
+    end
+    ns.combo.pending[category] = fallbackSoundFn
+    if not ns.combo.timer then
+        ns.combo.timer = C_Timer.NewTimer(COMBO_WINDOW, ns.combo.Flush)
+    end
+end
+
+-- ── Sound key migration ─────────────────────────────────────────────────────
+-- Media keys used to be unsuffixed ("UnbunkUtility: Bloodlust"). After the
+-- High/Medium/Low/Loud restructure, the unsuffixed keys are gone and each
+-- variant carries its loudness in the key. This map rewrites any value in a
+-- table that matches an old key to its new equivalent, so existing users do
+-- not lose their sounds when they update. Recursive so nested config tables
+-- (e.g. PotionTracker.health.soundKeyUse) and profile snapshots in
+-- UnbunkUtilityDB.profiles are migrated in one pass.
+local SOUND_KEY_MIGRATIONS = {
+    -- v1 (pre-restructure): unsuffixed keys → new defaults.
+    -- Most sounds default to High; BRez Ready/Used default to Medium.
+    ["UnbunkUtility: BL"]                    = "UnbunkUtility: BL High",
+    ["UnbunkUtility: Bloodlust"]             = "UnbunkUtility: Bloodlust High",
+    ["UnbunkUtility: Bloodlust Combo"]       = "UnbunkUtility: Bloodlust Combo High",
+    ["UnbunkUtility: BL Ready"]              = "UnbunkUtility: BL Ready High",
+    ["UnbunkUtility: BRez Ready"]            = "UnbunkUtility: BRez Ready Medium",
+    ["UnbunkUtility: BRez Used"]             = "UnbunkUtility: BRez Used Medium",
+    ["UnbunkUtility: Combat Potion"]         = "UnbunkUtility: Combat Potion High",
+    ["UnbunkUtility: Combat Potion Ready"]   = "UnbunkUtility: Combat Potion Ready High",
+    ["UnbunkUtility: DPS Died"]              = "UnbunkUtility: DPS Died High",
+    ["UnbunkUtility: Drink"]                 = "UnbunkUtility: Drink High",
+    ["UnbunkUtility: Healer Died"]           = "UnbunkUtility: Healer Died High",
+    ["UnbunkUtility: Health Potion"]         = "UnbunkUtility: Health Potion High",
+    ["UnbunkUtility: Health Potion Ready"]   = "UnbunkUtility: Health Potion Ready High",
+    ["UnbunkUtility: Healthstone"]           = "UnbunkUtility: Healthstone High",
+    ["UnbunkUtility: Healthstone Ready"]     = "UnbunkUtility: Healthstone Ready High",
+    ["UnbunkUtility: No Heal"]               = "UnbunkUtility: No Heal High",
+    ["UnbunkUtility: PI"]                    = "UnbunkUtility: PI High",
+    ["UnbunkUtility: Potion Combo"]          = "UnbunkUtility: Potion Combo High",
+    ["UnbunkUtility: Potion Ready"]          = "UnbunkUtility: Potion Ready High",
+    ["UnbunkUtility: Tank Died"]             = "UnbunkUtility: Tank Died High",
+    ["UnbunkUtility: Trinket"]               = "UnbunkUtility: Trinket High",
+    ["UnbunkUtility: Trinket Combo"]         = "UnbunkUtility: Trinket Combo High",
+    ["UnbunkUtility: Trinket Ready"]         = "UnbunkUtility: Trinket Ready High",
+
+    -- v2 (intermediate patch): sounds that defaulted to " Loud" but now
+    -- have High/Medium/Low variants available — switch to the new default.
+    ["UnbunkUtility: BRez Ready Loud"]       = "UnbunkUtility: BRez Ready Medium",
+    ["UnbunkUtility: BRez Used Loud"]        = "UnbunkUtility: BRez Used Medium",
+    ["UnbunkUtility: Bloodlust Combo Loud"]  = "UnbunkUtility: Bloodlust Combo High",
+    ["UnbunkUtility: Drink Loud"]            = "UnbunkUtility: Drink High",
+    ["UnbunkUtility: Healthstone Loud"]      = "UnbunkUtility: Healthstone High",
+    ["UnbunkUtility: Healthstone Ready Loud"]= "UnbunkUtility: Healthstone Ready High",
+    ["UnbunkUtility: Potion Combo Loud"]     = "UnbunkUtility: Potion Combo High",
+    ["UnbunkUtility: Trinket Combo Loud"]    = "UnbunkUtility: Trinket Combo High",
+}
+
+function ns.MigrateSoundKeys(tbl)
+    if type(tbl) ~= "table" then return end
+    for k, v in pairs(tbl) do
+        if type(v) == "string" then
+            local migrated = SOUND_KEY_MIGRATIONS[v]
+            if migrated then tbl[k] = migrated end
+        elseif type(v) == "table" then
+            ns.MigrateSoundKeys(v)
+        end
+    end
+end
+
+-- ── General settings init ───────────────────────────────────────────────────
+-- UnbunkUtilityDB lives across all profiles. Bootstraps the global config
+-- sub-tables (combo, wipe, dpsSpam) when they are missing.
+
+local DEFAULTS_COMBO = {
+    enabled       = true,   -- master switch for the whole combo feature
+    blEnabled     = true,   -- play the BL combo sound when applicable
+    blKey         = "UnbunkUtility: Bloodlust Combo High",
+    blPath        = nil,
+    potionEnabled = true,   -- play the Potion combo sound when applicable
+    potionKey     = "UnbunkUtility: Potion Combo High",
+    potionPath    = nil,
+}
+
+local DEFAULTS_WIPE = {
+    enabled          = true,
+    deathThreshold   = 8,
+    timeWindow       = 3,
+    suppressDuration = 15,
+}
+
+local DEFAULTS_DPS_SPAM = {
+    enabled          = true,
+    deathThreshold   = 3,
+    timeWindow       = 3,
+    suppressDuration = 6,
+}
+
+local function MergeDefaults(target, defaults)
+    for k, v in pairs(defaults) do
+        if target[k] == nil then target[k] = v end
+    end
+end
+
+local function InitGeneralCfg()
+    UnbunkUtilityDB = UnbunkUtilityDB or {}
+    -- Walk the whole DB (combo keys + profile snapshots in
+    -- UnbunkUtilityDB.profiles) to rewrite any pre-restructure sound key.
+    ns.MigrateSoundKeys(UnbunkUtilityDB)
+    UnbunkUtilityDB.combo   = UnbunkUtilityDB.combo   or {}
+    UnbunkUtilityDB.wipe    = UnbunkUtilityDB.wipe    or {}
+    UnbunkUtilityDB.dpsSpam = UnbunkUtilityDB.dpsSpam or {}
+    MergeDefaults(UnbunkUtilityDB.combo,   DEFAULTS_COMBO)
+    MergeDefaults(UnbunkUtilityDB.wipe,    DEFAULTS_WIPE)
+    MergeDefaults(UnbunkUtilityDB.dpsSpam, DEFAULTS_DPS_SPAM)
+end
+
+local cfgInit = CreateFrame("Frame")
+cfgInit:RegisterEvent("ADDON_LOADED")
+cfgInit:SetScript("OnEvent", function(self, event, addonName)
+    if addonName ~= ADDON then return end
+    InitGeneralCfg()
+    self:UnregisterEvent("ADDON_LOADED")
+end)

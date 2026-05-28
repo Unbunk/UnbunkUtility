@@ -9,7 +9,7 @@ HealerRangeDB = HealerRangeDB or {}
 local DEFAULTS = {
     enabled       = true,
     soundPath     = nil,
-    soundKey      = "UnbunkUtility: No Heal",
+    soundKey      = "UnbunkUtility: No Heal High",
     enableSound   = true,
     fontPath      = nil,
     fontKey       = "2002 Bold",
@@ -38,9 +38,10 @@ local DEFAULTS = {
 }
 
 local FALLBACK_SOUND_ID = 8959
-local FALLBACK_SOUND_NAME = "UnbunkUtility: No Heal"
+local FALLBACK_SOUND_NAME = "UnbunkUtility: No Heal High"
 
 function HR.CfgInit()
+    ns.MigrateSoundKeys(HealerRangeDB)
     for k, v in pairs(DEFAULTS) do
         if HealerRangeDB[k] == nil then
             if type(v) == "table" then

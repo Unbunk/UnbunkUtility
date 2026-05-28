@@ -5,7 +5,7 @@ ns.PITracker = ns.PITracker or {}
 local PI = ns.PITracker
 
 local PI_SPELL_ID  = 10060
-local PI_ICON_ID   = 135960 -- icône native de Power Infusion
+local PI_ICON_ID   = 135960 -- native Power Infusion icon
 
 local playerHasPI  = false
 local playerClass  = nil
@@ -54,16 +54,38 @@ function PI.ApplyVisuals()
     else
         piIcon.Hide()
     end
-    if not hasBuff and playerHasPI then
-        piIcon.ShowCheck()
-    else
+    -- The green check is no longer a persistent "PI available" badge — it
+    -- only flashes briefly when the buff fades (see SyncBuff). While the
+    -- buff is active the timer occupies the icon.
+    if hasBuff then
         piIcon.HideCheck()
     end
 end
 
+-- Test-mode state: when active, SyncBuff fabricates an aura so the icon,
+-- glow, timer and sound react exactly as if the player had just received PI.
+PI.testMode      = false
+PI.testStartTime = 0
+PI.testEndsAt    = 0
+
 local function SyncBuff()
     if not PI.CfgGet("enabled") then return end
-    local aura = C_UnitAuras.GetPlayerAuraBySpellID(PI_SPELL_ID)
+
+    -- Auto-stop the test once its duration elapses.
+    if PI.testMode and GetTime() >= PI.testEndsAt then
+        PI.testMode = false
+    end
+
+    local aura
+    if PI.testMode then
+        aura = {
+            expirationTime = PI.testEndsAt,
+            duration       = PI.testEndsAt - PI.testStartTime,
+        }
+    else
+        aura = C_UnitAuras.GetPlayerAuraBySpellID(PI_SPELL_ID)
+    end
+
     if aura then
         if not hasBuff then
             hasBuff = true
@@ -78,8 +100,20 @@ local function SyncBuff()
         hasBuff = false
         piIcon.SetGlow(false)
         piIcon.ClearTimer()
+        piIcon.BlinkCheck()  -- flash to signal PI is back up
     end
     PI.ApplyVisuals()
+end
+
+function PI.RunTest(duration)
+    duration = duration or 20
+    local now = GetTime()
+    PI.testMode      = true
+    PI.testStartTime = now
+    PI.testEndsAt    = now + duration
+    -- Run immediately so the buff-acquired transition (glow + sound) fires
+    -- right when the user clicks Test rather than on the next 0.5s tick.
+    SyncBuff()
 end
 
 -- ── Public API ────────────────────────────────────────────────────────────────

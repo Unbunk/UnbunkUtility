@@ -8,7 +8,7 @@
 --       checked   = true,
 --       onClick   = function(checked) ... end,
 --   })
---   cb.frame        -- le frame conteneur
+--   cb.frame        -- container frame
 --   cb.SetChecked(bool)
 --   cb.GetChecked()
 

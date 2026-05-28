@@ -1,9 +1,5 @@
 -- Core/SlashCommands.lua
 
-local _, ns = ...
-ns.HealerRange = ns.HealerRange or {}
-local HR = ns.HealerRange
-
 local function OpenConfig()
     if UnbunkUtility and UnbunkUtility.OpenWindow then
         UnbunkUtility.OpenWindow()
@@ -16,40 +12,16 @@ local function PrintHelp()
     print("|cffff4444[UnbunkUtility]|r Commands:")
     print("  |cffffd700/ubu|r or |cffffd700/ubu config|r — open settings")
     print("  |cffffd700/ubu help|r — show this help")
-    print("  |cffffd700/ubu test|r — test healer range alert")
-    print("  |cffffd700/ubu lock|r — lock alert position")
-    print("  |cffffd700/ubu reset|r — reset alert position")
 end
 
 SLASH_UNBUNKUTILITY1 = "/ubu"
 SlashCmdList["UNBUNKUTILITY"] = function(msg)
-    local cmd = strtrim(msg):lower()
+    local cmd = strtrim(msg or ""):lower()
 
     if cmd == "" or cmd == "config" or cmd == "options" then
         OpenConfig()
     elseif cmd == "help" then
         PrintHelp()
-    elseif cmd == "test" then
-        HR.SetTesting(true)
-        HR.GetFrame():Show()
-        HR.PlaySound()
-        local duration = HR.CfgGet("alertDuration") or 5
-        print("|cffff4444[UnbunkUtility]|r Alert test — disappears in " .. duration .. " seconds.")
-        C_Timer.After(duration, function()
-            HR.SetTesting(false)
-            if not HR.IsUnlocked() then
-                HR.GetFrame():Hide()
-            end
-        end)
-    elseif cmd == "lock" then
-        if HR.SetUnlocked then HR.SetUnlocked(false) end
-        if HR.pe then HR.pe.Refresh() end
-        print("|cffff4444[UnbunkUtility]|r Alert locked and position saved.")
-    elseif cmd == "reset" then
-        HR.CfgSet("posX", 0)
-        HR.CfgSet("posY", 100)
-        HR.ApplyPosition()
-        print("|cffff4444[UnbunkUtility]|r Position reset.")
     elseif cmd == "debug" then
         local RangeCheck = LibStub("LibRangeCheck-3.0")
         print("|cffff4444[UnbunkUtility]|r Debug — Friend checkers |cffff9900in combat|r:")

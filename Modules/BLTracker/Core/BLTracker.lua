@@ -98,10 +98,9 @@ function BL.ApplyVisuals()
             blIcon.Hide()
         end
     end
-    -- Affiche le check seulement si pas de debuff
-    if not hasDebuff and playerHasBL then
-        blIcon.ShowCheck()
-    else
+    -- The green check is no longer a persistent "BL available" badge — it
+    -- only flashes briefly when the exhaustion debuff fades (see SyncDebuff).
+    if hasBuff or hasDebuff then
         blIcon.HideCheck()
     end
 end
@@ -129,10 +128,10 @@ end
 
 -- ── Events ────────────────────────────────────────────────────────────────────
 
--- Note : on n'écoute plus UNIT_SPELLCAST_SUCCEEDED des autres unités. Le spellId
--- d'un sort lancé par un autre joueur est une "secret value" (protection Blizzard)
--- qui ne peut pas servir de clé de table. La détection se fait via les auras du
--- joueur (SyncDebuff), qui couvre tous les lanceurs et joue le son à l'acquisition.
+-- Note: we no longer listen to UNIT_SPELLCAST_SUCCEEDED from other units. A
+-- spellId from another player's cast is a "secret value" (Blizzard protection)
+-- that cannot be used as a table key. Detection runs through the player's own
+-- auras (SyncDebuff), which covers any caster and plays the sound on gain.
 
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -148,7 +147,7 @@ end)
 
 local hasBuff = false
 
--- Cherche sur le joueur la première aura présente parmi un ensemble de spellIds.
+-- Returns the first player aura present from a set of spellIds.
 local function FindPlayerAura(idSet)
     for spellId in pairs(idSet) do
         local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellId)
@@ -160,15 +159,17 @@ end
 local function SyncDebuff()
     if not BL.CfgGet("enabled") then return end
 
-    -- Buff positif (Bloodlust/Heroism/... actif) en priorité.
+    -- Active beneficial buff (Bloodlust/Heroism/...) takes priority.
     local buff = FindPlayerAura(BL_BUFFS)
     if buff then
         currentIcon = buff.icon
         if not hasBuff then
             hasBuff = true
-            -- Son joué à l'acquisition du buff (peu importe qui l'a lancé).
+            -- Play the sound when the buff is gained (any caster), routed
+            -- through the combo coordinator so nearly-simultaneous tracker
+            -- alerts can collapse into a single combo sound.
             if BL.CfgGet("soundOnBL") then
-                BL.PlaySound("soundPathBL")
+                ns.combo.Notify("bl", function() BL.PlaySound("soundPathBL") end)
             end
         end
         hasDebuff = false
@@ -178,7 +179,7 @@ local function SyncDebuff()
     end
     hasBuff = false
 
-    -- Sinon, debuff de fatigue (Sated/Exhaustion/...).
+    -- Otherwise, fatigue debuff (Sated/Exhaustion/...).
     local debuff = FindPlayerAura(BL_DEBUFFS)
     if debuff then
         currentIcon = debuff.icon
@@ -191,8 +192,11 @@ local function SyncDebuff()
             if BL.CfgGet("soundOnReady") then
                 BL.PlaySound("soundPathReady")
             end
+            blIcon.ClearTimer()
+            blIcon.BlinkCheck()  -- flash to signal BL is back up
+        else
+            blIcon.ClearTimer()
         end
-        blIcon.ClearTimer()
     end
 
     BL.ApplyVisuals()
@@ -201,6 +205,14 @@ end
 C_Timer.NewTicker(0.5, function()
     SyncDebuff()
 end)
+
+-- Instant aura detection: UNIT_AURA fires the moment the player gains/loses an
+-- aura, so SyncDebuff runs (and ns.combo.Notify("bl", ...) fires) without
+-- waiting up to 500ms for the next ticker. Without this, a near-simultaneous
+-- potion cast would flush as "potion combo" before BL is even detected.
+local auraFrame = CreateFrame("Frame")
+auraFrame:RegisterUnitEvent("UNIT_AURA", "player")
+auraFrame:SetScript("OnEvent", function() SyncDebuff() end)
 
 ns.RegisterReloadHook(function()
     BL.ApplyPosition()

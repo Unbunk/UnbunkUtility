@@ -3,23 +3,27 @@
 local _, ns = ...
 
 local ALL_DBS = {
-    HealerRange    = function() return HealerRangeDB    end,
-    DeathAlert     = function() return DeathAlertDB     end,
-    BLTracker      = function() return BLTrackerDB      end,
-    PotionTracker  = function() return PotionTrackerDB  end,
-    TrinketTracker = function() return TrinketTrackerDB end,
-    PITracker = function() return PITrackerDB end,
-    PlayerDeath = function() return PlayerDeathDB end,
+    HealerRange       = function() return HealerRangeDB       end,
+    DeathAlert        = function() return DeathAlertDB        end,
+    BLTracker         = function() return BLTrackerDB         end,
+    PotionTracker     = function() return PotionTrackerDB     end,
+    TrinketTracker    = function() return TrinketTrackerDB    end,
+    PITracker         = function() return PITrackerDB         end,
+    PlayerDeath       = function() return PlayerDeathDB       end,
+    BResTracker       = function() return BResTrackerDB       end,
+    HealthstoneTracker = function() return HealthstoneTrackerDB end,
 }
 
 local ALL_SETTERS = {
-    HealerRange    = function(t) HealerRangeDB    = t end,
-    DeathAlert     = function(t) DeathAlertDB     = t end,
-    BLTracker      = function(t) BLTrackerDB      = t end,
-    PotionTracker  = function(t) PotionTrackerDB  = t end,
-    TrinketTracker = function(t) TrinketTrackerDB = t end,
-    PITracker = function(t) PITrackerDB = t end,
-    PlayerDeath = function(t) PlayerDeathDB = t end,
+    HealerRange       = function(t) HealerRangeDB       = t end,
+    DeathAlert        = function(t) DeathAlertDB        = t end,
+    BLTracker         = function(t) BLTrackerDB         = t end,
+    PotionTracker     = function(t) PotionTrackerDB     = t end,
+    TrinketTracker    = function(t) TrinketTrackerDB    = t end,
+    PITracker         = function(t) PITrackerDB         = t end,
+    PlayerDeath       = function(t) PlayerDeathDB       = t end,
+    BResTracker       = function(t) BResTrackerDB       = t end,
+    HealthstoneTracker = function(t) HealthstoneTrackerDB = t end,
 }
 
 local function InitDB()
@@ -31,7 +35,7 @@ local function InitDB()
     end
 end
 
--- Sérialise une table en string
+-- Serialize a Lua table to a string literal (for profile export).
 local function Serialize(t, indent)
     indent = indent or ""
     if type(t) ~= "table" then
@@ -54,10 +58,10 @@ local function Serialize(t, indent)
     return result .. "}"
 end
 
--- Désérialise une string en table.
--- IMPORTANT : la chaîne provient d'un import partagé entre joueurs. On exécute
--- le chunk dans un environnement vide (setfenv) pour qu'il ne puisse rien faire
--- d'autre que construire une table littérale — aucune fonction/global accessible.
+-- Deserialize a profile string back into a table.
+-- IMPORTANT: the input string comes from a shared import between players. We
+-- execute the chunk in an empty environment (setfenv) so it can do nothing but
+-- build a literal table — no function or global is accessible from inside.
 local function Deserialize(str)
     local fn, err = loadstring("return " .. str)
     if not fn then return nil, err end
@@ -68,7 +72,7 @@ local function Deserialize(str)
     return result
 end
 
--- Encode en base64
+-- Base64 encode (used so exported profiles are a single safe-to-paste blob).
 local b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 local function Base64Encode(data)
     return ((data:gsub(".", function(x)
@@ -97,7 +101,7 @@ local function Base64Decode(data)
     end))
 end
 
--- ── API publique ──────────────────────────────────────────────────────────────
+-- ── Public API ────────────────────────────────────────────────────────────────
 
 function UnbunkProfiles_GetCurrent()
     return UnbunkUtilityDB.currentProfile or "Default"
@@ -146,9 +150,9 @@ end
 function UnbunkProfiles_Create(name)
     if not name or name == "" then return false end
     if UnbunkUtilityDB.profiles[name] then return false end
-    -- Sauvegarde d'abord le profil actuel
+    -- Snapshot the current profile first so we clone its latest state.
     UnbunkProfiles_SaveCurrent()
-    -- Crée le nouveau profil comme copie du profil actuel
+    -- Create the new profile as a copy of the current one.
     local currentName = UnbunkProfiles_GetCurrent()
     UnbunkUtilityDB.profiles[name] = DeepCopy(UnbunkUtilityDB.profiles[currentName])
     UnbunkUtilityDB.currentProfile = name
@@ -183,10 +187,10 @@ function UnbunkProfiles_Import(str)
 end
 
 function UnbunkProfiles_ReloadAll()
-    -- Réapplique les réglages de chaque module via les hooks qu'ils ont enregistrés.
+    -- Re-apply each module's settings through the hooks they registered.
     ns.RunReloadHooks()
 
-    -- Recrée les frames de config ouverts pour refléter le nouveau profil.
+    -- Rebuild any open config frames to reflect the new profile.
     if UnbunkUtility and UnbunkUtility.registeredModules then
         for _, mod in ipairs(UnbunkUtility.registeredModules) do
             if mod.frame then

@@ -4,7 +4,7 @@
 -- Usage:
 --   local dd = HealerRange_CreateDropdown({
 --       parent       = panel,
---       anchorFrame  = someFrame,    -- frame sous lequel le dropdown apparaît
+--       anchorFrame  = someFrame,    -- frame the dropdown opens below
 --       width        = 240,
 --       itemHeight   = 20,
 --       visibleItems = 10,
@@ -12,8 +12,8 @@
 --       getCurrentKey = function() return MyModuleCfg_Get("myKey") end,
 --       onSelect     = function(name) ... end,
 --   })
---   dd.selectedText  -- FontString du bouton toggle
---   dd.bottomY       -- Y après le widget (anchorFrame:GetBottom() - 40)
+--   dd.selectedText  -- FontString on the toggle button
+--   dd.bottomY       -- Y just below the widget (anchorFrame:GetBottom() - 40)
 
 function HealerRange_CreateDropdown(config)
     local parent       = config.parent
@@ -156,7 +156,7 @@ function HealerRange_CreateDropdown(config)
             end)
         end
 
-        -- Cache les boutons en surplus
+        -- Hide the surplus pooled buttons.
         for i = #list + 1, #buttons do
             buttons[i]:Hide()
         end

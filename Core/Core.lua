@@ -1,12 +1,15 @@
 -- Core/Core.lua
 -- Main UnbunkUtility window with navigation bar.
 
-UnbunkUtility = {}
+-- Use `or {}` so any module that loaded before Core (and stashed callbacks
+-- on the table) keeps its data; previously we overwrote the table outright.
+UnbunkUtility = UnbunkUtility or {}
 local registeredModules = {}
 UnbunkUtility.registeredModules = registeredModules
 local window
 local navbar
 local contentArea
+local scrollFrame
 local activeTab = nil
 local tabButtons = {}
 
@@ -17,6 +20,37 @@ function UnbunkUtility.RegisterModule(name, icon, createFn)
         createFn = createFn,
         frame    = nil,
     })
+end
+
+-- Compute the actual vertical extent of a module's content by looking at
+-- the bottom edge of its deepest child. Lets us size contentArea to fit
+-- the active module instead of leaving it at a fixed 1000px ceiling.
+local function ComputeModuleHeight(modFrame)
+    local pTop = modFrame:GetTop()
+    if not pTop then return nil end
+    local maxDepth = 0
+    for i = 1, modFrame:GetNumChildren() do
+        local child = select(i, modFrame:GetChildren())
+        if child then
+            local cBottom = child:GetBottom()
+            if cBottom then
+                local depth = pTop - cBottom
+                if depth > maxDepth then maxDepth = depth end
+            end
+        end
+    end
+    return maxDepth
+end
+
+local scrollBar  -- forward declaration; set in CreateMainWindow.
+
+local function ResizeContentArea(modFrame)
+    if not contentArea or not scrollFrame then return end
+    local viewport = scrollFrame:GetHeight() or 0
+    local needed   = ComputeModuleHeight(modFrame) or 0
+    -- Always leave at least the viewport so the scroll range is sane.
+    contentArea:SetHeight(math.max(viewport, needed + 8))
+    if scrollBar and scrollBar.Update then scrollBar.Update() end
 end
 
 local function ShowModule(index)
@@ -35,6 +69,17 @@ local function ShowModule(index)
 
     mod.frame:Show()
     activeTab = index
+
+    -- Reset scroll to the top whenever the user switches tabs.
+    if scrollFrame then scrollFrame:SetVerticalScroll(0) end
+
+    -- Resize contentArea to fit the new module. Deferred a frame so child
+    -- positions are realized before we measure them.
+    C_Timer.After(0, function()
+        if activeTab == index and mod.frame:IsShown() then
+            ResizeContentArea(mod.frame)
+        end
+    end)
 
     for i, btn in ipairs(tabButtons) do
         if i == index then
@@ -114,7 +159,9 @@ local function CreateMainWindow()
     window = CreateFrame("Frame", "UnbunkUtilityWindow", UIParent, "BackdropTemplate")
     window:SetSize(600, 800)
     window:SetPoint("CENTER")
-    window:SetFrameStrata("HIGH")
+    -- DIALOG sits above HIGH (where our tracker icons are) so the config
+    -- window is always on top of them when opened.
+    window:SetFrameStrata("DIALOG")
     window:SetMovable(true)
     window:EnableMouse(true)
     window:RegisterForDrag("LeftButton")
@@ -143,7 +190,7 @@ local function CreateMainWindow()
     navbar = CreateFrame("Frame", nil, window)
     navbar:SetPoint("TOPLEFT", window, "TOPLEFT", 16, -40)
     navbar:SetPoint("TOPRIGHT", window, "TOPRIGHT", -16, -40)
-    navbar:SetHeight(64) -- sera mis à jour par BuildNavbar
+    navbar:SetHeight(64) -- updated by BuildNavbar once modules are known
 
     local sep = window:CreateTexture(nil, "ARTWORK")
     sep:SetColorTexture(0.4, 0.4, 0.4, 0.8)
@@ -151,7 +198,7 @@ local function CreateMainWindow()
     sep:SetPoint("TOPRIGHT", navbar, "BOTTOMRIGHT", 0, -4)
     sep:SetHeight(1)
 
-    local scrollFrame = CreateFrame("ScrollFrame", nil, window)
+    scrollFrame = CreateFrame("ScrollFrame", nil, window)
     scrollFrame:SetPoint("TOPLEFT", sep, "BOTTOMLEFT", 0, -8)
     scrollFrame:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -28, 16)
 
@@ -168,14 +215,22 @@ local function CreateMainWindow()
         self:SetVerticalScroll(new)
     end)
 
-    -- Scrollbar
+    -- Scrollbar — the thumb size is proportional to visibleItems / listSize.
+    -- We want it to match (viewport / contentArea), so derive listSize from
+    -- the actual content height instead of hard-coding 20.
+    local SB_ITEM_HEIGHT = 30
+    local SB_VISIBLE     = 10
     local sb = Unbunk_CreateScrollBar({
         parent       = window,
         scrollFrame  = scrollFrame,
-        itemHeight   = 30,
-        visibleItems = 10,
-        getListSize  = function() return 20 end,
+        itemHeight   = SB_ITEM_HEIGHT,
+        visibleItems = SB_VISIBLE,
+        getListSize  = function()
+            local h = contentArea and contentArea:GetHeight() or (SB_ITEM_HEIGHT * SB_VISIBLE * 2)
+            return math.max(SB_VISIBLE, math.ceil(h / SB_ITEM_HEIGHT))
+        end,
     })
+    scrollBar = sb
     sb.track:SetPoint("TOPRIGHT", window, "TOPRIGHT", -6, -110)
     sb.track:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -6, 16)
     sb.track:Show()
@@ -200,7 +255,7 @@ local initCore = CreateFrame("Frame")
 initCore:RegisterEvent("PLAYER_LOGIN")
 initCore:SetScript("OnEvent", function(self)
     CreateMainWindow()
-    -- Rebuild navbar après que tous les modules sont enregistrés
+    -- Rebuild navbar after all modules have registered themselves.
     C_Timer.After(0, function()
         BuildNavbar()
         if #registeredModules > 0 then

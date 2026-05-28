@@ -15,10 +15,13 @@ local DEFAULTS = {
         outdoor      = true,
     },
     health = {
-        enabled       = true,
-        showIcon      = true,
-        itemId        = 241304,
-        spellId       = 1234768,
+        enabled         = true,
+        showIcon        = true,
+        -- itemId/spellId left unset on a fresh install: the main dropdown
+        -- shows "None" until the player picks a potion or the resolver
+        -- auto-fills via fallback / favorite.
+        favoriteEnabled = true,
+        favoriteId      = 241304,  -- Silvermoon Health Potion
         posX          = -400,
         posY          = -300,
         iconWidth     = 30,
@@ -28,18 +31,31 @@ local DEFAULTS = {
         timerFontSize = 20,
         timerOutline  = "OUTLINE",
         timerColor    = { r=1, g=1, b=1, a=1 },
+        showStack       = true,
+        stackFontKey    = "2002 Bold",
+        stackFontPath   = nil,
+        stackFontSize   = 12,
+        stackOutline    = "OUTLINE",
+        stackColor      = { r=1, g=1, b=1, a=1 },
         soundOnUse    = true,
-        soundKeyUse   = "UnbunkUtility: Health Potion",
+        soundKeyUse   = "UnbunkUtility: Health Potion High",
         soundPathUse  = nil,
         soundOnReady  = true,
-        soundKeyReady = "UnbunkUtility: Health Potion Ready",
+        soundKeyReady = "UnbunkUtility: Health Potion Ready High",
         soundPathReady= nil,
     },
     combat = {
-        enabled       = true,
-        showIcon      = true,
-        itemId        = 241308,
-        spellId       = 1236616,
+        enabled         = true,
+        showIcon        = true,
+        -- itemId/spellId left unset on a fresh install (see health section).
+        favoriteEnabled = true,
+        favoriteId      = 241308,  -- Light's Potential
+        showStack       = true,
+        stackFontKey    = "2002 Bold",
+        stackFontPath   = nil,
+        stackFontSize   = 12,
+        stackOutline    = "OUTLINE",
+        stackColor      = { r=1, g=1, b=1, a=1 },
         posX          = -370,
         posY          = -300,
         iconWidth     = 30,
@@ -50,34 +66,36 @@ local DEFAULTS = {
         timerOutline  = "OUTLINE",
         timerColor    = { r=1, g=1, b=1, a=1 },
         soundOnUse    = true,
-        soundKeyUse   = "UnbunkUtility: Combat Potion",
+        soundKeyUse   = "UnbunkUtility: Combat Potion High",
         soundPathUse  = nil,
         soundOnReady  = true,
-        soundKeyReady = "UnbunkUtility: Combat Potion Ready",
+        soundKeyReady = "UnbunkUtility: Combat Potion Ready High",
         soundPathReady= nil,
     },
 }
 
-function PT.CfgInit()
-    for k, v in pairs(DEFAULTS) do
-        if PotionTrackerDB[k] == nil then
+-- Recursively merge defaults into target: only adds missing keys, never
+-- overwrites user-set values. Crucially, recurses into existing sub-tables
+-- so newly-introduced keys (e.g. stackColor) are populated for upgraders
+-- without forcing a profile Reset.
+local function MergeDefaults(target, defaults)
+    for k, v in pairs(defaults) do
+        if target[k] == nil then
             if type(v) == "table" then
-                PotionTrackerDB[k] = {}
-                for k2, v2 in pairs(v) do
-                    if type(v2) == "table" then
-                        PotionTrackerDB[k][k2] = {}
-                        for k3, v3 in pairs(v2) do
-                            PotionTrackerDB[k][k2][k3] = v3
-                        end
-                    else
-                        PotionTrackerDB[k][k2] = v2
-                    end
-                end
+                target[k] = {}
+                MergeDefaults(target[k], v)
             else
-                PotionTrackerDB[k] = v
+                target[k] = v
             end
+        elseif type(v) == "table" and type(target[k]) == "table" then
+            MergeDefaults(target[k], v)
         end
     end
+end
+
+function PT.CfgInit()
+    ns.MigrateSoundKeys(PotionTrackerDB)
+    MergeDefaults(PotionTrackerDB, DEFAULTS)
 end
 
 function PT.CfgGet(key)
@@ -86,6 +104,9 @@ end
 
 function PT.CfgSet(key, value)
     PotionTrackerDB[key] = value
+    -- Config drives which potion the resolver picks; invalidate the cache
+    -- so the next GetActiveItemId() reflects the change.
+    if PT.InvalidateActiveCache then PT.InvalidateActiveCache() end
 end
 
 function PT.PlaySound(prefix, key)

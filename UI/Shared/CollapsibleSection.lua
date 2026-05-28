@@ -10,10 +10,10 @@
 --       onCheck       = function(val) myDB.enabled = val end,
 --       createContent = function(contentFrame) ... return height end,
 --   })
---   cs.frame          -- le frame conteneur
---   cs.height         -- hauteur actuelle (header seul ou header + content)
---   cs.checkbox       -- la checkbox (si showCheckbox = true)
---   cs.Refresh()      -- rafraîchit la checkbox
+--   cs.frame          -- container frame
+--   cs.height         -- current height (header only, or header + content)
+--   cs.checkbox       -- the checkbox (when showCheckbox = true)
+--   cs.Refresh()      -- re-syncs the checkbox state from isChecked()
 
 function Unbunk_CreateCollapsibleSection(config)
     local parent        = config.parent

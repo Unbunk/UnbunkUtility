@@ -9,7 +9,7 @@ DeathAlertDB = DeathAlertDB or {}
 local DEFAULTS = {
     -- Tank alert
     tankEnabled      = true,
-    tankSoundKey     = "UnbunkUtility: Tank Died",
+    tankSoundKey     = "UnbunkUtility: Tank Died High",
     tankSoundPath    = nil,
     tankEnableSound  = true,
     tankFontKey      = "2002 Bold",
@@ -23,7 +23,7 @@ local DEFAULTS = {
     tankAlertDuration   = 3,
     -- Healer alert
     healerEnabled     = true,
-    healerSoundKey    = "UnbunkUtility: Healer Died",
+    healerSoundKey    = "UnbunkUtility: Healer Died High",
     healerSoundPath   = nil,
     healerEnableSound = true,
     healerFontKey     = "2002 Bold",
@@ -37,7 +37,7 @@ local DEFAULTS = {
     healerAlertDuration = 3,
     -- DPS alert
     dpsEnabled     = false,
-    dpsSoundKey    = "UnbunkUtility: DPS Died",
+    dpsSoundKey    = "UnbunkUtility: DPS Died High",
     dpsSoundPath   = nil,
     dpsEnableSound = true,
     dpsFontKey     = "2002 Bold",
@@ -97,6 +97,7 @@ local DEFAULTS = {
 }
 
 function DA.CfgInit()
+    ns.MigrateSoundKeys(DeathAlertDB)
     for k, v in pairs(DEFAULTS) do
         if DeathAlertDB[k] == nil then
             if type(v) == "table" then
