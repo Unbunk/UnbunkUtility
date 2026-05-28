@@ -53,10 +53,11 @@ local function CreateHealerRangePanel(parent)
     probeMsg:SetWordWrap(true)
     AddModule(probeFrame, 30)
 
-    -- ── Test Alert ────────────────────────────────────────────────────────────
+    -- ── Test Alert + duration (du Test) ───────────────────────────────────────
 
     local testFrame = CreateFrame("Frame", nil, content)
     testFrame:SetHeight(30)
+
     local testAlertBtn = Unbunk_CreateButton({
         parent  = testFrame,
         label   = "Test Alert",
@@ -69,6 +70,58 @@ local function CreateHealerRangePanel(parent)
         end,
     })
     testAlertBtn.frame:SetPoint("TOPLEFT", testFrame, "TOPLEFT", 0, -4)
+
+    local durLbl = testFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    durLbl:SetPoint("LEFT", testAlertBtn.frame, "RIGHT", 16, 0)
+    durLbl:SetText("Duration")
+
+    local durMinusBtn = Unbunk_CreateButton({
+        parent  = testFrame,
+        label   = "-",
+        width   = 22,
+        height  = 22,
+    })
+    durMinusBtn.frame:SetPoint("LEFT", durLbl, "RIGHT", 6, 0)
+
+    local durInput = Unbunk_CreateTextInput({
+        parent     = testFrame,
+        width      = 40,
+        height     = 22,
+        numeric    = true,
+        maxLetters = 3,
+        text       = tostring(HR.CfgGet("alertDuration") or 5),
+        onEnter    = function(val)
+            if val and val > 0 then HR.CfgSet("alertDuration", val) end
+        end,
+    })
+    durInput.frame:SetPoint("LEFT", durMinusBtn.frame, "RIGHT", 4, 0)
+    local durBox = durInput.editBox
+
+    local durPlusBtn = Unbunk_CreateButton({
+        parent  = testFrame,
+        label   = "+",
+        width   = 22,
+        height  = 22,
+    })
+    durPlusBtn.frame:SetPoint("LEFT", durBox, "RIGHT", 4, 0)
+
+    durMinusBtn.frame:SetScript("OnClick", function()
+        local v = tonumber(durBox:GetText()) or HR.CfgGet("alertDuration") or 5
+        v = math.max(1, v - 1)
+        durBox:SetText(tostring(v))
+        HR.CfgSet("alertDuration", v)
+    end)
+    durPlusBtn.frame:SetScript("OnClick", function()
+        local v = tonumber(durBox:GetText()) or HR.CfgGet("alertDuration") or 5
+        v = math.min(60, v + 1)
+        durBox:SetText(tostring(v))
+        HR.CfgSet("alertDuration", v)
+    end)
+
+    local durSecLbl = testFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    durSecLbl:SetPoint("LEFT", durPlusBtn.frame, "RIGHT", 6, 0)
+    durSecLbl:SetText("sec")
+
     AddModule(testFrame, 30)
 
     -- ── Instance filter ───────────────────────────────────────────────────────
@@ -139,15 +192,6 @@ local function CreateHealerRangePanel(parent)
     })
     AddModule(te.frame, te.height)
 
-    -- ── Duration editor ───────────────────────────────────────────────────────
-
-    local de = Unbunk_CreateDurationEditor({
-        parent           = content,
-        getDuration      = function() return HR.CfgGet("alertDuration") end,
-        onDurationChange = function(val) HR.CfgSet("alertDuration", val) end,
-    })
-    AddModule(de.frame, de.height)
-
     -- ── Position editor ───────────────────────────────────────────────────────
 
     HR.pe = HealerRange_CreatePositionEditor(content, {
@@ -184,7 +228,7 @@ local function CreateHealerRangePanel(parent)
         enableCheckbox.SetChecked(HR.CfgGet("enabled") ~= false)
         soundResult.Refresh()
         te.Refresh()
-        de.Refresh()
+        durBox:SetText(tostring(HR.CfgGet("alertDuration") or 5))
         if HR.pe then HR.pe.Refresh() end
         iF.Refresh()
         ip.Refresh()
