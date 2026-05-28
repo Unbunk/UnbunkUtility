@@ -33,8 +33,9 @@ SlashCmdList["UNBUNKUTILITY"] = function(msg)
         HR.SetTesting(true)
         HR.GetFrame():Show()
         HR.PlaySound()
-        print("|cffff4444[UnbunkUtility]|r Alert test — disappears in 5 seconds.")
-        C_Timer.After(5, function()
+        local duration = HR.CfgGet("alertDuration") or 5
+        print("|cffff4444[UnbunkUtility]|r Alert test — disappears in " .. duration .. " seconds.")
+        C_Timer.After(duration, function()
             HR.SetTesting(false)
             if not HR.IsUnlocked() then
                 HR.GetFrame():Hide()
