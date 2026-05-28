@@ -55,4 +55,3 @@ Modules/PITracker/UI/ConfigWindow.lua
 Modules/PlayerDeathAnimation/Core/Config.lua
 Modules/PlayerDeathAnimation/Core/PlayerDeathAnimation.lua
 Modules/PlayerDeathAnimation/UI/ConfigWindow.lua
-.
