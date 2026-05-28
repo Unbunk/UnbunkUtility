@@ -101,13 +101,6 @@ local function StartChecking()
             isOutOfRange = true
             alertFrame:Show()
             HR.PlaySound()
-            local duration = HR.CfgGet("alertDuration") or 5
-            C_Timer.After(duration, function()
-                if not HR.IsUnlocked() and not HR.IsTesting() then
-                    alertFrame:Hide()
-                    isOutOfRange = false
-                end
-            end)
         elseif result == true and isOutOfRange then
             isOutOfRange = false
             alertFrame:Hide()
