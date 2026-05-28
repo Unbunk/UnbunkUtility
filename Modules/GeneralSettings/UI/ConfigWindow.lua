@@ -1,8 +1,12 @@
 -- Modules/GeneralSettings/UI/ConfigWindow.lua
+-- Global addon-wide options: combo sounds + death-alert anti-spam toggles.
+-- Profile management lives in its own tab (Modules/Profiles/UI/ConfigWindow.lua).
 
 local _, ns = ...
 
 local function CreateGeneralSettingsPanel(parent)
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+
     local content = CreateFrame("Frame", nil, parent)
     content:SetAllPoints(parent)
 
@@ -19,262 +23,115 @@ local function CreateGeneralSettingsPanel(parent)
         lastFrame = frame
     end
 
-    -- ── Titre ─────────────────────────────────────────────────────────────────
+    -- ── Combo sounds section ─────────────────────────────────────────────────
 
-    local titleFrame = CreateFrame("Frame", nil, content)
-    titleFrame:SetHeight(20)
-    local titleLbl = titleFrame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    titleLbl:SetPoint("TOPLEFT", titleFrame, "TOPLEFT", 0, 0)
-    titleLbl:SetText("Profile Management")
-    AddModule(titleFrame, 20)
+    local comboTitleFrame = CreateFrame("Frame", nil, content)
+    comboTitleFrame:SetHeight(20)
+    local comboTitleLbl = comboTitleFrame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    comboTitleLbl:SetPoint("TOPLEFT", comboTitleFrame, "TOPLEFT", 0, 0)
+    comboTitleLbl:SetText("Multi-alert combo sounds")
+    AddModule(comboTitleFrame, 20)
 
-    -- ── Profil actuel ─────────────────────────────────────────────────────────
+    local comboMasterFrame = CreateFrame("Frame", nil, content)
+    comboMasterFrame:SetHeight(24)
+    local comboMasterCb = Unbunk_CreateCheckbox({
+        parent  = comboMasterFrame,
+        label   = "Enable combo sounds (collapse near-simultaneous tracker sounds into one)",
+        checked = UnbunkUtilityDB.combo.enabled == true,
+        onClick = function(val) UnbunkUtilityDB.combo.enabled = val end,
+    })
+    comboMasterCb.frame:SetPoint("TOPLEFT", comboMasterFrame, "TOPLEFT", 0, 0)
+    AddModule(comboMasterFrame, 24)
 
-    local currentFrame = CreateFrame("Frame", nil, content)
-    currentFrame:SetHeight(24)
-    local currentLbl = currentFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    currentLbl:SetPoint("TOPLEFT", currentFrame, "TOPLEFT", 0, 0)
-    currentLbl:SetText("Current profile: |cffffd700" .. UnbunkProfiles_GetCurrent() .. "|r")
-    AddModule(currentFrame, 24)
-
-    -- ── Dropdown sélection profil ─────────────────────────────────────────────
-
-    local ddFrame = CreateFrame("Frame", nil, content)
-    ddFrame:SetHeight(50)
-
-    local ddLbl = ddFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    ddLbl:SetPoint("TOPLEFT", ddFrame, "TOPLEFT", 0, 0)
-    ddLbl:SetText("Switch profile")
-
-    local ddAnchor = ddFrame:CreateFontString(nil, "ARTWORK")
-    ddAnchor:SetPoint("TOPLEFT", ddFrame, "TOPLEFT", 0, -20)
-
-    local profileDD = HealerRange_CreateDropdown({
-        parent        = ddFrame,
-        anchorFrame   = ddAnchor,
-        width         = 200,
-        itemHeight    = 20,
-        visibleItems  = 8,
-        getList       = function() return UnbunkProfiles_GetList() end,
-        getCurrentKey = function() return UnbunkProfiles_GetCurrent() end,
-        onSelect      = function(name)
-            if name == UnbunkProfiles_GetCurrent() then return end
-            UnbunkProfiles_SaveCurrent()
-            UnbunkProfiles_Load(name)
-            currentLbl:SetText("Current profile: |cffffd700" .. name .. "|r")
-            print("|cffff4444[UnbunkUtility]|r Profile loaded: " .. name)
+    -- BL combo sound picker
+    local blComboPicker = HealerRange_CreateSoundPicker(content, LSM, {
+        label          = "BL combo (Bloodlust + Potion / Trinket)",
+        getSoundKey    = function() return UnbunkUtilityDB.combo.blKey end,
+        getSoundEnable = function() return UnbunkUtilityDB.combo.blEnabled end,
+        onSoundSelect  = function(key, path)
+            UnbunkUtilityDB.combo.blKey  = key
+            UnbunkUtilityDB.combo.blPath = path
         end,
+        onEnableToggle = function(val) UnbunkUtilityDB.combo.blEnabled = val end,
+        onTest         = function() ns.combo.PlayBLCombo() end,
     })
-    profileDD.selectedText:SetText(UnbunkProfiles_GetCurrent())
+    AddModule(blComboPicker.frame, blComboPicker.height)
 
-    AddModule(ddFrame, 50)
-
-    -- ── Créer un profil ───────────────────────────────────────────────────────
-
-    local createFrame = CreateFrame("Frame", nil, content)
-    createFrame:SetHeight(50)
-
-    local createLbl = createFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    createLbl:SetPoint("TOPLEFT", createFrame, "TOPLEFT", 0, 0)
-    createLbl:SetText("Create new profile")
-
-    local createInput = Unbunk_CreateTextInput({
-        parent     = createFrame,
-        width      = 200,
-        height     = 22,
-        maxLetters = 32,
-        text       = "",
-    })
-    createInput.frame:SetPoint("TOPLEFT", createFrame, "TOPLEFT", 0, -22)
-
-    local createBtn = Unbunk_CreateButton({
-        parent  = createFrame,
-        label   = "Create",
-        width   = 70,
-        height  = 22,
-        onClick = function()
-            local name = createInput.GetText()
-            if name and name ~= "" then
-                if UnbunkProfiles_Create(name) then
-                    profileDD.selectedText:SetText(name)
-                    currentLbl:SetText("Current profile: |cffffd700" .. name .. "|r")
-                    createInput.SetText("")
-                    print("|cffff4444[UnbunkUtility]|r Profile created: " .. name)
-                else
-                    print("|cffff4444[UnbunkUtility]|r Profile already exists: " .. name)
-                end
-            end
+    -- Potion combo sound picker
+    local potionComboPicker = HealerRange_CreateSoundPicker(content, LSM, {
+        label          = "Potion combo (Potion + Trinket, without BL)",
+        getSoundKey    = function() return UnbunkUtilityDB.combo.potionKey end,
+        getSoundEnable = function() return UnbunkUtilityDB.combo.potionEnabled end,
+        onSoundSelect  = function(key, path)
+            UnbunkUtilityDB.combo.potionKey  = key
+            UnbunkUtilityDB.combo.potionPath = path
         end,
+        onEnableToggle = function(val) UnbunkUtilityDB.combo.potionEnabled = val end,
+        onTest         = function() ns.combo.PlayPotionCombo() end,
     })
-    createBtn.frame:SetPoint("LEFT", createInput.frame, "RIGHT", 8, 0)
+    AddModule(potionComboPicker.frame, potionComboPicker.height)
 
-    AddModule(createFrame, 50)
+    -- ── Death-alert anti-spam section ────────────────────────────────────────
 
-    -- ── Supprimer un profil ───────────────────────────────────────────────────
+    local antiTitleFrame = CreateFrame("Frame", nil, content)
+    antiTitleFrame:SetHeight(20)
+    local antiTitleLbl = antiTitleFrame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    antiTitleLbl:SetPoint("TOPLEFT", antiTitleFrame, "TOPLEFT", 0, 0)
+    antiTitleLbl:SetText("Death alert anti-spam")
+    AddModule(antiTitleFrame, 20)
 
-    local deleteFrame = CreateFrame("Frame", nil, content)
-    deleteFrame:SetHeight(50)
-
-    local deleteLbl = deleteFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    deleteLbl:SetPoint("TOPLEFT", deleteFrame, "TOPLEFT", 0, 0)
-    deleteLbl:SetText("Delete profile")
-
-    local deleteDD = HealerRange_CreateDropdown({
-        parent        = deleteFrame,
-        anchorFrame   = (function()
-            local a = deleteFrame:CreateFontString(nil, "ARTWORK")
-            a:SetPoint("TOPLEFT", deleteFrame, "TOPLEFT", 0, -20)
-            return a
-        end)(),
-        width         = 200,
-        itemHeight    = 20,
-        visibleItems  = 8,
-        getList       = function()
-            local list = UnbunkProfiles_GetList()
-            -- Retire Default de la liste
-            for i, v in ipairs(list) do
-                if v == "Default" then table.remove(list, i) break end
-            end
-            return list
-        end,
-        getCurrentKey = function() return "" end,
-        onSelect      = function(name) end,
+    -- Wipe detection
+    local wipeFrame = CreateFrame("Frame", nil, content)
+    wipeFrame:SetHeight(40)
+    local wipeCb = Unbunk_CreateCheckbox({
+        parent  = wipeFrame,
+        label   = "Wipe detection: silence ALL death alerts when many people die at once",
+        checked = UnbunkUtilityDB.wipe.enabled == true,
+        onClick = function(val) UnbunkUtilityDB.wipe.enabled = val end,
     })
+    wipeCb.frame:SetPoint("TOPLEFT", wipeFrame, "TOPLEFT", 0, 0)
+    local wipeDesc = wipeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    wipeDesc:SetPoint("TOPLEFT", wipeFrame, "TOPLEFT", 26, -20)
+    wipeDesc:SetText(string.format(
+        "|cffaaaaaa%d+ deaths in %ds, silence for %ds|r",
+        UnbunkUtilityDB.wipe.deathThreshold or 8,
+        UnbunkUtilityDB.wipe.timeWindow or 3,
+        UnbunkUtilityDB.wipe.suppressDuration or 15
+    ))
+    AddModule(wipeFrame, 40)
 
-    local deleteBtn = Unbunk_CreateButton({
-        parent  = deleteFrame,
-        label   = "Delete",
-        width   = 70,
-        height  = 22,
-        onClick = function()
-            local name = deleteDD.selectedText:GetText()
-            if name and name ~= "" and name ~= "Default" then
-                if UnbunkProfiles_Delete(name) then
-                    deleteDD.selectedText:SetText("")
-                    currentLbl:SetText("Current profile: |cffffd700" .. UnbunkProfiles_GetCurrent() .. "|r")
-                    profileDD.selectedText:SetText(UnbunkProfiles_GetCurrent())
-                    print("|cffff4444[UnbunkUtility]|r Profile deleted: " .. name)
-                end
-            end
-        end,
+    -- DPS spam guard
+    local dpsFrame = CreateFrame("Frame", nil, content)
+    dpsFrame:SetHeight(40)
+    local dpsCb = Unbunk_CreateCheckbox({
+        parent  = dpsFrame,
+        label   = "DPS spam guard: silence DPS death alerts on burst DPS deaths",
+        checked = UnbunkUtilityDB.dpsSpam.enabled == true,
+        onClick = function(val) UnbunkUtilityDB.dpsSpam.enabled = val end,
     })
-    deleteBtn.frame:SetPoint("LEFT", deleteDD.toggleBtn, "RIGHT", 8, 0)
+    dpsCb.frame:SetPoint("TOPLEFT", dpsFrame, "TOPLEFT", 0, 0)
+    local dpsDesc = dpsFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    dpsDesc:SetPoint("TOPLEFT", dpsFrame, "TOPLEFT", 26, -20)
+    dpsDesc:SetText(string.format(
+        "|cffaaaaaa%d+ DPS deaths in %ds, silence DPS alerts for %ds|r",
+        UnbunkUtilityDB.dpsSpam.deathThreshold or 3,
+        UnbunkUtilityDB.dpsSpam.timeWindow or 3,
+        UnbunkUtilityDB.dpsSpam.suppressDuration or 6
+    ))
+    AddModule(dpsFrame, 40)
 
-    AddModule(deleteFrame, 50)
-
-    -- ── Export ────────────────────────────────────────────────────────────────
-
-    local exportFrame = CreateFrame("Frame", nil, content)
-    exportFrame:SetHeight(80)
-
-    local exportLbl = exportFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    exportLbl:SetPoint("TOPLEFT", exportFrame, "TOPLEFT", 0, 0)
-    exportLbl:SetText("Export current profile")
-
-    local exportBox = CreateFrame("EditBox", nil, exportFrame, "InputBoxTemplate")
-    exportBox:SetSize(400, 22)
-    exportBox:SetPoint("TOPLEFT", exportFrame, "TOPLEFT", 0, -22)
-    exportBox:SetAutoFocus(false)
-    exportBox:SetMaxLetters(0)
-
-    local exportBtn = Unbunk_CreateButton({
-        parent  = exportFrame,
-        label   = "Export",
-        width   = 70,
-        height  = 22,
-        onClick = function()
-            local str = UnbunkProfiles_Export()
-            exportBox:SetText(str)
-            exportBox:SetFocus()
-            exportBox:HighlightText()
-        end,
-    })
-    exportBtn.frame:SetPoint("TOPLEFT", exportFrame, "TOPLEFT", 0, -50)
-
-    AddModule(exportFrame, 80)
-
-    -- ── Import ────────────────────────────────────────────────────────────────
-
-    local importFrame = CreateFrame("Frame", nil, content)
-    importFrame:SetHeight(80)
-
-    local importLbl = importFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    importLbl:SetPoint("TOPLEFT", importFrame, "TOPLEFT", 0, 0)
-    importLbl:SetText("Import profile (overwrites current)")
-
-    local importBox = CreateFrame("EditBox", nil, importFrame, "InputBoxTemplate")
-    importBox:SetSize(400, 22)
-    importBox:SetPoint("TOPLEFT", importFrame, "TOPLEFT", 0, -22)
-    importBox:SetAutoFocus(false)
-    importBox:SetMaxLetters(0)
-
-    local importBtn = Unbunk_CreateButton({
-        parent  = importFrame,
-        label   = "Import",
-        width   = 70,
-        height  = 22,
-        onClick = function()
-            local str = importBox:GetText()
-            if str and str ~= "" then
-                local ok, err = UnbunkProfiles_Import(str)
-                if ok then
-                    currentLbl:SetText("Current profile: |cffffd700" .. UnbunkProfiles_GetCurrent() .. "|r")
-                    print("|cffff4444[UnbunkUtility]|r Profile imported successfully.")
-                else
-                    print("|cffff4444[UnbunkUtility]|r Import failed: " .. tostring(err))
-                end
-            end
-        end,
-    })
-    importBtn.frame:SetPoint("TOPLEFT", importFrame, "TOPLEFT", 0, -50)
-
-    AddModule(importFrame, 80)
-
-    -- ── Reset profil ──────────────────────────────────────────────────────────
-
-    local resetFrame = CreateFrame("Frame", nil, content)
-    resetFrame:SetHeight(50)
-
-    local resetLbl = resetFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    resetLbl:SetPoint("TOPLEFT", resetFrame, "TOPLEFT", 0, 0)
-    resetLbl:SetText("Reset current profile to defaults")
-
-    local resetBtn = Unbunk_CreateButton({
-        parent  = resetFrame,
-        label   = "Reset",
-        width   = 70,
-        height  = 22,
-        onClick = function()
-            local name = UnbunkProfiles_GetCurrent()
-            HealerRangeDB    = {}
-            DeathAlertDB     = {}
-            BLTrackerDB      = {}
-            PotionTrackerDB  = {}
-            TrinketTrackerDB = {}
-            PITrackerDB      = {}
-            ns.HealerRange.CfgInit()
-            ns.DeathAlert.CfgInit()
-            ns.BLTracker.CfgInit()
-            ns.PotionTracker.CfgInit()
-            ns.TrinketTracker.CfgInit()
-            ns.PITracker.CfgInit()
-            UnbunkProfiles_SaveCurrent()
-            UnbunkProfiles_ReloadAll()
-            print("|cffff4444[UnbunkUtility]|r Profile reset to defaults: " .. name)
-        end,
-    })
-    resetBtn.frame:SetPoint("TOPLEFT", resetFrame, "TOPLEFT", 0, -22)
-    AddModule(resetFrame, 50)
-
-    -- ── OnShow refresh ────────────────────────────────────────────────────────
+    -- ── OnShow refresh ───────────────────────────────────────────────────────
 
     parent:HookScript("OnShow", function()
-        currentLbl:SetText("Current profile: |cffffd700" .. UnbunkProfiles_GetCurrent() .. "|r")
-        profileDD.selectedText:SetText(UnbunkProfiles_GetCurrent())
+        comboMasterCb.SetChecked(UnbunkUtilityDB.combo.enabled == true)
+        blComboPicker.Refresh()
+        potionComboPicker.Refresh()
+        wipeCb.SetChecked(UnbunkUtilityDB.wipe.enabled == true)
+        dpsCb.SetChecked(UnbunkUtilityDB.dpsSpam.enabled == true)
     end)
 end
 
--- ── Enregistrement ────────────────────────────────────────────────────────────
+-- ── Registration ──────────────────────────────────────────────────────────────
 
 local initGS = CreateFrame("Frame")
 initGS:RegisterEvent("ADDON_LOADED")

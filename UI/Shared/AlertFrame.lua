@@ -64,8 +64,8 @@ function Unbunk_CreateAlertFrame(config)
     ag:Play()
 
     -- ── Auto resize ───────────────────────────────────────────────────────────
-    -- Redimensionne au texte uniquement quand le contenu/la police change, plutôt
-    -- qu'à chaque frame via OnUpdate.
+    -- Resize to the text only when content/font changes, instead of every
+    -- frame via OnUpdate.
 
     local function Resize()
         local w = text:GetStringWidth()
@@ -142,7 +142,7 @@ function Unbunk_CreateAlertFrame(config)
             frame:SetScript("OnDragStop", function(self)
                 self:StopMovingOrSizing()
                 local _, _, _, x, y = self:GetPoint()
-                -- on sauvegarde via un callback optionnel
+                -- Persist the new position via the optional callback.
                 if config.onDragStop then config.onDragStop(math.floor(x), math.floor(y)) end
             end)
             frame:SetBackdrop({

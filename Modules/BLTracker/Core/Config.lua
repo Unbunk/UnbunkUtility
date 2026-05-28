@@ -19,10 +19,10 @@ local DEFAULTS = {
     timerOutline    = "OUTLINE",
     timerColor      = { r = 1.0, g = 1.0, b = 1.0, a = 1.0 },
     soundOnBL       = true,
-    soundKeyBL      = "UnbunkUtility: Bloodlust",
+    soundKeyBL      = "UnbunkUtility: Bloodlust High",
     soundPathBL     = nil,
     soundOnReady    = true,
-    soundKeyReady   = "UnbunkUtility: BL Ready",
+    soundKeyReady   = "UnbunkUtility: BL Ready High",
     soundPathReady  = nil,
     instanceFilter  = {
         dungeon      = true,
@@ -33,6 +33,7 @@ local DEFAULTS = {
 }
 
 function BL.CfgInit()
+    ns.MigrateSoundKeys(BLTrackerDB)
     for k, v in pairs(DEFAULTS) do
         if BLTrackerDB[k] == nil then
             if type(v) == "table" then

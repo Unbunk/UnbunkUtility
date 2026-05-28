@@ -9,9 +9,9 @@
 --       visibleItems = 10,
 --       getListSize = function() return #myList end,
 --   })
---   sb.track   -- le frame de la track
---   sb.thumb   -- le bouton thumb
---   sb.Update() -- force le recalcul
+--   sb.track   -- track frame
+--   sb.thumb   -- thumb button
+--   sb.Update() -- force a recompute
 
 function Unbunk_CreateScrollBar(config)
     local parent       = config.parent
@@ -57,7 +57,7 @@ function Unbunk_CreateScrollBar(config)
             local delta     = startY - currentY
             local newScroll = math.max(0, math.min(maxScroll, startScroll + (delta / maxOffset) * maxScroll))
             scrollFrame:SetVerticalScroll(newScroll)
-            -- Update le thumb manuellement sans appeler sb_Update
+            -- Update the thumb position directly, without calling sb_Update.
             if maxScroll > 0 then
                 local ratio     = newScroll / maxScroll
                 local maxOff    = trackH - thumbH

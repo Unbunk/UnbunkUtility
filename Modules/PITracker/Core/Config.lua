@@ -19,7 +19,7 @@ local DEFAULTS = {
     timerOutline   = "OUTLINE",
     timerColor     = { r=1, g=1, b=1, a=1 },
     soundOnPI      = true,
-    soundKeyPI     = "UnbunkUtility: PI",
+    soundKeyPI     = "UnbunkUtility: PI High",
     soundPathPI    = nil,
     instanceFilter = {
         dungeon      = true,
@@ -30,6 +30,7 @@ local DEFAULTS = {
 }
 
 function PI.CfgInit()
+    ns.MigrateSoundKeys(PITrackerDB)
     for k, v in pairs(DEFAULTS) do
         if PITrackerDB[k] == nil then
             if type(v) == "table" then

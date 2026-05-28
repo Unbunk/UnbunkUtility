@@ -9,7 +9,7 @@
 --       height  = 22,
 --       onClick = function() ... end,
 --   })
---   btn.frame  -- le frame bouton
+--   btn.frame  -- button frame
 --   btn.SetText(text)
 --   btn.SetEnabled(bool)
 

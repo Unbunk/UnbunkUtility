@@ -44,7 +44,7 @@ local function IsHealerInRange()
     local prefix = IsInRaid() and "raid" or "party"
     local count  = IsInRaid() and GetNumGroupMembers() or GetNumSubgroupMembers()
 
-    -- Vérifie s'il y a au moins un healer non-Evoker
+    -- Check whether there is at least one non-Evoker healer.
     local hasNonEvokerHealer = false
     for i = 1, count do
         local unit = prefix .. i
@@ -58,10 +58,10 @@ local function IsHealerInRange()
         end
     end
 
-    -- Pas de healer non-Evoker → pas de détection
+    -- No non-Evoker healer present → skip detection entirely.
     if not hasNonEvokerHealer then return nil end
 
-    -- Détecte uniquement sur les healers non-Evoker
+    -- Only run range checks against the non-Evoker healers.
     for i = 1, count do
         local unit = prefix .. i
         if UnitExists(unit) and not UnitIsDeadOrGhost(unit) then

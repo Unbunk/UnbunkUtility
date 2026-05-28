@@ -53,7 +53,7 @@ local function CreateHealerRangePanel(parent)
     probeMsg:SetWordWrap(true)
     AddModule(probeFrame, 30)
 
-    -- ── Test Alert + duration (du Test) ───────────────────────────────────────
+    -- ── Test Alert button + test duration input ──────────────────────────────
 
     local testFrame = CreateFrame("Frame", nil, content)
     testFrame:SetHeight(30)
@@ -64,9 +64,16 @@ local function CreateHealerRangePanel(parent)
         width   = 100,
         height  = 22,
         onClick = function()
-            if SlashCmdList["UNBUNKUTILITY"] then
-                SlashCmdList["UNBUNKUTILITY"]("test")
-            end
+            HR.SetTesting(true)
+            HR.GetFrame():Show()
+            HR.PlaySound()
+            local duration = HR.CfgGet("alertDuration") or 5
+            C_Timer.After(duration, function()
+                HR.SetTesting(false)
+                if not HR.IsUnlocked() then
+                    HR.GetFrame():Hide()
+                end
+            end)
         end,
     })
     testAlertBtn.frame:SetPoint("TOPLEFT", testFrame, "TOPLEFT", 0, -4)
@@ -205,7 +212,7 @@ local function CreateHealerRangePanel(parent)
         end,
         onUnlock    = function()
             if HR.SetUnlocked then HR.SetUnlocked(true) end
-            print("|cffff4444[UnbunkUtility]|r Alert unlocked — drag to reposition, then /ubu lock to save.")
+            print("|cffff4444[UnbunkUtility]|r Alert unlocked — drag to reposition, then click Lock to save.")
         end,
         onLock      = function()
             if HR.SetUnlocked then HR.SetUnlocked(false) end
@@ -236,7 +243,7 @@ local function CreateHealerRangePanel(parent)
     end)
 end
 
--- ── Enregistrement ────────────────────────────────────────────────────────────
+-- ── Registration ──────────────────────────────────────────────────────────────
 local initHR = CreateFrame("Frame")
 initHR:RegisterEvent("ADDON_LOADED")
 initHR:SetScript("OnEvent", function(self, event, addonName)

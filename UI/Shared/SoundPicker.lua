@@ -47,14 +47,24 @@ function HealerRange_CreateSoundPicker(parent, LSM, config)
             width         = 290,
             itemHeight    = 20,
             visibleItems  = 10,
-            getList       = function() return LSM:List("sound") end,
-            getCurrentKey = getSoundKey,
+            getList       = function()
+                local list = { "None" }
+                for _, name in ipairs(LSM:List("sound")) do
+                    table.insert(list, name)
+                end
+                return list
+            end,
+            getCurrentKey = function() return getSoundKey() or "None" end,
             onSelect      = function(name)
-                local path = LSM:Fetch("sound", name)
-                onSoundSelect(name, path)
+                if name == "None" then
+                    onSoundSelect(nil, nil)
+                else
+                    local path = LSM:Fetch("sound", name)
+                    onSoundSelect(name, path)
+                end
             end,
         })
-        dd.selectedText:SetText(getSoundKey() or "(select a sound)")
+        dd.selectedText:SetText(getSoundKey() or "None")
         selectedText = dd.selectedText
 
         local soundTest = CreateFrame("Button", nil, container)
@@ -104,7 +114,7 @@ function HealerRange_CreateSoundPicker(parent, LSM, config)
     function result.Refresh()
         soundCheckbox.SetChecked(getSoundEnable() ~= false)
         if selectedText then
-            selectedText:SetText(getSoundKey() or "(select a sound)")
+            selectedText:SetText(getSoundKey() or "None")
         end
     end
 

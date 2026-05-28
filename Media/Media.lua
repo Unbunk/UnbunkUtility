@@ -8,27 +8,46 @@ initMedia:SetScript("OnEvent", function(self, event, addonName)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     if LSM then
         local ADDON_PATH = "Interface\\AddOns\\UnbunkUtility\\Media\\"
-        local sounds = {
-            ["UnbunkUtility: BL"]                 = ADDON_PATH .. "Sounds\\BL.mp3",
-            ["UnbunkUtility: Bloodlust"]          = ADDON_PATH .. "Sounds\\Bloodlust.mp3",
-            ["UnbunkUtility: BL Ready"]           = ADDON_PATH .. "Sounds\\BLReady.mp3",
-            ["UnbunkUtility: Combat Potion"]      = ADDON_PATH .. "Sounds\\CombatPotion.mp3",
-            ["UnbunkUtility: Combat Potion Ready"]= ADDON_PATH .. "Sounds\\CombatPotionReady.mp3",
-            ["UnbunkUtility: Healer Died"]        = ADDON_PATH .. "Sounds\\HealerDied.mp3",
-            ["UnbunkUtility: Health Potion"]      = ADDON_PATH .. "Sounds\\HealthPotion.mp3",
-            ["UnbunkUtility: Health Potion Ready"]= ADDON_PATH .. "Sounds\\HealthPotionReady.mp3",
-            ["UnbunkUtility: No Heal"]            = ADDON_PATH .. "Sounds\\NoHeal.mp3",
-            ["UnbunkUtility: PI"]                 = ADDON_PATH .. "Sounds\\PI.mp3",
-            ["UnbunkUtility: Potion Ready"]       = ADDON_PATH .. "Sounds\\PotionReady.mp3",
-            ["UnbunkUtility: Tank Died"]          = ADDON_PATH .. "Sounds\\TankDied.mp3",
-            ["UnbunkUtility: DPS Died"]           = ADDON_PATH .. "Sounds\\DPSDied.mp3",
-            ["UnbunkUtility: Trinket"]            = ADDON_PATH .. "Sounds\\Trinket.mp3",
-            ["UnbunkUtility: Trinket Ready"]      = ADDON_PATH .. "Sounds\\TrinketReady.mp3",
-            ["UnbunkUtility: FAHH"]               = ADDON_PATH .. "Sounds\\FAHH.mp3",
+
+        -- Sounds available in every loudness variant (High / Medium / Low /
+        -- Loud). Every LSM key carries its loudness suffix so the picker is
+        -- unambiguous; module defaults explicitly select the High variant.
+        local BASE_SOUNDS = {
+            { key = "BL",                  file = "BL" },
+            { key = "Bloodlust",           file = "Bloodlust" },
+            { key = "Bloodlust Combo",     file = "BloodlustCombo" },
+            { key = "BL Ready",            file = "BLReady" },
+            { key = "BRez Ready",          file = "BRezReady" },
+            { key = "BRez Used",           file = "BRezUsed" },
+            { key = "Combat Potion",       file = "CombatPotion" },
+            { key = "Combat Potion Ready", file = "CombatPotionReady" },
+            { key = "DPS Died",            file = "DPSDied" },
+            { key = "Drink",               file = "Drink" },
+            { key = "Healer Died",         file = "HealerDied" },
+            { key = "Health Potion",       file = "HealthPotion" },
+            { key = "Health Potion Ready", file = "HealthPotionReady" },
+            { key = "Healthstone",         file = "Healthstone" },
+            { key = "Healthstone Ready",   file = "HealthstoneReady" },
+            { key = "No Heal",             file = "NoHeal" },
+            { key = "PI",                  file = "PI" },
+            { key = "Potion Combo",        file = "PotionCombo" },
+            { key = "Potion Ready",        file = "PotionReady" },
+            { key = "Tank Died",           file = "TankDied" },
+            { key = "Trinket",             file = "Trinket" },
+            { key = "Trinket Combo",       file = "Trinket Combo" },
+            { key = "Trinket Ready",       file = "TrinketReady" },
         }
-        for name, path in pairs(sounds) do
-            LSM:Register("sound", name, path)
+        local VARIANTS = { "High", "Medium", "Low", "Loud" }
+        for _, s in ipairs(BASE_SOUNDS) do
+            for _, v in ipairs(VARIANTS) do
+                LSM:Register("sound", "UnbunkUtility: " .. s.key .. " " .. v,
+                    ADDON_PATH .. "Sounds\\" .. v .. "\\" .. s.file .. v .. ".mp3")
+            end
         end
+
+        -- FAHH lives at the Sounds root, no loudness variants.
+        LSM:Register("sound", "UnbunkUtility: FAHH",
+            ADDON_PATH .. "Sounds\\FAHH.mp3")
 
         local ICON_PATH = "Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\"
         UNBUNK_ICONS = {

@@ -23,10 +23,10 @@ local function CreatePITrackerPanel(parent)
         lastFrame = moduleFrame
     end
 
-    -- ── Enable checkbox ───────────────────────────────────────────────────────
+    -- ── Enable checkbox + Test button ─────────────────────────────────────────
 
     local enableFrame = CreateFrame("Frame", nil, content)
-    enableFrame:SetHeight(24)
+    enableFrame:SetHeight(28)
     local enableCb = Unbunk_CreateCheckbox({
         parent  = enableFrame,
         label   = "Enable PI Tracker",
@@ -37,7 +37,16 @@ local function CreatePITrackerPanel(parent)
         end,
     })
     enableCb.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
-    AddModule(enableFrame, 24)
+
+    local testBtn = Unbunk_CreateButton({
+        parent  = enableFrame,
+        label   = "Test",
+        width   = 80,
+        height  = 22,
+        onClick = function() PI.RunTest(20) end,
+    })
+    testBtn.frame:SetPoint("LEFT", enableCb.frame, "RIGHT", 180, 0)
+    AddModule(enableFrame, 28)
 
     -- ── Instance filter ───────────────────────────────────────────────────────
 

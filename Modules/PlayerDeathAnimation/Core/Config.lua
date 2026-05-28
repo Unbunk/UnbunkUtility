@@ -23,6 +23,7 @@ local DEFAULTS = {
 }
 
 function PD.CfgInit()
+    ns.MigrateSoundKeys(PlayerDeathDB)
     for k, v in pairs(DEFAULTS) do
         if PlayerDeathDB[k] == nil then
             if type(v) == "table" then

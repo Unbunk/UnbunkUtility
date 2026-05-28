@@ -49,7 +49,7 @@ function Unbunk_CreateTextInput(config)
     editBox:SetScript("OnChar", function(self, char)
         if not numeric then return end
         local text = self:GetText()
-        -- Permet le tiret seulement en première position
+        -- Allow the minus sign only in the first position.
         if char == "-" and #text > 1 then
             self:SetText(text:gsub("-", ""))
         end

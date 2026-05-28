@@ -10,6 +10,8 @@
 --   ti.SetIcon(textureId)
 --   ti.SetTimer(expirationTime)
 --   ti.ClearTimer()
+--   ti.ShowCheck()  / ti.HideCheck() — persistent green check on/off
+--   ti.BlinkCheck() — flash the check briefly then hide (use on CD-ready)
 --   ti.Show()
 --   ti.Hide()
 --   ti.IsShown()
@@ -19,7 +21,7 @@
 --   ti.ApplyPosition()
 --   ti.ApplyFont()
 --   ti.GetFrame()
---   ti.onExpire = function() ... end  -- callback optionnel quand le timer expire
+--   ti.onExpire = function() ... end  -- optional callback fired when the timer expires
 
 local _, ns = ...
 
@@ -36,6 +38,8 @@ function Unbunk_CreateTimerIcon(config)
 
     local frame = CreateFrame("Frame", name, UIParent, "BackdropTemplate")
     frame:SetSize(64, 64)
+    -- Render above Blizzard's Cooldown Manager (which sits at MEDIUM strata).
+    frame:SetFrameStrata("HIGH")
     frame:Hide()
 
     -- ── Icon ──────────────────────────────────────────────────────────────────
@@ -118,7 +122,9 @@ function Unbunk_CreateTimerIcon(config)
         expirationTime = nil
         timerText:Hide()
         cooldown:Clear()
-        checkTex:Show()
+        -- The check is now driven separately (Show / Hide / Blink) by
+        -- consumers, so they can flash it on CD-completion instead of
+        -- leaving it permanently visible.
     end
 
     function result.Show()
@@ -183,18 +189,102 @@ function Unbunk_CreateTimerIcon(config)
         return unlocked
     end
 
-    function result.ShowCheck() checkTex:Show() end
-    function result.HideCheck() checkTex:Hide() end
+    -- Blink animation: flash the check briefly on CD-completion, then hide.
+    local BLINK_TOTAL    = 1.5
+    local BLINK_INTERVAL = 0.2
+    local function StopBlink()
+        if frame.blinkFrame then
+            frame.blinkFrame:SetScript("OnUpdate", nil)
+        end
+        checkTex:SetAlpha(1)
+    end
+
+    function result.ShowCheck()
+        StopBlink()
+        checkTex:Show()
+    end
+
+    function result.HideCheck()
+        StopBlink()
+        checkTex:Hide()
+    end
+
+    function result.BlinkCheck()
+        StopBlink()
+        checkTex:Show()
+        checkTex:SetAlpha(1)
+        if not frame.blinkFrame then
+            frame.blinkFrame = CreateFrame("Frame", nil, frame)
+        end
+        local elapsed = 0
+        frame.blinkFrame:SetScript("OnUpdate", function(self, dt)
+            elapsed = elapsed + dt
+            if elapsed >= BLINK_TOTAL then
+                self:SetScript("OnUpdate", nil)
+                checkTex:Hide()
+                checkTex:SetAlpha(1)
+                return
+            end
+            local phase = math.floor(elapsed / BLINK_INTERVAL) % 2
+            checkTex:SetAlpha(phase == 0 and 1 or 0)
+        end)
+    end
+
+    -- Pixel glow: a handful of small bright dots marching around the icon
+    -- perimeter on a loop. Created lazily and reused across show/hide.
+    local function EnsurePixelGlow()
+        if frame.pixelGlow then return frame.pixelGlow end
+
+        local DOT_COUNT = 8
+        local DOT_SIZE  = 3
+        local CYCLE     = 1.5  -- seconds for one full lap
+
+        local glow = CreateFrame("Frame", nil, frame)
+        glow:SetAllPoints(frame)
+        glow:Hide()
+
+        local dots = {}
+        for i = 1, DOT_COUNT do
+            local dot = glow:CreateTexture(nil, "OVERLAY")
+            dot:SetSize(DOT_SIZE, DOT_SIZE)
+            dot:SetColorTexture(1, 1, 0, 1)  -- yellow
+            dots[i] = dot
+        end
+
+        local elapsed = 0
+        glow:SetScript("OnUpdate", function(self, dt)
+            elapsed = elapsed + dt
+            local progress = (elapsed % CYCLE) / CYCLE
+            local w, h = frame:GetSize()
+            if w == 0 or h == 0 then return end
+            local perimeter = 2 * (w + h)
+            for i, dot in ipairs(dots) do
+                local p = (progress + (i - 1) / DOT_COUNT) % 1
+                local d = p * perimeter
+                local x, y
+                if d < w then
+                    x, y = d, 0
+                elseif d < w + h then
+                    x, y = w, -(d - w)
+                elseif d < 2 * w + h then
+                    x, y = w - (d - w - h), -h
+                else
+                    x, y = 0, -(perimeter - d)
+                end
+                dot:ClearAllPoints()
+                dot:SetPoint("CENTER", frame, "TOPLEFT", x, y)
+            end
+        end)
+
+        frame.pixelGlow = glow
+        return glow
+    end
 
     function result.SetGlow(enabled)
         if enabled then
-            frame:SetBackdrop({
-                edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-                edgeSize = 10,
-            })
-            frame:SetBackdropBorderColor(1, 1, 0, 0.9)
-        else
-            frame:SetBackdrop(nil)
+            EnsurePixelGlow():Show()
+        elseif frame.pixelGlow then
+            frame.pixelGlow:Hide()
         end
     end
 

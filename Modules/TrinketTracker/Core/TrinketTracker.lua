@@ -28,6 +28,17 @@ local function CreateTrinketTracker(prefix, frameName)
             if key == "enabled" then
                 return TT.CfgGet("enabled") and GetCfg("enabled") and IsActiveInCurrentInstance()
             end
+            if key == "spellId" then
+                -- Derive the trinket's use spell from the currently equipped
+                -- item so the shared ItemTracker can detect the buff and show
+                -- a green timer while it is active (same UX as potions).
+                local slot = GetCfg("slot")
+                local itemId = slot and GetInventoryItemID("player", slot)
+                if itemId then
+                    return select(2, C_Item.GetItemSpell(itemId))
+                end
+                return nil
+            end
             return GetCfg(key)
         end,
         getItemId = function()
@@ -94,7 +105,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, _, spellId = ...
         if unit ~= "player" then return end
-        -- Détecte l'utilisation d'un trinket par son spell (slot configuré).
+        -- Detect a trinket use via its spell (configured slot).
         local t1Cfg = TT.CfgGet("trinket1")
         local t2Cfg = TT.CfgGet("trinket2")
         local t1Id = t1Cfg and t1Cfg.slot and GetInventoryItemID("player", t1Cfg.slot)
@@ -103,11 +114,11 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         local t2Spell = t2Id and select(2, C_Item.GetItemSpell(t2Id))
         if t1Spell and spellId == t1Spell then
             if TT.CfgGet("trinket1").soundOnUse then
-                TT.PlaySound("trinket1", "soundUse")
+                ns.combo.Notify("trinket", function() TT.PlaySound("trinket1", "soundUse") end)
             end
         elseif t2Spell and spellId == t2Spell then
             if TT.CfgGet("trinket2").soundOnUse then
-                TT.PlaySound("trinket2", "soundUse")
+                ns.combo.Notify("trinket", function() TT.PlaySound("trinket2", "soundUse") end)
             end
         end
     end
@@ -115,7 +126,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 end)
 
 C_Timer.NewTicker(0.5, function()
-    -- État stable : si le module est désactivé, les frames sont déjà cachés.
+    -- Steady state: when the module is disabled the frames are already hidden.
     if not TT.CfgGet("enabled") then return end
     TT.ApplyAll()
 end)

@@ -36,6 +36,134 @@ local function CreatePotionSection(parent, prefix)
 
     local tracker = prefix == "health" and PT.GetHealthTracker() or PT.GetCombatTracker()
 
+    -- ── Potion picker (scans the player's bags) ───────────────────────────────
+
+    local potionFrame = CreateFrame("Frame", nil, parent)
+    potionFrame:SetHeight(74)
+
+    local potionLbl = potionFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    potionLbl:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 0, 0)
+    potionLbl:SetText("Potion")
+
+    local potionAnchor = potionFrame:CreateFontString(nil, "ARTWORK")
+    potionAnchor:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 0, -20)
+
+    -- Build "|T<icon>:16|t Name" so each dropdown row shows its potion icon
+    -- next to the name. The same markup is used as the unique identifier for
+    -- both the displayed list and the current-selection comparison.
+    local function FormatDisplay(itemID, name)
+        local icon = C_Item.GetItemIconByID(itemID)
+        if icon then
+            return string.format("|T%d:16|t %s", icon, name)
+        end
+        return name
+    end
+
+    -- Displays the potion actually being tracked right now (the resolver's
+    -- pick, which falls back when the configured one is out of bags).
+    local function ActivePotionDisplay()
+        local id = PT.GetActiveItemId(prefix)
+        if not id then return "None" end
+        local name = C_Item.GetItemNameByID(id) or tostring(id)
+        return FormatDisplay(id, name)
+    end
+
+    -- displayString -> itemID, rebuilt on every getList() so onSelect can
+    -- recover the item ID without re-scanning.
+    local displayToId = {}
+
+    local potionDD
+    potionDD = HealerRange_CreateDropdown({
+        parent        = potionFrame,
+        anchorFrame   = potionAnchor,
+        width         = 240,
+        itemHeight    = 20,
+        visibleItems  = 8,
+        getList = function()
+            -- Only show what is actually in the bags for this category; no
+            -- phantom entry for a configured potion that has run out.
+            displayToId = {}
+            local list = {}
+            for _, p in ipairs(PT.GetBagPotions(prefix)) do
+                local display = FormatDisplay(p.id, p.name)
+                table.insert(list, display)
+                displayToId[display] = p.id
+            end
+            return list
+        end,
+        getCurrentKey = ActivePotionDisplay,
+        onSelect = function(display)
+            local id = displayToId[display]
+            if not id then return end
+            SetCfg("itemId", id)
+            local _, spellID = C_Item.GetItemSpell(id)
+            SetCfg("spellId", spellID)
+            potionDD.selectedText:SetText(display)
+            PT.ApplyAll()
+        end,
+    })
+    potionDD.selectedText:SetText(ActivePotionDisplay())
+
+    -- ── Favorite potion picker (curated list) ─────────────────────────────────
+
+    local favLbl = potionFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    favLbl:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 260, 0)
+    favLbl:SetText("Favorite potion")
+
+    local favAnchor = potionFrame:CreateFontString(nil, "ARTWORK")
+    favAnchor:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 260, -20)
+
+    local function FavoriteDisplay()
+        local id = GetCfg("favoriteId")
+        if not id then return "None" end
+        local name = C_Item.GetItemNameByID(id) or ("[" .. id .. "]")
+        return FormatDisplay(id, name)
+    end
+
+    local favDisplayToId = {}
+
+    local favoriteDD
+    favoriteDD = HealerRange_CreateDropdown({
+        parent        = potionFrame,
+        anchorFrame   = favAnchor,
+        width         = 200,
+        itemHeight    = 20,
+        visibleItems  = 8,
+        getList = function()
+            favDisplayToId = {}
+            local list = {}
+            for _, p in ipairs(PT.GetFavoritePotions(prefix)) do
+                local display = FormatDisplay(p.id, p.name)
+                table.insert(list, display)
+                favDisplayToId[display] = p.id
+            end
+            return list
+        end,
+        getCurrentKey = FavoriteDisplay,
+        onSelect = function(display)
+            local id = favDisplayToId[display]
+            if not id then return end
+            SetCfg("favoriteId", id)
+            favoriteDD.selectedText:SetText(display)
+            PT.ApplyAll()
+        end,
+    })
+    favoriteDD.selectedText:SetText(FavoriteDisplay())
+
+    -- Favorite enable checkbox, sitting below the dropdown.
+    local favCb = Unbunk_CreateCheckbox({
+        parent  = potionFrame,
+        label   = "Use favorite when in bag",
+        checked = GetCfg("favoriteEnabled") == true,
+        onClick = function(val)
+            SetCfg("favoriteEnabled", val)
+            PT.ApplyAll()
+        end,
+    })
+    favCb.frame:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 260, -46)
+
+    AddWidget(potionFrame, 74)
+
     -- ── Sound use ─────────────────────────────────────────────────────────────
 
     local soundUseResult = HealerRange_CreateSoundPicker(parent, LSM, {
@@ -197,17 +325,77 @@ local function CreatePotionSection(parent, prefix)
     te.frame:ClearAllPoints()
     AddWidget(te.frame, te.height)
 
+    -- ── Show stack count checkbox ────────────────────────────────────────────
+
+    local showStackFrame = CreateFrame("Frame", nil, parent)
+    showStackFrame:SetHeight(24)
+    local showStackCb = Unbunk_CreateCheckbox({
+        parent  = showStackFrame,
+        label   = "Show stack count below icon",
+        checked = GetCfg("showStack") ~= false,
+        onClick = function(val)
+            SetCfg("showStack", val)
+            PT.ApplyStackVisuals(prefix, tracker)
+        end,
+    })
+    showStackCb.frame:SetPoint("TOPLEFT", showStackFrame, "TOPLEFT", 0, 0)
+    showStackFrame:ClearAllPoints()
+    AddWidget(showStackFrame, 24)
+
+    -- ── Stack text ────────────────────────────────────────────────────────────
+
+    local ste = HealerRange_CreateTextEditor(parent, {
+        LSM          = LSM,
+        label        = "Stack text",
+        showText     = false,
+        showFont     = true,
+        showSize     = true,
+        showColor    = true,
+        showOutline  = true,
+        getFontKey   = function() return GetCfg("stackFontKey") end,
+        getFontPath  = function() return GetCfg("stackFontPath") end,
+        getFontSize  = function() return GetCfg("stackFontSize") end,
+        getColor     = function() return GetCfg("stackColor") end,
+        getOutline   = function() return GetCfg("stackOutline") end,
+        onFontChange = function(key, path)
+            SetCfg("stackFontKey", key)
+            SetCfg("stackFontPath", path)
+            PT.ApplyStackVisuals(prefix, tracker)
+        end,
+        onSizeChange = function(size)
+            SetCfg("stackFontSize", size)
+            PT.ApplyStackVisuals(prefix, tracker)
+        end,
+        onColorChange = function(r, g, b, a)
+            SetCfg("stackColor", { r=r, g=g, b=b, a=a })
+            PT.ApplyStackVisuals(prefix, tracker)
+        end,
+        onOutlineChange = function(outline)
+            SetCfg("stackOutline", outline)
+            PT.ApplyStackVisuals(prefix, tracker)
+        end,
+    })
+    ste.frame:ClearAllPoints()
+    AddWidget(ste.frame, ste.height)
+
     height = height + 16
 
     return height, {
         soundUse   = soundUseResult.Refresh,
         soundReady = soundReadyResult.Refresh,
         te         = te.Refresh,
+        ste        = ste.Refresh,
         pe         = _G[peName].Refresh,
         showIcon   = function() showIconCb.SetChecked(GetCfg("showIcon") ~= false) end,
+        showStack  = function() showStackCb.SetChecked(GetCfg("showStack") ~= false) end,
         size       = function()
             wInput.SetText(tostring(GetCfg("iconWidth") or 64))
             hInput.SetText(tostring(GetCfg("iconHeight") or 64))
+        end,
+        potion     = function()
+            potionDD.selectedText:SetText(ActivePotionDisplay())
+            favoriteDD.selectedText:SetText(FavoriteDisplay())
+            favCb.SetChecked(GetCfg("favoriteEnabled") == true)
         end,
     }
 end
@@ -310,17 +498,23 @@ local function CreatePotionTrackerPanel(parent)
             allRefreshFns.health.soundUse()
             allRefreshFns.health.soundReady()
             allRefreshFns.health.showIcon()
+            allRefreshFns.health.showStack()
             allRefreshFns.health.size()
             allRefreshFns.health.pe()
             allRefreshFns.health.te()
+            allRefreshFns.health.ste()
+            allRefreshFns.health.potion()
         end
         if allRefreshFns.combat then
             allRefreshFns.combat.soundUse()
             allRefreshFns.combat.soundReady()
             allRefreshFns.combat.showIcon()
+            allRefreshFns.combat.showStack()
             allRefreshFns.combat.size()
             allRefreshFns.combat.pe()
             allRefreshFns.combat.te()
+            allRefreshFns.combat.ste()
+            allRefreshFns.combat.potion()
         end
     end)
 end
