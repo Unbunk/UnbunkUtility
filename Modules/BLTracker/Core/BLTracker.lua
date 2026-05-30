@@ -57,6 +57,7 @@ local playerClass  = nil
 local currentIcon  = nil
 local hasDebuff    = false
 local hasBuff      = false
+local lastDebuffEnd = 0  -- GetTime() at which the fatigue (Sated) debuff ends
 
 -- ── TimerIcon ─────────────────────────────────────────────────────────────────
 
@@ -175,16 +176,23 @@ local function SyncDebuff()
     if debuff then
         currentIcon = debuff.icon
         hasDebuff   = true
+        lastDebuffEnd = debuff.expirationTime or 0
         blIcon.SetTimer(debuff.expirationTime, debuff.duration)
     else
         if hasDebuff then
             hasDebuff   = false
             currentIcon = GetDefaultClassIcon(playerClass)
-            if BL.CfgGet("soundOnReady") then
-                BL.PlaySound("soundPathReady")
+            -- Only "ready" if the fatigue debuff actually expired. A loading
+            -- screen can report it as gone before its real end (e.g. leaving a
+            -- follower dungeon) — stale read, not BL coming back up.
+            local completed = lastDebuffEnd > 0 and (GetTime() >= lastDebuffEnd - ns.READY_EPSILON)
+            if completed and not ns.RecentlyZoned() then
+                if BL.CfgGet("soundOnReady") then BL.PlaySound("soundPathReady") end
+                blIcon.ClearTimer()
+                blIcon.BlinkCheck()  -- flash to signal BL is back up
+            else
+                blIcon.ClearTimer()
             end
-            blIcon.ClearTimer()
-            blIcon.BlinkCheck()  -- flash to signal BL is back up
         else
             blIcon.ClearTimer()
         end

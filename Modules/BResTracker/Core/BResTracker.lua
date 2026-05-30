@@ -164,8 +164,9 @@ function BR.ApplyVisuals()
         lastCooldownStart = 0
     end
 
-    -- Charge transitions (suppressed during test mode).
-    if not BR.testMode and lastCharges ~= nil then
+    -- Charge transitions (suppressed during test mode, and for a moment after a
+    -- loading screen where the charge count reads as stale — see ns.RecentlyZoned).
+    if not BR.testMode and lastCharges ~= nil and not ns.RecentlyZoned() then
         if cur > lastCharges and BR.CfgGet("soundOnReady") then
             BR.PlaySound()
         elseif cur < lastCharges then
