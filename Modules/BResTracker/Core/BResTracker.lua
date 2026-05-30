@@ -14,8 +14,9 @@ local BRES_ICON_ID   = 136080   -- Rebirth icon (fallback)
 
 local frame = CreateFrame("Frame", "BResTrackerFrame", UIParent, "BackdropTemplate")
 frame:SetSize(48, 48)
--- Render above Blizzard's Cooldown Manager (which sits at MEDIUM strata).
-frame:SetFrameStrata("HIGH")
+-- Below HIGH-strata panels (e.g. the talents window) but above Blizzard's
+-- Cooldown Manager. See ns.SetTrackerIconStrata.
+ns.SetTrackerIconStrata(frame)
 frame:Hide()
 
 local iconTex = frame:CreateTexture(nil, "BACKGROUND")
