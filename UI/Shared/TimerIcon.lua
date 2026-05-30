@@ -45,8 +45,9 @@ function ns.ui.CreateTimerIcon(config)
 
     local frame = CreateFrame("Frame", name, UIParent, "BackdropTemplate")
     frame:SetSize(64, 64)
-    -- Render above Blizzard's Cooldown Manager (which sits at MEDIUM strata).
-    frame:SetFrameStrata("HIGH")
+    -- Below HIGH-strata panels (e.g. the talents window) but above Blizzard's
+    -- Cooldown Manager. See ns.SetTrackerIconStrata.
+    ns.SetTrackerIconStrata(frame)
     frame:Hide()
 
     -- ── Icon ──────────────────────────────────────────────────────────────────

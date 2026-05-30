@@ -136,6 +136,18 @@ end
 -- Shared texture path for the green "ready" check used by the trackers.
 ns.GREEN_CHECK_TEXTURE = "Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\GreenCheck.tga"
 
+-- ── Tracker icon layering ────────────────────────────────────────────────────
+-- Layer a tracker icon BELOW HIGH-strata UI panels (e.g. the talents/spellbook
+-- window, so opening it covers the icons) while keeping it ABOVE Blizzard's
+-- Cooldown Manager, which sits at MEDIUM strata. Forcing MEDIUM puts us under
+-- HIGH panels; the frame level sits just above the cooldown viewer's icons.
+-- Bump the +20 here if the cooldown manager ever renders on top.
+function ns.SetTrackerIconStrata(frame)
+    frame:SetFrameStrata("MEDIUM")
+    local cmv = EssentialCooldownViewer or UtilityCooldownViewer
+    frame:SetFrameLevel(((cmv and cmv:GetFrameLevel()) or 10) + 20)
+end
+
 -- ── Combo sound coordinator ─────────────────────────────────────────────────
 -- Each tracker (BL / Potion / Trinket) routes its on-trigger sound through
 -- ns.combo.Notify. The coordinator delays for COMBO_WINDOW seconds and then
