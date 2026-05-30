@@ -2,7 +2,7 @@
 ## Title: Unbunk Utility
 ## Notes: Utility addon
 ## Author: Unbunk
-## Version: 3.0.6
+## Version: 3.0.7
 ## SavedVariables: HealerRangeDB, DeathAlertDB, BLTrackerDB, PotionTrackerDB, TrinketTrackerDB, UnbunkUtilityDB, PITrackerDB, PlayerDeathDB, BResTrackerDB, HealthstoneTrackerDB
 ## IconTexture: Interface\AddOns\UnbunkUtility\Media\Icons\UnbunkUtility.tga
 
