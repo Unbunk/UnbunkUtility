@@ -22,7 +22,7 @@ local function CreateTrinketTracker(prefix, frameName)
         end
     end
 
-    local tracker = Unbunk_CreateItemTracker({
+    local tracker = ns.ui.CreateItemTracker({
         frameName = frameName,
         getCfg    = function(key)
             if key == "enabled" then
@@ -112,6 +112,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         local t2Id = t2Cfg and t2Cfg.slot and GetInventoryItemID("player", t2Cfg.slot)
         local t1Spell = t1Id and select(2, C_Item.GetItemSpell(t1Id))
         local t2Spell = t2Id and select(2, C_Item.GetItemSpell(t2Id))
+        -- Note: if both slots hold the SAME (non-unique) on-use trinket then
+        -- t1Spell == t2Spell and only trinket1's sound fires (the elseif can't
+        -- match). Accepted limitation; most on-use trinkets are Unique-Equipped.
         if t1Spell and spellId == t1Spell then
             if TT.CfgGet("trinket1").soundOnUse then
                 ns.combo.Notify("trinket", function() TT.PlaySound("trinket1", "soundUse") end)
@@ -121,6 +124,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                 ns.combo.Notify("trinket", function() TT.PlaySound("trinket2", "soundUse") end)
             end
         end
+        -- The 0.5s ticker keeps visuals in sync; no need to relayout on every
+        -- player cast (UNIT_SPELLCAST_SUCCEEDED fires many times/sec in combat).
+        return
     end
     TT.ApplyAll()
 end)

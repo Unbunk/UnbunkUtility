@@ -2,19 +2,21 @@
 -- Reusable alert duration editor widget.
 --
 -- Usage:
---   local de = Unbunk_CreateDurationEditor({
+--   local de = ns.ui.CreateDurationEditor({
 --       parent       = panel,
---       anchorFrame  = someFrame,
 --       getDuration  = function() return MyCfg_Get("alertDuration") end,
 --       onDurationChange = function(val) MyCfg_Set("alertDuration", val) end,
 --   })
---   de.frame
+--   de.frame   -- container is sized but not self-anchored; the caller positions it
 --   de.height
 --   de.Refresh()
 
-function Unbunk_CreateDurationEditor(config)
+local _, ns = ...
+local L = ns.L
+ns.ui = ns.ui or {}
+
+function ns.ui.CreateDurationEditor(config)
     local parent             = config.parent
-    local anchorFrame        = config.anchorFrame
     local getDuration        = config.getDuration
     local onDurationChange   = config.onDurationChange
 
@@ -28,12 +30,12 @@ function Unbunk_CreateDurationEditor(config)
 
     local sectionLabel = container:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     sectionLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
-    sectionLabel:SetText("Alert duration")
+    sectionLabel:SetText(L["Alert duration"])
     height = height + 20
 
     -- ── Minus button ──────────────────────────────────────────────────────────
 
-    local minusBtn = Unbunk_CreateButton({
+    local minusBtn = ns.ui.CreateButton({
         parent  = container,
         label   = "-",
         width   = 22,
@@ -43,11 +45,13 @@ function Unbunk_CreateDurationEditor(config)
 
     -- ── Value display ─────────────────────────────────────────────────────────
 
-    local valueInput = Unbunk_CreateTextInput({
+    local valueInput = ns.ui.CreateTextInput({
         parent     = container,
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 1,
+        max        = 60,
         maxLetters = 3,
         text       = tostring(getDuration() or 5),
         onEnter    = function(val)
@@ -59,7 +63,7 @@ function Unbunk_CreateDurationEditor(config)
 
     -- ── Plus button ───────────────────────────────────────────────────────────
 
-    local plusBtn = Unbunk_CreateButton({
+    local plusBtn = ns.ui.CreateButton({
         parent  = container,
         label   = "+",
         width   = 22,
@@ -71,7 +75,7 @@ function Unbunk_CreateDurationEditor(config)
 
     local secLabel = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     secLabel:SetPoint("LEFT", plusBtn.frame, "RIGHT", 6, 0)
-    secLabel:SetText("seconds")
+    secLabel:SetText(L["seconds"])
 
     -- ── Button logic ──────────────────────────────────────────────────────────
 

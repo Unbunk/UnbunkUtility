@@ -17,22 +17,42 @@ local function IsActiveInCurrentInstance()
     return ns.IsActiveInInstance(HR.CfgGet("instanceFilter"))
 end
 
-function HR.HasCombatProbe()
+-- Whether the player's class has any friendly spell probe usable in combat.
+-- This only changes on spec/talent changes, not 10x/sec, so it is cached and
+-- refreshed on the relevant events (see RefreshCombatProbe below) instead of
+-- being recomputed inside the 0.1s range tick.
+local hasCombatProbe = false
+
+local function RefreshCombatProbe()
     for _ in RangeCheck:GetFriendCheckers(true) do
-        return true
+        hasCombatProbe = true
+        return
     end
-    return false
+    hasCombatProbe = false
 end
 
-local EVOKER_SPEC_IDS = {
-    [1468] = true, -- Preservation (heal)
-}
+-- LibRangeCheck builds its checker lists lazily (~0.5s after load) and rebuilds
+-- them on spec/talent changes. Refresh the cached probe flag whenever the lib
+-- reports them changed, so it never latches a stale `false` from a login-time
+-- read (e.g. the config window's probe-status label) before the lib is ready.
+if RangeCheck.RegisterCallback then
+    RangeCheck.RegisterCallback(HR, RangeCheck.CHECKERS_CHANGED, function()
+        RefreshCombatProbe()
+    end)
+end
 
+function HR.HasCombatProbe()
+    return hasCombatProbe
+end
+
+-- IsEvoker is only ever called on units that already passed the HEALER role
+-- gate (see IsHealerInRange), so a plain class check is the correct and reliable
+-- discriminator: among healers, the Evoker is by definition Preservation. We
+-- deliberately do NOT use GetInspectSpecialization here — it needs an async
+-- NotifyInspect/INSPECT_READY round-trip and returns 0 for un-inspected group
+-- members, so it was dead weight (DPS Evokers never reach here; they fail the
+-- HEALER role gate).
 local function IsEvoker(unit)
-    local specID = GetInspectSpecialization(unit)
-    if specID and specID > 0 then
-        return EVOKER_SPEC_IDS[specID] == true
-    end
     local _, class = UnitClass(unit)
     return class == "EVOKER"
 end
@@ -77,12 +97,31 @@ local function IsHealerInRange()
     return false
 end
 
+-- Hide a currently-shown alert and reset the out-of-range latch. Used before
+-- the OnUpdate early-return guards so the "No Heal" alert never stays frozen on
+-- screen after the player leaves the filtered instance, disables the module, or
+-- unlocks/tests the frame mid-alert. Respects IsUnlocked/IsTesting so the unlock
+-- outline and the Test Alert frame (both deliberately-shown frames) are not
+-- hidden out from under the user.
+local function ForceClearAlert()
+    if not HR.IsUnlocked() and not HR.IsTesting() then
+        local frame = HR.GetFrame()
+        if frame:IsShown() then frame:Hide() end
+    end
+    isOutOfRange = false
+end
+
 local function StartChecking()
     timer = 0
     mainFrame:SetScript("OnUpdate", function(self, elapsed)
-        if not HR.CfgGet("enabled") then return end
-        if not IsActiveInCurrentInstance() then return end
-        if HR.IsUnlocked() or HR.IsTesting() then return end
+        -- Clear any stuck alert BEFORE the early-return guards below, otherwise a
+        -- shown alert would freeze on screen when one of these conditions trips.
+        if not HR.CfgGet("enabled")
+            or not IsActiveInCurrentInstance()
+            or HR.IsUnlocked() or HR.IsTesting() then
+            ForceClearAlert()
+            return
+        end
 
         timer = timer + elapsed
         if timer < CHECK_INTERVAL then return end
@@ -117,6 +156,7 @@ local function StopChecking()
 end
 
 local function RefreshChecking()
+    RefreshCombatProbe()
     if inCombat and IsInGroup() then
         StartChecking()
     else
@@ -125,11 +165,20 @@ local function RefreshChecking()
 end
 
 local eventFrame = CreateFrame("Frame")
+eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 eventFrame:RegisterEvent("PLAYER_DEAD")
 eventFrame:RegisterEvent("PLAYER_UNGHOST")
+-- PLAYER_ALIVE fires on an in-place resurrect (battle-res / Reincarnation), where
+-- PLAYER_UNGHOST never fires because the player never became a ghost; route it to
+-- RefreshChecking so range alerts resume after a combat res.
+eventFrame:RegisterEvent("PLAYER_ALIVE")
+-- The combat-probe availability only changes on spec/talent changes; refresh the
+-- cached boolean on those (and login) rather than per range tick.
+eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 eventFrame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_REGEN_DISABLED" then
         inCombat = true
@@ -141,7 +190,11 @@ eventFrame:SetScript("OnEvent", function(self, event)
         RefreshChecking()
     elseif event == "PLAYER_DEAD" then
         StopChecking()
-    elseif event == "PLAYER_UNGHOST" then
+    elseif event == "PLAYER_UNGHOST" or event == "PLAYER_ALIVE" then
         RefreshChecking()
+    elseif event == "PLAYER_LOGIN"
+        or event == "PLAYER_SPECIALIZATION_CHANGED"
+        or event == "ACTIVE_TALENT_GROUP_CHANGED" then
+        RefreshCombatProbe()
     end
 end)

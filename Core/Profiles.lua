@@ -2,6 +2,7 @@
 
 local _, ns = ...
 
+ns.profiles = ns.profiles or {}
 local ALL_DBS = {
     HealerRange       = function() return HealerRangeDB       end,
     DeathAlert        = function() return DeathAlertDB        end,
@@ -35,25 +36,35 @@ local function InitDB()
     end
 end
 
--- Serialize a Lua table to a string literal (for profile export).
-local function Serialize(t, indent)
-    indent = indent or ""
-    if type(t) ~= "table" then
-        if type(t) == "string" then
+-- Serialize a Lua table to a string literal (for profile export). Skips
+-- function/userdata values and guards non-finite numbers so the blob always
+-- round-trips through Deserialize.
+local function Serialize(t)
+    local tt = type(t)
+    if tt ~= "table" then
+        if tt == "string" then
             return string.format("%q", t)
-        else
+        elseif tt == "number" then
+            if t ~= t or t == math.huge or t == -math.huge then return "0" end
+            return string.format("%.17g", t)
+        elseif tt == "boolean" then
             return tostring(t)
+        else
+            return "nil"  -- functions / userdata are not serializable
         end
     end
     local result = "{"
     for k, v in pairs(t) do
-        local key
-        if type(k) == "string" then
-            key = '["' .. k .. '"]'
-        else
-            key = "[" .. tostring(k) .. "]"
+        local vt = type(v)
+        if vt ~= "function" and vt ~= "userdata" then
+            local key
+            if type(k) == "string" then
+                key = '["' .. k .. '"]'
+            else
+                key = "[" .. tostring(k) .. "]"
+            end
+            result = result .. key .. "=" .. Serialize(v) .. ","
         end
-        result = result .. key .. "=" .. Serialize(v) .. ","
     end
     return result .. "}"
 end
@@ -103,11 +114,11 @@ end
 
 -- ── Public API ────────────────────────────────────────────────────────────────
 
-function UnbunkProfiles_GetCurrent()
+function ns.profiles.GetCurrent()
     return UnbunkUtilityDB.currentProfile or "Default"
 end
 
-function UnbunkProfiles_GetList()
+function ns.profiles.GetList()
     local list = {}
     for name in pairs(UnbunkUtilityDB.profiles) do
         table.insert(list, name)
@@ -125,8 +136,8 @@ local function DeepCopy(t)
     return copy
 end
 
-function UnbunkProfiles_SaveCurrent()
-    local name = UnbunkProfiles_GetCurrent()
+function ns.profiles.SaveCurrent()
+    local name = ns.profiles.GetCurrent()
     local snapshot = {}
     for dbName, getter in pairs(ALL_DBS) do
         snapshot[dbName] = DeepCopy(getter())
@@ -134,7 +145,7 @@ function UnbunkProfiles_SaveCurrent()
     UnbunkUtilityDB.profiles[name] = snapshot
 end
 
-function UnbunkProfiles_Load(name)
+function ns.profiles.Load(name)
     if not UnbunkUtilityDB.profiles[name] then return false end
     local snapshot = UnbunkUtilityDB.profiles[name]
     for dbName, setter in pairs(ALL_SETTERS) do
@@ -143,50 +154,70 @@ function UnbunkProfiles_Load(name)
         end
     end
     UnbunkUtilityDB.currentProfile = name
-    UnbunkProfiles_ReloadAll()
+    -- Re-apply every module's defaults + sound-key migration onto the freshly
+    -- loaded DB tables: older/imported snapshots may be missing newer keys, and
+    -- nothing else runs CfgInit after login.
+    ns.RunCfgInitHooks()
+    ns.profiles.ReloadAll()
     return true
 end
 
-function UnbunkProfiles_Create(name)
+-- Reset every module's saved variables to their defaults, then snapshot the
+-- clean state into the current profile. Driven generically off ALL_SETTERS +
+-- the CfgInit hook registry so no module can be forgotten.
+function ns.profiles.ResetCurrent()
+    for _, setter in pairs(ALL_SETTERS) do
+        setter({})
+    end
+    ns.RunCfgInitHooks()
+    ns.profiles.SaveCurrent()
+    ns.profiles.ReloadAll()
+    return true
+end
+
+function ns.profiles.Create(name)
     if not name or name == "" then return false end
     if UnbunkUtilityDB.profiles[name] then return false end
     -- Snapshot the current profile first so we clone its latest state.
-    UnbunkProfiles_SaveCurrent()
+    ns.profiles.SaveCurrent()
     -- Create the new profile as a copy of the current one.
-    local currentName = UnbunkProfiles_GetCurrent()
+    local currentName = ns.profiles.GetCurrent()
     UnbunkUtilityDB.profiles[name] = DeepCopy(UnbunkUtilityDB.profiles[currentName])
     UnbunkUtilityDB.currentProfile = name
     return true
 end
 
-function UnbunkProfiles_Delete(name)
+function ns.profiles.Delete(name)
     if name == "Default" then return false end
     if not UnbunkUtilityDB.profiles[name] then return false end
     UnbunkUtilityDB.profiles[name] = nil
-    if UnbunkProfiles_GetCurrent() == name then
-        UnbunkProfiles_Load("Default")
+    if ns.profiles.GetCurrent() == name then
+        ns.profiles.Load("Default")
     end
     return true
 end
 
-function UnbunkProfiles_Export()
-    UnbunkProfiles_SaveCurrent()
-    local name = UnbunkProfiles_GetCurrent()
+function ns.profiles.Export()
+    ns.profiles.SaveCurrent()
+    local name = ns.profiles.GetCurrent()
     local data = Serialize(UnbunkUtilityDB.profiles[name])
     return Base64Encode(data)
 end
 
-function UnbunkProfiles_Import(str)
+function ns.profiles.Import(str)
     local data = Base64Decode(str)
     local t, err = Deserialize(data)
     if not t then return false, err end
-    local name = UnbunkProfiles_GetCurrent()
+    -- Migrate any pre-restructure sound keys in the imported blob; Load() then
+    -- re-runs every module's CfgInit so missing defaults are backfilled too.
+    ns.MigrateSoundKeys(t)
+    local name = ns.profiles.GetCurrent()
     UnbunkUtilityDB.profiles[name] = t
-    UnbunkProfiles_Load(name)
+    ns.profiles.Load(name)
     return true
 end
 
-function UnbunkProfiles_ReloadAll()
+function ns.profiles.ReloadAll()
     -- Re-apply each module's settings through the hooks they registered.
     ns.RunReloadHooks()
 
@@ -209,7 +240,7 @@ initProfiles:RegisterEvent("ADDON_LOADED")
 initProfiles:RegisterEvent("PLAYER_LOGOUT")
 initProfiles:SetScript("OnEvent", function(self, event, addonName)
     if event == "PLAYER_LOGOUT" then
-        UnbunkProfiles_SaveCurrent()
+        ns.profiles.SaveCurrent()
         return
     end
     if addonName ~= "UnbunkUtility" then return end

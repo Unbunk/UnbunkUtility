@@ -31,33 +31,19 @@ local DEFAULTS = {
 
 function PI.CfgInit()
     ns.MigrateSoundKeys(PITrackerDB)
-    for k, v in pairs(DEFAULTS) do
-        if PITrackerDB[k] == nil then
-            if type(v) == "table" then
-                PITrackerDB[k] = {}
-                for k2, v2 in pairs(v) do
-                    PITrackerDB[k][k2] = v2
-                end
-            else
-                PITrackerDB[k] = v
-            end
-        end
-    end
+    ns.MergeDefaults(PITrackerDB, DEFAULTS)
 end
+ns.RegisterCfgInitHook(PI.CfgInit)
 
-function PI.CfgGet(key) return PITrackerDB[key] end
+function PI.CfgGet(key)
+    local v = PITrackerDB[key]
+    if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
+    return v
+end
 function PI.CfgSet(key, value) PITrackerDB[key] = value end
 
 function PI.PlaySound()
-    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-    local path = PI.CfgGet("soundPathPI")
-    if path then
-        PlaySoundFile(path, "Master")
-    elseif LSM then
-        local soundKey = PI.CfgGet("soundKeyPI")
-        local soundPath = soundKey and LSM:Fetch("sound", soundKey)
-        if soundPath then PlaySoundFile(soundPath, "Master") end
-    end
+    ns.PlaySoundFromCfg(PITrackerDB, "soundPathPI", "soundKeyPI")
 end
 
 local initDB = CreateFrame("Frame")

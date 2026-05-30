@@ -23,7 +23,7 @@ local function CreatePotionTracker(prefix, frameName)
     end
 
     local tracker
-    tracker = Unbunk_CreateItemTracker({
+    tracker = ns.ui.CreateItemTracker({
         frameName = frameName,
         getCfg    = function(key)
             if key == "enabled" then
@@ -322,6 +322,11 @@ local function ResolveActiveItemId(prefix)
     --    spellId is derived dynamically by GetActiveSpellId — no need to
     --    store it (was redundant, and stored stale values when the item
     --    data wasn't loaded yet).
+    --    NOTE: On a fresh install itemId is intentionally unset and the main
+    --    dropdown is resolver-driven, so this writes cfg.itemId from within a
+    --    getter path. The PT.CfgSet here re-invalidates the cache mid-resolve,
+    --    but GetActiveItemId clears the dirty flag immediately after we return,
+    --    so the effect is benign (no infinite re-resolve).
     for bag = 0, 5 do
         local numSlots = C_Container.GetContainerNumSlots(bag) or 0
         for slot = 1, numSlots do
@@ -350,7 +355,12 @@ function PT.GetActiveItemId(prefix)
     if entry.dirty then
         entry.id      = ResolveActiveItemId(prefix)
         entry.spellId = entry.id and (select(2, C_Item.GetItemSpell(entry.id))) or nil
-        entry.dirty   = false
+        -- C_Item.GetItemSpell returns nil while the item's data is still
+        -- loading from the server. Caching that nil as clean would freeze the
+        -- buff/aura timer + use-sound detection until the next bag event, so
+        -- stay dirty until the spellId actually resolves (ITEM_DATA_LOAD_RESULT
+        -- also invalidates the cache once data arrives).
+        entry.dirty   = (entry.id ~= nil and entry.spellId == nil)
     end
     return entry.id
 end
@@ -368,12 +378,19 @@ end
 
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")
 eventFrame:RegisterEvent("BAG_UPDATE")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+-- Refresh the resolver cache once the server delivers item data, so a freshly
+-- resolved potion whose item/spell data loaded late gets its spellId filled in
+-- (otherwise a cached nil spellId would persist until the next bag event).
+eventFrame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
+-- BAG_UPDATE_COOLDOWN is intentionally NOT registered: it fires on essentially
+-- every cooldown tick in combat, and invalidating + full ApplyAll there is
+-- redundant — the 0.5s ticker already keeps cooldown visuals in sync and
+-- ApplyVisuals reads cooldown state fresh each pass.
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
-    if event == "BAG_UPDATE" or event == "BAG_UPDATE_COOLDOWN" or event == "PLAYER_ENTERING_WORLD" then
+    if event == "BAG_UPDATE" or event == "PLAYER_ENTERING_WORLD" or event == "ITEM_DATA_LOAD_RESULT" then
         InvalidateActiveCache()
     end
     if event == "UNIT_SPELLCAST_SUCCEEDED" then

@@ -2,7 +2,7 @@
 -- Reusable styled checkbox widget.
 --
 -- Usage:
---   local cb = Unbunk_CreateCheckbox({
+--   local cb = ns.ui.CreateCheckbox({
 --       parent    = panel,
 --       label     = "Enable sound",
 --       checked   = true,
@@ -12,7 +12,10 @@
 --   cb.SetChecked(bool)
 --   cb.GetChecked()
 
-function Unbunk_CreateCheckbox(config)
+local _, ns = ...
+ns.ui = ns.ui or {}
+
+function ns.ui.CreateCheckbox(config)
     local parent  = config.parent
     local label   = config.label   or ""
     local checked = config.checked or false

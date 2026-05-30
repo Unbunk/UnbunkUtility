@@ -1,6 +1,7 @@
 -- Modules/PlayerDeathAnimation/UI/ConfigWindow.lua
 
 local _, ns = ...
+local L = ns.L
 ns.PlayerDeath = ns.PlayerDeath or {}
 local PD = ns.PlayerDeath
 
@@ -27,9 +28,9 @@ local function CreatePlayerDeathPanel(parent)
 
     local enableFrame = CreateFrame("Frame", nil, content)
     enableFrame:SetHeight(24)
-    local enableCb = Unbunk_CreateCheckbox({
+    local enableCb = ns.ui.CreateCheckbox({
         parent  = enableFrame,
-        label   = "Enable Player Death Animation",
+        label   = L["Enable Player Death Animation"],
         checked = PD.CfgGet("enabled") ~= false,
         onClick = function(val) PD.CfgSet("enabled", val) end,
     })
@@ -40,12 +41,15 @@ local function CreatePlayerDeathPanel(parent)
 
     local testFrame = CreateFrame("Frame", nil, content)
     testFrame:SetHeight(26)
-    local testBtn = Unbunk_CreateButton({
+    local testBtn = ns.ui.CreateButton({
         parent  = testFrame,
-        label   = "Test",
+        label   = L["Test"],
         width   = 80,
         height  = 22,
         onClick = function()
+            -- Gate the whole test on the master enable flag so a disabled
+            -- module is fully silent (mirrors the PLAYER_DEAD handler).
+            if not PD.CfgGet("enabled") then return end
             if PD.CfgGet("soundEnabled") then
                 PD.PlaySound()
             end
@@ -57,8 +61,8 @@ local function CreatePlayerDeathPanel(parent)
 
     -- ── Sound ─────────────────────────────────────────────────────────────────
 
-    local soundResult = HealerRange_CreateSoundPicker(content, LSM, {
-        label          = "Sound on death",
+    local soundResult = ns.ui.CreateSoundPicker(content, LSM, {
+        label          = L["Sound on death"],
         getSoundKey    = function() return PD.CfgGet("soundKey") end,
         getSoundEnable = function() return PD.CfgGet("soundEnabled") end,
         onSoundSelect  = function(key, path)
@@ -74,9 +78,9 @@ local function CreatePlayerDeathPanel(parent)
 
     local animCbFrame = CreateFrame("Frame", nil, content)
     animCbFrame:SetHeight(24)
-    local animCb = Unbunk_CreateCheckbox({
+    local animCb = ns.ui.CreateCheckbox({
         parent  = animCbFrame,
-        label   = "Show animation on death",
+        label   = L["Show animation on death"],
         checked = PD.CfgGet("animEnabled") ~= false,
         onClick = function(val) PD.CfgSet("animEnabled", val) end,
     })
@@ -90,12 +94,12 @@ local function CreatePlayerDeathPanel(parent)
 
     local animPickerLbl = animPickerFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     animPickerLbl:SetPoint("TOPLEFT", animPickerFrame, "TOPLEFT", 0, 0)
-    animPickerLbl:SetText("Animation")
+    animPickerLbl:SetText(L["Animation"])
 
     local animAnchor = animPickerFrame:CreateFontString(nil, "ARTWORK")
     animAnchor:SetPoint("TOPLEFT", animPickerFrame, "TOPLEFT", 0, -20)
 
-    local animDD = HealerRange_CreateDropdown({
+    local animDD = ns.ui.CreateDropdown({
         parent        = animPickerFrame,
         anchorFrame   = animAnchor,
         width         = 200,
@@ -138,9 +142,9 @@ local function CreatePlayerDeathPanel(parent)
 
     local fpsLbl = fpsFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     fpsLbl:SetPoint("TOPLEFT", fpsFrame, "TOPLEFT", 0, 0)
-    fpsLbl:SetText("Frames per second")
+    fpsLbl:SetText(L["Frames per second"])
 
-    local fpsMinusBtn = Unbunk_CreateButton({
+    local fpsMinusBtn = ns.ui.CreateButton({
         parent = fpsFrame,
         label  = "-",
         width  = 22,
@@ -148,11 +152,13 @@ local function CreatePlayerDeathPanel(parent)
     })
     fpsMinusBtn.frame:SetPoint("TOPLEFT", fpsFrame, "TOPLEFT", 0, -20)
 
-    local fpsInput = Unbunk_CreateTextInput({
+    local fpsInput = ns.ui.CreateTextInput({
         parent     = fpsFrame,
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 1,
+        max        = 60,
         maxLetters = 2,
         text       = tostring(PD.CfgGet("animFPS") or 24),
         onEnter    = function(val)
@@ -163,7 +169,7 @@ local function CreatePlayerDeathPanel(parent)
     })
     fpsInput.frame:SetPoint("LEFT", fpsMinusBtn.frame, "RIGHT", 4, 0)
 
-    local fpsPlusBtn = Unbunk_CreateButton({
+    local fpsPlusBtn = ns.ui.CreateButton({
         parent = fpsFrame,
         label  = "+",
         width  = 22,
@@ -173,7 +179,7 @@ local function CreatePlayerDeathPanel(parent)
 
     local fpsSecLbl = fpsFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     fpsSecLbl:SetPoint("LEFT", fpsPlusBtn.frame, "RIGHT", 6, 0)
-    fpsSecLbl:SetText("fps")
+    fpsSecLbl:SetText(L["fps"])
 
     fpsMinusBtn.frame:SetScript("OnClick", function()
         local v = tonumber(fpsInput.GetText()) or 24
@@ -193,20 +199,31 @@ local function CreatePlayerDeathPanel(parent)
 
     -- ── Duration editor ───────────────────────────────────────────────────────
 
-    local de = Unbunk_CreateDurationEditor({
+    local de = ns.ui.CreateDurationEditor({
         parent           = content,
         getDuration      = function() return PD.CfgGet("animDuration") end,
         onDurationChange = function(val) PD.CfgSet("animDuration", val) end,
     })
+    -- The shared DurationEditor hardcodes "Alert duration"; this module drives
+    -- the on-screen animation duration. Relabel the widget's internal section
+    -- header to avoid the misleading "Alert duration" text.
+    for i = 1, select("#", de.frame:GetRegions()) do
+        local region = select(i, de.frame:GetRegions())
+        if region and region.GetObjectType and region:GetObjectType() == "FontString"
+            and region:GetText() == L["Alert duration"] then
+            region:SetText(L["Animation duration"])
+            break
+        end
+    end
     AddModule(de.frame, de.height)
 
     -- ── Loop checkbox ─────────────────────────────────────────────────────────
 
     local loopFrame = CreateFrame("Frame", nil, content)
     loopFrame:SetHeight(24)
-    local loopCb = Unbunk_CreateCheckbox({
+    local loopCb = ns.ui.CreateCheckbox({
         parent  = loopFrame,
-        label   = "Loop animation until duration ends",
+        label   = L["Loop animation until duration ends"],
         checked = PD.CfgGet("animLoop") or false,
         onClick = function(val) PD.CfgSet("animLoop", val) end,
     })
@@ -220,17 +237,19 @@ local function CreatePlayerDeathPanel(parent)
 
     local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
-    sizeLbl:SetText("Animation size")
+    sizeLbl:SetText(L["Animation size"])
 
     local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
     wLbl:SetText("W")
 
-    local wInput = Unbunk_CreateTextInput({
+    local wInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 60,
         height     = 22,
         numeric    = true,
+        min        = 16,
+        max        = 1024,
         maxLetters = 4,
         text       = tostring(PD.CfgGet("animWidth") or 300),
         onEnter    = function(val)
@@ -246,11 +265,13 @@ local function CreatePlayerDeathPanel(parent)
     hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
     hLbl:SetText("H")
 
-    local hInput = Unbunk_CreateTextInput({
+    local hInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 60,
         height     = 22,
         numeric    = true,
+        min        = 16,
+        max        = 1024,
         maxLetters = 4,
         text       = tostring(PD.CfgGet("animHeight") or 300),
         onEnter    = function(val)
@@ -266,8 +287,8 @@ local function CreatePlayerDeathPanel(parent)
 
     -- ── Position editor ───────────────────────────────────────────────────────
 
-    PD.pe = HealerRange_CreatePositionEditor(content, {
-        label      = "Animation position (offset from screen center)",
+    PD.pe = ns.ui.CreatePositionEditor(content, {
+        label      = L["Animation position (offset from screen center)"],
         getX       = function() return PD.CfgGet("posX") end,
         getY       = function() return PD.CfgGet("posY") end,
         onApply    = function(x, yv)

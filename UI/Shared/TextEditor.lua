@@ -1,22 +1,32 @@
 -- UI/TextEditor.lua
 
+-- Note: MONOCHROME is a font *rendering* flag (disables anti-aliasing), not a
+-- true outline. On its own ("MONOCHROME") it produces no outline and can render
+-- some fonts hard to read. It is kept here for completeness / back-compat with
+-- already-saved configs; the OUTLINE / THICKOUTLINE variants are what users
+-- typically want from this control.
+local _, ns = ...
+local L = ns.L
+
 local OUTLINE_OPTIONS = {
     "", "OUTLINE", "THICKOUTLINE", "MONOCHROME",
     "MONOCHROME|OUTLINE", "MONOCHROME|THICKOUTLINE",
 }
 
 local OUTLINE_LABELS = {
-    [""]                        = "No outline",
-    ["OUTLINE"]                 = "Outline",
-    ["THICKOUTLINE"]            = "Thick outline",
-    ["MONOCHROME"]              = "Monochrome",
-    ["MONOCHROME|OUTLINE"]      = "Monochrome + Outline",
-    ["MONOCHROME|THICKOUTLINE"] = "Monochrome + Thick outline",
+    [""]                        = L["No outline"],
+    ["OUTLINE"]                 = L["Outline"],
+    ["THICKOUTLINE"]            = L["Thick outline"],
+    ["MONOCHROME"]              = L["Monochrome"],
+    ["MONOCHROME|OUTLINE"]      = L["Monochrome + Outline"],
+    ["MONOCHROME|THICKOUTLINE"] = L["Monochrome + Thick outline"],
 }
 
-function HealerRange_CreateTextEditor(parent, config)
+ns.ui = ns.ui or {}
+
+function ns.ui.CreateTextEditor(parent, config)
     local LSM             = config.LSM
-    local label           = config.label or "Text"
+    local label           = config.label or L["Text"]
     local showText        = config.showText    ~= false
     local showFont        = config.showFont    ~= false
     local showSize        = config.showSize    ~= false
@@ -24,6 +34,7 @@ function HealerRange_CreateTextEditor(parent, config)
     local showOutline     = config.showOutline ~= false
     local getText         = config.getText
     local getFontKey      = config.getFontKey
+    local getFontPath     = config.getFontPath
     local getFontSize     = config.getFontSize
     local getColor        = config.getColor
     local getOutline      = config.getOutline
@@ -50,7 +61,7 @@ function HealerRange_CreateTextEditor(parent, config)
     -- ── Text content ──────────────────────────────────────────────────────────
 
     if showText then
-        local textInput = Unbunk_CreateTextInput({
+        local textInput = ns.ui.CreateTextInput({
             parent     = container,
             width      = 340,
             height     = 22,
@@ -74,16 +85,17 @@ function HealerRange_CreateTextEditor(parent, config)
 
             local colorLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
             colorLbl:SetPoint("LEFT", colorSwatch, "RIGHT", 4, 0)
-            colorLbl:SetText("Color")
+            colorLbl:SetText(L["Color"])
 
             local function RefreshSwatch()
                 local c = getColor()
-                swatchTex:SetColorTexture(c.r, c.g, c.b, 1)
+                if c then swatchTex:SetColorTexture(c.r, c.g, c.b, 1) end
             end
+            RefreshSwatch()
             result.RefreshSwatch = RefreshSwatch
 
             colorSwatch:SetScript("OnClick", function()
-                local c = getColor()
+                local c = getColor() or { r = 1, g = 1, b = 1, a = 1 }
                 ColorPickerFrame:SetupColorPickerAndShow({
                     swatchFunc = function()
                         local r, g, b = ColorPickerFrame:GetColorRGB()
@@ -96,7 +108,10 @@ function HealerRange_CreateTextEditor(parent, config)
                         onColorChange(r, g, b, a) RefreshSwatch()
                     end,
                     cancelFunc = function(prev)
-                        local a = prev.a or (prev.opacity and (1 - prev.opacity)) or 1
+                        -- `opacity` in previousValues already holds the alpha
+                        -- (set via opacity = c.a below), so use it directly
+                        -- rather than the legacy 1-opacity conversion.
+                        local a = prev.a or prev.opacity or 1
                         onColorChange(prev.r, prev.g, prev.b, a) RefreshSwatch()
                     end,
                     r = c.r, g = c.g, b = c.b, opacity = c.a,
@@ -108,13 +123,15 @@ function HealerRange_CreateTextEditor(parent, config)
             if showSize then
                 local sizeLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
                 sizeLbl:SetPoint("LEFT", colorLbl, "RIGHT", 10, 0)
-                sizeLbl:SetText("Size")
+                sizeLbl:SetText(L["Size"])
 
-                local sizeInput = Unbunk_CreateTextInput({
-                    parent     = parent,
+                local sizeInput = ns.ui.CreateTextInput({
+                    parent     = container,
                     width      = 46,
                     height     = 22,
                     numeric    = true,
+                    min        = 6,
+                    max        = 64,
                     maxLetters = 3,
                     text       = tostring(getFontSize() or 22),
                     onEnter    = function(val)
@@ -127,13 +144,15 @@ function HealerRange_CreateTextEditor(parent, config)
         elseif showSize then
             local sizeLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
             sizeLbl:SetPoint("LEFT", textInput.frame, "RIGHT", 10, 0)
-            sizeLbl:SetText("Size")
+            sizeLbl:SetText(L["Size"])
 
-            local sizeInput = Unbunk_CreateTextInput({
+            local sizeInput = ns.ui.CreateTextInput({
                 parent     = container,
                 width      = 46,
                 height     = 22,
                 numeric    = true,
+                min        = 6,
+                max        = 64,
                 maxLetters = 3,
                 text       = tostring(getFontSize() or 22),
                 onEnter    = function(val)
@@ -152,13 +171,15 @@ function HealerRange_CreateTextEditor(parent, config)
         if showSize and getFontSize and onSizeChange then
             local sizeLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
             sizeLbl:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
-            sizeLbl:SetText("Size")
+            sizeLbl:SetText(L["Size"])
 
-            local sizeInput = Unbunk_CreateTextInput({
+            local sizeInput = ns.ui.CreateTextInput({
                 parent     = container,
                 width      = 46,
                 height     = 22,
                 numeric    = true,
+                min        = 6,
+                max        = 64,
                 maxLetters = 3,
                 text       = tostring(getFontSize() or 22),
                 onEnter    = function(val)
@@ -184,7 +205,7 @@ function HealerRange_CreateTextEditor(parent, config)
 
             local colorLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
             colorLbl:SetPoint("LEFT", colorSwatch, "RIGHT", 4, 0)
-            colorLbl:SetText("Color")
+            colorLbl:SetText(L["Color"])
 
             local function RefreshSwatch()
                 local c = getColor()
@@ -207,7 +228,10 @@ function HealerRange_CreateTextEditor(parent, config)
                         onColorChange(r, g, b, a); RefreshSwatch()
                     end,
                     cancelFunc = function(prev)
-                        local a = prev.a or (prev.opacity and (1 - prev.opacity)) or 1
+                        -- `opacity` in previousValues already holds the alpha
+                        -- (set via opacity = c.a below), so use it directly
+                        -- rather than the legacy 1-opacity conversion.
+                        local a = prev.a or prev.opacity or 1
                         onColorChange(prev.r, prev.g, prev.b, a); RefreshSwatch()
                     end,
                     r = c.r, g = c.g, b = c.b, opacity = c.a,
@@ -224,10 +248,10 @@ function HealerRange_CreateTextEditor(parent, config)
     if showFont and LSM then
         local fontLabel = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         fontLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
-        fontLabel:SetText("Font")
+        fontLabel:SetText(L["Font"])
         height = height + 18
 
-        local fontDD = HealerRange_CreateDropdown({
+        local fontDD = ns.ui.CreateDropdown({
             parent        = container,
             anchorFrame   = fontLabel,
             width         = 200,
@@ -236,11 +260,14 @@ function HealerRange_CreateTextEditor(parent, config)
             getList       = function() return LSM:List("font") end,
             getCurrentKey = getFontKey,
             onSelect      = function(name)
+                -- Resolve the LSM key to a path; fall back to the caller's
+                -- stored path (config.getFontPath) if the key cannot be resolved.
                 local path = LSM:Fetch("font", name)
+                if not path and getFontPath then path = getFontPath() end
                 onFontChange(name, path)
             end,
         })
-        fontDD.selectedText:SetText(getFontKey() or "(select a font)")
+        fontDD.selectedText:SetText(getFontKey() or L["(select a font)"])
         result.fontSelectedText = fontDD.selectedText
 
         height = height + 30
@@ -249,10 +276,10 @@ function HealerRange_CreateTextEditor(parent, config)
         if showOutline then
             local outlineLabel = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
             outlineLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
-            outlineLabel:SetText("Outline")
+            outlineLabel:SetText(L["Outline"])
             height = height + 18
 
-            local outlineDD = HealerRange_CreateDropdown({
+            local outlineDD = ns.ui.CreateDropdown({
                 parent        = container,
                 anchorFrame   = outlineLabel,
                 width         = 220,
@@ -266,7 +293,7 @@ function HealerRange_CreateTextEditor(parent, config)
                     return list
                 end,
                 getCurrentKey = function()
-                    return OUTLINE_LABELS[getOutline() or ""] or "No outline"
+                    return OUTLINE_LABELS[getOutline() or ""] or L["No outline"]
                 end,
                 onSelect      = function(lbl)
                     for _, v in ipairs(OUTLINE_OPTIONS) do
@@ -277,7 +304,7 @@ function HealerRange_CreateTextEditor(parent, config)
                     end
                 end,
             })
-            outlineDD.selectedText:SetText(OUTLINE_LABELS[getOutline() or ""] or "No outline")
+            outlineDD.selectedText:SetText(OUTLINE_LABELS[getOutline() or ""] or L["No outline"])
             result.outlineSelectedText = outlineDD.selectedText
 
             height = height + 30
@@ -293,7 +320,7 @@ function HealerRange_CreateTextEditor(parent, config)
             result.textBox:SetText(getText() or "")
         end
         if showFont and result.fontSelectedText then
-            result.fontSelectedText:SetText(getFontKey() or "(select a font)")
+            result.fontSelectedText:SetText(getFontKey() or L["(select a font)"])
         end
         if showSize and result.sizeBox then
             result.sizeBox:SetText(tostring(getFontSize() or 22))
@@ -302,7 +329,7 @@ function HealerRange_CreateTextEditor(parent, config)
             result.RefreshSwatch()
         end
         if showOutline and result.outlineSelectedText then
-            result.outlineSelectedText:SetText(OUTLINE_LABELS[getOutline() or ""] or "No outline")
+            result.outlineSelectedText:SetText(OUTLINE_LABELS[getOutline() or ""] or L["No outline"])
         end
     end
 

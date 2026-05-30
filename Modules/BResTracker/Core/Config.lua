@@ -28,6 +28,8 @@ local DEFAULTS = {
     instanceFilter = {
         dungeon      = true,
         raid         = true,
+        -- Intentionally false (unlike the other trackers, which default true):
+        -- battle res does not exist in battlegrounds / arenas.
         battleground = false,
         outdoor      = true,
     },
@@ -41,6 +43,12 @@ local DEFAULTS = {
     listFontPath      = nil,
     listFontKey       = "2002 Bold",
     listOutline       = "OUTLINE",
+    -- Estimated per-player BRes cooldown (seconds) used for the list timers. An
+    -- addon can't read another player's real cooldown, so this is a single
+    -- heuristic value; the real spell CDs (Rebirth / Raise Ally / Intercession)
+    -- are all 600s (10 min). Lower it if you'd rather the list approximate the
+    -- shared raid-charge recharge instead.
+    listCooldownEstimate = 600,
 }
 
 function BR.CfgInit()
@@ -55,45 +63,26 @@ function BR.CfgInit()
         BResTrackerDB.rowStatusOnRight = nil
     end
 
-    for k, v in pairs(DEFAULTS) do
-        if BResTrackerDB[k] == nil then
-            if type(v) == "table" then
-                BResTrackerDB[k] = {}
-                for k2, v2 in pairs(v) do
-                    BResTrackerDB[k][k2] = v2
-                end
-            else
-                BResTrackerDB[k] = v
-            end
-        end
-    end
+    -- Recursive backfill (also fills newly-added nested keys, e.g. a future
+    -- instanceFilter sub-key) so upgraders are not left with nil defaults.
+    ns.MergeDefaults(BResTrackerDB, DEFAULTS)
 end
 
-function BR.CfgGet(key) return BResTrackerDB[key] end
+ns.RegisterCfgInitHook(BR.CfgInit)
+
+function BR.CfgGet(key)
+    local v = BResTrackerDB[key]
+    if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
+    return v
+end
 function BR.CfgSet(key, value) BResTrackerDB[key] = value end
 
 function BR.PlaySound()
-    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-    local path = BR.CfgGet("soundPathReady")
-    if path then
-        PlaySoundFile(path, "Master")
-    elseif LSM then
-        local soundKey = BR.CfgGet("soundKeyReady")
-        local soundPath = soundKey and LSM:Fetch("sound", soundKey)
-        if soundPath then PlaySoundFile(soundPath, "Master") end
-    end
+    ns.PlaySoundFromCfg(BResTrackerDB, "soundPathReady", "soundKeyReady")
 end
 
 function BR.PlaySoundUsed()
-    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-    local path = BR.CfgGet("soundPathUsed")
-    if path then
-        PlaySoundFile(path, "Master")
-    elseif LSM then
-        local soundKey = BR.CfgGet("soundKeyUsed")
-        local soundPath = soundKey and LSM:Fetch("sound", soundKey)
-        if soundPath then PlaySoundFile(soundPath, "Master") end
-    end
+    ns.PlaySoundFromCfg(BResTrackerDB, "soundPathUsed", "soundKeyUsed")
 end
 
 local initDB = CreateFrame("Frame")

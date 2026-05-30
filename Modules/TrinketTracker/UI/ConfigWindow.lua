@@ -1,6 +1,7 @@
 -- Modules/TrinketTracker/UI/ConfigWindow.lua
 
 local _, ns = ...
+local L = ns.L
 ns.TrinketTracker = ns.TrinketTracker or {}
 local TT = ns.TrinketTracker
 
@@ -38,8 +39,8 @@ local function CreateTrinketSection(parent, prefix)
 
     -- ── Sound use ─────────────────────────────────────────────────────────────
 
-    local soundUseResult = HealerRange_CreateSoundPicker(parent, LSM, {
-        label          = "Sound on use",
+    local soundUseResult = ns.ui.CreateSoundPicker(parent, LSM, {
+        label          = L["Sound on use"],
         getSoundKey    = function() return GetCfg("soundKeyUse") end,
         getSoundEnable = function() return GetCfg("soundOnUse") end,
         onSoundSelect  = function(key, path)
@@ -54,8 +55,8 @@ local function CreateTrinketSection(parent, prefix)
 
     -- ── Sound ready ───────────────────────────────────────────────────────────
 
-    local soundReadyResult = HealerRange_CreateSoundPicker(parent, LSM, {
-        label          = "Sound when ready",
+    local soundReadyResult = ns.ui.CreateSoundPicker(parent, LSM, {
+        label          = L["Sound when ready"],
         getSoundKey    = function() return GetCfg("soundKeyReady") end,
         getSoundEnable = function() return GetCfg("soundOnReady") end,
         onSoundSelect  = function(key, path)
@@ -72,9 +73,9 @@ local function CreateTrinketSection(parent, prefix)
 
     local showIconFrame = CreateFrame("Frame", nil, parent)
     showIconFrame:SetHeight(24)
-    local showIconCb = Unbunk_CreateCheckbox({
+    local showIconCb = ns.ui.CreateCheckbox({
         parent  = showIconFrame,
-        label   = "Show icon",
+        label   = L["Show icon"],
         checked = GetCfg("showIcon") ~= false,
         onClick = function(val)
             SetCfg("showIcon", val)
@@ -92,17 +93,19 @@ local function CreateTrinketSection(parent, prefix)
 
     local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
-    sizeLbl:SetText("Icon size")
+    sizeLbl:SetText(L["Icon size"])
 
     local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
     wLbl:SetText("W")
 
-    local wInput = Unbunk_CreateTextInput({
+    local wInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 8,
+        max        = 512,
         maxLetters = 3,
         text       = tostring(GetCfg("iconWidth") or 64),
         onEnter    = function(val)
@@ -118,11 +121,13 @@ local function CreateTrinketSection(parent, prefix)
     hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
     hLbl:SetText("H")
 
-    local hInput = Unbunk_CreateTextInput({
+    local hInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 8,
+        max        = 512,
         maxLetters = 3,
         text       = tostring(GetCfg("iconHeight") or 64),
         onEnter    = function(val)
@@ -139,9 +144,9 @@ local function CreateTrinketSection(parent, prefix)
 
     -- ── Position editor ───────────────────────────────────────────────────────
 
-    local peName = "TrinketTracker_PE_" .. prefix
-    _G[peName] = HealerRange_CreatePositionEditor(parent, {
-        label      = "Icon position (offset from screen center)",
+    local pe
+    pe = ns.ui.CreatePositionEditor(parent, {
+        label      = L["Icon position (offset from screen center)"],
         getX       = function() return GetCfg("posX") end,
         getY       = function() return GetCfg("posY") end,
         onApply    = function(x, yv)
@@ -152,20 +157,20 @@ local function CreateTrinketSection(parent, prefix)
         onUnlock   = function() if tracker then tracker.SetUnlocked(true) end end,
         onLock     = function()
             if tracker then tracker.SetUnlocked(false) end
-            if _G[peName] then _G[peName].Refresh() end
+            if pe then pe.Refresh() end
         end,
         isUnlocked = function() return tracker and tracker.IsUnlocked() end,
     })
-    _G[peName].frame:ClearAllPoints()
-    AddWidget(_G[peName].frame, _G[peName].height)
+    pe.frame:ClearAllPoints()
+    AddWidget(pe.frame, pe.height)
 
-    if tracker then tracker.pe = _G[peName] end
+    if tracker then tracker.pe = pe end
 
     -- ── Timer text ────────────────────────────────────────────────────────────
 
-    local te = HealerRange_CreateTextEditor(parent, {
+    local te = ns.ui.CreateTextEditor(parent, {
         LSM          = LSM,
-        label        = "Timer text",
+        label        = L["Timer text"],
         showText     = false,
         showFont     = true,
         showSize     = true,
@@ -203,7 +208,7 @@ local function CreateTrinketSection(parent, prefix)
         soundUse   = soundUseResult.Refresh,
         soundReady = soundReadyResult.Refresh,
         te         = te.Refresh,
-        pe         = _G[peName].Refresh,
+        pe         = pe.Refresh,
         showIcon   = function() showIconCb.SetChecked(GetCfg("showIcon") ~= false) end,
         size       = function()
             wInput.SetText(tostring(GetCfg("iconWidth") or 64))
@@ -234,9 +239,9 @@ local function CreateTrinketTrackerPanel(parent)
 
     local enableFrame = CreateFrame("Frame", nil, content)
     enableFrame:SetHeight(24)
-    local enableCb = Unbunk_CreateCheckbox({
+    local enableCb = ns.ui.CreateCheckbox({
         parent  = enableFrame,
-        label   = "Enable Trinket Tracker",
+        label   = L["Enable Trinket Tracker"],
         checked = TT.CfgGet("enabled") ~= false,
         onClick = function(val)
             TT.CfgSet("enabled", val)
@@ -248,7 +253,7 @@ local function CreateTrinketTrackerPanel(parent)
 
     -- ── Instance filter ───────────────────────────────────────────────────────
 
-    local iF = Unbunk_CreateInstanceFilter({
+    local iF = ns.ui.CreateInstanceFilter({
         parent    = content,
         getConfig = function() return TT.CfgGet("instanceFilter") end,
         setConfig = function(key, val)
@@ -261,9 +266,9 @@ local function CreateTrinketTrackerPanel(parent)
 
     -- ── Trinket 1 section ─────────────────────────────────────────────────────
 
-    local trinket1CS = Unbunk_CreateCollapsibleSection({
+    local trinket1CS = ns.ui.CreateCollapsibleSection({
         parent        = content,
-        label         = "Trinket 1 (slot 1)",
+        label         = L["Trinket 1 (slot 1)"],
         isChecked     = function() return TT.CfgGet("trinket1") and TT.CfgGet("trinket1").enabled end,
         onCheck       = function(val)
             local cfg = TT.CfgGet("trinket1")
@@ -281,9 +286,9 @@ local function CreateTrinketTrackerPanel(parent)
 
     -- ── Trinket 2 section ─────────────────────────────────────────────────────
 
-    local trinket2CS = Unbunk_CreateCollapsibleSection({
+    local trinket2CS = ns.ui.CreateCollapsibleSection({
         parent        = content,
-        label         = "Trinket 2 (slot 2)",
+        label         = L["Trinket 2 (slot 2)"],
         isChecked     = function() return TT.CfgGet("trinket2") and TT.CfgGet("trinket2").enabled end,
         onCheck       = function(val)
             local cfg = TT.CfgGet("trinket2")
@@ -326,6 +331,6 @@ local initTTUI = CreateFrame("Frame")
 initTTUI:RegisterEvent("ADDON_LOADED")
 initTTUI:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    UnbunkUtility.RegisterModule("Trinket Tracker", nil, CreateTrinketTrackerPanel)
+    UnbunkUtility.RegisterModule(L["Trinket Tracker"], nil, CreateTrinketTrackerPanel)
     self:UnregisterEvent("ADDON_LOADED")
 end)

@@ -1,6 +1,7 @@
 -- Modules/DeathAlert/Core/Config.lua
 
 local _, ns = ...
+local L = ns.L
 ns.DeathAlert = ns.DeathAlert or {}
 local DA = ns.DeathAlert
 
@@ -16,7 +17,7 @@ local DEFAULTS = {
     tankFontPath     = nil,
     tankFontSize     = 26,
     tankOutline      = "OUTLINE",
-    tankMessage      = "Tank died",
+    tankMessage      = L["Tank died"],
     tankColor        = { r = 1.0, g = 0.5, b = 0.0, a = 1.0 },
     tankPosX         = 0,
     tankPosY         = 350,
@@ -30,7 +31,7 @@ local DEFAULTS = {
     healerFontPath    = nil,
     healerFontSize    = 22,
     healerOutline     = "OUTLINE",
-    healerMessage     = "Healer died",
+    healerMessage     = L["Healer died"],
     healerColor       = { r = 0.0, g = 0.5, b = 1.0, a = 1.0 },
     healerPosX        = 0,
     healerPosY        = 275,
@@ -44,11 +45,16 @@ local DEFAULTS = {
     dpsFontPath    = nil,
     dpsFontSize    = 18,
     dpsOutline     = "OUTLINE",
-    dpsMessage     = "DPS died",
+    dpsMessage     = L["DPS died"],
     dpsColor       = { r = 0.4, g = 0.8, b = 1.0, a = 1.0 },
     dpsPosX        = 0,
     dpsPosY        = 215,
     dpsAlertDuration = 2,
+    -- When on, deaths of members with no assigned group role (UnitGroupRolesAssigned
+    -- == "NONE", common in manually-formed / world groups) are treated as DPS:
+    -- they fire the DPS alert and count toward the dpsSpam threshold. Off by
+    -- default so behaviour is unchanged unless explicitly enabled.
+    dpsAlertUnassigned = false,
     tankIcon = {
         enabled    = true,
         iconPath   = "Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\TankDied.tga",
@@ -98,22 +104,15 @@ local DEFAULTS = {
 
 function DA.CfgInit()
     ns.MigrateSoundKeys(DeathAlertDB)
-    for k, v in pairs(DEFAULTS) do
-        if DeathAlertDB[k] == nil then
-            if type(v) == "table" then
-                DeathAlertDB[k] = {}
-                for k2, v2 in pairs(v) do
-                    DeathAlertDB[k][k2] = v2
-                end
-            else
-                DeathAlertDB[k] = v
-            end
-        end
-    end
+    ns.MergeDefaults(DeathAlertDB, DEFAULTS)
 end
 
+ns.RegisterCfgInitHook(DA.CfgInit)
+
 function DA.CfgGet(key)
-    return DeathAlertDB[key]
+    local v = DeathAlertDB[key]
+    if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
+    return v
 end
 
 function DA.CfgSet(key, value)
@@ -122,19 +121,10 @@ end
 
 function DA.PlaySound(prefix)
     if not DA.CfgGet(prefix .. "EnableSound") then return end
-    local path = DA.CfgGet(prefix .. "SoundPath")
-    local key  = DA.CfgGet(prefix .. "SoundKey")
-    if path then
-        PlaySoundFile(path, "Master")
-    else
-        local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-        local fallback = LSM and key and LSM:Fetch("sound", key)
-        if fallback then
-            PlaySoundFile(fallback, "Master")
-        else
-            PlaySound(8959)
-        end
-    end
+    -- Delegates to the shared resolver (explicit path > migrated LSM key >
+    -- nothing). Plays nothing when neither resolves, matching the other
+    -- trackers and avoiding a surprise default chime on a missing sound.
+    ns.PlaySoundFromCfg(DeathAlertDB, prefix .. "SoundPath", prefix .. "SoundKey")
 end
 
 local initDB = CreateFrame("Frame")

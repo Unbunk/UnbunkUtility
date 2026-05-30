@@ -1,0 +1,134 @@
+-- Modules/MinimapIcon/Core/MinimapIcon.lua
+-- Minimap button to open the UnbunkUtility config window. Self-contained
+-- (no LibDBIcon dependency); position is stored as an angle around the
+-- minimap edge in UnbunkUtilityDB.minimap.
+
+local _, ns = ...
+local L = ns.L
+
+-- TODO: re-export Media/Icons/UnbunkUtility.tga as an uncompressed (TGA type 2)
+-- or BLP file at power-of-two dimensions (e.g. 64x64). The current asset is a
+-- 1000x1000 RLE-compressed TGA, which many clients fail to render (blank icon)
+-- and which is wasteful to keep resident. Same file backs ## IconTexture in the .toc.
+local ICON_TEXTURE = "Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\UnbunkUtility.tga"
+
+local DEFAULTS = {
+    hide   = false,
+    angle  = 200,   -- degrees, 0=East / 90=North / 180=West / 270=South
+    -- distance from the minimap center; stored in saved-vars for forward
+    -- compatibility but not yet exposed in any UI, so it stays at the default.
+    radius = 80,
+}
+
+local function CfgInit()
+    UnbunkUtilityDB = UnbunkUtilityDB or {}
+    UnbunkUtilityDB.minimap = UnbunkUtilityDB.minimap or {}
+    ns.MergeDefaults(UnbunkUtilityDB.minimap, DEFAULTS)
+end
+
+ns.RegisterCfgInitHook(CfgInit)
+
+local button
+
+local function UpdatePosition()
+    if not button then return end
+    local cfg    = UnbunkUtilityDB.minimap
+    local angle  = math.rad(cfg.angle or 200)
+    local radius = cfg.radius or 80
+    button:ClearAllPoints()
+    button:SetPoint("CENTER", Minimap, "CENTER",
+        math.cos(angle) * radius,
+        math.sin(angle) * radius)
+end
+
+local function CreateButton()
+    if button then return button end
+    button = CreateFrame("Button", "UnbunkUtilityMinimapButton", Minimap)
+    button:SetSize(32, 32)
+    button:SetFrameStrata("MEDIUM")
+    button:SetFrameLevel(8)
+    -- Only left-click is handled (matches the tooltip). Right-click is a no-op;
+    -- there is no context menu, so it is deliberately not registered.
+    button:RegisterForClicks("LeftButtonUp")
+    button:RegisterForDrag("LeftButton")
+
+    -- Standard minimap-button ring on top.
+    local overlay = button:CreateTexture(nil, "OVERLAY")
+    overlay:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    overlay:SetSize(54, 54)
+    overlay:SetPoint("TOPLEFT", -2, 2)
+
+    -- Dark circular background under the icon.
+    local bg = button:CreateTexture(nil, "BACKGROUND")
+    bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+    bg:SetSize(20, 20)
+    bg:SetPoint("CENTER")
+
+    -- Addon icon.
+    local icon = button:CreateTexture(nil, "ARTWORK")
+    icon:SetTexture(ICON_TEXTURE)
+    icon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
+    icon:SetSize(20, 20)
+    icon:SetPoint("CENTER")
+
+    button:SetScript("OnClick", function()
+        if UnbunkUtility and UnbunkUtility.OpenWindow then
+            UnbunkUtility.OpenWindow()
+        end
+    end)
+
+    button:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetText("UnbunkUtility")
+        GameTooltip:AddLine(L["|cffeda55fLeft-click|r to open settings"], 1, 1, 1)
+        GameTooltip:AddLine(L["|cffeda55fDrag|r to reposition"], 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- Drag — recompute the angle from the cursor's position relative to the
+    -- minimap center so the button stays on the minimap edge.
+    local function UpdateAngleFromCursor()
+        local cx, cy = Minimap:GetCenter()
+        if not cx then return end
+        local scale = Minimap:GetEffectiveScale()
+        local mx, my = GetCursorPosition()
+        mx, my = mx / scale, my / scale
+        local angle = math.deg(math.atan2(my - cy, mx - cx))
+        if angle < 0 then angle = angle + 360 end
+        UnbunkUtilityDB.minimap.angle = angle
+        UpdatePosition()
+    end
+    button:SetScript("OnDragStart", function(self)
+        self:SetScript("OnUpdate", UpdateAngleFromCursor)
+    end)
+    button:SetScript("OnDragStop", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+
+    return button
+end
+
+-- Public API so a future config toggle can hide / show the button.
+function ns.MinimapIcon_SetHidden(hide)
+    CfgInit()
+    UnbunkUtilityDB.minimap.hide = hide and true or false
+    if not button then return end
+    if hide then button:Hide() else button:Show() end
+end
+
+function ns.MinimapIcon_IsHidden()
+    return UnbunkUtilityDB and UnbunkUtilityDB.minimap
+        and UnbunkUtilityDB.minimap.hide == true
+end
+
+local init = CreateFrame("Frame")
+init:RegisterEvent("ADDON_LOADED")
+init:SetScript("OnEvent", function(self, event, addonName)
+    if addonName ~= "UnbunkUtility" then return end
+    CfgInit()
+    CreateButton()
+    UpdatePosition()
+    if UnbunkUtilityDB.minimap.hide then button:Hide() end
+    self:UnregisterEvent("ADDON_LOADED")
+end)

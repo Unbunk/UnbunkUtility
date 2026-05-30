@@ -2,7 +2,7 @@
 -- Reusable collapsible section widget.
 --
 -- Usage:
---   local cs = HealerRange_CreateCollapsibleSection({
+--   local cs = ns.ui.CreateCollapsibleSection({
 --       parent        = panel,
 --       label         = "My Section",
 --       showCheckbox  = true,         -- default true
@@ -15,9 +15,13 @@
 --   cs.checkbox       -- the checkbox (when showCheckbox = true)
 --   cs.Refresh()      -- re-syncs the checkbox state from isChecked()
 
-function Unbunk_CreateCollapsibleSection(config)
+local _, ns = ...
+local L = ns.L
+ns.ui = ns.ui or {}
+
+function ns.ui.CreateCollapsibleSection(config)
     local parent        = config.parent
-    local label         = config.label or "Section"
+    local label         = config.label or L["Section"]
     local showCheckbox  = config.showCheckbox ~= false
     local isChecked     = config.isChecked
     local onCheck       = config.onCheck
@@ -65,7 +69,7 @@ function Unbunk_CreateCollapsibleSection(config)
     local labelAnchor = arrow
 
     if showCheckbox then
-        checkbox = Unbunk_CreateCheckbox({
+        checkbox = ns.ui.CreateCheckbox({
             parent  = headerBtn,
             label   = "",
             checked = isChecked and isChecked() or false,

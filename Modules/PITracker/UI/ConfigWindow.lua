@@ -1,6 +1,7 @@
 -- Modules/PITracker/UI/ConfigWindow.lua
 
 local _, ns = ...
+local L = ns.L
 ns.PITracker = ns.PITracker or {}
 local PI = ns.PITracker
 
@@ -13,6 +14,9 @@ local function CreatePITrackerPanel(parent)
     local GAP = 12
     local lastFrame = nil
 
+    -- moduleHeight is intentionally ignored: scroll-child sizing is computed by
+    -- Core.lua's ComputeModuleHeight at runtime. The arg is kept for call-site
+    -- symmetry with the sibling config panels (BResTracker, BLTracker, ...).
     local function AddModule(moduleFrame, moduleHeight)
         moduleFrame:SetWidth(518)
         if lastFrame then
@@ -27,9 +31,9 @@ local function CreatePITrackerPanel(parent)
 
     local enableFrame = CreateFrame("Frame", nil, content)
     enableFrame:SetHeight(28)
-    local enableCb = Unbunk_CreateCheckbox({
+    local enableCb = ns.ui.CreateCheckbox({
         parent  = enableFrame,
-        label   = "Enable PI Tracker",
+        label   = L["Enable PI Tracker"],
         checked = PI.CfgGet("enabled") ~= false,
         onClick = function(val)
             PI.CfgSet("enabled", val)
@@ -38,9 +42,9 @@ local function CreatePITrackerPanel(parent)
     })
     enableCb.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
 
-    local testBtn = Unbunk_CreateButton({
+    local testBtn = ns.ui.CreateButton({
         parent  = enableFrame,
-        label   = "Test",
+        label   = L["Test"],
         width   = 80,
         height  = 22,
         onClick = function() PI.RunTest(20) end,
@@ -50,7 +54,7 @@ local function CreatePITrackerPanel(parent)
 
     -- ── Instance filter ───────────────────────────────────────────────────────
 
-    local iF = Unbunk_CreateInstanceFilter({
+    local iF = ns.ui.CreateInstanceFilter({
         parent    = content,
         getConfig = function() return PI.CfgGet("instanceFilter") end,
         setConfig = function(key, val)
@@ -63,8 +67,8 @@ local function CreatePITrackerPanel(parent)
 
     -- ── Sound PI ──────────────────────────────────────────────────────────────
 
-    local soundResult = HealerRange_CreateSoundPicker(content, LSM, {
-        label          = "Sound on PI",
+    local soundResult = ns.ui.CreateSoundPicker(content, LSM, {
+        label          = L["Sound on PI"],
         getSoundKey    = function() return PI.CfgGet("soundKeyPI") end,
         getSoundEnable = function() return PI.CfgGet("soundOnPI") end,
         onSoundSelect  = function(key, path)
@@ -80,9 +84,9 @@ local function CreatePITrackerPanel(parent)
 
     local showIconFrame = CreateFrame("Frame", nil, content)
     showIconFrame:SetHeight(24)
-    local showIconCb = Unbunk_CreateCheckbox({
+    local showIconCb = ns.ui.CreateCheckbox({
         parent  = showIconFrame,
-        label   = "Show icon",
+        label   = L["Show icon"],
         checked = PI.CfgGet("showIcon") ~= false,
         onClick = function(val)
             PI.CfgSet("showIcon", val)
@@ -99,17 +103,19 @@ local function CreatePITrackerPanel(parent)
 
     local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
-    sizeLbl:SetText("Icon size")
+    sizeLbl:SetText(L["Icon size"])
 
     local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
     wLbl:SetText("W")
 
-    local wInput = Unbunk_CreateTextInput({
+    local wInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 8,
+        max        = 512,
         maxLetters = 3,
         text       = tostring(PI.CfgGet("iconWidth") or 64),
         onEnter    = function(val)
@@ -125,11 +131,13 @@ local function CreatePITrackerPanel(parent)
     hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
     hLbl:SetText("H")
 
-    local hInput = Unbunk_CreateTextInput({
+    local hInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 8,
+        max        = 512,
         maxLetters = 3,
         text       = tostring(PI.CfgGet("iconHeight") or 64),
         onEnter    = function(val)
@@ -145,8 +153,8 @@ local function CreatePITrackerPanel(parent)
 
     -- ── Position editor ───────────────────────────────────────────────────────
 
-    PI.pe = HealerRange_CreatePositionEditor(content, {
-        label      = "Icon position (offset from screen center)",
+    PI.pe = ns.ui.CreatePositionEditor(content, {
+        label      = L["Icon position (offset from screen center)"],
         getX       = function() return PI.CfgGet("posX") end,
         getY       = function() return PI.CfgGet("posY") end,
         onApply    = function(x, yv)
@@ -165,9 +173,9 @@ local function CreatePITrackerPanel(parent)
 
     -- ── Timer text ────────────────────────────────────────────────────────────
 
-    local te = HealerRange_CreateTextEditor(content, {
+    local te = ns.ui.CreateTextEditor(content, {
         LSM          = LSM,
-        label        = "Timer text",
+        label        = L["Timer text"],
         showText     = false,
         showFont     = true,
         showSize     = true,
@@ -218,6 +226,6 @@ local initPIUI = CreateFrame("Frame")
 initPIUI:RegisterEvent("ADDON_LOADED")
 initPIUI:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    UnbunkUtility.RegisterModule("PI Tracker", nil, CreatePITrackerPanel)
+    UnbunkUtility.RegisterModule(L["PI Tracker"], nil, CreatePITrackerPanel)
     self:UnregisterEvent("ADDON_LOADED")
 end)

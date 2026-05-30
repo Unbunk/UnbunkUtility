@@ -48,19 +48,6 @@ initMedia:SetScript("OnEvent", function(self, event, addonName)
         -- FAHH lives at the Sounds root, no loudness variants.
         LSM:Register("sound", "UnbunkUtility: FAHH",
             ADDON_PATH .. "Sounds\\FAHH.mp3")
-
-        local ICON_PATH = "Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\"
-        UNBUNK_ICONS = {
-            { label = "Unbunk",      path = ICON_PATH .. "Unbunk.tga"    },
-            { label = "No Heal",     path = ICON_PATH .. "NoHeal.tga"     },
-            { label = "Green Check", path = ICON_PATH .. "GreenCheck.tga" },
-            { label = "Healer",      path = ICON_PATH .. "Healer.tga"     },
-            { label = "Tank",        path = ICON_PATH .. "Tank.tga"       },
-            { label = "DPS",         path = ICON_PATH .. "DPS.tga"        },
-            { label = "Healer Died", path = ICON_PATH .. "HealerDied.tga" },
-            { label = "Tank Died",   path = ICON_PATH .. "TankDied.tga"   },
-            { label = "DPS Died",    path = ICON_PATH .. "DPSDied.tga"    },
-        }
     end
     self:UnregisterEvent("ADDON_LOADED")
 end)
@@ -68,6 +55,22 @@ end)
 -- Textures
 local ICON_PATH = "Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\"
 UNBUNK_ICON_DROPDOWN_ARROW = "Interface\\Buttons\\Arrow-Down-Up"
+
+-- Icon list for the icon pickers. These are plain .tga files and do not
+-- depend on LibSharedMedia, so populate them unconditionally at load time
+-- (previously this lived inside the LSM-gated ADDON_LOADED block, which made
+-- the icon list silently disappear when LSM was absent).
+UNBUNK_ICONS = {
+    { label = "Unbunk",      path = ICON_PATH .. "Unbunk.tga"    },
+    { label = "No Heal",     path = ICON_PATH .. "NoHeal.tga"     },
+    { label = "Green Check", path = ICON_PATH .. "GreenCheck.tga" },
+    { label = "Healer",      path = ICON_PATH .. "Healer.tga"     },
+    { label = "Tank",        path = ICON_PATH .. "Tank.tga"       },
+    { label = "DPS",         path = ICON_PATH .. "DPS.tga"        },
+    { label = "Healer Died", path = ICON_PATH .. "HealerDied.tga" },
+    { label = "Tank Died",   path = ICON_PATH .. "TankDied.tga"   },
+    { label = "DPS Died",    path = ICON_PATH .. "DPSDied.tga"    },
+}
 
 -- Animations
 UNBUNK_ANIMATIONS = {

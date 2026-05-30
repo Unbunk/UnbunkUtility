@@ -22,9 +22,11 @@ local BL_BUFFS = {
     [390386] = true, -- Fury of the Aspects
 }
 
+-- Only the keys (debuff spellIds) are consumed by FindPlayerAura's pairs() loop,
+-- so this is a plain set mirroring BL_BUFFS (the per-entry data is never read).
 local BL_DEBUFFS = {}
 for _, data in pairs(BL_SPELLS) do
-    BL_DEBUFFS[data.debuff] = data
+    BL_DEBUFFS[data.debuff] = true
 end
 
 local BL_CLASSES = {
@@ -54,10 +56,11 @@ local playerHasBL  = false
 local playerClass  = nil
 local currentIcon  = nil
 local hasDebuff    = false
+local hasBuff      = false
 
 -- ── TimerIcon ─────────────────────────────────────────────────────────────────
 
-local blIcon = Unbunk_CreateTimerIcon({
+local blIcon = ns.ui.CreateTimerIcon({
     name    = "BLTrackerFrame",
     getCfg  = function(key) return BL.CfgGet(key) end,
     onDragStop = function(x, y)
@@ -114,17 +117,7 @@ function BL.SetUnlocked(v)  blIcon.SetUnlocked(v)  end
 function BL.IsUnlocked()    return blIcon.IsUnlocked() end
 function BL.GetFrame()      return blIcon.GetFrame() end
 
-function BL.PlaySound(key)
-    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-    local path = BL.CfgGet(key)
-    if path then
-        PlaySoundFile(path, "Master")
-    elseif LSM then
-        local soundKey = BL.CfgGet(key:gsub("Path", "Key"))
-        local soundPath = soundKey and LSM:Fetch("sound", soundKey)
-        if soundPath then PlaySoundFile(soundPath, "Master") end
-    end
-end
+-- BL.PlaySound is defined in Core/Config.lua alongside CfgGet/CfgSet.
 
 -- ── Events ────────────────────────────────────────────────────────────────────
 
@@ -144,8 +137,6 @@ eventFrame:SetScript("OnEvent", function(self, event)
     end
     BL.ApplyVisuals()
 end)
-
-local hasBuff = false
 
 -- Returns the first player aura present from a set of spellIds.
 local function FindPlayerAura(idSet)
@@ -203,6 +194,8 @@ local function SyncDebuff()
 end
 
 C_Timer.NewTicker(0.5, function()
+    -- Do ~zero work per tick while the module is disabled (S3 guard).
+    if not BL.CfgGet("enabled") then return end
     SyncDebuff()
 end)
 

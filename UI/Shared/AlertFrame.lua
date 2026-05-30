@@ -2,7 +2,7 @@
 -- Reusable alert frame widget.
 --
 -- Usage:
---   local af = Unbunk_CreateAlertFrame({
+--   local af = ns.ui.CreateAlertFrame({
 --       name       = "MyAlert",
 --       getCfg     = function(key) return MyCfg_Get(key) end,
 --   })
@@ -21,6 +21,7 @@
 --   af.GetFrame()
 
 local _, ns = ...
+local L = ns.L
 
 local ICON_ANCHORS = {
     TOP_LEFT      = { point = "BOTTOMLEFT",  relPoint = "TOPLEFT",     x = 0, y = 0 },
@@ -33,7 +34,9 @@ local ICON_ANCHORS = {
     BOTTOM_RIGHT  = { point = "TOPRIGHT",     relPoint = "BOTTOMRIGHT", x = 0, y = 0 },
 }
 
-function Unbunk_CreateAlertFrame(config)
+ns.ui = ns.ui or {}
+
+function ns.ui.CreateAlertFrame(config)
     local name   = config.name
     local getCfg = config.getCfg
 
@@ -91,12 +94,12 @@ function Unbunk_CreateAlertFrame(config)
     end
 
     function result.ApplyColor()
-        local c = getCfg("color")
+        local c = getCfg("color") or { r = 1, g = 1, b = 1, a = 1 }
         text:SetTextColor(c.r, c.g, c.b, c.a)
     end
 
     function result.ApplyMessage()
-        text:SetText(getCfg("alertMessage") or "Alert!")
+        text:SetText(getCfg("alertMessage") or L["Alert!"])
         Resize()
     end
 

@@ -34,22 +34,14 @@ local DEFAULTS = {
 
 function BL.CfgInit()
     ns.MigrateSoundKeys(BLTrackerDB)
-    for k, v in pairs(DEFAULTS) do
-        if BLTrackerDB[k] == nil then
-            if type(v) == "table" then
-                BLTrackerDB[k] = {}
-                for k2, v2 in pairs(v) do
-                    BLTrackerDB[k][k2] = v2
-                end
-            else
-                BLTrackerDB[k] = v
-            end
-        end
-    end
+    ns.MergeDefaults(BLTrackerDB, DEFAULTS)
 end
+ns.RegisterCfgInitHook(BL.CfgInit)
 
 function BL.CfgGet(key)
-    return BLTrackerDB[key]
+    local v = BLTrackerDB[key]
+    if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
+    return v
 end
 
 function BL.CfgSet(key, value)
@@ -57,15 +49,7 @@ function BL.CfgSet(key, value)
 end
 
 function BL.PlaySound(key)
-    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-    local path = BL.CfgGet(key)
-    if path then
-        PlaySoundFile(path, "Master")
-    elseif LSM then
-        local soundKey = BL.CfgGet(key:gsub("Path", "Key"))
-        local soundPath = soundKey and LSM:Fetch("sound", soundKey)
-        if soundPath then PlaySoundFile(soundPath, "Master") end
-    end
+    ns.PlaySoundFromCfg(BLTrackerDB, key, key:gsub("Path", "Key"))
 end
 
 local initDB = CreateFrame("Frame")

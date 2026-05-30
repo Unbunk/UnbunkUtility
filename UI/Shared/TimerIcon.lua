@@ -2,16 +2,17 @@
 -- Reusable icon with countdown timer widget.
 --
 -- Usage:
---   local ti = Unbunk_CreateTimerIcon({
+--   local ti = ns.ui.CreateTimerIcon({
 --       name       = "MyTimerIcon",
 --       getCfg     = function(key) return MyCfg_Get(key) end,
 --       onDragStop = function(x, y) ... end,
 --   })
 --   ti.SetIcon(textureId)
---   ti.SetTimer(expirationTime)
+--   ti.SetTimer(expiry, duration, color) — duration draws the CD swipe, color overrides timer text color
 --   ti.ClearTimer()
 --   ti.ShowCheck()  / ti.HideCheck() — persistent green check on/off
 --   ti.BlinkCheck() — flash the check briefly then hide (use on CD-ready)
+--   ti.SetGlow(bool) — toggle the pixel glow around the icon
 --   ti.Show()
 --   ti.Hide()
 --   ti.IsShown()
@@ -25,7 +26,9 @@
 
 local _, ns = ...
 
-function Unbunk_CreateTimerIcon(config)
+ns.ui = ns.ui or {}
+
+function ns.ui.CreateTimerIcon(config)
     local name      = config.name
     local getCfg    = config.getCfg
     local onDragStop = config.onDragStop
@@ -33,6 +36,10 @@ function Unbunk_CreateTimerIcon(config)
     local result   = {}
     local unlocked = false
     local expirationTime = nil
+    -- Cache of the last whole-second value rendered, so the OnUpdate only
+    -- reformats/SetText/SetTextColor when the displayed mm:ss actually changes
+    -- (instead of every frame at 60-144 Hz). Reset whenever a timer (re)starts.
+    local lastSecs = nil
 
     -- ── Frame ─────────────────────────────────────────────────────────────────
 
@@ -49,7 +56,7 @@ function Unbunk_CreateTimerIcon(config)
     iconTex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
     local checkTex = frame:CreateTexture(nil, "OVERLAY")
-    checkTex:SetTexture("Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\GreenCheck.tga")
+    checkTex:SetTexture(ns.GREEN_CHECK_TEXTURE)
     checkTex:SetPoint("CENTER", frame, "CENTER", 0, 0)
     checkTex:Hide()
 
@@ -85,17 +92,29 @@ function Unbunk_CreateTimerIcon(config)
         if remaining <= 0 then
             timerText:Hide()
             expirationTime = nil
+            lastSecs = nil
             if result.onExpire then result.onExpire() end
         else
-            local mins = math.floor(remaining / 60)
-            local secs = math.floor(remaining % 60)
-            timerText:SetText(string.format("%d:%02d", mins, secs))
-            if result._timerColor then
-                timerText:SetTextColor(result._timerColor.r, result._timerColor.g, result._timerColor.b, 1)
-            else
-                timerText:SetTextColor(1, 0, 0, 1)
+            -- Only the whole-second value drives the displayed mm:ss, so skip
+            -- the format/SetText/SetTextColor work on frames where it is unchanged.
+            local total = math.floor(remaining)
+            if total ~= lastSecs then
+                lastSecs = total
+                local mins = math.floor(total / 60)
+                local secs = total % 60
+                timerText:SetText(string.format("%d:%02d", mins, secs))
+                if result._timerColor then
+                    timerText:SetTextColor(result._timerColor.r, result._timerColor.g, result._timerColor.b, 1)
+                else
+                    local c = getCfg("timerColor")
+                    if c then
+                        timerText:SetTextColor(c.r, c.g, c.b, c.a or 1)
+                    else
+                        timerText:SetTextColor(1, 0, 0, 1)
+                    end
+                end
+                timerText:Show()
             end
-            timerText:Show()
         end
     end)
 
@@ -107,6 +126,7 @@ function Unbunk_CreateTimerIcon(config)
 
     function result.SetTimer(expiry, duration, color)
         expirationTime = expiry
+        lastSecs = nil  -- force a re-render of text/color on the next OnUpdate
         checkTex:Hide()
         if expiry and duration then
             cooldown:SetCooldown(expiry - duration, duration)
@@ -120,6 +140,7 @@ function Unbunk_CreateTimerIcon(config)
 
     function result.ClearTimer()
         expirationTime = nil
+        lastSecs = nil
         timerText:Hide()
         cooldown:Clear()
         -- The check is now driven separately (Show / Hide / Blink) by
@@ -160,6 +181,8 @@ function Unbunk_CreateTimerIcon(config)
     function result.ApplySize()
         local w = getCfg("iconWidth") or 64
         local h = getCfg("iconHeight") or 64
+        w = math.max(8, math.min(512, w))
+        h = math.max(8, math.min(512, h))
         frame:SetSize(w, h)
         local fontSize = math.max(10, math.floor(math.min(w, h) * 0.4))
         local fontPath = getCfg("timerFontPath")

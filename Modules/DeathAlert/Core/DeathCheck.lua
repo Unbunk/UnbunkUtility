@@ -12,10 +12,14 @@ local function IsDeathAlertActiveInCurrentInstance(prefix)
     return ns.IsActiveInInstance(DA.CfgGet(prefix .. "InstanceFilter"))
 end
 
-local function ShowAlert(frame, duration)
+-- isUnlocked is the widget's own unlock predicate; we drive the auto-hide off
+-- it rather than frame:IsMovable() so a real death that fires while the user
+-- has that alert unlocked in the config window is still hidden once the user
+-- locks it again (IsMovable() was a fragile proxy for "unlocked").
+local function ShowAlert(frame, duration, isUnlocked)
     frame:Show()
     C_Timer.After(duration, function()
-        if not frame:IsMovable() then
+        if not (isUnlocked and isUnlocked()) then
             frame:Hide()
         end
     end)
@@ -77,8 +81,18 @@ end
 
 -- Evaluate a single group member: trigger the death alert if needed. Called
 -- with the unit token provided by the event (no loop over the whole group).
+local strbyte = string.byte
 local function CheckUnitDeath(unit)
     if not unit then return end
+    -- UNIT_HEALTH / UNIT_FLAGS are registered globally, so this fires for every
+    -- unit whose health/flags change (group members, their pets, target, focus,
+    -- nameplates, ...). Cheap first-byte gate before the regex + UnitExists /
+    -- UnitGUID work: only "party..." (p) and "raid..." (r) tokens can match, so
+    -- everything else (target/focus/nameplate/boss/arena/...) is rejected for
+    -- one byte compare instead of two string.match calls. "pet"/"player" pass
+    -- the byte gate but are then rejected by the precise %d+ patterns below.
+    local b = strbyte(unit)
+    if b ~= 112 and b ~= 114 then return end -- 'p' / 'r'
     -- Only handle group member unit tokens (party1-4 / raid1-40).
     if not string.match(unit, "^party%d+$") and not string.match(unit, "^raid%d+$") then return end
     if not UnitExists(unit) then return end
@@ -87,7 +101,13 @@ local function CheckUnitDeath(unit)
     if not guid then return end
 
     if not UnitIsDeadOrGhost(unit) then
-        -- Alive: rearm the alert for a future death.
+        -- Alive: rearm the alert for a future death. Re-arming is event-driven:
+        -- it happens on the first UNIT_HEALTH/UNIT_FLAGS that observes this unit
+        -- alive again (a battle-res brings them back at low health, which fires
+        -- UNIT_HEALTH), and PLAYER_REGEN_ENABLED clears everything at combat end.
+        -- Known edge case: a unit resurrected and killed again within the same
+        -- combat with no intervening alive-observation event for that token will
+        -- not re-alert the second death. Accepted as a documented limitation.
         alertedGuids[guid] = nil
         return
     end
@@ -96,6 +116,14 @@ local function CheckUnitDeath(unit)
     alertedGuids[guid] = true
 
     local role = UnitGroupRolesAssigned(unit)
+    -- role is "NONE" for any member without an assigned group role (common in
+    -- manually-formed / outdoor groups). Inferring a real role would need an
+    -- async inspect; instead an opt-in setting routes such deaths to the DPS
+    -- bucket so they can alert and feed the dpsSpam threshold. Off by default,
+    -- so unassigned-role deaths otherwise only feed the all-role wipe buffer.
+    if role == "NONE" and DA.CfgGet("dpsAlertUnassigned") then
+        role = "DAMAGER"
+    end
 
     -- Record before suppression check so anti-spam thresholds keep counting
     -- even when an alert is silenced.
@@ -107,22 +135,28 @@ local function CheckUnitDeath(unit)
 
     if TANK_ROLES[role] and DA.CfgGet("tankEnabled") and IsDeathAlertActiveInCurrentInstance("tank") then
         if not wipeSuppressed and not DA.IsTankTesting() then
-            ShowAlert(DA.GetTankFrame(), DA.CfgGet("tankAlertDuration") or 5)
+            ShowAlert(DA.GetTankFrame(), DA.CfgGet("tankAlertDuration"), DA.IsTankUnlocked)
             DA.PlaySound("tank")
         end
     elseif HEALER_ROLES[role] and DA.CfgGet("healerEnabled") and IsDeathAlertActiveInCurrentInstance("healer") then
         if not wipeSuppressed and not DA.IsHealerTesting() then
-            ShowAlert(DA.GetHealerFrame(), DA.CfgGet("healerAlertDuration") or 5)
+            ShowAlert(DA.GetHealerFrame(), DA.CfgGet("healerAlertDuration"), DA.IsHealerUnlocked)
             DA.PlaySound("healer")
         end
     elseif DPS_ROLES[role] and DA.CfgGet("dpsEnabled") and IsDeathAlertActiveInCurrentInstance("dps") then
         if not wipeSuppressed and not dpsSuppressed and not DA.IsDpsTesting() then
-            ShowAlert(DA.GetDpsFrame(), DA.CfgGet("dpsAlertDuration") or 5)
+            ShowAlert(DA.GetDpsFrame(), DA.CfgGet("dpsAlertDuration"), DA.IsDpsUnlocked)
             DA.PlaySound("dps")
         end
     end
 end
 
+-- UNIT_HEALTH / UNIT_FLAGS are registered GLOBALLY. RegisterUnitEvent would fire
+-- only for the units we care about, but it caps at 8 unit tokens — a 10/20/40
+-- player raid blows past that and the call errors — so it isn't usable for an
+-- unbounded group. Instead the handler fires for every unit and CheckUnitDeath's
+-- cheap first-byte 'p'/'r' gate + ^party%d+$/^raid%d+$ patterns reject the
+-- irrelevant churn (nameplates, target, focus, boss, arena, pets) up front.
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("UNIT_HEALTH")
 eventFrame:RegisterEvent("UNIT_FLAGS")
@@ -139,11 +173,11 @@ eventFrame:SetScript("OnEvent", function(self, event, unit)
     end
 
     if event == "GROUP_ROSTER_UPDATE" then
-        -- Roster changes fire often during combat (disconnects, summons,
-        -- pets) and must NOT clear the death buffers, otherwise a real
-        -- wipe with simultaneous disconnects could silently bypass the
-        -- anti-spam thresholds. We only purge per-GUID alert flags for
-        -- members who left, so a future death on that slot can re-alert.
+        -- Roster changes fire often during combat (disconnects, summons, pets)
+        -- and must NOT clear the death buffers, otherwise a real wipe with
+        -- simultaneous disconnects could silently bypass the anti-spam
+        -- thresholds. Only purge per-GUID alert flags for members who left, so a
+        -- future death on that slot can re-alert.
         local present = {}
         if IsInRaid() then
             for i = 1, GetNumGroupMembers() do

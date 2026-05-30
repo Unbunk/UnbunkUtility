@@ -43,7 +43,7 @@ end
 
 -- ── Profile reload hooks ────────────────────────────────────────────────────
 -- Each module registers a function that re-applies its settings. Avoids the
--- giant manual list that used to live in UnbunkProfiles_ReloadAll.
+-- giant manual list that used to live in ns.profiles.ReloadAll.
 
 ns.reloadHooks = {}
 
@@ -61,6 +61,80 @@ function ns.RunReloadHooks()
         end
     end
 end
+
+-- ── Config init hooks ───────────────────────────────────────────────────────
+-- Each module registers its CfgInit so the profile system can re-apply every
+-- module's defaults + sound-key migration after loading / importing / resetting
+-- a profile (which wholesale-replaces the saved-variable tables).
+
+ns.cfgInitHooks = {}
+
+function ns.RegisterCfgInitHook(fn)
+    if type(fn) == "function" then
+        table.insert(ns.cfgInitHooks, fn)
+    end
+end
+
+function ns.RunCfgInitHooks()
+    for _, fn in ipairs(ns.cfgInitHooks) do
+        local ok, err = pcall(fn)
+        if not ok then
+            print("|cffff4444[UnbunkUtility]|r cfgInit hook error: " .. tostring(err))
+        end
+    end
+end
+
+-- ── Default merge ───────────────────────────────────────────────────────────
+-- Recursively backfills missing keys from `defaults` into `target` without
+-- overwriting user values, recursing into existing sub-tables so newly-added
+-- nested keys reach upgraders. The single shared implementation every module's
+-- CfgInit should use (replaces six divergent hand-rolled copies).
+function ns.MergeDefaults(target, defaults)
+    for k, v in pairs(defaults) do
+        if target[k] == nil then
+            if type(v) == "table" then
+                target[k] = {}
+                ns.MergeDefaults(target[k], v)
+            else
+                target[k] = v
+            end
+        elseif type(v) == "table" and type(target[k]) == "table" then
+            ns.MergeDefaults(target[k], v)
+        end
+    end
+end
+
+-- Returns a value safe to hand out as a config fallback: scalars as-is, tables
+-- deep-copied so a caller can't mutate the shared DEFAULTS table. Used by every
+-- module's CfgGet to fall back to its DEFAULTS when a saved key is nil (missing
+-- after an import / a newly-added key / a read before CfgInit ran).
+function ns.CopyDefault(v)
+    if type(v) ~= "table" then return v end
+    local copy = {}
+    for k, val in pairs(v) do copy[k] = ns.CopyDefault(val) end
+    return copy
+end
+
+-- ── Sound playback ──────────────────────────────────────────────────────────
+-- Plays a configured sound: explicit file path > LSM key > nothing. `cfg` is
+-- the (sub)table holding the two keys. Replaces the per-module PlaySound copies
+-- that had drifted into three incompatible signatures.
+function ns.PlaySoundFromCfg(cfg, pathKey, soundKeyKey)
+    if type(cfg) ~= "table" then return end
+    local path = cfg[pathKey]
+    if path then
+        PlaySoundFile(path, "Master")
+        return
+    end
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    if not LSM then return end
+    local key = soundKeyKey and cfg[soundKeyKey]
+    local resolved = key and LSM:Fetch("sound", key)
+    if resolved then PlaySoundFile(resolved, "Master") end
+end
+
+-- Shared texture path for the green "ready" check used by the trackers.
+ns.GREEN_CHECK_TEXTURE = "Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\GreenCheck.tga"
 
 -- ── Combo sound coordinator ─────────────────────────────────────────────────
 -- Each tracker (BL / Potion / Trinket) routes its on-trigger sound through
@@ -106,10 +180,11 @@ function ns.combo.Flush()
     ns.combo.pending = {}
     ns.combo.timer = nil
 
-    local hasBL      = pending.bl      ~= nil
-    local hasPotion  = pending.potion  ~= nil
-    local hasTrinket = pending.trinket ~= nil
-    local cfg        = ComboCfg() or {}
+    -- pending[category] is a LIST of fallback fns (multiple same-category
+    -- sounds can queue within one window, e.g. health + combat potion).
+    local function has(cat) local l = pending[cat]; return l and #l > 0 end
+    local hasBL, hasPotion, hasTrinket = has("bl"), has("potion"), has("trinket")
+    local cfg = ComboCfg() or {}
 
     if hasBL and (hasPotion or hasTrinket) and cfg.blEnabled then
         ns.combo.PlayBLCombo()
@@ -119,8 +194,11 @@ function ns.combo.Flush()
         ns.combo.PlayPotionCombo()
         return
     end
-    -- No matching combo (or that combo is disabled): play each individual.
-    for _, fn in pairs(pending) do pcall(fn) end
+    -- No matching combo (or that combo is disabled): play every queued sound
+    -- (all categories, all entries) so none is silently dropped.
+    for _, list in pairs(pending) do
+        for _, fn in ipairs(list) do pcall(fn) end
+    end
 end
 
 -- Called by trackers in place of playing their sound directly.
@@ -129,7 +207,12 @@ function ns.combo.Notify(category, fallbackSoundFn)
         if fallbackSoundFn then fallbackSoundFn() end
         return
     end
-    ns.combo.pending[category] = fallbackSoundFn
+    local list = ns.combo.pending[category]
+    if not list then
+        list = {}
+        ns.combo.pending[category] = list
+    end
+    table.insert(list, fallbackSoundFn)
     if not ns.combo.timer then
         ns.combo.timer = C_Timer.NewTimer(COMBO_WINDOW, ns.combo.Flush)
     end
@@ -222,12 +305,6 @@ local DEFAULTS_DPS_SPAM = {
     suppressDuration = 6,
 }
 
-local function MergeDefaults(target, defaults)
-    for k, v in pairs(defaults) do
-        if target[k] == nil then target[k] = v end
-    end
-end
-
 local function InitGeneralCfg()
     UnbunkUtilityDB = UnbunkUtilityDB or {}
     -- Walk the whole DB (combo keys + profile snapshots in
@@ -236,9 +313,9 @@ local function InitGeneralCfg()
     UnbunkUtilityDB.combo   = UnbunkUtilityDB.combo   or {}
     UnbunkUtilityDB.wipe    = UnbunkUtilityDB.wipe    or {}
     UnbunkUtilityDB.dpsSpam = UnbunkUtilityDB.dpsSpam or {}
-    MergeDefaults(UnbunkUtilityDB.combo,   DEFAULTS_COMBO)
-    MergeDefaults(UnbunkUtilityDB.wipe,    DEFAULTS_WIPE)
-    MergeDefaults(UnbunkUtilityDB.dpsSpam, DEFAULTS_DPS_SPAM)
+    ns.MergeDefaults(UnbunkUtilityDB.combo,   DEFAULTS_COMBO)
+    ns.MergeDefaults(UnbunkUtilityDB.wipe,    DEFAULTS_WIPE)
+    ns.MergeDefaults(UnbunkUtilityDB.dpsSpam, DEFAULTS_DPS_SPAM)
 end
 
 local cfgInit = CreateFrame("Frame")

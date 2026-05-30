@@ -13,6 +13,7 @@ animTex:SetAllPoints(animFrame)
 
 local currentFrame = 0
 local animTimer    = nil
+local stopTimer    = nil
 local animActive   = false
 
 local function GetCurrentAnim()
@@ -27,6 +28,10 @@ local function StopAnimation()
     if animTimer then
         animTimer:Cancel()
         animTimer = nil
+    end
+    if stopTimer then
+        stopTimer:Cancel()
+        stopTimer = nil
     end
     animActive = false
     animFrame:Hide()
@@ -81,7 +86,10 @@ local function PlayAnimation()
 
     ShowNextFrame()
 
-    C_Timer.After(duration, function()
+    -- Stored handle so a restarted animation cancels the previous run's
+    -- end-of-animation timer (via StopAnimation) instead of being cut short.
+    stopTimer = C_Timer.NewTimer(duration, function()
+        stopTimer = nil
         if animActive then StopAnimation() end
     end)
 end

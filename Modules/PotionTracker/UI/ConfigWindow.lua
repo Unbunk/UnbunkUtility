@@ -1,6 +1,7 @@
 -- Modules/PotionTracker/UI/ConfigWindow.lua
 
 local _, ns = ...
+local L = ns.L
 ns.PotionTracker = ns.PotionTracker or {}
 local PT = ns.PotionTracker
 
@@ -43,7 +44,7 @@ local function CreatePotionSection(parent, prefix)
 
     local potionLbl = potionFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     potionLbl:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 0, 0)
-    potionLbl:SetText("Potion")
+    potionLbl:SetText(L["Potion"])
 
     local potionAnchor = potionFrame:CreateFontString(nil, "ARTWORK")
     potionAnchor:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 0, -20)
@@ -63,7 +64,7 @@ local function CreatePotionSection(parent, prefix)
     -- pick, which falls back when the configured one is out of bags).
     local function ActivePotionDisplay()
         local id = PT.GetActiveItemId(prefix)
-        if not id then return "None" end
+        if not id then return L["None"] end
         local name = C_Item.GetItemNameByID(id) or tostring(id)
         return FormatDisplay(id, name)
     end
@@ -73,7 +74,7 @@ local function CreatePotionSection(parent, prefix)
     local displayToId = {}
 
     local potionDD
-    potionDD = HealerRange_CreateDropdown({
+    potionDD = ns.ui.CreateDropdown({
         parent        = potionFrame,
         anchorFrame   = potionAnchor,
         width         = 240,
@@ -96,8 +97,9 @@ local function CreatePotionSection(parent, prefix)
             local id = displayToId[display]
             if not id then return end
             SetCfg("itemId", id)
-            local _, spellID = C_Item.GetItemSpell(id)
-            SetCfg("spellId", spellID)
+            -- spellId is derived dynamically by PT.GetActiveSpellId from the
+            -- active item; the resolver never reads a stored cfg.spellId, so do
+            -- not persist one here (it would only ever be stale/nil dead data).
             potionDD.selectedText:SetText(display)
             PT.ApplyAll()
         end,
@@ -108,14 +110,14 @@ local function CreatePotionSection(parent, prefix)
 
     local favLbl = potionFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     favLbl:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 260, 0)
-    favLbl:SetText("Favorite potion")
+    favLbl:SetText(L["Favorite potion"])
 
     local favAnchor = potionFrame:CreateFontString(nil, "ARTWORK")
     favAnchor:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 260, -20)
 
     local function FavoriteDisplay()
         local id = GetCfg("favoriteId")
-        if not id then return "None" end
+        if not id then return L["None"] end
         local name = C_Item.GetItemNameByID(id) or ("[" .. id .. "]")
         return FormatDisplay(id, name)
     end
@@ -123,7 +125,7 @@ local function CreatePotionSection(parent, prefix)
     local favDisplayToId = {}
 
     local favoriteDD
-    favoriteDD = HealerRange_CreateDropdown({
+    favoriteDD = ns.ui.CreateDropdown({
         parent        = potionFrame,
         anchorFrame   = favAnchor,
         width         = 200,
@@ -151,9 +153,9 @@ local function CreatePotionSection(parent, prefix)
     favoriteDD.selectedText:SetText(FavoriteDisplay())
 
     -- Favorite enable checkbox, sitting below the dropdown.
-    local favCb = Unbunk_CreateCheckbox({
+    local favCb = ns.ui.CreateCheckbox({
         parent  = potionFrame,
-        label   = "Use favorite when in bag",
+        label   = L["Use favorite when in bag"],
         checked = GetCfg("favoriteEnabled") == true,
         onClick = function(val)
             SetCfg("favoriteEnabled", val)
@@ -166,8 +168,8 @@ local function CreatePotionSection(parent, prefix)
 
     -- ── Sound use ─────────────────────────────────────────────────────────────
 
-    local soundUseResult = HealerRange_CreateSoundPicker(parent, LSM, {
-        label          = "Sound on use",
+    local soundUseResult = ns.ui.CreateSoundPicker(parent, LSM, {
+        label          = L["Sound on use"],
         getSoundKey    = function() return GetCfg("soundKeyUse") end,
         getSoundEnable = function() return GetCfg("soundOnUse") end,
         onSoundSelect  = function(key, path)
@@ -182,8 +184,8 @@ local function CreatePotionSection(parent, prefix)
 
     -- ── Sound ready ───────────────────────────────────────────────────────────
 
-    local soundReadyResult = HealerRange_CreateSoundPicker(parent, LSM, {
-        label          = "Sound when ready",
+    local soundReadyResult = ns.ui.CreateSoundPicker(parent, LSM, {
+        label          = L["Sound when ready"],
         getSoundKey    = function() return GetCfg("soundKeyReady") end,
         getSoundEnable = function() return GetCfg("soundOnReady") end,
         onSoundSelect  = function(key, path)
@@ -200,9 +202,9 @@ local function CreatePotionSection(parent, prefix)
 
     local showIconFrame = CreateFrame("Frame", nil, parent)
     showIconFrame:SetHeight(24)
-    local showIconCb = Unbunk_CreateCheckbox({
+    local showIconCb = ns.ui.CreateCheckbox({
         parent  = showIconFrame,
-        label   = "Show icon",
+        label   = L["Show icon"],
         checked = GetCfg("showIcon") ~= false,
         onClick = function(val)
             SetCfg("showIcon", val)
@@ -220,17 +222,19 @@ local function CreatePotionSection(parent, prefix)
 
     local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
-    sizeLbl:SetText("Icon size")
+    sizeLbl:SetText(L["Icon size"])
 
     local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
     wLbl:SetText("W")
 
-    local wInput = Unbunk_CreateTextInput({
+    local wInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 8,
+        max        = 512,
         maxLetters = 3,
         text       = tostring(GetCfg("iconWidth") or 64),
         onEnter    = function(val)
@@ -246,11 +250,13 @@ local function CreatePotionSection(parent, prefix)
     hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
     hLbl:SetText("H")
 
-    local hInput = Unbunk_CreateTextInput({
+    local hInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 8,
+        max        = 512,
         maxLetters = 3,
         text       = tostring(GetCfg("iconHeight") or 64),
         onEnter    = function(val)
@@ -268,8 +274,8 @@ local function CreatePotionSection(parent, prefix)
     -- ── Position editor ───────────────────────────────────────────────────────
 
     local peName = "PotionTracker_PE_" .. prefix
-    _G[peName] = HealerRange_CreatePositionEditor(parent, {
-        label      = "Icon position (offset from screen center)",
+    _G[peName] = ns.ui.CreatePositionEditor(parent, {
+        label      = L["Icon position (offset from screen center)"],
         getX       = function() return GetCfg("posX") end,
         getY       = function() return GetCfg("posY") end,
         onApply    = function(x, yv)
@@ -291,9 +297,9 @@ local function CreatePotionSection(parent, prefix)
 
     -- ── Timer text ────────────────────────────────────────────────────────────
 
-    local te = HealerRange_CreateTextEditor(parent, {
+    local te = ns.ui.CreateTextEditor(parent, {
         LSM          = LSM,
-        label        = "Timer text",
+        label        = L["Timer text"],
         showText     = false,
         showFont     = true,
         showSize     = true,
@@ -329,9 +335,9 @@ local function CreatePotionSection(parent, prefix)
 
     local showStackFrame = CreateFrame("Frame", nil, parent)
     showStackFrame:SetHeight(24)
-    local showStackCb = Unbunk_CreateCheckbox({
+    local showStackCb = ns.ui.CreateCheckbox({
         parent  = showStackFrame,
-        label   = "Show stack count below icon",
+        label   = L["Show stack count below icon"],
         checked = GetCfg("showStack") ~= false,
         onClick = function(val)
             SetCfg("showStack", val)
@@ -344,9 +350,9 @@ local function CreatePotionSection(parent, prefix)
 
     -- ── Stack text ────────────────────────────────────────────────────────────
 
-    local ste = HealerRange_CreateTextEditor(parent, {
+    local ste = ns.ui.CreateTextEditor(parent, {
         LSM          = LSM,
-        label        = "Stack text",
+        label        = L["Stack text"],
         showText     = false,
         showFont     = true,
         showSize     = true,
@@ -422,9 +428,9 @@ local function CreatePotionTrackerPanel(parent)
 
     local enableFrame = CreateFrame("Frame", nil, content)
     enableFrame:SetHeight(24)
-    local enableCb = Unbunk_CreateCheckbox({
+    local enableCb = ns.ui.CreateCheckbox({
         parent  = enableFrame,
-        label   = "Enable Potion Tracker",
+        label   = L["Enable Potion Tracker"],
         checked = PT.CfgGet("enabled") ~= false,
         onClick = function(val)
             PT.CfgSet("enabled", val)
@@ -436,7 +442,7 @@ local function CreatePotionTrackerPanel(parent)
 
     -- ── Instance filter ───────────────────────────────────────────────────────
 
-    local iF = Unbunk_CreateInstanceFilter({
+    local iF = ns.ui.CreateInstanceFilter({
         parent    = content,
         getConfig = function() return PT.CfgGet("instanceFilter") end,
         setConfig = function(key, val)
@@ -449,9 +455,9 @@ local function CreatePotionTrackerPanel(parent)
 
     -- ── Health potion section ─────────────────────────────────────────────────
 
-    local healthCS = Unbunk_CreateCollapsibleSection({
+    local healthCS = ns.ui.CreateCollapsibleSection({
         parent        = content,
-        label         = "Health Potion",
+        label         = L["Health Potion"],
         isChecked     = function() return PT.CfgGet("health") and PT.CfgGet("health").enabled end,
         onCheck       = function(val)
             local cfg = PT.CfgGet("health")
@@ -469,9 +475,9 @@ local function CreatePotionTrackerPanel(parent)
 
     -- ── Combat potion section ─────────────────────────────────────────────────
 
-    local combatCS = Unbunk_CreateCollapsibleSection({
+    local combatCS = ns.ui.CreateCollapsibleSection({
         parent        = content,
-        label         = "Combat Potion",
+        label         = L["Combat Potion"],
         isChecked     = function() return PT.CfgGet("combat") and PT.CfgGet("combat").enabled end,
         onCheck       = function(val)
             local cfg = PT.CfgGet("combat")
@@ -525,6 +531,6 @@ local initPTUI = CreateFrame("Frame")
 initPTUI:RegisterEvent("ADDON_LOADED")
 initPTUI:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    UnbunkUtility.RegisterModule("Potion Tracker", nil, CreatePotionTrackerPanel)
+    UnbunkUtility.RegisterModule(L["Potion Tracker"], nil, CreatePotionTrackerPanel)
     self:UnregisterEvent("ADDON_LOADED")
 end)
