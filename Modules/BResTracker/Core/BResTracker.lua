@@ -57,7 +57,7 @@ function BR.RunTest(duration)
         { guid = "test1", name = "Drood",  class = "DRUID"       },
         { guid = "test2", name = "Deathk", class = "DEATHKNIGHT" },
         { guid = "test3", name = "Locky",  class = "WARLOCK"     },
-        { guid = "test4", name = "Praes",  class = "EVOKER"      },
+        { guid = "test4", name = "Praes",  class = "DRUID"       },
         { guid = "test5", name = "Huntr",  class = "HUNTER"      },
     }
     BR.testCooldownEnds = {
@@ -243,8 +243,9 @@ function BR.SetUnlocked(val)
         frame:SetScript("OnDragStop", nil)
         frame:SetBackdrop(nil)
         lastCharges = nil
-        -- Restore the real state immediately (group / cooldown / etc.).
+        -- Restore the real state immediately (group / cooldown / list).
         BR.ApplyVisuals()
+        if BR.RefreshList then BR.RefreshList() end
     end
 end
 
@@ -267,11 +268,11 @@ eventFrame:SetScript("OnEvent", function()
 end)
 
 -- Ticker: refreshes the mm:ss countdown and catches charge regained.
+-- Early-out when disabled so a turned-off module does ~zero per-tick work.
 C_Timer.NewTicker(0.5, function()
-    if BR.CfgGet("enabled") then
-        BR.ApplyVisuals()
-        if BR.RefreshList then BR.RefreshList() end
-    end
+    if not BR.CfgGet("enabled") then return end
+    BR.ApplyVisuals()
+    if BR.RefreshList then BR.RefreshList() end
 end)
 
 -- Reload hook: re-applies everything when a profile is loaded.

@@ -2,7 +2,7 @@
 -- Reusable icon picker widget.
 --
 -- Usage:
---   local ip = Unbunk_CreateIconPicker({
+--   local ip = ns.ui.CreateIconPicker({
 --       parent    = panel,
 --       getConfig = function() return MyCfg_Get("icon") end,
 --       setConfig = function(key, val) MyCfg_Set("icon."..key, val) end,
@@ -14,18 +14,23 @@
 --   ip.height
 --   ip.Refresh()
 
+local _, ns = ...
+local L = ns.L
+
 local POSITIONS = {
-    { key = "TOP_LEFT",      label = "Top Left"      },
-    { key = "TOP_CENTER",    label = "Top Center"     },
-    { key = "TOP_RIGHT",     label = "Top Right"      },
-    { key = "LEFT",          label = "Left"           },
-    { key = "RIGHT",         label = "Right"          },
-    { key = "BOTTOM_LEFT",   label = "Bottom Left"    },
-    { key = "BOTTOM_CENTER", label = "Bottom Center"  },
-    { key = "BOTTOM_RIGHT",  label = "Bottom Right"   },
+    { key = "TOP_LEFT",      label = L["Top Left"]      },
+    { key = "TOP_CENTER",    label = L["Top Center"]     },
+    { key = "TOP_RIGHT",     label = L["Top Right"]      },
+    { key = "LEFT",          label = L["Left"]           },
+    { key = "RIGHT",         label = L["Right"]          },
+    { key = "BOTTOM_LEFT",   label = L["Bottom Left"]    },
+    { key = "BOTTOM_CENTER", label = L["Bottom Center"]  },
+    { key = "BOTTOM_RIGHT",  label = L["Bottom Right"]   },
 }
 
-function Unbunk_CreateIconPicker(config)
+ns.ui = ns.ui or {}
+
+function ns.ui.CreateIconPicker(config)
     local parent    = config.parent
     local getConfig = config.getConfig
     local setConfig = config.setConfig
@@ -34,15 +39,19 @@ function Unbunk_CreateIconPicker(config)
     local result = {}
     local height = 0
 
+    -- Snapshot for the construction-time reads below; closures re-read getConfig()
+    -- live. Guard against a getConfig that can return nil before its DB is init'd.
+    local initCfg = getConfig() or {}
+
     local container = CreateFrame("Frame", nil, parent)
     container:SetWidth(518)
 
     -- ── Enable checkbox ───────────────────────────────────────────────────────
 
-    local enableCb = Unbunk_CreateCheckbox({
+    local enableCb = ns.ui.CreateCheckbox({
         parent  = container,
-        label   = "Show icon",
-        checked = getConfig().enabled ~= false,
+        label   = L["Show icon"],
+        checked = initCfg.enabled ~= false,
         onClick = function(val) setConfig("enabled", val) end,
     })
     enableCb.frame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
@@ -81,7 +90,7 @@ function Unbunk_CreateIconPicker(config)
 
     local iconLabel = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     iconLabel:SetPoint("LEFT", previewFrame, "RIGHT", 10, 8)
-    iconLabel:SetText("Icon")
+    iconLabel:SetText(L["Icon"])
 
     local iconAnchor = container:CreateFontString(nil, "ARTWORK")
     iconAnchor:SetPoint("TOPLEFT", previewFrame, "TOPRIGHT", 10, 4)
@@ -91,10 +100,10 @@ function Unbunk_CreateIconPicker(config)
         table.insert(iconList, ic.label)
     end
     if #iconList == 0 then
-        table.insert(iconList, "(no icons available)")
+        table.insert(iconList, L["(no icons available)"])
     end
 
-    local iconDD = HealerRange_CreateDropdown({
+    local iconDD = ns.ui.CreateDropdown({
         parent        = container,
         anchorFrame   = iconAnchor,
         width         = 200,
@@ -124,10 +133,10 @@ function Unbunk_CreateIconPicker(config)
 
     -- ── Custom icon checkbox + input ──────────────────────────────────────────
 
-    local customCb = Unbunk_CreateCheckbox({
+    local customCb = ns.ui.CreateCheckbox({
         parent  = container,
-        label   = "Custom icon ID",
-        checked = getConfig().useCustom or false,
+        label   = L["Custom icon ID"],
+        checked = initCfg.useCustom or false,
         onClick = function(val)
             setConfig("useCustom", val)
             RefreshPreview()
@@ -136,13 +145,13 @@ function Unbunk_CreateIconPicker(config)
     customCb.frame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
     height = height + 28
 
-    local customInput = Unbunk_CreateTextInput({
+    local customInput = ns.ui.CreateTextInput({
         parent     = container,
         width      = 120,
         height     = 22,
         numeric    = true,
         maxLetters = 10,
-        text       = tostring(getConfig().customId or ""),
+        text       = tostring(initCfg.customId or ""),
         onEnter    = function(val)
             setConfig("customId", val)
             RefreshPreview()
@@ -155,7 +164,7 @@ function Unbunk_CreateIconPicker(config)
 
     local posLabel = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     posLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
-    posLabel:SetText("Position")
+    posLabel:SetText(L["Position"])
     height = height + 18
 
     local posAnchor = container:CreateFontString(nil, "ARTWORK")
@@ -164,7 +173,7 @@ function Unbunk_CreateIconPicker(config)
     local posList = {}
     for _, p in ipairs(POSITIONS) do table.insert(posList, p.label) end
 
-    local posDD = HealerRange_CreateDropdown({
+    local posDD = ns.ui.CreateDropdown({
         parent        = container,
         anchorFrame   = posAnchor,
         width         = 180,
@@ -176,7 +185,7 @@ function Unbunk_CreateIconPicker(config)
             for _, p in ipairs(POSITIONS) do
                 if p.key == cfg.position then return p.label end
             end
-            return "Top Center"
+            return L["Top Center"]
         end,
         onSelect      = function(label)
             for _, p in ipairs(POSITIONS) do
@@ -193,20 +202,20 @@ function Unbunk_CreateIconPicker(config)
 
     local sizeLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     sizeLbl:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
-    sizeLbl:SetText("Size")
+    sizeLbl:SetText(L["Size"])
     height = height + 18
 
     local wLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     wLbl:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
-    wLbl:SetText("W")
+    wLbl:SetText(L["W"])
 
-    local wInput = Unbunk_CreateTextInput({
+    local wInput = ns.ui.CreateTextInput({
         parent     = container,
         width      = 46,
         height     = 22,
         numeric    = true,
         maxLetters = 3,
-        text       = tostring(getConfig().width or 32),
+        text       = tostring(initCfg.width or 32),
         onEnter    = function(val)
             if val and val > 0 then setConfig("width", val) end
         end,
@@ -215,15 +224,15 @@ function Unbunk_CreateIconPicker(config)
 
     local hLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
-    hLbl:SetText("H")
+    hLbl:SetText(L["H"])
 
-    local hInput = Unbunk_CreateTextInput({
+    local hInput = ns.ui.CreateTextInput({
         parent     = container,
         width      = 46,
         height     = 22,
         numeric    = true,
         maxLetters = 3,
-        text       = tostring(getConfig().height or 32),
+        text       = tostring(initCfg.height or 32),
         onEnter    = function(val)
             if val and val > 0 then setConfig("height", val) end
         end,

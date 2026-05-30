@@ -8,10 +8,9 @@ local PI_SPELL_ID  = 10060
 local PI_ICON_ID   = 135960 -- native Power Infusion icon
 
 local playerHasPI  = false
-local playerClass  = nil
 local hasBuff      = false
 
-local piIcon = Unbunk_CreateTimerIcon({
+local piIcon = ns.ui.CreateTimerIcon({
     name    = "PITrackerFrame",
     getCfg  = function(key) return PI.CfgGet(key) end,
     onDragStop = function(x, y)
@@ -29,7 +28,6 @@ end
 
 local function CheckPlayerHasPI()
     local _, class = UnitClass("player")
-    playerClass = class
     playerHasPI = class == "PRIEST"
 end
 
@@ -39,11 +37,9 @@ local function GetPIIcon()
 end
 
 function PI.ApplyVisuals()
-    if not PI.CfgGet("enabled") or not IsActiveInCurrentInstance() then
-        piIcon.Hide()
-        return
-    end
-    if not PI.CfgGet("showIcon") then
+    -- Test mode bypasses the instance filter so the preview always works.
+    if (not PI.testMode and (not PI.CfgGet("enabled") or not IsActiveInCurrentInstance()))
+        or not PI.CfgGet("showIcon") then
         piIcon.Hide()
         return
     end
@@ -137,6 +133,8 @@ eventFrame:SetScript("OnEvent", function(self, event)
 end)
 
 C_Timer.NewTicker(0.5, function()
+    -- A disabled module does ~zero per-tick work.
+    if not PI.CfgGet("enabled") then return end
     SyncBuff()
 end)
 

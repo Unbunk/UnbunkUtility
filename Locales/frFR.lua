@@ -1,0 +1,210 @@
+-- Locales/frFR.lua
+-- French translation overrides. Loaded after enUS.lua; only applies on a frFR
+-- client. Any key not listed here falls back to the English source via the
+-- ns.L identity metatable. Color codes (|cff..|r) and string.format specifiers
+-- (%s / %d / %ds) are preserved in the same order as the English source.
+
+local _, ns = ...
+if GetLocale() ~= "frFR" then return end
+local L = ns.L
+
+-- ── Slash commands / chat ────────────────────────────────────────────────────
+L["  |cffffd700/ubu debug|r — dump LibRangeCheck friend checkers (dev)"] = "  |cffffd700/ubu debug|r — affiche les vérificateurs alliés LibRangeCheck (dev)"
+L["  |cffffd700/ubu help|r — show this help"] = "  |cffffd700/ubu help|r — affiche cette aide"
+L["  |cffffd700/ubu|r or |cffffd700/ubu config|r — open settings"] = "  |cffffd700/ubu|r ou |cffffd700/ubu config|r — ouvre les réglages"
+L["|cffff4444[UnbunkUtility]|r Commands:"] = "|cffff4444[UnbunkUtility]|r Commandes :"
+L["|cffff4444[UnbunkUtility]|r Config panel not ready yet."] = "|cffff4444[UnbunkUtility]|r Le panneau de configuration n'est pas encore prêt."
+L["|cffff4444[UnbunkUtility]|r Unknown command. Type |cffffd700/ubu help|r for the list."] = "|cffff4444[UnbunkUtility]|r Commande inconnue. Tapez |cffffd700/ubu help|r pour la liste."
+L["|cffff4444[UnbunkUtility]|r Debug — LibRangeCheck-3.0 not loaded."] = "|cffff4444[UnbunkUtility]|r Debug — LibRangeCheck-3.0 non chargé."
+L["|cffff4444[UnbunkUtility]|r Debug — Friend checkers |cff00ff00out of combat|r:"] = "|cffff4444[UnbunkUtility]|r Debug — Vérificateurs alliés |cff00ff00hors combat|r :"
+L["|cffff4444[UnbunkUtility]|r Debug — Friend checkers |cffff9900in combat|r:"] = "|cffff4444[UnbunkUtility]|r Debug — Vérificateurs alliés |cffff9900en combat|r :"
+L["|cffff4444[UnbunkUtility]|r Debug — Res checkers |cffff9900in combat|r:"] = "|cffff4444[UnbunkUtility]|r Debug — Vérificateurs de rés |cffff9900en combat|r :"
+
+-- ── Profiles ─────────────────────────────────────────────────────────────────
+L["Profile Management"] = "Gestion des profils"
+L["Profiles"] = "Profils"
+L["Current profile: |cffffd700%s|r"] = "Profil actuel : |cffffd700%s|r"
+L["Switch profile"] = "Changer de profil"
+L["Create"] = "Créer"
+L["Create new profile"] = "Créer un nouveau profil"
+L["Delete"] = "Supprimer"
+L["Delete profile"] = "Supprimer le profil"
+L["Export"] = "Exporter"
+L["Export current profile"] = "Exporter le profil actuel"
+L["Import"] = "Importer"
+L["Import profile (overwrites current)"] = "Importer un profil (écrase l'actuel)"
+L["Reset"] = "Réinitialiser"
+L["Reset current profile to defaults"] = "Réinitialiser le profil actuel aux valeurs par défaut"
+L["|cffff4444[UnbunkUtility]|r Profile loaded: %s"] = "|cffff4444[UnbunkUtility]|r Profil chargé : %s"
+L["|cffff4444[UnbunkUtility]|r Profile created: %s"] = "|cffff4444[UnbunkUtility]|r Profil créé : %s"
+L["|cffff4444[UnbunkUtility]|r Profile deleted: %s"] = "|cffff4444[UnbunkUtility]|r Profil supprimé : %s"
+L["|cffff4444[UnbunkUtility]|r Profile already exists: %s"] = "|cffff4444[UnbunkUtility]|r Le profil existe déjà : %s"
+L["|cffff4444[UnbunkUtility]|r Profile reset to defaults: %s"] = "|cffff4444[UnbunkUtility]|r Profil réinitialisé : %s"
+L["|cffff4444[UnbunkUtility]|r Profile imported successfully."] = "|cffff4444[UnbunkUtility]|r Profil importé avec succès."
+L["|cffff4444[UnbunkUtility]|r Import failed: %s"] = "|cffff4444[UnbunkUtility]|r Échec de l'import : %s"
+
+-- ── Module / tab names ───────────────────────────────────────────────────────
+L["General Settings"] = "Réglages généraux"
+L["Healer Range"] = "Portée de soin"
+L["Death Alert"] = "Alerte de mort"
+L["BL Tracker"] = "Suivi BL"
+L["Potion Tracker"] = "Suivi des potions"
+L["Healthstone Tracker"] = "Suivi des pierres de soin"
+L["Trinket Tracker"] = "Suivi des bijoux"
+L["PI Tracker"] = "Suivi PI"
+L["BRez Tracker"] = "Suivi BRez"
+
+-- ── Common labels ────────────────────────────────────────────────────────────
+L["Test"] = "Test"
+L["Test Alert"] = "Tester l'alerte"
+L["Stop Test"] = "Arrêter le test"
+L["Lock"] = "Verrouiller"
+L["Unlock"] = "Déverrouiller"
+L["Show icon"] = "Afficher l'icône"
+L["Icon"] = "Icône"
+L["Icon size"] = "Taille de l'icône"
+L["Icon position (offset from screen center)"] = "Position de l'icône (décalage depuis le centre)"
+L["Position"] = "Position"
+L["Position (offset from screen center)"] = "Position (décalage depuis le centre)"
+L["Size"] = "Taille"
+L["Color"] = "Couleur"
+L["Font"] = "Police"
+L["Text"] = "Texte"
+L["Outline"] = "Contour"
+L["Section"] = "Section"
+L["Duration"] = "Durée"
+L["Active in"] = "Actif dans"
+L["W"] = "L"
+L["H"] = "H"
+L["X offset"] = "Décalage X"
+L["Y offset"] = "Décalage Y"
+L["sec"] = "sec"
+L["seconds"] = "secondes"
+L["fps"] = "fps"
+L["None"] = "Aucun"
+
+-- ── Instance filter ──────────────────────────────────────────────────────────
+L["Dungeon"] = "Donjon"
+L["Raid"] = "Raid"
+L["Battleground"] = "Champ de bataille"
+L["Outdoor"] = "Extérieur"
+
+-- ── Positions / sides ────────────────────────────────────────────────────────
+L["Left"] = "Gauche"
+L["Right"] = "Droite"
+L["Top Left"] = "Haut gauche"
+L["Top Center"] = "Haut centre"
+L["Top Right"] = "Haut droite"
+L["Bottom Left"] = "Bas gauche"
+L["Bottom Center"] = "Bas centre"
+L["Bottom Right"] = "Bas droite"
+
+-- ── Outline modes ────────────────────────────────────────────────────────────
+L["No outline"] = "Sans contour"
+L["Thick outline"] = "Contour épais"
+L["Monochrome"] = "Monochrome"
+L["Monochrome + Outline"] = "Monochrome + Contour"
+L["Monochrome + Thick outline"] = "Monochrome + Contour épais"
+
+-- ── Pickers / inputs ─────────────────────────────────────────────────────────
+L["Button"] = "Bouton"
+L["(select...)"] = "(sélectionner...)"
+L["(select a font)"] = "(choisir une police)"
+L["(no icons available)"] = "(aucune icône disponible)"
+L["Custom icon ID"] = "ID d'icône personnalisée"
+L["LibSharedMedia-3.0 not found — enter sound ID manually:"] = "LibSharedMedia-3.0 introuvable — saisir l'ID du son manuellement :"
+
+-- ── Sounds ───────────────────────────────────────────────────────────────────
+L["Alert sound"] = "Son d'alerte"
+L["Sound on use"] = "Son à l'utilisation"
+L["Sound when ready"] = "Son quand prêt"
+L["Sound on death"] = "Son à la mort"
+L["Sound on PI"] = "Son sur PI"
+L["Sound on Bloodlust"] = "Son sur Bloodlust"
+L["Sound when Bloodlust ready"] = "Son quand Bloodlust est prêt"
+L["Sound on charge regained"] = "Son quand une charge est regagnée"
+L["Sound on BRes used"] = "Son quand une BRez est utilisée"
+
+-- ── Text editors ─────────────────────────────────────────────────────────────
+L["Alert text"] = "Texte de l'alerte"
+L["Timer text"] = "Texte du timer"
+L["Stack text"] = "Texte du compteur"
+L["Player name text"] = "Texte du nom de joueur"
+
+-- ── Healer Range ─────────────────────────────────────────────────────────────
+L["Enable Healer Range"] = "Activer la portée de soin"
+L["No Heal"] = "Pas de soin"
+L["Alert!"] = "Alerte !"
+L["Alert position (offset from screen center)"] = "Position de l'alerte (décalage depuis le centre)"
+L["Alert duration"] = "Durée de l'alerte"
+L["|cff00ff00Combat range detection available. Note: Evoker healers are ignored unless other healers are present in the group.|r"] = "|cff00ff00Détection de portée en combat disponible. Note : les soigneurs Évoker sont ignorés sauf si d'autres soigneurs sont présents dans le groupe.|r"
+L["|cffff4444Combat range detection unavailable — your class has no friendly spell probe usable in combat. The alert will not trigger.|r"] = "|cffff4444Détection de portée en combat indisponible — votre classe n'a aucun sort allié utilisable en combat. L'alerte ne se déclenchera pas.|r"
+
+-- ── Death Alert ──────────────────────────────────────────────────────────────
+L["Tank Death Alert"] = "Alerte de mort des tanks"
+L["Healer Death Alert"] = "Alerte de mort des soigneurs"
+L["DPS Death Alert"] = "Alerte de mort DPS"
+L["Tank died"] = "Tank mort"
+L["Healer died"] = "Soigneur mort"
+L["DPS died"] = "DPS mort"
+L["Also alert deaths with no assigned role (treat as DPS)"] = "Alerter aussi les morts sans rôle assigné (comme DPS)"
+L["Death alert anti-spam"] = "Anti-spam des alertes de mort"
+L["Wipe detection: silence ALL death alerts when many people die at once"] = "Détection de wipe : coupe TOUTES les alertes de mort quand beaucoup meurent en même temps"
+L["DPS spam guard: silence DPS death alerts on burst DPS deaths"] = "Anti-spam DPS : coupe les alertes de mort DPS lors de morts DPS rapprochées"
+L["|cffaaaaaa%d+ deaths in %ds, silence for %ds|r"] = "|cffaaaaaa%d+ morts en %ds, coupées pendant %ds|r"
+L["|cffaaaaaa%d+ DPS deaths in %ds, silence DPS alerts for %ds|r"] = "|cffaaaaaa%d+ morts DPS en %ds, alertes DPS coupées pendant %ds|r"
+
+-- ── Combo sounds (General Settings) ──────────────────────────────────────────
+L["Multi-alert combo sounds"] = "Sons combo multi-alertes"
+L["Enable combo sounds (collapse near-simultaneous tracker sounds into one)"] = "Activer les sons combo (fusionne les sons quasi simultanés en un seul)"
+L["BL combo (Bloodlust + Potion / Trinket)"] = "Combo BL (Bloodlust + Potion / Bijou)"
+L["Potion combo (Potion + Trinket, without BL)"] = "Combo potion (Potion + Bijou, sans BL)"
+
+-- ── BL Tracker ───────────────────────────────────────────────────────────────
+L["Enable BL Tracker"] = "Activer le suivi BL"
+
+-- ── PI Tracker ───────────────────────────────────────────────────────────────
+L["Enable PI Tracker"] = "Activer le suivi PI"
+
+-- ── Potion / Trinket trackers ────────────────────────────────────────────────
+L["Enable Potion Tracker"] = "Activer le suivi des potions"
+L["Enable Trinket Tracker"] = "Activer le suivi des bijoux"
+L["Health Potion"] = "Potion de soin"
+L["Combat Potion"] = "Potion de combat"
+L["Potion"] = "Potion"
+L["Favorite potion"] = "Potion favorite"
+L["Use favorite when in bag"] = "Utiliser le favori s'il est dans le sac"
+L["Show stack count below icon"] = "Afficher le nombre sous l'icône"
+L["Trinket 1 (slot 1)"] = "Bijou 1 (emplacement 1)"
+L["Trinket 2 (slot 2)"] = "Bijou 2 (emplacement 2)"
+
+-- ── Healthstone tracker ──────────────────────────────────────────────────────
+L["Enable Healthstone Tracker"] = "Activer le suivi des pierres de soin"
+
+-- ── BRez tracker ─────────────────────────────────────────────────────────────
+L["Enable BRez Tracker"] = "Activer le suivi BRez"
+L["Player list"] = "Liste des joueurs"
+L["Enable player list"] = "Activer la liste des joueurs"
+L["List position relative to icon"] = "Position de la liste par rapport à l'icône"
+L["Status icon / timer position relative to name"] = "Position de l'icône / du timer par rapport au nom"
+L["Estimated BRes cooldown (seconds)"] = "Cooldown BRez estimé (secondes)"
+
+-- ── Player Death Animation ───────────────────────────────────────────────────
+L["Enable Player Death Animation"] = "Activer l'animation de mort du joueur"
+L["Show animation on death"] = "Afficher l'animation à la mort"
+L["Animation"] = "Animation"
+L["Animation size"] = "Taille de l'animation"
+L["Animation duration"] = "Durée de l'animation"
+L["Animation position (offset from screen center)"] = "Position de l'animation (décalage depuis le centre)"
+L["Loop animation until duration ends"] = "Boucler l'animation jusqu'à la fin de la durée"
+L["Frames per second"] = "Images par seconde"
+
+-- ── Minimap ──────────────────────────────────────────────────────────────────
+L["Minimap icon"] = "Icône de minicarte"
+L["Show minimap button (left-click to open settings, drag to reposition)"] = "Afficher le bouton de minicarte (clic gauche pour ouvrir, glisser pour déplacer)"
+L["Open UnbunkUtility"] = "Ouvrir UnbunkUtility"
+L["|cffeda55fLeft-click|r to open settings"] = "|cffeda55fClic gauche|r pour ouvrir les réglages"
+L["|cffeda55fDrag|r to reposition"] = "|cffeda55fGlisser|r pour repositionner"
+
+-- ── Position editor (shared) ─────────────────────────────────────────────────
+L["|cffff4444[UnbunkUtility]|r Alert unlocked — drag to reposition, then click Lock to save."] = "|cffff4444[UnbunkUtility]|r Alerte déverrouillée — glissez pour repositionner, puis cliquez sur Verrouiller pour sauvegarder."

@@ -2,7 +2,7 @@
 -- Reusable styled text/number input widget.
 --
 -- Usage:
---   local ti = Unbunk_CreateTextInput({
+--   local ti = ns.ui.CreateTextInput({
 --       parent    = panel,
 --       width     = 200,
 --       height    = 22,
@@ -16,7 +16,10 @@
 --   ti.SetText(text)
 --   ti.GetText()
 
-function Unbunk_CreateTextInput(config)
+local _, ns = ...
+ns.ui = ns.ui or {}
+
+function ns.ui.CreateTextInput(config)
     local parent     = config.parent
     local width      = config.width      or 200
     local height     = config.height     or 22
@@ -24,6 +27,10 @@ function Unbunk_CreateTextInput(config)
     local maxLetters = config.maxLetters or 100
     local text       = config.text       or ""
     local onEnter    = config.onEnter
+    -- Optional clamp range for numeric inputs. When set, an out-of-range entry
+    -- is clamped to [min, max] and the clamped value is written back into the box.
+    local minVal     = config.min
+    local maxVal     = config.max
 
     local result = {}
 
@@ -48,15 +55,25 @@ function Unbunk_CreateTextInput(config)
 
     editBox:SetScript("OnChar", function(self, char)
         if not numeric then return end
-        local text = self:GetText()
+        local cur = self:GetText()
         -- Allow the minus sign only in the first position.
-        if char == "-" and #text > 1 then
-            self:SetText(text:gsub("-", ""))
+        if char == "-" and #cur > 1 then
+            self:SetText(cur:gsub("-", ""))
         end
     end)
 
     editBox:SetScript("OnEnterPressed", function(self)
-        if onEnter then onEnter(numeric and tonumber(self:GetText()) or self:GetText()) end
+        if numeric then
+            local v = tonumber(self:GetText())  -- nil when the text isn't a number
+            if v then
+                if minVal and v < minVal then v = minVal end
+                if maxVal and v > maxVal then v = maxVal end
+                self:SetText(tostring(v))  -- reflect the clamped value in the box
+            end
+            if onEnter then onEnter(v) end  -- v is nil for garbage; callers guard
+        else
+            if onEnter then onEnter(self:GetText()) end
+        end
         self:ClearFocus()
     end)
     if text ~= "" then
@@ -69,11 +86,6 @@ function Unbunk_CreateTextInput(config)
 
     editBox:SetScript("OnEditFocusLost", function(self)
         container:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
-    end)
-
-    editBox:SetScript("OnEnterPressed", function(self)
-        if onEnter then onEnter(numeric and tonumber(self:GetText()) or self:GetText()) end
-        self:ClearFocus()
     end)
 
     editBox:SetScript("OnEscapePressed", function(self)

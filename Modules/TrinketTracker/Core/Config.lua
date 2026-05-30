@@ -58,29 +58,16 @@ local DEFAULTS = {
 
 function TT.CfgInit()
     ns.MigrateSoundKeys(TrinketTrackerDB)
-    for k, v in pairs(DEFAULTS) do
-        if TrinketTrackerDB[k] == nil then
-            if type(v) == "table" then
-                TrinketTrackerDB[k] = {}
-                for k2, v2 in pairs(v) do
-                    if type(v2) == "table" then
-                        TrinketTrackerDB[k][k2] = {}
-                        for k3, v3 in pairs(v2) do
-                            TrinketTrackerDB[k][k2][k3] = v3
-                        end
-                    else
-                        TrinketTrackerDB[k][k2] = v2
-                    end
-                end
-            else
-                TrinketTrackerDB[k] = v
-            end
-        end
-    end
+    ns.MergeDefaults(TrinketTrackerDB, DEFAULTS)
 end
 
+-- Re-apply defaults + sound migration whenever a profile is loaded/imported/reset.
+ns.RegisterCfgInitHook(TT.CfgInit)
+
 function TT.CfgGet(key)
-    return TrinketTrackerDB[key]
+    local v = TrinketTrackerDB[key]
+    if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
+    return v
 end
 
 function TT.CfgSet(key, value)
@@ -88,7 +75,6 @@ function TT.CfgSet(key, value)
 end
 
 function TT.PlaySound(prefix, key)
-    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local cfg = TT.CfgGet(prefix)
     if not cfg then return end
     local pathKey, soundKeyKey
@@ -101,14 +87,7 @@ function TT.PlaySound(prefix, key)
     else
         return
     end
-    local path = cfg[pathKey]
-    if path then
-        PlaySoundFile(path, "Master")
-    elseif LSM then
-        local soundKey = cfg[soundKeyKey]
-        local soundPath = soundKey and LSM:Fetch("sound", soundKey)
-        if soundPath then PlaySoundFile(soundPath, "Master") end
-    end
+    ns.PlaySoundFromCfg(cfg, pathKey, soundKeyKey)
 end
 
 local initDB = CreateFrame("Frame")

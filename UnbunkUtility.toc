@@ -4,13 +4,15 @@
 ## Author: Unbunk
 ## Version: 3.0.0
 ## SavedVariables: HealerRangeDB, DeathAlertDB, BLTrackerDB, PotionTrackerDB, TrinketTrackerDB, UnbunkUtilityDB, PITrackerDB, PlayerDeathDB, BResTrackerDB, HealthstoneTrackerDB
-## IconTexture: Interface\AddOns\UnbunkUtility\Media\Icons\Unbunk.tga
+## IconTexture: Interface\AddOns\UnbunkUtility\Media\Icons\UnbunkUtility.tga
 
 Libs/LibStub-1.0/LibStub.lua
 Libs/CallbackHandler-1.0/CallbackHandler-1.0.lua
 Libs/LibSharedMedia-3.0/lib.xml
 Libs/LibRangeCheck-3.0/LibRangeCheck-3.0.lua
 Core/Shared.lua
+Locales/enUS.lua
+Locales/frFR.lua
 Media/Media.lua
 UI/Shared/IconPicker.lua
 UI/Shared/ScrollBar.lua
@@ -22,7 +24,6 @@ UI/Shared/CollapsibleSection.lua
 UI/Shared/TextEditor.lua
 UI/Shared/PositionEditor.lua
 UI/Shared/SoundPicker.lua
-UI/Shared/FontPicker.lua
 UI/Shared/DurationEditor.lua
 UI/Shared/InstanceFilter.lua
 UI/Shared/AlertFrame.lua
@@ -62,4 +63,5 @@ Modules/BResTracker/UI/ConfigWindow.lua
 Modules/PlayerDeathAnimation/Core/Config.lua
 Modules/PlayerDeathAnimation/Core/PlayerDeathAnimation.lua
 Modules/PlayerDeathAnimation/UI/ConfigWindow.lua
+Modules/MinimapIcon/Core/MinimapIcon.lua
 Modules/Profiles/UI/ConfigWindow.lua

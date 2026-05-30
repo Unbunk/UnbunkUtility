@@ -2,7 +2,7 @@
 -- Reusable styled button widget.
 --
 -- Usage:
---   local btn = Unbunk_CreateButton({
+--   local btn = ns.ui.CreateButton({
 --       parent  = panel,
 --       label   = "Test Alert",
 --       width   = 100,
@@ -13,9 +13,13 @@
 --   btn.SetText(text)
 --   btn.SetEnabled(bool)
 
-function Unbunk_CreateButton(config)
+local _, ns = ...
+local L = ns.L
+ns.ui = ns.ui or {}
+
+function ns.ui.CreateButton(config)
     local parent  = config.parent
-    local label   = config.label   or "Button"
+    local label   = config.label   or L["Button"]
     local width   = config.width   or 100
     local height  = config.height  or 22
     local onClick = config.onClick
@@ -38,20 +42,24 @@ function Unbunk_CreateButton(config)
     lbl:SetText(label)
 
     btn:SetScript("OnEnter", function(self)
+        if not self:IsEnabled() then return end
         self:SetBackdropBorderColor(0.8, 0.8, 0.8, 1)
         self:SetBackdropColor(0.25, 0.25, 0.25, 0.9)
     end)
 
     btn:SetScript("OnLeave", function(self)
+        if not self:IsEnabled() then return end
         self:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
         self:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
     end)
 
     btn:SetScript("OnMouseDown", function(self)
+        if not self:IsEnabled() then return end
         self:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
     end)
 
     btn:SetScript("OnMouseUp", function(self)
+        if not self:IsEnabled() then return end
         self:SetBackdropColor(0.25, 0.25, 0.25, 0.9)
     end)
 
@@ -70,10 +78,12 @@ function Unbunk_CreateButton(config)
             btn:Enable()
             lbl:SetTextColor(1, 1, 1, 1)
             btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+            btn:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
         else
             btn:Disable()
             lbl:SetTextColor(0.5, 0.5, 0.5, 1)
             btn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+            btn:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
         end
     end
 

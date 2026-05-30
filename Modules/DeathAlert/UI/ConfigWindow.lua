@@ -1,6 +1,7 @@
 -- Modules/DeathAlert/UI/ConfigWindow.lua
 
 local _, ns = ...
+local L = ns.L
 ns.DeathAlert = ns.DeathAlert or {}
 local DA = ns.DeathAlert
 
@@ -11,7 +12,9 @@ local function CreateAlertSection(parent, prefix)
     local GAP = 10
 
     local function AddWidget(frame, frameHeight)
-        frame:SetWidth(500)
+        -- Match the 518 column width used by AddSection and the embedded
+        -- shared widgets (InstanceFilter/IconPicker/SoundPicker/TextEditor).
+        frame:SetWidth(518)
         if lastFrame then
             frame:SetPoint("TOPLEFT", lastFrame, "BOTTOMLEFT", 0, -GAP)
         else
@@ -26,9 +29,9 @@ local function CreateAlertSection(parent, prefix)
     local testFrame = CreateFrame("Frame", nil, parent)
     testFrame:SetHeight(26)
 
-    local testBtnWidget = Unbunk_CreateButton({
+    local testBtnWidget = ns.ui.CreateButton({
         parent  = testFrame,
-        label   = "Test Alert",
+        label   = L["Test Alert"],
         width   = 100,
         height  = 22,
         onClick = function()
@@ -41,7 +44,7 @@ local function CreateAlertSection(parent, prefix)
             setTest(true)
             getFrame():Show()
             DA.PlaySound(prefix)
-            local duration = DA.CfgGet(prefix .. "AlertDuration") or 5
+            local duration = DA.CfgGet(prefix .. "AlertDuration")
             C_Timer.After(duration, function()
                 setTest(false)
                 getFrame():Hide()
@@ -53,7 +56,7 @@ local function CreateAlertSection(parent, prefix)
 
     -- ── Instance filter ───────────────────────────────────────────────────────
 
-    local iF = Unbunk_CreateInstanceFilter({
+    local iF = ns.ui.CreateInstanceFilter({
         parent    = parent,
         getConfig = function() return DA.CfgGet(prefix .. "InstanceFilter") end,
         setConfig = function(key, val)
@@ -67,7 +70,7 @@ local function CreateAlertSection(parent, prefix)
 
     -- ── Icon picker ───────────────────────────────────────────────────────────
 
-    local ip = Unbunk_CreateIconPicker({
+    local ip = ns.ui.CreateIconPicker({
         parent    = parent,
         getConfig = function() return DA.CfgGet(prefix .. "Icon") end,
         setConfig = function(key, val)
@@ -85,7 +88,7 @@ local function CreateAlertSection(parent, prefix)
 
     -- ── Sound picker ──────────────────────────────────────────────────────────
 
-    local soundResult = HealerRange_CreateSoundPicker(parent, LSM, {
+    local soundResult = ns.ui.CreateSoundPicker(parent, LSM, {
         getSoundKey    = function() return DA.CfgGet(prefix .. "SoundKey") end,
         getSoundEnable = function() return DA.CfgGet(prefix .. "EnableSound") end,
         onSoundSelect  = function(key, path)
@@ -104,9 +107,9 @@ local function CreateAlertSection(parent, prefix)
 
     -- ── Text editor ───────────────────────────────────────────────────────────
 
-    local te = HealerRange_CreateTextEditor(parent, {
+    local te = ns.ui.CreateTextEditor(parent, {
         LSM             = LSM,
-        label           = "Alert text",
+        label           = L["Alert text"],
         getText         = function() return DA.CfgGet(prefix .. "Message") end,
         getFontKey      = function() return DA.CfgGet(prefix .. "FontKey") end,
         getFontPath     = function() return DA.CfgGet(prefix .. "FontPath") end,
@@ -151,8 +154,8 @@ local function CreateAlertSection(parent, prefix)
     -- ── Position editor ───────────────────────────────────────────────────────
 
     local peName = "DeathAlert_PE_" .. prefix
-    _G[peName] = HealerRange_CreatePositionEditor(parent, {
-        label      = "Alert position (offset from screen center)",
+    _G[peName] = ns.ui.CreatePositionEditor(parent, {
+        label      = L["Alert position (offset from screen center)"],
         getX       = function() return DA.CfgGet(prefix .. "PosX") end,
         getY       = function() return DA.CfgGet(prefix .. "PosY") end,
         onApply    = function(x, yv)
@@ -183,7 +186,7 @@ local function CreateAlertSection(parent, prefix)
 
     -- ── Duration editor ───────────────────────────────────────────────────────
 
-    local de = Unbunk_CreateDurationEditor({
+    local de = ns.ui.CreateDurationEditor({
         parent           = parent,
         getDuration      = function() return DA.CfgGet(prefix .. "AlertDuration") end,
         onDurationChange = function(val) DA.CfgSet(prefix .. "AlertDuration", val) end,
@@ -191,15 +194,34 @@ local function CreateAlertSection(parent, prefix)
     de.frame:ClearAllPoints()
     AddWidget(de.frame, de.height)
 
+    -- ── Unassigned-role option (DPS section only) ─────────────────────────────
+    -- Routes deaths of members with no assigned group role to the DPS alert
+    -- (and the dpsSpam counter). See DA.CfgGet("dpsAlertUnassigned").
+    local unassignedRefresh
+    if prefix == "dps" then
+        local uFrame = CreateFrame("Frame", nil, parent)
+        uFrame:SetHeight(24)
+        local uCb = ns.ui.CreateCheckbox({
+            parent  = uFrame,
+            label   = L["Also alert deaths with no assigned role (treat as DPS)"],
+            checked = DA.CfgGet("dpsAlertUnassigned") == true,
+            onClick = function(val) DA.CfgSet("dpsAlertUnassigned", val) end,
+        })
+        uCb.frame:SetPoint("TOPLEFT", uFrame, "TOPLEFT", 0, 0)
+        unassignedRefresh = function() uCb.SetChecked(DA.CfgGet("dpsAlertUnassigned") == true) end
+        AddWidget(uFrame, 24)
+    end
+
     height = height + 16
 
     return height, {
-        sound = soundResult.Refresh,
-        te    = te.Refresh,
-        pe    = _G[peName].Refresh,
-        de    = de.Refresh,
-        iF    = iF.Refresh,
-        ip    = ip.Refresh,
+        sound      = soundResult.Refresh,
+        te         = te.Refresh,
+        pe         = _G[peName].Refresh,
+        de         = de.Refresh,
+        iF         = iF.Refresh,
+        ip         = ip.Refresh,
+        unassigned = unassignedRefresh,
     }
 end
 
@@ -223,9 +245,9 @@ local function CreateDeathAlertPanel(parent)
 
     -- ── Tank section ──────────────────────────────────────────────────────────
 
-    local tankCS = Unbunk_CreateCollapsibleSection({
+    local tankCS = ns.ui.CreateCollapsibleSection({
         parent        = content,
-        label         = "Tank Death Alert",
+        label         = L["Tank Death Alert"],
         isChecked     = function() return DA.CfgGet("tankEnabled") end,
         onCheck       = function(val) DA.CfgSet("tankEnabled", val) end,
         createContent = function(sectionParent)
@@ -238,9 +260,9 @@ local function CreateDeathAlertPanel(parent)
 
     -- ── Healer section ────────────────────────────────────────────────────────
 
-    local healerCS = Unbunk_CreateCollapsibleSection({
+    local healerCS = ns.ui.CreateCollapsibleSection({
         parent        = content,
-        label         = "Healer Death Alert",
+        label         = L["Healer Death Alert"],
         isChecked     = function() return DA.CfgGet("healerEnabled") end,
         onCheck       = function(val) DA.CfgSet("healerEnabled", val) end,
         createContent = function(sectionParent)
@@ -253,9 +275,9 @@ local function CreateDeathAlertPanel(parent)
 
     -- ── DPS section ────────────────────────────────────────────────────────
 
-    local dpsCS = Unbunk_CreateCollapsibleSection({
+    local dpsCS = ns.ui.CreateCollapsibleSection({
         parent        = content,
-        label         = "DPS Death Alert",
+        label         = L["DPS Death Alert"],
         isChecked     = function() return DA.CfgGet("dpsEnabled") end,
         onCheck       = function(val) DA.CfgSet("dpsEnabled", val) end,
         createContent = function(sectionParent)
@@ -275,6 +297,7 @@ local function CreateDeathAlertPanel(parent)
             allRefreshFns.tank.pe()
             if allRefreshFns.tank.de then allRefreshFns.tank.de() end
             if allRefreshFns.tank.iF then allRefreshFns.tank.iF() end
+            if allRefreshFns.tank.ip then allRefreshFns.tank.ip() end
         end
         if allRefreshFns.healer then
             allRefreshFns.healer.sound()
@@ -282,6 +305,7 @@ local function CreateDeathAlertPanel(parent)
             allRefreshFns.healer.pe()
             if allRefreshFns.healer.de then allRefreshFns.healer.de() end
             if allRefreshFns.healer.iF then allRefreshFns.healer.iF() end
+            if allRefreshFns.healer.ip then allRefreshFns.healer.ip() end
         end
         if allRefreshFns.dps then
             allRefreshFns.dps.sound()
@@ -290,6 +314,7 @@ local function CreateDeathAlertPanel(parent)
             if allRefreshFns.dps.de then allRefreshFns.dps.de() end
             if allRefreshFns.dps.iF then allRefreshFns.dps.iF() end
             if allRefreshFns.dps.ip then allRefreshFns.dps.ip() end
+            if allRefreshFns.dps.unassigned then allRefreshFns.dps.unassigned() end
         end
         tankCS.Refresh()
         healerCS.Refresh()
@@ -303,6 +328,6 @@ local initDA = CreateFrame("Frame")
 initDA:RegisterEvent("ADDON_LOADED")
 initDA:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    UnbunkUtility.RegisterModule("Death Alert", nil, CreateDeathAlertPanel)
+    UnbunkUtility.RegisterModule(L["Death Alert"], nil, CreateDeathAlertPanel)
     self:UnregisterEvent("ADDON_LOADED")
 end)

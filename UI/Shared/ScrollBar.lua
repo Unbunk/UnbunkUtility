@@ -2,7 +2,7 @@
 -- Reusable scrollbar widget.
 --
 -- Usage:
---   local sb = Unbunk_CreateScrollBar({
+--   local sb = ns.ui.CreateScrollBar({
 --       parent      = someFrame,
 --       scrollFrame = myScrollFrame,
 --       itemHeight  = 20,
@@ -13,7 +13,10 @@
 --   sb.thumb   -- thumb button
 --   sb.Update() -- force a recompute
 
-function Unbunk_CreateScrollBar(config)
+local _, ns = ...
+ns.ui = ns.ui or {}
+
+function ns.ui.CreateScrollBar(config)
     local parent       = config.parent
     local scrollFrame  = config.scrollFrame
     local itemHeight   = config.itemHeight   or 20
@@ -41,7 +44,6 @@ function Unbunk_CreateScrollBar(config)
     thumbTex:SetColorTexture(0.6, 0.6, 0.6, 0.8)
     result.thumb = thumb
 
-    thumb:EnableMouse(true)
     thumb:EnableMouse(true)
     thumb:SetScript("OnMouseDown", function(self, button)
         if button ~= "LeftButton" then return end

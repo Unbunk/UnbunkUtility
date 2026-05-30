@@ -1,6 +1,8 @@
 -- Core/Core.lua
 -- Main UnbunkUtility window with navigation bar.
 
+local _, ns = ...
+
 -- Use `or {}` so any module that loaded before Core (and stashed callbacks
 -- on the table) keeps its data; previously we overwrote the table outright.
 UnbunkUtility = UnbunkUtility or {}
@@ -23,22 +25,44 @@ function UnbunkUtility.RegisterModule(name, icon, createFn)
 end
 
 -- Compute the actual vertical extent of a module's content by looking at
--- the bottom edge of its deepest child. Lets us size contentArea to fit
+-- the bottom edge of its deepest element. Lets us size contentArea to fit
 -- the active module instead of leaving it at a fixed 1000px ceiling.
+-- We walk both child frames (recursing one level so content nested inside a
+-- child frame is measured) and the frame's own regions (FontStrings/Textures
+-- created directly on it are regions, not children, and were being missed).
 local function ComputeModuleHeight(modFrame)
     local pTop = modFrame:GetTop()
     if not pTop then return nil end
     local maxDepth = 0
+
+    local function consider(element)
+        if not element then return end
+        local bottom = element.GetBottom and element:GetBottom()
+        if bottom then
+            local depth = pTop - bottom
+            if depth > maxDepth then maxDepth = depth end
+        end
+    end
+
+    -- Direct child frames, plus one level of their children.
     for i = 1, modFrame:GetNumChildren() do
         local child = select(i, modFrame:GetChildren())
         if child then
-            local cBottom = child:GetBottom()
-            if cBottom then
-                local depth = pTop - cBottom
-                if depth > maxDepth then maxDepth = depth end
+            consider(child)
+            for j = 1, child:GetNumChildren() do
+                consider(select(j, child:GetChildren()))
+            end
+            for j = 1, child:GetNumRegions() do
+                consider(select(j, child:GetRegions()))
             end
         end
     end
+
+    -- Regions created directly on the module frame.
+    for i = 1, modFrame:GetNumRegions() do
+        consider(select(i, modFrame:GetRegions()))
+    end
+
     return maxDepth
 end
 
@@ -203,7 +227,12 @@ local function CreateMainWindow()
     scrollFrame:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -28, 16)
 
     contentArea = CreateFrame("Frame", nil, scrollFrame)
-    contentArea:SetWidth(scrollFrame:GetWidth() or 550)
+    -- A both-sides-anchored ScrollFrame has not had a layout pass yet at
+    -- PLAYER_LOGIN (the window is still Hide()), so GetWidth() returns 0 — which
+    -- is truthy, so a plain `or 550` fallback never triggers. Guard explicitly.
+    local w = scrollFrame:GetWidth()
+    if not w or w <= 0 then w = 550 end
+    contentArea:SetWidth(w)
     contentArea:SetHeight(1000)
     scrollFrame:SetScrollChild(contentArea)
 
@@ -220,7 +249,7 @@ local function CreateMainWindow()
     -- the actual content height instead of hard-coding 20.
     local SB_ITEM_HEIGHT = 30
     local SB_VISIBLE     = 10
-    local sb = Unbunk_CreateScrollBar({
+    local sb = ns.ui.CreateScrollBar({
         parent       = window,
         scrollFrame  = scrollFrame,
         itemHeight   = SB_ITEM_HEIGHT,

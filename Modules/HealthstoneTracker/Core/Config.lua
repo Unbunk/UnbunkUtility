@@ -9,8 +9,9 @@ HealthstoneTrackerDB = HealthstoneTrackerDB or {}
 local DEFAULTS = {
     enabled        = true,
     showIcon       = true,
-    itemId         = 5512,    -- Healthstone (canonical retail item)
-    spellId        = 6262,    -- "Healthstone" use spell
+    -- itemId / spellId are now resolved dynamically by HT.GetActiveItemId
+    -- so every known healthstone (5512, 224464, legacy ranks, etc.) works
+    -- as long as one is in the player's bag.
     posX           = -340,
     posY           = -300,
     iconWidth      = 30,
@@ -20,6 +21,12 @@ local DEFAULTS = {
     timerFontSize  = 20,
     timerOutline   = "OUTLINE",
     timerColor     = { r = 1, g = 1, b = 1, a = 1 },
+    -- Stack count text below the icon — always shown (no toggle).
+    stackFontKey   = "2002 Bold",
+    stackFontPath  = nil,
+    stackFontSize  = 12,
+    stackOutline   = "OUTLINE",
+    stackColor     = { r = 1, g = 1, b = 1, a = 1 },
     soundOnUse     = true,
     soundKeyUse    = "UnbunkUtility: Healthstone High",
     soundPathUse   = nil,
@@ -36,25 +43,18 @@ local DEFAULTS = {
 
 function HT.CfgInit()
     ns.MigrateSoundKeys(HealthstoneTrackerDB)
-    for k, v in pairs(DEFAULTS) do
-        if HealthstoneTrackerDB[k] == nil then
-            if type(v) == "table" then
-                HealthstoneTrackerDB[k] = {}
-                for k2, v2 in pairs(v) do
-                    HealthstoneTrackerDB[k][k2] = v2
-                end
-            else
-                HealthstoneTrackerDB[k] = v
-            end
-        end
-    end
+    ns.MergeDefaults(HealthstoneTrackerDB, DEFAULTS)
 end
+ns.RegisterCfgInitHook(HT.CfgInit)
 
-function HT.CfgGet(key) return HealthstoneTrackerDB[key] end
+function HT.CfgGet(key)
+    local v = HealthstoneTrackerDB[key]
+    if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
+    return v
+end
 function HT.CfgSet(key, value) HealthstoneTrackerDB[key] = value end
 
 function HT.PlaySound(key)
-    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local pathKey, soundKeyKey
     if key == "soundUse" then
         pathKey, soundKeyKey = "soundPathUse", "soundKeyUse"
@@ -63,14 +63,7 @@ function HT.PlaySound(key)
     else
         return
     end
-    local path = HT.CfgGet(pathKey)
-    if path then
-        PlaySoundFile(path, "Master")
-    elseif LSM then
-        local soundKey = HT.CfgGet(soundKeyKey)
-        local soundPath = soundKey and LSM:Fetch("sound", soundKey)
-        if soundPath then PlaySoundFile(soundPath, "Master") end
-    end
+    ns.PlaySoundFromCfg(HealthstoneTrackerDB, pathKey, soundKeyKey)
 end
 
 local initDB = CreateFrame("Frame")

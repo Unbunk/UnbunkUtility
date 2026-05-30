@@ -1,10 +1,13 @@
 -- UI/SoundPicker.lua
 
 local _, ns = ...
+local L = ns.L
 ns.HealerRange = ns.HealerRange or {}
 local HR = ns.HealerRange
 
-function HealerRange_CreateSoundPicker(parent, LSM, config)
+ns.ui = ns.ui or {}
+
+function ns.ui.CreateSoundPicker(parent, LSM, config)
     config = config or {}
     local getSoundKey    = config.getSoundKey    or function() return HR.CfgGet("soundKey") end
     local getSoundEnable = config.getSoundEnable or function() return HR.CfgGet("enableSound") end
@@ -24,9 +27,9 @@ function HealerRange_CreateSoundPicker(parent, LSM, config)
 
     -- ── Checkbox ──────────────────────────────────────────────────────────────
 
-    local soundCheckbox = Unbunk_CreateCheckbox({
+    local soundCheckbox = ns.ui.CreateCheckbox({
         parent  = container,
-        label   = config.label or "Alert sound",
+        label   = config.label or L["Alert sound"],
         checked = getSoundEnable() ~= false,
         onClick = function(val) onEnableToggle(val) end,
     })
@@ -37,11 +40,12 @@ function HealerRange_CreateSoundPicker(parent, LSM, config)
     -- ── Dropdown ──────────────────────────────────────────────────────────────
 
     local selectedText = nil
+    local soundEntry = nil
 
     if LSM then
         local ddAnchor = soundCheckbox.frame
 
-        local dd = HealerRange_CreateDropdown({
+        local dd = ns.ui.CreateDropdown({
             parent        = container,
             anchorFrame   = ddAnchor,
             width         = 290,
@@ -79,7 +83,7 @@ function HealerRange_CreateSoundPicker(parent, LSM, config)
         local noLSM = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         noLSM:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
         noLSM:SetTextColor(1, 0.5, 0)
-        noLSM:SetText("LibSharedMedia-3.0 not found — enter sound ID manually:")
+        noLSM:SetText(L["LibSharedMedia-3.0 not found — enter sound ID manually:"])
 
         height = height + 20
 
@@ -89,13 +93,19 @@ function HealerRange_CreateSoundPicker(parent, LSM, config)
         soundBox:SetAutoFocus(false)
         soundBox:SetNumeric(true)
         soundBox:SetMaxLetters(6)
-        soundBox:SetText("8959")
-        soundBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+        soundBox:SetText(getSoundKey() or "8959")
+        -- Persist the entered sound id so the no-LSM fallback actually saves.
+        soundBox:SetScript("OnEnterPressed", function(self)
+            self:ClearFocus()
+            local txt = self:GetText()
+            onSoundSelect(txt ~= "" and txt or nil, nil)
+        end)
+        soundEntry = soundBox
 
         local soundTest = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
         soundTest:SetSize(60, 22)
         soundTest:SetPoint("LEFT", soundBox, "RIGHT", 8, 0)
-        soundTest:SetText("Test")
+        soundTest:SetText(L["Test"])
         soundTest:SetScript("OnClick", function()
             local id = tonumber(soundBox:GetText())
             if id then PlaySound(id) end
@@ -115,6 +125,9 @@ function HealerRange_CreateSoundPicker(parent, LSM, config)
         soundCheckbox.SetChecked(getSoundEnable() ~= false)
         if selectedText then
             selectedText:SetText(getSoundKey() or "None")
+        end
+        if soundEntry then
+            soundEntry:SetText(getSoundKey() or "8959")
         end
     end
 

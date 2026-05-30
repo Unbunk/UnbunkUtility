@@ -7,24 +7,30 @@ local _, ns = ...
 ns.BResTracker = ns.BResTracker or {}
 local BR = ns.BResTracker
 
-local BRES_CD = 600  -- 10 minutes for every current BRes class spell
+-- Fallback per-player cooldown estimate (seconds). The actual cooldown of
+-- another player can't be read reliably (see the AttributeBResCast note below),
+-- so a single heuristic value is used across all BRes classes; the real spell
+-- cooldowns (Rebirth / Raise Ally / Intercession) are all 600s. Overridable via
+-- BR.CfgGet("listCooldownEstimate").
+local BRES_CD = 600
 
 -- Classes that can BRes (any spec).
 local BRES_CLASSES = {
     DRUID       = true,   -- Rebirth
     DEATHKNIGHT = true,   -- Raise Ally
     WARLOCK     = true,   -- Soulstone
-    EVOKER      = true,   -- Return (mainly Preservation)
+    PALADIN     = true,   -- Intercession
     HUNTER      = true,   -- Eternal Guardian (Spirit Beast pet)
 }
 
-local CHECK_TEXTURE = "Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\GreenCheck.tga"
+local CHECK_TEXTURE = ns.GREEN_CHECK_TEXTURE
 
 -- ── Internal state ───────────────────────────────────────────────────────────
 
 local listFrame
 local rows = {}                 -- pool of reusable row frames
 local cooldownEnds = {}         -- [guid] = GetTime()-based expiration
+local lastCastByGUID = {}       -- [guid] = last successful cast time (cast pairing)
 local membersOrdered = {}       -- ordered list used to render rows
 
 -- Cache of unit class indexed by GUID. Built from the current roster on
@@ -76,11 +82,16 @@ local function RefreshRoster()
         add("player")
     end
 
-    -- Drop cooldowns for players who left the group.
+    -- Drop cooldowns and cached cast timestamps for players who left the group.
+    -- classByGUID covers all group members (not just BRes-capable ones), so it
+    -- is the correct membership set for pruning the cast-pairing table.
     local seen = {}
     for _, m in ipairs(membersOrdered) do seen[m.guid] = true end
     for guid in pairs(cooldownEnds) do
         if not seen[guid] then cooldownEnds[guid] = nil end
+    end
+    for guid in pairs(lastCastByGUID) do
+        if not classByGUID[guid] then lastCastByGUID[guid] = nil end
     end
 
     -- Force a layout recompute on next RefreshList: roster shape changed.
@@ -144,6 +155,13 @@ end
 
 function BR.RefreshList()
     if not listFrame then return end
+
+    -- While the icon is unlocked for positioning, show only the clean icon
+    -- preview (ApplyVisuals early-returns then), not the player list.
+    if BR.IsUnlocked and BR.IsUnlocked() then
+        listFrame:Hide()
+        return
+    end
 
     local enabled = BR.CfgGet("listEnabled") and BR.CfgGet("enabled")
     if not enabled then
@@ -354,7 +372,8 @@ end
 -- common case.
 
 local CAST_PAIRING_WINDOW = 1.5  -- seconds
-local lastCastByGUID = {}
+-- lastCastByGUID is declared in the internal-state block above so RefreshRoster
+-- can prune entries for players who leave the group (same as cooldownEnds).
 
 -- Called by BResTracker.ApplyVisuals when it detects a pool decrease.
 function BR.AttributeBResCast()
@@ -367,18 +386,27 @@ function BR.AttributeBResCast()
         end
     end
     if bestGUID then
-        cooldownEnds[bestGUID] = now + BRES_CD
+        cooldownEnds[bestGUID] = now + (BR.CfgGet("listCooldownEstimate") or BRES_CD)
     end
 end
 
--- Map a pet unit token to its owner's unit token (or nil if not a pet).
--- Lets us attribute Hunter Eternal Guardian (cast from the Spirit Beast) to
--- the hunter rather than dropping it on the floor.
-local function PetOwnerUnit(unit)
+-- Single-pass classifier for the hot UNIT_SPELLCAST_SUCCEEDED path.
+-- Returns the owning group unit token (remapping a pet to its owner so e.g.
+-- Hunter Eternal Guardian is attributed to the hunter), or nil for any token
+-- that is not the player / a group member / one of their pets.
+-- Rejecting non-group tokens matters: nameplates / targets / focus / mouseover
+-- also fire this event and UnitGUID() on a non-group unit can return a Blizzard
+-- "secret value" that crashes when used as a table key.
+local function ResolveGroupOwnerUnit(unit)
     if not unit then return nil end
-    if unit == "pet" then return "player" end
-    local n = unit:match("^partypet(%d+)$")
+    if unit == "player" then return "player" end
+    if unit == "pet"    then return "player" end
+    local n = unit:match("^party(%d+)$")
     if n then return "party" .. n end
+    n = unit:match("^partypet(%d+)$")
+    if n then return "party" .. n end
+    n = unit:match("^raid(%d+)$")
+    if n then return "raid" .. n end
     n = unit:match("^raidpet(%d+)$")
     if n then return "raid" .. n end
     return nil
@@ -391,10 +419,9 @@ end
 local castListener = CreateFrame("Frame")
 castListener:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 castListener:SetScript("OnEvent", function(_, _, unit)
+    -- Classify + remap pet→owner in a single pass; nil means "not a group unit".
+    unit = ResolveGroupOwnerUnit(unit)
     if not unit then return end
-    -- Treat pet casts as casts by their owner.
-    local ownerUnit = PetOwnerUnit(unit)
-    if ownerUnit then unit = ownerUnit end
 
     local guid = UnitGUID(unit)
     if not guid then return end

@@ -1,6 +1,7 @@
 -- Modules/HealthstoneTracker/UI/ConfigWindow.lua
 
 local _, ns = ...
+local L = ns.L
 ns.HealthstoneTracker = ns.HealthstoneTracker or {}
 local HT = ns.HealthstoneTracker
 
@@ -23,13 +24,41 @@ local function CreateHealthstoneTrackerPanel(parent)
         lastFrame = moduleFrame
     end
 
+    -- ── Test button (toggles Test / Stop Test) ───────────────────────────────
+
+    local testFrame = CreateFrame("Frame", nil, content)
+    testFrame:SetHeight(30)
+
+    local testBtn
+    local function RefreshTestBtn()
+        testBtn.SetText(HT.IsTesting() and L["Stop Test"] or L["Test"])
+    end
+
+    testBtn = ns.ui.CreateButton({
+        parent  = testFrame,
+        label   = L["Test"],
+        width   = 100,
+        height  = 22,
+        onClick = function()
+            if HT.IsTesting() then
+                HT.StopTest()
+            else
+                HT.RunTest()
+            end
+            RefreshTestBtn()
+        end,
+    })
+    testBtn.frame:SetPoint("TOPLEFT", testFrame, "TOPLEFT", 0, -4)
+
+    AddModule(testFrame, 30)
+
     -- ── Enable checkbox ───────────────────────────────────────────────────────
 
     local enableFrame = CreateFrame("Frame", nil, content)
     enableFrame:SetHeight(24)
-    local enableCb = Unbunk_CreateCheckbox({
+    local enableCb = ns.ui.CreateCheckbox({
         parent  = enableFrame,
-        label   = "Enable Healthstone Tracker",
+        label   = L["Enable Healthstone Tracker"],
         checked = HT.CfgGet("enabled") ~= false,
         onClick = function(val)
             HT.CfgSet("enabled", val)
@@ -41,7 +70,7 @@ local function CreateHealthstoneTrackerPanel(parent)
 
     -- ── Instance filter ───────────────────────────────────────────────────────
 
-    local iF = Unbunk_CreateInstanceFilter({
+    local iF = ns.ui.CreateInstanceFilter({
         parent    = content,
         getConfig = function() return HT.CfgGet("instanceFilter") end,
         setConfig = function(key, val)
@@ -54,8 +83,8 @@ local function CreateHealthstoneTrackerPanel(parent)
 
     -- ── Sound on use ──────────────────────────────────────────────────────────
 
-    local soundUseResult = HealerRange_CreateSoundPicker(content, LSM, {
-        label          = "Sound on use",
+    local soundUseResult = ns.ui.CreateSoundPicker(content, LSM, {
+        label          = L["Sound on use"],
         getSoundKey    = function() return HT.CfgGet("soundKeyUse") end,
         getSoundEnable = function() return HT.CfgGet("soundOnUse") end,
         onSoundSelect  = function(key, path)
@@ -69,8 +98,8 @@ local function CreateHealthstoneTrackerPanel(parent)
 
     -- ── Sound when ready ──────────────────────────────────────────────────────
 
-    local soundReadyResult = HealerRange_CreateSoundPicker(content, LSM, {
-        label          = "Sound when ready",
+    local soundReadyResult = ns.ui.CreateSoundPicker(content, LSM, {
+        label          = L["Sound when ready"],
         getSoundKey    = function() return HT.CfgGet("soundKeyReady") end,
         getSoundEnable = function() return HT.CfgGet("soundOnReady") end,
         onSoundSelect  = function(key, path)
@@ -86,9 +115,9 @@ local function CreateHealthstoneTrackerPanel(parent)
 
     local showIconFrame = CreateFrame("Frame", nil, content)
     showIconFrame:SetHeight(24)
-    local showIconCb = Unbunk_CreateCheckbox({
+    local showIconCb = ns.ui.CreateCheckbox({
         parent  = showIconFrame,
-        label   = "Show icon",
+        label   = L["Show icon"],
         checked = HT.CfgGet("showIcon") ~= false,
         onClick = function(val)
             HT.CfgSet("showIcon", val)
@@ -105,23 +134,26 @@ local function CreateHealthstoneTrackerPanel(parent)
 
     local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
-    sizeLbl:SetText("Icon size")
+    sizeLbl:SetText(L["Icon size"])
 
     local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
-    wLbl:SetText("W")
+    wLbl:SetText(L["W"])
 
-    local wInput = Unbunk_CreateTextInput({
+    local wInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 8,
+        max        = 512,
         maxLetters = 3,
         text       = tostring(HT.CfgGet("iconWidth") or 30),
         onEnter    = function(val)
             if val and val > 0 then
                 HT.CfgSet("iconWidth", val)
-                if tracker and tracker.ApplySize then tracker.ApplySize() end
+                local t = HT.GetTracker()
+                if t and t.ApplySize then t.ApplySize() end
                 HT.ApplyAll()
             end
         end,
@@ -130,19 +162,22 @@ local function CreateHealthstoneTrackerPanel(parent)
 
     local hLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
-    hLbl:SetText("H")
+    hLbl:SetText(L["H"])
 
-    local hInput = Unbunk_CreateTextInput({
+    local hInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 8,
+        max        = 512,
         maxLetters = 3,
         text       = tostring(HT.CfgGet("iconHeight") or 30),
         onEnter    = function(val)
             if val and val > 0 then
                 HT.CfgSet("iconHeight", val)
-                if tracker and tracker.ApplySize then tracker.ApplySize() end
+                local t = HT.GetTracker()
+                if t and t.ApplySize then t.ApplySize() end
                 HT.ApplyAll()
             end
         end,
@@ -153,8 +188,8 @@ local function CreateHealthstoneTrackerPanel(parent)
 
     -- ── Position editor ───────────────────────────────────────────────────────
 
-    HT.pe = HealerRange_CreatePositionEditor(content, {
-        label      = "Icon position (offset from screen center)",
+    HT.pe = ns.ui.CreatePositionEditor(content, {
+        label      = L["Icon position (offset from screen center)"],
         getX       = function() return HT.CfgGet("posX") end,
         getY       = function() return HT.CfgGet("posY") end,
         onApply    = function(x, yv)
@@ -173,9 +208,9 @@ local function CreateHealthstoneTrackerPanel(parent)
 
     -- ── Timer text editor ─────────────────────────────────────────────────────
 
-    local te = HealerRange_CreateTextEditor(content, {
+    local te = ns.ui.CreateTextEditor(content, {
         LSM             = LSM,
-        label           = "Timer text",
+        label           = L["Timer text"],
         showText        = false,
         showFont        = true,
         showSize        = true,
@@ -189,30 +224,62 @@ local function CreateHealthstoneTrackerPanel(parent)
         onFontChange    = function(key, path)
             HT.CfgSet("timerFontKey", key)
             HT.CfgSet("timerFontPath", path)
-            local t = HT.GetTracker()
-            if t and t.ApplyFont then t.ApplyFont() end
+            HT.ApplyTimerVisuals()
         end,
         onSizeChange    = function(size)
             HT.CfgSet("timerFontSize", size)
-            local t = HT.GetTracker()
-            if t and t.ApplyFont then t.ApplyFont() end
+            HT.ApplyTimerVisuals()
         end,
         onColorChange   = function(r, g, b, a)
             HT.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
-            local t = HT.GetTracker()
-            if t and t.ApplyFont then t.ApplyFont() end
+            HT.ApplyTimerVisuals()
         end,
         onOutlineChange = function(outline)
             HT.CfgSet("timerOutline", outline)
-            local t = HT.GetTracker()
-            if t and t.ApplyFont then t.ApplyFont() end
+            HT.ApplyTimerVisuals()
         end,
     })
     AddModule(te.frame, te.height)
 
+    -- ── Stack text editor ────────────────────────────────────────────────────
+
+    local ste = ns.ui.CreateTextEditor(content, {
+        LSM             = LSM,
+        label           = L["Stack text"],
+        showText        = false,
+        showFont        = true,
+        showSize        = true,
+        showColor       = true,
+        showOutline     = true,
+        getFontKey      = function() return HT.CfgGet("stackFontKey") end,
+        getFontPath     = function() return HT.CfgGet("stackFontPath") end,
+        getFontSize     = function() return HT.CfgGet("stackFontSize") end,
+        getColor        = function() return HT.CfgGet("stackColor") end,
+        getOutline      = function() return HT.CfgGet("stackOutline") end,
+        onFontChange    = function(key, path)
+            HT.CfgSet("stackFontKey", key)
+            HT.CfgSet("stackFontPath", path)
+            HT.ApplyStackVisuals()
+        end,
+        onSizeChange    = function(size)
+            HT.CfgSet("stackFontSize", size)
+            HT.ApplyStackVisuals()
+        end,
+        onColorChange   = function(r, g, b, a)
+            HT.CfgSet("stackColor", { r = r, g = g, b = b, a = a })
+            HT.ApplyStackVisuals()
+        end,
+        onOutlineChange = function(outline)
+            HT.CfgSet("stackOutline", outline)
+            HT.ApplyStackVisuals()
+        end,
+    })
+    AddModule(ste.frame, ste.height)
+
     -- ── OnShow refresh ────────────────────────────────────────────────────────
 
     parent:HookScript("OnShow", function()
+        RefreshTestBtn()
         enableCb.SetChecked(HT.CfgGet("enabled") ~= false)
         showIconCb.SetChecked(HT.CfgGet("showIcon") ~= false)
         iF.Refresh()
@@ -222,6 +289,7 @@ local function CreateHealthstoneTrackerPanel(parent)
         hInput.SetText(tostring(HT.CfgGet("iconHeight") or 30))
         HT.pe.Refresh()
         te.Refresh()
+        ste.Refresh()
     end)
 end
 
@@ -231,6 +299,6 @@ local initHTUI = CreateFrame("Frame")
 initHTUI:RegisterEvent("ADDON_LOADED")
 initHTUI:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    UnbunkUtility.RegisterModule("Healthstone Tracker", nil, CreateHealthstoneTrackerPanel)
+    UnbunkUtility.RegisterModule(L["Healthstone Tracker"], nil, CreateHealthstoneTrackerPanel)
     self:UnregisterEvent("ADDON_LOADED")
 end)

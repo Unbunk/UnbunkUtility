@@ -2,7 +2,7 @@
 -- Reusable instance type filter widget.
 --
 -- Usage:
---   local iF = Unbunk_CreateInstanceFilter({
+--   local iF = ns.ui.CreateInstanceFilter({
 --       parent   = panel,
 --       getConfig = function() return MyCfg_Get("instanceFilter") end,
 --       setConfig = function(key, val) MyCfg_Set("instanceFilter."..key, val) end,
@@ -11,7 +11,11 @@
 --   iF.height
 --   iF.Refresh()
 
-function Unbunk_CreateInstanceFilter(config)
+local _, ns = ...
+local L = ns.L
+ns.ui = ns.ui or {}
+
+function ns.ui.CreateInstanceFilter(config)
     local parent    = config.parent
     local getConfig = config.getConfig
     local setConfig = config.setConfig
@@ -24,23 +28,24 @@ function Unbunk_CreateInstanceFilter(config)
 
     local sectionLabel = container:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     sectionLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
-    sectionLabel:SetText("Active in")
+    sectionLabel:SetText(L["Active in"])
     height = height + 20
 
     local filters = {
-        { key = "dungeon",     label = "Dungeon"     },
-        { key = "raid",        label = "Raid"        },
-        { key = "battleground",label = "Battleground"},
-        { key = "outdoor",     label = "Outdoor"     },
+        { key = "dungeon",     label = L["Dungeon"]     },
+        { key = "raid",        label = L["Raid"]        },
+        { key = "battleground",label = L["Battleground"]},
+        { key = "outdoor",     label = L["Outdoor"]     },
     }
 
     local checkboxes = {}
     local x = 0
     local rowHeight = 24
+    local perRow = 4
 
     for i, filter in ipairs(filters) do
         local cfg = getConfig()
-        local cb = Unbunk_CreateCheckbox({
+        local cb = ns.ui.CreateCheckbox({
             parent  = container,
             label   = filter.label,
             checked = cfg[filter.key] ~= false,
@@ -53,12 +58,15 @@ function Unbunk_CreateInstanceFilter(config)
         checkboxes[filter.key] = cb
 
         x = x + 130
-        if i % 4 == 0 then
+        -- Wrap to a new row only when another checkbox follows, so the last
+        -- (possibly partial) row does not reserve an extra empty row of height.
+        if i % perRow == 0 and i < #filters then
             x = 0
             height = height + rowHeight
         end
     end
 
+    -- Account for the height of the final row.
     height = height + rowHeight
 
     container:SetHeight(height)

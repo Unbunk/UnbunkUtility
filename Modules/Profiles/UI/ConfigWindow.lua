@@ -1,8 +1,9 @@
 -- Modules/Profiles/UI/ConfigWindow.lua
 -- Profile management tab (extracted from General Settings). Wraps the
--- UnbunkProfiles_* API (defined in Core/Profiles.lua) with a UI.
+-- ns.profiles.* API (defined in Core/Profiles.lua) with a UI.
 
 local _, ns = ...
+local L = ns.L
 
 local function CreateProfilesPanel(parent)
     local content = CreateFrame("Frame", nil, parent)
@@ -27,7 +28,7 @@ local function CreateProfilesPanel(parent)
     titleFrame:SetHeight(20)
     local titleLbl = titleFrame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     titleLbl:SetPoint("TOPLEFT", titleFrame, "TOPLEFT", 0, 0)
-    titleLbl:SetText("Profile Management")
+    titleLbl:SetText(L["Profile Management"])
     AddModule(titleFrame, 20)
 
     -- ── Current profile ──────────────────────────────────────────────────────
@@ -36,7 +37,7 @@ local function CreateProfilesPanel(parent)
     currentFrame:SetHeight(24)
     local currentLbl = currentFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     currentLbl:SetPoint("TOPLEFT", currentFrame, "TOPLEFT", 0, 0)
-    currentLbl:SetText("Current profile: |cffffd700" .. UnbunkProfiles_GetCurrent() .. "|r")
+    currentLbl:SetText(string.format(L["Current profile: |cffffd700%s|r"], ns.profiles.GetCurrent()))
     AddModule(currentFrame, 24)
 
     -- ── Switch profile dropdown ──────────────────────────────────────────────
@@ -46,28 +47,28 @@ local function CreateProfilesPanel(parent)
 
     local ddLbl = ddFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     ddLbl:SetPoint("TOPLEFT", ddFrame, "TOPLEFT", 0, 0)
-    ddLbl:SetText("Switch profile")
+    ddLbl:SetText(L["Switch profile"])
 
     local ddAnchor = ddFrame:CreateFontString(nil, "ARTWORK")
     ddAnchor:SetPoint("TOPLEFT", ddFrame, "TOPLEFT", 0, -20)
 
-    local profileDD = HealerRange_CreateDropdown({
+    local profileDD = ns.ui.CreateDropdown({
         parent        = ddFrame,
         anchorFrame   = ddAnchor,
         width         = 200,
         itemHeight    = 20,
         visibleItems  = 8,
-        getList       = function() return UnbunkProfiles_GetList() end,
-        getCurrentKey = function() return UnbunkProfiles_GetCurrent() end,
+        getList       = function() return ns.profiles.GetList() end,
+        getCurrentKey = function() return ns.profiles.GetCurrent() end,
         onSelect      = function(name)
-            if name == UnbunkProfiles_GetCurrent() then return end
-            UnbunkProfiles_SaveCurrent()
-            UnbunkProfiles_Load(name)
-            currentLbl:SetText("Current profile: |cffffd700" .. name .. "|r")
-            print("|cffff4444[UnbunkUtility]|r Profile loaded: " .. name)
+            if name == ns.profiles.GetCurrent() then return end
+            ns.profiles.SaveCurrent()
+            ns.profiles.Load(name)
+            currentLbl:SetText(string.format(L["Current profile: |cffffd700%s|r"], name))
+            print(string.format(L["|cffff4444[UnbunkUtility]|r Profile loaded: %s"], name))
         end,
     })
-    profileDD.selectedText:SetText(UnbunkProfiles_GetCurrent())
+    profileDD.selectedText:SetText(ns.profiles.GetCurrent())
 
     AddModule(ddFrame, 50)
 
@@ -78,9 +79,9 @@ local function CreateProfilesPanel(parent)
 
     local createLbl = createFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     createLbl:SetPoint("TOPLEFT", createFrame, "TOPLEFT", 0, 0)
-    createLbl:SetText("Create new profile")
+    createLbl:SetText(L["Create new profile"])
 
-    local createInput = Unbunk_CreateTextInput({
+    local createInput = ns.ui.CreateTextInput({
         parent     = createFrame,
         width      = 200,
         height     = 22,
@@ -89,21 +90,21 @@ local function CreateProfilesPanel(parent)
     })
     createInput.frame:SetPoint("TOPLEFT", createFrame, "TOPLEFT", 0, -22)
 
-    local createBtn = Unbunk_CreateButton({
+    local createBtn = ns.ui.CreateButton({
         parent  = createFrame,
-        label   = "Create",
+        label   = L["Create"],
         width   = 70,
         height  = 22,
         onClick = function()
             local name = createInput.GetText()
             if name and name ~= "" then
-                if UnbunkProfiles_Create(name) then
+                if ns.profiles.Create(name) then
                     profileDD.selectedText:SetText(name)
-                    currentLbl:SetText("Current profile: |cffffd700" .. name .. "|r")
+                    currentLbl:SetText(string.format(L["Current profile: |cffffd700%s|r"], name))
                     createInput.SetText("")
-                    print("|cffff4444[UnbunkUtility]|r Profile created: " .. name)
+                    print(string.format(L["|cffff4444[UnbunkUtility]|r Profile created: %s"], name))
                 else
-                    print("|cffff4444[UnbunkUtility]|r Profile already exists: " .. name)
+                    print(string.format(L["|cffff4444[UnbunkUtility]|r Profile already exists: %s"], name))
                 end
             end
         end,
@@ -119,9 +120,9 @@ local function CreateProfilesPanel(parent)
 
     local deleteLbl = deleteFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     deleteLbl:SetPoint("TOPLEFT", deleteFrame, "TOPLEFT", 0, 0)
-    deleteLbl:SetText("Delete profile")
+    deleteLbl:SetText(L["Delete profile"])
 
-    local deleteDD = HealerRange_CreateDropdown({
+    local deleteDD = ns.ui.CreateDropdown({
         parent        = deleteFrame,
         anchorFrame   = (function()
             local a = deleteFrame:CreateFontString(nil, "ARTWORK")
@@ -132,7 +133,7 @@ local function CreateProfilesPanel(parent)
         itemHeight    = 20,
         visibleItems  = 8,
         getList       = function()
-            local list = UnbunkProfiles_GetList()
+            local list = ns.profiles.GetList()
             -- Remove Default from the list
             for i, v in ipairs(list) do
                 if v == "Default" then table.remove(list, i) break end
@@ -143,19 +144,19 @@ local function CreateProfilesPanel(parent)
         onSelect      = function(name) end,
     })
 
-    local deleteBtn = Unbunk_CreateButton({
+    local deleteBtn = ns.ui.CreateButton({
         parent  = deleteFrame,
-        label   = "Delete",
+        label   = L["Delete"],
         width   = 70,
         height  = 22,
         onClick = function()
             local name = deleteDD.selectedText:GetText()
             if name and name ~= "" and name ~= "Default" then
-                if UnbunkProfiles_Delete(name) then
+                if ns.profiles.Delete(name) then
                     deleteDD.selectedText:SetText("")
-                    currentLbl:SetText("Current profile: |cffffd700" .. UnbunkProfiles_GetCurrent() .. "|r")
-                    profileDD.selectedText:SetText(UnbunkProfiles_GetCurrent())
-                    print("|cffff4444[UnbunkUtility]|r Profile deleted: " .. name)
+                    currentLbl:SetText(string.format(L["Current profile: |cffffd700%s|r"], ns.profiles.GetCurrent()))
+                    profileDD.selectedText:SetText(ns.profiles.GetCurrent())
+                    print(string.format(L["|cffff4444[UnbunkUtility]|r Profile deleted: %s"], name))
                 end
             end
         end,
@@ -171,7 +172,7 @@ local function CreateProfilesPanel(parent)
 
     local exportLbl = exportFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     exportLbl:SetPoint("TOPLEFT", exportFrame, "TOPLEFT", 0, 0)
-    exportLbl:SetText("Export current profile")
+    exportLbl:SetText(L["Export current profile"])
 
     local exportBox = CreateFrame("EditBox", nil, exportFrame, "InputBoxTemplate")
     exportBox:SetSize(400, 22)
@@ -179,13 +180,13 @@ local function CreateProfilesPanel(parent)
     exportBox:SetAutoFocus(false)
     exportBox:SetMaxLetters(0)
 
-    local exportBtn = Unbunk_CreateButton({
+    local exportBtn = ns.ui.CreateButton({
         parent  = exportFrame,
-        label   = "Export",
+        label   = L["Export"],
         width   = 70,
         height  = 22,
         onClick = function()
-            local str = UnbunkProfiles_Export()
+            local str = ns.profiles.Export()
             exportBox:SetText(str)
             exportBox:SetFocus()
             exportBox:HighlightText()
@@ -202,7 +203,7 @@ local function CreateProfilesPanel(parent)
 
     local importLbl = importFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     importLbl:SetPoint("TOPLEFT", importFrame, "TOPLEFT", 0, 0)
-    importLbl:SetText("Import profile (overwrites current)")
+    importLbl:SetText(L["Import profile (overwrites current)"])
 
     local importBox = CreateFrame("EditBox", nil, importFrame, "InputBoxTemplate")
     importBox:SetSize(400, 22)
@@ -210,20 +211,20 @@ local function CreateProfilesPanel(parent)
     importBox:SetAutoFocus(false)
     importBox:SetMaxLetters(0)
 
-    local importBtn = Unbunk_CreateButton({
+    local importBtn = ns.ui.CreateButton({
         parent  = importFrame,
-        label   = "Import",
+        label   = L["Import"],
         width   = 70,
         height  = 22,
         onClick = function()
             local str = importBox:GetText()
             if str and str ~= "" then
-                local ok, err = UnbunkProfiles_Import(str)
+                local ok, err = ns.profiles.Import(str)
                 if ok then
-                    currentLbl:SetText("Current profile: |cffffd700" .. UnbunkProfiles_GetCurrent() .. "|r")
-                    print("|cffff4444[UnbunkUtility]|r Profile imported successfully.")
+                    currentLbl:SetText(string.format(L["Current profile: |cffffd700%s|r"], ns.profiles.GetCurrent()))
+                    print(L["|cffff4444[UnbunkUtility]|r Profile imported successfully."])
                 else
-                    print("|cffff4444[UnbunkUtility]|r Import failed: " .. tostring(err))
+                    print(string.format(L["|cffff4444[UnbunkUtility]|r Import failed: %s"], tostring(err)))
                 end
             end
         end,
@@ -239,34 +240,21 @@ local function CreateProfilesPanel(parent)
 
     local resetLbl = resetFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     resetLbl:SetPoint("TOPLEFT", resetFrame, "TOPLEFT", 0, 0)
-    resetLbl:SetText("Reset current profile to defaults")
+    resetLbl:SetText(L["Reset current profile to defaults"])
 
-    local resetBtn = Unbunk_CreateButton({
+    local resetBtn = ns.ui.CreateButton({
         parent  = resetFrame,
-        label   = "Reset",
+        label   = L["Reset"],
         width   = 70,
         height  = 22,
         onClick = function()
-            local name = UnbunkProfiles_GetCurrent()
-            HealerRangeDB        = {}
-            DeathAlertDB         = {}
-            BLTrackerDB          = {}
-            PotionTrackerDB      = {}
-            TrinketTrackerDB     = {}
-            PITrackerDB          = {}
-            BResTrackerDB        = {}
-            HealthstoneTrackerDB = {}
-            ns.HealerRange.CfgInit()
-            ns.DeathAlert.CfgInit()
-            ns.BLTracker.CfgInit()
-            ns.PotionTracker.CfgInit()
-            ns.TrinketTracker.CfgInit()
-            ns.PITracker.CfgInit()
-            ns.BResTracker.CfgInit()
-            ns.HealthstoneTracker.CfgInit()
-            UnbunkProfiles_SaveCurrent()
-            UnbunkProfiles_ReloadAll()
-            print("|cffff4444[UnbunkUtility]|r Profile reset to defaults: " .. name)
+            local name = ns.profiles.GetCurrent()
+            -- Resets EVERY module (including PlayerDeath) generically off
+            -- ALL_SETTERS + the CfgInit hook registry, then snapshots + reloads.
+            -- Replaces the old hand-maintained per-DB block that silently
+            -- omitted any module not listed here.
+            ns.profiles.ResetCurrent()
+            print(string.format(L["|cffff4444[UnbunkUtility]|r Profile reset to defaults: %s"], name))
         end,
     })
     resetBtn.frame:SetPoint("TOPLEFT", resetFrame, "TOPLEFT", 0, -22)
@@ -275,8 +263,8 @@ local function CreateProfilesPanel(parent)
     -- ── OnShow refresh ───────────────────────────────────────────────────────
 
     parent:HookScript("OnShow", function()
-        currentLbl:SetText("Current profile: |cffffd700" .. UnbunkProfiles_GetCurrent() .. "|r")
-        profileDD.selectedText:SetText(UnbunkProfiles_GetCurrent())
+        currentLbl:SetText(string.format(L["Current profile: |cffffd700%s|r"], ns.profiles.GetCurrent()))
+        profileDD.selectedText:SetText(ns.profiles.GetCurrent())
     end)
 end
 
@@ -286,6 +274,6 @@ local initP = CreateFrame("Frame")
 initP:RegisterEvent("ADDON_LOADED")
 initP:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    UnbunkUtility.RegisterModule("Profiles", nil, CreateProfilesPanel)
+    UnbunkUtility.RegisterModule(L["Profiles"], nil, CreateProfilesPanel)
     self:UnregisterEvent("ADDON_LOADED")
 end)

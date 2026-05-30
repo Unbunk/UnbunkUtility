@@ -11,7 +11,7 @@ local DEFAULTS = {
     instanceFilter  = {
         dungeon      = true,
         raid         = true,
-        battleground = false,
+        battleground = true,
         outdoor      = true,
     },
     health = {
@@ -74,32 +74,16 @@ local DEFAULTS = {
     },
 }
 
--- Recursively merge defaults into target: only adds missing keys, never
--- overwrites user-set values. Crucially, recurses into existing sub-tables
--- so newly-introduced keys (e.g. stackColor) are populated for upgraders
--- without forcing a profile Reset.
-local function MergeDefaults(target, defaults)
-    for k, v in pairs(defaults) do
-        if target[k] == nil then
-            if type(v) == "table" then
-                target[k] = {}
-                MergeDefaults(target[k], v)
-            else
-                target[k] = v
-            end
-        elseif type(v) == "table" and type(target[k]) == "table" then
-            MergeDefaults(target[k], v)
-        end
-    end
-end
-
 function PT.CfgInit()
     ns.MigrateSoundKeys(PotionTrackerDB)
-    MergeDefaults(PotionTrackerDB, DEFAULTS)
+    ns.MergeDefaults(PotionTrackerDB, DEFAULTS)
 end
+ns.RegisterCfgInitHook(PT.CfgInit)
 
 function PT.CfgGet(key)
-    return PotionTrackerDB[key]
+    local v = PotionTrackerDB[key]
+    if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
+    return v
 end
 
 function PT.CfgSet(key, value)
@@ -110,26 +94,12 @@ function PT.CfgSet(key, value)
 end
 
 function PT.PlaySound(prefix, key)
-    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local cfg = PT.CfgGet(prefix)
     if not cfg then return end
-    local pathKey, soundKeyKey
     if key == "soundUse" then
-        pathKey    = "soundPathUse"
-        soundKeyKey = "soundKeyUse"
+        ns.PlaySoundFromCfg(cfg, "soundPathUse", "soundKeyUse")
     elseif key == "soundReady" then
-        pathKey    = "soundPathReady"
-        soundKeyKey = "soundKeyReady"
-    else
-        return
-    end
-    local path = cfg[pathKey]
-    if path then
-        PlaySoundFile(path, "Master")
-    elseif LSM then
-        local soundKey = cfg[soundKeyKey]
-        local soundPath = soundKey and LSM:Fetch("sound", soundKey)
-        if soundPath then PlaySoundFile(soundPath, "Master") end
+        ns.PlaySoundFromCfg(cfg, "soundPathReady", "soundKeyReady")
     end
 end
 

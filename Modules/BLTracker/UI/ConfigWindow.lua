@@ -1,6 +1,7 @@
 -- Modules/BLTracker/UI/ConfigWindow.lua
 
 local _, ns = ...
+local L = ns.L
 ns.BLTracker = ns.BLTracker or {}
 local BL = ns.BLTracker
 
@@ -13,6 +14,9 @@ local function CreateBLTrackerPanel(parent)
     local GAP = 12
     local lastFrame = nil
 
+    -- moduleHeight is intentionally ignored (kept for call-site symmetry across
+    -- the sibling config panels); actual scroll sizing is computed at runtime by
+    -- Core.lua's ComputeModuleHeight, not from this argument.
     local function AddModule(moduleFrame, moduleHeight)
         moduleFrame:SetWidth(518)
         if lastFrame then
@@ -27,9 +31,9 @@ local function CreateBLTrackerPanel(parent)
 
     local enableFrame = CreateFrame("Frame", nil, content)
     enableFrame:SetHeight(24)
-    local enableCb = Unbunk_CreateCheckbox({
+    local enableCb = ns.ui.CreateCheckbox({
         parent  = enableFrame,
-        label   = "Enable BL Tracker",
+        label   = L["Enable BL Tracker"],
         checked = BL.CfgGet("enabled") ~= false,
         onClick = function(val) BL.CfgSet("enabled", val) end,
     })
@@ -38,7 +42,7 @@ local function CreateBLTrackerPanel(parent)
 
     -- ── Instance filter ───────────────────────────────────────────────────────
 
-    local iF = Unbunk_CreateInstanceFilter({
+    local iF = ns.ui.CreateInstanceFilter({
         parent    = content,
         getConfig = function() return BL.CfgGet("instanceFilter") end,
         setConfig = function(key, val)
@@ -49,8 +53,8 @@ local function CreateBLTrackerPanel(parent)
     })
     AddModule(iF.frame, iF.height)
 
-    local soundBLResult = HealerRange_CreateSoundPicker(content, LSM, {
-        label          = "Sound on Bloodlust",
+    local soundBLResult = ns.ui.CreateSoundPicker(content, LSM, {
+        label          = L["Sound on Bloodlust"],
         getSoundKey    = function() return BL.CfgGet("soundKeyBL") end,
         getSoundEnable = function() return BL.CfgGet("soundOnBL") end,
         onSoundSelect  = function(key, path)
@@ -62,8 +66,8 @@ local function CreateBLTrackerPanel(parent)
     })
     AddModule(soundBLResult.frame, soundBLResult.height)
 
-    local soundReadyResult = HealerRange_CreateSoundPicker(content, LSM, {
-        label          = "Sound when Bloodlust ready",
+    local soundReadyResult = ns.ui.CreateSoundPicker(content, LSM, {
+        label          = L["Sound when Bloodlust ready"],
         getSoundKey    = function() return BL.CfgGet("soundKeyReady") end,
         getSoundEnable = function() return BL.CfgGet("soundOnReady") end,
         onSoundSelect  = function(key, path)
@@ -79,9 +83,9 @@ local function CreateBLTrackerPanel(parent)
 
     local showIconFrame = CreateFrame("Frame", nil, content)
     showIconFrame:SetHeight(24)
-    local showIconCb = Unbunk_CreateCheckbox({
+    local showIconCb = ns.ui.CreateCheckbox({
         parent  = showIconFrame,
-        label   = "Show icon",
+        label   = L["Show icon"],
         checked = BL.CfgGet("showIcon") ~= false,
         onClick = function(val)
             BL.CfgSet("showIcon", val)
@@ -98,17 +102,19 @@ local function CreateBLTrackerPanel(parent)
 
     local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
-    sizeLbl:SetText("Icon size")
+    sizeLbl:SetText(L["Icon size"])
 
     local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
-    wLbl:SetText("W")
+    wLbl:SetText(L["W"])
 
-    local wInput = Unbunk_CreateTextInput({
+    local wInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 8,
+        max        = 512,
         maxLetters = 3,
         text       = tostring(BL.CfgGet("iconWidth") or 64),
         onEnter    = function(val)
@@ -122,13 +128,15 @@ local function CreateBLTrackerPanel(parent)
 
     local hLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
-    hLbl:SetText("H")
+    hLbl:SetText(L["H"])
 
-    local hInput = Unbunk_CreateTextInput({
+    local hInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 8,
+        max        = 512,
         maxLetters = 3,
         text       = tostring(BL.CfgGet("iconHeight") or 64),
         onEnter    = function(val)
@@ -144,8 +152,8 @@ local function CreateBLTrackerPanel(parent)
 
     -- ── Position editor ───────────────────────────────────────────────────────
 
-    BL.pe = HealerRange_CreatePositionEditor(content, {
-        label      = "Icon position (offset from screen center)",
+    BL.pe = ns.ui.CreatePositionEditor(content, {
+        label      = L["Icon position (offset from screen center)"],
         getX       = function() return BL.CfgGet("posX") end,
         getY       = function() return BL.CfgGet("posY") end,
         onApply    = function(x, yv)
@@ -164,9 +172,9 @@ local function CreateBLTrackerPanel(parent)
 
     -- ── Timer text style ──────────────────────────────────────────────────────
 
-    local te = HealerRange_CreateTextEditor(content, {
+    local te = ns.ui.CreateTextEditor(content, {
         LSM          = LSM,
-        label        = "Timer text",
+        label        = L["Timer text"],
         showText     = false,
         showFont     = true,
         showSize     = true,
@@ -217,6 +225,6 @@ local initBLUI = CreateFrame("Frame")
 initBLUI:RegisterEvent("ADDON_LOADED")
 initBLUI:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    UnbunkUtility.RegisterModule("BL Tracker", nil, CreateBLTrackerPanel)
+    UnbunkUtility.RegisterModule(L["BL Tracker"], nil, CreateBLTrackerPanel)
     self:UnregisterEvent("ADDON_LOADED")
 end)

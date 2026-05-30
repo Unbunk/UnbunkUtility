@@ -1,7 +1,11 @@
 -- UI/PositionEditor.lua
 
-function HealerRange_CreatePositionEditor(parent, config)
-    local label      = config.label or "Position (offset from screen center)"
+local _, ns = ...
+local L = ns.L
+ns.ui = ns.ui or {}
+
+function ns.ui.CreatePositionEditor(parent, config)
+    local label      = config.label or L["Position (offset from screen center)"]
     local getX       = config.getX
     local getY       = config.getY
     local onApply    = config.onApply
@@ -27,15 +31,15 @@ function HealerRange_CreatePositionEditor(parent, config)
 
     local xLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     xLbl:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
-    xLbl:SetText("X offset")
+    xLbl:SetText(L["X offset"])
 
     local yLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     yLbl:SetPoint("LEFT", xLbl, "RIGHT", 40, 0)
-    yLbl:SetText("Y offset")
+    yLbl:SetText(L["Y offset"])
 
     height = height + 18
 
-    local xInput = Unbunk_CreateTextInput({
+    local xInput = ns.ui.CreateTextInput({
         parent     = container,
         width      = 70,
         height     = 22,
@@ -46,7 +50,7 @@ function HealerRange_CreatePositionEditor(parent, config)
     xInput.frame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
     result.xBox = xInput.editBox
 
-    local yInput = Unbunk_CreateTextInput({
+    local yInput = ns.ui.CreateTextInput({
         parent     = container,
         width      = 70,
         height     = 22,
@@ -71,9 +75,9 @@ function HealerRange_CreatePositionEditor(parent, config)
     yInput.frame:SetPoint("LEFT", xInput.frame, "RIGHT", 40, 0)
     result.yBox = yInput.editBox
 
-    local unlockBtnWidget = Unbunk_CreateButton({
+    local unlockBtnWidget = ns.ui.CreateButton({
         parent = container,
-        label  = isUnlocked and isUnlocked() and "Lock" or "Unlock",
+        label  = isUnlocked and isUnlocked() and L["Lock"] or L["Unlock"],
         width  = 80,
         height = 22,
     })
@@ -86,10 +90,10 @@ function HealerRange_CreatePositionEditor(parent, config)
     unlockBtn:SetScript("OnClick", function()
         currentlyUnlocked = not currentlyUnlocked
         if currentlyUnlocked then
-            unlockBtnWidget.SetText("Lock")
+            unlockBtnWidget.SetText(L["Lock"])
             if onUnlock then onUnlock() end
         else
-            unlockBtnWidget.SetText("Unlock")
+            unlockBtnWidget.SetText(L["Unlock"])
             xInput.SetText(tostring(getX() or 0))
             yInput.SetText(tostring(getY() or 0))
             if onLock then onLock() end
@@ -98,7 +102,7 @@ function HealerRange_CreatePositionEditor(parent, config)
 
     parent:HookScript("OnHide", function()
         currentlyUnlocked = false
-        unlockBtnWidget.SetText("Unlock")
+        unlockBtnWidget.SetText(L["Unlock"])
     end)
 
     height = height + 30
@@ -111,7 +115,7 @@ function HealerRange_CreatePositionEditor(parent, config)
         xInput.SetText(tostring(getX() or 0))
         yInput.SetText(tostring(getY() or 0))
         currentlyUnlocked = isUnlocked and isUnlocked() or false
-        unlockBtnWidget.SetText(currentlyUnlocked and "Lock" or "Unlock")
+        unlockBtnWidget.SetText(currentlyUnlocked and L["Lock"] or L["Unlock"])
     end
 
     return result

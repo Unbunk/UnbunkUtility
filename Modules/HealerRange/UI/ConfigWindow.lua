@@ -1,6 +1,7 @@
 -- Modules/HealerRange/UI/ConfigWindow.lua
 
 local _, ns = ...
+local L = ns.L
 ns.HealerRange = ns.HealerRange or {}
 local HR = ns.HealerRange
 
@@ -30,9 +31,9 @@ local function CreateHealerRangePanel(parent)
     local enableFrame = CreateFrame("Frame", nil, content)
     enableFrame:SetHeight(24)
 
-    local enableCheckbox = Unbunk_CreateCheckbox({
+    local enableCheckbox = ns.ui.CreateCheckbox({
         parent  = enableFrame,
-        label   = "Enable Healer Range",
+        label   = L["Enable Healer Range"],
         checked = HR.CfgGet("enabled") ~= false,
         onClick = function(val)
             HR.CfgSet("enabled", val)
@@ -58,17 +59,21 @@ local function CreateHealerRangePanel(parent)
     local testFrame = CreateFrame("Frame", nil, content)
     testFrame:SetHeight(30)
 
-    local testAlertBtn = Unbunk_CreateButton({
+    local testAlertBtn = ns.ui.CreateButton({
         parent  = testFrame,
-        label   = "Test Alert",
+        label   = L["Test Alert"],
         width   = 100,
         height  = 22,
         onClick = function()
+            -- Cancel any in-flight test so a second click doesn't let the first
+            -- timer fire mid-test (which would SetTesting(false)/hide early).
+            if HR.testTimer then HR.testTimer:Cancel() end
             HR.SetTesting(true)
             HR.GetFrame():Show()
             HR.PlaySound()
             local duration = HR.CfgGet("alertDuration") or 5
-            C_Timer.After(duration, function()
+            HR.testTimer = C_Timer.NewTimer(duration, function()
+                HR.testTimer = nil
                 HR.SetTesting(false)
                 if not HR.IsUnlocked() then
                     HR.GetFrame():Hide()
@@ -80,9 +85,9 @@ local function CreateHealerRangePanel(parent)
 
     local durLbl = testFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     durLbl:SetPoint("LEFT", testAlertBtn.frame, "RIGHT", 16, 0)
-    durLbl:SetText("Duration")
+    durLbl:SetText(L["Duration"])
 
-    local durMinusBtn = Unbunk_CreateButton({
+    local durMinusBtn = ns.ui.CreateButton({
         parent  = testFrame,
         label   = "-",
         width   = 22,
@@ -90,7 +95,11 @@ local function CreateHealerRangePanel(parent)
     })
     durMinusBtn.frame:SetPoint("LEFT", durLbl, "RIGHT", 6, 0)
 
-    local durInput = Unbunk_CreateTextInput({
+    -- Forward-declared so the onEnter closure below can reflect the clamped
+    -- value back into the edit box (assigned just after durInput is created).
+    local durBox
+
+    local durInput = ns.ui.CreateTextInput({
         parent     = testFrame,
         width      = 40,
         height     = 22,
@@ -98,13 +107,18 @@ local function CreateHealerRangePanel(parent)
         maxLetters = 3,
         text       = tostring(HR.CfgGet("alertDuration") or 5),
         onEnter    = function(val)
-            if val and val > 0 then HR.CfgSet("alertDuration", val) end
+            -- Clamp typed input to the same [1,60] range the +/- buttons enforce.
+            if val and val > 0 then
+                val = math.min(60, math.max(1, val))
+                HR.CfgSet("alertDuration", val)
+                if durBox then durBox:SetText(tostring(val)) end
+            end
         end,
     })
     durInput.frame:SetPoint("LEFT", durMinusBtn.frame, "RIGHT", 4, 0)
-    local durBox = durInput.editBox
+    durBox = durInput.editBox
 
-    local durPlusBtn = Unbunk_CreateButton({
+    local durPlusBtn = ns.ui.CreateButton({
         parent  = testFrame,
         label   = "+",
         width   = 22,
@@ -127,13 +141,13 @@ local function CreateHealerRangePanel(parent)
 
     local durSecLbl = testFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     durSecLbl:SetPoint("LEFT", durPlusBtn.frame, "RIGHT", 6, 0)
-    durSecLbl:SetText("sec")
+    durSecLbl:SetText(L["sec"])
 
     AddModule(testFrame, 30)
 
     -- ── Instance filter ───────────────────────────────────────────────────────
 
-    local iF = Unbunk_CreateInstanceFilter({
+    local iF = ns.ui.CreateInstanceFilter({
         parent    = content,
         getConfig = function() return HR.CfgGet("instanceFilter") end,
         setConfig = function(key, val)
@@ -146,7 +160,7 @@ local function CreateHealerRangePanel(parent)
 
     -- ── Icon picker ───────────────────────────────────────────────────────────
 
-    local ip = Unbunk_CreateIconPicker({
+    local ip = ns.ui.CreateIconPicker({
         parent    = content,
         getConfig = function() return HR.CfgGet("icon") end,
         setConfig = function(key, val)
@@ -161,14 +175,14 @@ local function CreateHealerRangePanel(parent)
 
     -- ── Sound picker ──────────────────────────────────────────────────────────
 
-    local soundResult = HealerRange_CreateSoundPicker(content, LSM)
+    local soundResult = ns.ui.CreateSoundPicker(content, LSM)
     AddModule(soundResult.frame, soundResult.height)
 
     -- ── Text editor ───────────────────────────────────────────────────────────
 
-    local te = HealerRange_CreateTextEditor(content, {
+    local te = ns.ui.CreateTextEditor(content, {
         LSM             = LSM,
-        label           = "Alert text",
+        label           = L["Alert text"],
         getText         = function() return HR.CfgGet("alertMessage") end,
         getFontKey      = function() return HR.CfgGet("fontKey") end,
         getFontPath     = function() return HR.CfgGet("fontPath") end,
@@ -201,8 +215,8 @@ local function CreateHealerRangePanel(parent)
 
     -- ── Position editor ───────────────────────────────────────────────────────
 
-    HR.pe = HealerRange_CreatePositionEditor(content, {
-        label       = "Alert position (offset from screen center)",
+    HR.pe = ns.ui.CreatePositionEditor(content, {
+        label       = L["Alert position (offset from screen center)"],
         getX        = function() return HR.CfgGet("posX") end,
         getY        = function() return HR.CfgGet("posY") end,
         onApply     = function(x, yv)
@@ -212,7 +226,7 @@ local function CreateHealerRangePanel(parent)
         end,
         onUnlock    = function()
             if HR.SetUnlocked then HR.SetUnlocked(true) end
-            print("|cffff4444[UnbunkUtility]|r Alert unlocked — drag to reposition, then click Lock to save.")
+            print(L["|cffff4444[UnbunkUtility]|r Alert unlocked — drag to reposition, then click Lock to save."])
         end,
         onLock      = function()
             if HR.SetUnlocked then HR.SetUnlocked(false) end
@@ -225,9 +239,9 @@ local function CreateHealerRangePanel(parent)
 
     local function RefreshProbeStatus()
         if not HR.HasCombatProbe() then
-            probeMsg:SetText("|cffff4444Combat range detection unavailable — your class has no friendly spell probe usable in combat. The alert will not trigger.|r")
+            probeMsg:SetText(L["|cffff4444Combat range detection unavailable — your class has no friendly spell probe usable in combat. The alert will not trigger.|r"])
         else
-            probeMsg:SetText("|cff00ff00Combat range detection available. Note: Evoker healers are ignored unless other healers are present in the group.|r")
+            probeMsg:SetText(L["|cff00ff00Combat range detection available. Note: Evoker healers are ignored unless other healers are present in the group.|r"])
         end
     end
 
@@ -257,7 +271,7 @@ initHR:SetScript("OnEvent", function(self, event, addonName)
     local openBtn = CreateFrame("Button", nil, blizzPanel, "UIPanelButtonTemplate")
     openBtn:SetSize(160, 22)
     openBtn:SetPoint("TOPLEFT", 16, -80)
-    openBtn:SetText("Open UnbunkUtility")
+    openBtn:SetText(L["Open UnbunkUtility"])
     openBtn:SetScript("OnClick", function()
         UnbunkUtility.OpenWindow()
         HideUIPanel(SettingsPanel)
@@ -265,7 +279,7 @@ initHR:SetScript("OnEvent", function(self, event, addonName)
     local cat = Settings.RegisterCanvasLayoutCategory(blizzPanel, blizzPanel.name)
     Settings.RegisterAddOnCategory(cat)
 
-    UnbunkUtility.RegisterModule("Healer Range", nil, CreateHealerRangePanel)
+    UnbunkUtility.RegisterModule(L["Healer Range"], nil, CreateHealerRangePanel)
 
     self:UnregisterEvent("ADDON_LOADED")
 end)

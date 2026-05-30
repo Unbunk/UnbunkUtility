@@ -1,6 +1,7 @@
 -- Modules/BResTracker/UI/ConfigWindow.lua
 
 local _, ns = ...
+local L = ns.L
 ns.BResTracker = ns.BResTracker or {}
 local BR = ns.BResTracker
 
@@ -15,6 +16,9 @@ local function CreateBResTrackerPanel(parent)
     local GAP = 12
     local lastFrame = nil
 
+    -- moduleHeight is intentionally ignored: the scroll child's height is
+    -- computed at runtime by Core.lua's ComputeModuleHeight (it measures child
+    -- frame bottoms). The arg is kept only for call-site symmetry across modules.
     local function AddModule(moduleFrame, moduleHeight)
         moduleFrame:SetWidth(518)
         if lastFrame then
@@ -29,9 +33,9 @@ local function CreateBResTrackerPanel(parent)
 
     local enableFrame = CreateFrame("Frame", nil, content)
     enableFrame:SetHeight(28)
-    local enableCb = Unbunk_CreateCheckbox({
+    local enableCb = ns.ui.CreateCheckbox({
         parent  = enableFrame,
-        label   = "Enable BRez Tracker",
+        label   = L["Enable BRez Tracker"],
         checked = BR.CfgGet("enabled") ~= false,
         onClick = function(val)
             BR.CfgSet("enabled", val)
@@ -41,9 +45,9 @@ local function CreateBResTrackerPanel(parent)
     })
     enableCb.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
 
-    local testBtn = Unbunk_CreateButton({
+    local testBtn = ns.ui.CreateButton({
         parent  = enableFrame,
-        label   = "Test",
+        label   = L["Test"],
         width   = 80,
         height  = 22,
         onClick = function() BR.RunTest(15) end,
@@ -53,7 +57,7 @@ local function CreateBResTrackerPanel(parent)
 
     -- ── Instance filter ───────────────────────────────────────────────────────
 
-    local iF = Unbunk_CreateInstanceFilter({
+    local iF = ns.ui.CreateInstanceFilter({
         parent    = content,
         getConfig = function() return BR.CfgGet("instanceFilter") end,
         setConfig = function(key, val)
@@ -66,8 +70,8 @@ local function CreateBResTrackerPanel(parent)
 
     -- ── Sound on charge regained ──────────────────────────────────────────────
 
-    local soundResult = HealerRange_CreateSoundPicker(content, LSM, {
-        label          = "Sound on charge regained",
+    local soundResult = ns.ui.CreateSoundPicker(content, LSM, {
+        label          = L["Sound on charge regained"],
         getSoundKey    = function() return BR.CfgGet("soundKeyReady") end,
         getSoundEnable = function() return BR.CfgGet("soundOnReady") end,
         onSoundSelect  = function(key, path)
@@ -81,8 +85,8 @@ local function CreateBResTrackerPanel(parent)
 
     -- ── Sound on BRes used ────────────────────────────────────────────────────
 
-    local soundUsedResult = HealerRange_CreateSoundPicker(content, LSM, {
-        label          = "Sound on BRes used",
+    local soundUsedResult = ns.ui.CreateSoundPicker(content, LSM, {
+        label          = L["Sound on BRes used"],
         getSoundKey    = function() return BR.CfgGet("soundKeyUsed") end,
         getSoundEnable = function() return BR.CfgGet("soundOnUsed") end,
         onSoundSelect  = function(key, path)
@@ -98,9 +102,9 @@ local function CreateBResTrackerPanel(parent)
 
     local showIconFrame = CreateFrame("Frame", nil, content)
     showIconFrame:SetHeight(24)
-    local showIconCb = Unbunk_CreateCheckbox({
+    local showIconCb = ns.ui.CreateCheckbox({
         parent  = showIconFrame,
-        label   = "Show icon",
+        label   = L["Show icon"],
         checked = BR.CfgGet("showIcon") ~= false,
         onClick = function(val)
             BR.CfgSet("showIcon", val)
@@ -117,17 +121,19 @@ local function CreateBResTrackerPanel(parent)
 
     local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
-    sizeLbl:SetText("Icon size")
+    sizeLbl:SetText(L["Icon size"])
 
     local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
-    wLbl:SetText("W")
+    wLbl:SetText(L["W"])
 
-    local wInput = Unbunk_CreateTextInput({
+    local wInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 8,
+        max        = 512,
         maxLetters = 3,
         text       = tostring(BR.CfgGet("iconWidth") or 45),
         onEnter    = function(val)
@@ -141,13 +147,15 @@ local function CreateBResTrackerPanel(parent)
 
     local hLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
-    hLbl:SetText("H")
+    hLbl:SetText(L["H"])
 
-    local hInput = Unbunk_CreateTextInput({
+    local hInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 8,
+        max        = 512,
         maxLetters = 3,
         text       = tostring(BR.CfgGet("iconHeight") or 45),
         onEnter    = function(val)
@@ -163,8 +171,8 @@ local function CreateBResTrackerPanel(parent)
 
     -- ── Position editor ───────────────────────────────────────────────────────
 
-    BR.pe = HealerRange_CreatePositionEditor(content, {
-        label      = "Icon position (offset from screen center)",
+    BR.pe = ns.ui.CreatePositionEditor(content, {
+        label      = L["Icon position (offset from screen center)"],
         getX       = function() return BR.CfgGet("posX") end,
         getY       = function() return BR.CfgGet("posY") end,
         onApply    = function(x, yv)
@@ -187,14 +195,14 @@ local function CreateBResTrackerPanel(parent)
     listHeaderFrame:SetHeight(20)
     local listHeaderLbl = listHeaderFrame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     listHeaderLbl:SetPoint("TOPLEFT", listHeaderFrame, "TOPLEFT", 0, 0)
-    listHeaderLbl:SetText("Player list")
+    listHeaderLbl:SetText(L["Player list"])
     AddModule(listHeaderFrame, 20)
 
     local listEnableFrame = CreateFrame("Frame", nil, content)
     listEnableFrame:SetHeight(24)
-    local listEnableCb = Unbunk_CreateCheckbox({
+    local listEnableCb = ns.ui.CreateCheckbox({
         parent  = listEnableFrame,
-        label   = "Enable player list",
+        label   = L["Enable player list"],
         checked = BR.CfgGet("listEnabled") == true,
         onClick = function(val)
             BR.CfgSet("listEnabled", val)
@@ -209,10 +217,10 @@ local function CreateBResTrackerPanel(parent)
     listSideFrame:SetHeight(46)
     local listSideLbl = listSideFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     listSideLbl:SetPoint("TOPLEFT", listSideFrame, "TOPLEFT", 0, 0)
-    listSideLbl:SetText("List position relative to icon")
+    listSideLbl:SetText(L["List position relative to icon"])
     local listSideAnchor = listSideFrame:CreateFontString(nil, "ARTWORK")
     listSideAnchor:SetPoint("TOPLEFT", listSideFrame, "TOPLEFT", 0, -20)
-    local listSideDD = HealerRange_CreateDropdown({
+    local listSideDD = ns.ui.CreateDropdown({
         parent        = listSideFrame,
         anchorFrame   = listSideAnchor,
         width         = 120,
@@ -234,10 +242,10 @@ local function CreateBResTrackerPanel(parent)
     statusSideFrame:SetHeight(46)
     local statusSideLbl = statusSideFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     statusSideLbl:SetPoint("TOPLEFT", statusSideFrame, "TOPLEFT", 0, 0)
-    statusSideLbl:SetText("Status icon / timer position relative to name")
+    statusSideLbl:SetText(L["Status icon / timer position relative to name"])
     local statusSideAnchor = statusSideFrame:CreateFontString(nil, "ARTWORK")
     statusSideAnchor:SetPoint("TOPLEFT", statusSideFrame, "TOPLEFT", 0, -20)
-    local statusSideDD = HealerRange_CreateDropdown({
+    local statusSideDD = ns.ui.CreateDropdown({
         parent        = statusSideFrame,
         anchorFrame   = statusSideAnchor,
         width         = 120,
@@ -253,10 +261,36 @@ local function CreateBResTrackerPanel(parent)
     statusSideDD.selectedText:SetText(BR.CfgGet("rowStatusSide") or "Left")
     AddModule(statusSideFrame, 46)
 
+    -- Estimated per-player cooldown (seconds) for the list timers. See the
+    -- listCooldownEstimate note in Config.lua / PlayerList.lua.
+    local cdFrame = CreateFrame("Frame", nil, content)
+    cdFrame:SetHeight(46)
+    local cdLbl = cdFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    cdLbl:SetPoint("TOPLEFT", cdFrame, "TOPLEFT", 0, 0)
+    cdLbl:SetText(L["Estimated BRes cooldown (seconds)"])
+    local cdInput = ns.ui.CreateTextInput({
+        parent     = cdFrame,
+        width      = 60,
+        height     = 22,
+        numeric    = true,
+        min        = 1,
+        max        = 3600,
+        maxLetters = 4,
+        text       = tostring(BR.CfgGet("listCooldownEstimate") or 600),
+        onEnter    = function(val)
+            if val and val > 0 then
+                BR.CfgSet("listCooldownEstimate", val)
+                if BR.RefreshList then BR.RefreshList() end
+            end
+        end,
+    })
+    cdInput.frame:SetPoint("TOPLEFT", cdFrame, "TOPLEFT", 0, -20)
+    AddModule(cdFrame, 46)
+
     -- Name text editor (font / size / outline; color is class-based)
-    local nameTextEditor = HealerRange_CreateTextEditor(content, {
+    local nameTextEditor = ns.ui.CreateTextEditor(content, {
         LSM             = LSM,
-        label           = "Player name text",
+        label           = L["Player name text"],
         showText        = false,
         showFont        = true,
         showSize        = true,
@@ -284,9 +318,9 @@ local function CreateBResTrackerPanel(parent)
 
     -- ── Timer text editor ─────────────────────────────────────────────────────
 
-    local te = HealerRange_CreateTextEditor(content, {
+    local te = ns.ui.CreateTextEditor(content, {
         LSM          = LSM,
-        label        = "Timer text",
+        label        = L["Timer text"],
         showText     = false,
         showFont     = true,
         showSize     = true,
@@ -332,6 +366,7 @@ local function CreateBResTrackerPanel(parent)
         listEnableCb.SetChecked(BR.CfgGet("listEnabled") == true)
         listSideDD.selectedText:SetText(BR.CfgGet("listSide") or "Left")
         statusSideDD.selectedText:SetText(BR.CfgGet("rowStatusSide") or "Left")
+        cdInput.SetText(tostring(BR.CfgGet("listCooldownEstimate") or 600))
         nameTextEditor.Refresh()
     end)
 end
@@ -342,6 +377,6 @@ local initBRUI = CreateFrame("Frame")
 initBRUI:RegisterEvent("ADDON_LOADED")
 initBRUI:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    UnbunkUtility.RegisterModule("BRez Tracker", nil, CreateBResTrackerPanel)
+    UnbunkUtility.RegisterModule(L["BRez Tracker"], nil, CreateBResTrackerPanel)
     self:UnregisterEvent("ADDON_LOADED")
 end)

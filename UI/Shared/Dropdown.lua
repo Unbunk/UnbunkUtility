@@ -2,7 +2,7 @@
 -- Generic reusable dropdown widget.
 --
 -- Usage:
---   local dd = HealerRange_CreateDropdown({
+--   local dd = ns.ui.CreateDropdown({
 --       parent       = panel,
 --       anchorFrame  = someFrame,    -- frame the dropdown opens below
 --       width        = 240,
@@ -15,15 +15,19 @@
 --   dd.selectedText  -- FontString on the toggle button
 --   dd.bottomY       -- Y just below the widget (anchorFrame:GetBottom() - 40)
 
-function HealerRange_CreateDropdown(config)
+local _, ns = ...
+local L = ns.L
+ns.ui = ns.ui or {}
+
+function ns.ui.CreateDropdown(config)
     local parent       = config.parent
     local anchorFrame  = config.anchorFrame
     local width        = config.width        or 240
     local itemHeight   = config.itemHeight   or 20
     local visibleItems = config.visibleItems or 10
-    local getList      = config.getList
-    local getCurrentKey = config.getCurrentKey
-    local onSelect     = config.onSelect
+    local getList      = config.getList       or function() return {} end
+    local getCurrentKey = config.getCurrentKey or function() return nil end
+    local onSelect     = config.onSelect       or function() end
 
     local result = {}
 
@@ -52,7 +56,7 @@ function HealerRange_CreateDropdown(config)
     selectedText:SetPoint("LEFT", 6, 0)
     selectedText:SetPoint("RIGHT", -22, 0)
     selectedText:SetJustifyH("LEFT")
-    selectedText:SetText("(select...)")
+    selectedText:SetText(L["(select...)"])
     result.selectedText = selectedText
     result.toggleBtn    = toggleBtn
 
@@ -92,7 +96,7 @@ function HealerRange_CreateDropdown(config)
 
     -- ── Scrollbar ─────────────────────────────────────────────────────────────
 
-    local sb = Unbunk_CreateScrollBar({
+    local sb = ns.ui.CreateScrollBar({
         parent       = dropFrame,
         scrollFrame  = scrollFrame,
         itemHeight   = itemHeight,
@@ -136,9 +140,17 @@ function HealerRange_CreateDropdown(config)
                 lbl:SetJustifyH("LEFT")
                 btn.label = lbl
 
+                btn:SetScript("OnClick", function(self)
+                    onSelect(self.name)
+                    selectedText:SetText(self.name)
+                    dropFrame:Hide()
+                    RefreshList()
+                end)
+
                 buttons[i] = btn
             end
 
+            btn.name = name
             btn:SetFrameLevel(level + 2)
             btn.label:SetText(name)
 
@@ -147,13 +159,6 @@ function HealerRange_CreateDropdown(config)
             else
                 btn.label:SetTextColor(1, 1, 1, 1)
             end
-
-            btn:SetScript("OnClick", function()
-                onSelect(name)
-                selectedText:SetText(name)
-                dropFrame:Hide()
-                RefreshList()
-            end)
         end
 
         -- Hide the surplus pooled buttons.
@@ -186,17 +191,24 @@ function HealerRange_CreateDropdown(config)
             scrollFrame:EnableMouse(true)
             scrollChild:EnableMouse(true)
 
-            local list       = getList()
-            local currentKey = getCurrentKey()
-            for i, name in ipairs(list) do
-                if name == currentKey then
-                    local maxScroll = scrollFrame:GetVerticalScrollRange()
-                    local target    = math.max(0, math.min(maxScroll, (i - 1) * itemHeight))
-                    scrollFrame:SetVerticalScroll(target)
-                    UpdateScrollBar()
-                    break
+            -- Scroll to the current selection. Deferred one frame so the
+            -- ScrollFrame has had a layout pass and GetVerticalScrollRange
+            -- returns the real range (it is still 0 in the same frame the
+            -- scrollChild height changes / the frame is first shown).
+            C_Timer.After(0, function()
+                if not dropFrame:IsShown() then return end
+                local list       = getList()
+                local currentKey = getCurrentKey()
+                for i, name in ipairs(list) do
+                    if name == currentKey then
+                        local maxScroll = scrollFrame:GetVerticalScrollRange()
+                        local target    = math.max(0, math.min(maxScroll, (i - 1) * itemHeight))
+                        scrollFrame:SetVerticalScroll(target)
+                        UpdateScrollBar()
+                        break
+                    end
                 end
-            end
+            end)
         end
     end)
 

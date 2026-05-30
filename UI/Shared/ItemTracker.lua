@@ -2,7 +2,7 @@
 -- Reusable item tracker widget (potion, trinket, etc.)
 --
 -- Usage:
---   local tracker = Unbunk_CreateItemTracker({
+--   local tracker = ns.ui.CreateItemTracker({
 --       frameName  = "MyTrackerFrame",
 --       getCfg     = function(key) return MyCfg_Get(key) end,
 --       getItemId  = function() return itemId end,
@@ -17,7 +17,10 @@
 --   tracker.IsUnlocked()
 --   tracker.GetFrame()
 
-function Unbunk_CreateItemTracker(config)
+local _, ns = ...
+ns.ui = ns.ui or {}
+
+function ns.ui.CreateItemTracker(config)
     local frameName  = config.frameName
     local getCfg     = config.getCfg
     local getItemId  = config.getItemId
@@ -26,9 +29,8 @@ function Unbunk_CreateItemTracker(config)
 
     local tracker    = {}
     local hasCooldown = false
-    local hadItem     = false
 
-    local icon = Unbunk_CreateTimerIcon({
+    local icon = ns.ui.CreateTimerIcon({
         name    = frameName,
         getCfg  = getCfg,
         onDragStop = function(x, y)
@@ -49,18 +51,20 @@ function Unbunk_CreateItemTracker(config)
 
         if not itemExists or not getCfg("showIcon") then
             icon.Hide()
-            hadItem = false
             return
         end
 
         -- Skip items that have no spell (not usable).
         local spellName = itemId and C_Item.GetItemSpell and select(1, C_Item.GetItemSpell(itemId))
         if not spellName then
+            -- Spell data is async; request a load so the next refresh can resolve
+            -- it even if nothing else preloaded the item (mirrors the iconId branch).
+            C_Item.RequestLoadItemDataByID(itemId)
             icon.Hide()
             return
         end
 
-        local _, _, _, _, _, _, _, _, _, iconId = GetItemInfo(itemId)
+        local _, _, _, _, _, _, _, _, _, iconId = C_Item.GetItemInfo(itemId)
         if not iconId then
             C_Item.RequestLoadItemDataByID(itemId)
             icon.Hide()
@@ -70,7 +74,6 @@ function Unbunk_CreateItemTracker(config)
         icon.SetIcon(iconId)
         icon.ApplySize()
         icon.Show()
-        hadItem = true
 
         -- Check buff actif d'abord
         local foundBuff = false
