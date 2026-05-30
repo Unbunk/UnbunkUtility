@@ -29,6 +29,7 @@ function ns.ui.CreateItemTracker(config)
 
     local tracker    = {}
     local hasCooldown = false
+    local lastExpiry  = nil  -- GetTime() at which the tracked cooldown ends
 
     local icon = ns.ui.CreateTimerIcon({
         name    = frameName,
@@ -89,18 +90,35 @@ function ns.ui.CreateItemTracker(config)
 
         if not foundBuff then
             local start, duration = C_Item.GetItemCooldown(itemId)
-            if start and duration and duration > 0 then
+            if start and start > 0 and duration and duration > 0 then
                 if not hasCooldown then
                     hasCooldown = true
                 end
+                lastExpiry = start + duration
                 icon.SetTimer(start + duration, duration)
                 icon.HideCheck()
+            elseif duration and duration > 0 then
+                -- start == 0 with a duration = an unstarted / not-yet-populated
+                -- cooldown (typically mid loading screen). Indeterminate: keep
+                -- the previous state and timer. Recording start+duration here
+                -- would store a tiny past value and falsely "complete" next tick.
             else
                 if hasCooldown then
                     hasCooldown = false
-                    if config.onReady then config.onReady() end
-                    icon.ClearTimer()
-                    icon.BlinkCheck()  -- flash once, then auto-hide
+                    -- Real "ready" only if the cooldown actually reached its
+                    -- recorded end AND we're not in the post-load settle window.
+                    -- A loading screen / instance reset can report the CD as gone
+                    -- before its real expiry (leaving a follower dungeon) — that's
+                    -- a stale read, not a completion, so stay silent.
+                    local completed = lastExpiry and (GetTime() >= lastExpiry - ns.READY_EPSILON)
+                    if completed and not ns.RecentlyZoned() then
+                        if config.onReady then config.onReady() end
+                        icon.ClearTimer()
+                        icon.BlinkCheck()  -- flash once, then auto-hide
+                    else
+                        icon.ClearTimer()
+                        icon.HideCheck()
+                    end
                 else
                     icon.ClearTimer()
                 end

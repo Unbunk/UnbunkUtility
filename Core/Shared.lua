@@ -148,20 +148,49 @@ function ns.SetTrackerIconStrata(frame)
     frame:SetFrameLevel(((cmv and cmv:GetFrameLevel()) or 10) + 20)
 end
 
+-- ── Zone-transition guard ────────────────────────────────────────────────────
+-- Right after a loading screen (PLAYER_ENTERING_WORLD) the cooldown / aura APIs
+-- briefly report stale or empty data, which a tracker can misread as a cooldown
+-- *completing* — firing a spurious "ready" sound (e.g. leaving a follower
+-- dungeon plays BL/Trinket/Potion "ready" although nothing is actually ready).
+-- Trackers check ns.RecentlyZoned() before a ready sound to skip that settle
+-- window. Tune ns.ZONE_SETTLE if a real ready right after a load is being eaten.
+ns.ZONE_SETTLE = 2.5  -- seconds of "ready" suppression after a load screen
+-- Tolerance (s) for "the cooldown actually reached its recorded end". Must
+-- comfortably exceed the slowest poll (the 0.5s tracker ticker) yet stay well
+-- under the shortest real cooldown so a near-expiry stale read can't slip in.
+ns.READY_EPSILON = 1.5
+local lastZoneAt = -math.huge
+
+function ns.RecentlyZoned()
+    return (GetTime() - lastZoneAt) < ns.ZONE_SETTLE
+end
+
+local zoneGuard = CreateFrame("Frame")
+zoneGuard:RegisterEvent("PLAYER_ENTERING_WORLD")
+zoneGuard:SetScript("OnEvent", function() lastZoneAt = GetTime() end)
+
 -- ── Combo sound coordinator ─────────────────────────────────────────────────
 -- Each tracker (BL / Potion / Trinket) routes its on-trigger sound through
--- ns.combo.Notify. The coordinator delays for COMBO_WINDOW seconds and then
--- decides:
+-- ns.combo.Notify. The coordinator waits a short, ADAPTIVE window and then:
 --   * BL + anything else → play the "bl_combo" sound
 --   * Potion + Trinket   → play the "potion_combo" sound
 --   * single category    → play that category's normal sound
--- Config lives in UnbunkUtilityDB.combo (global, not profile-scoped).
+-- A lone trigger flushes quickly (COMBO_GAP_SINGLE). Once two categories are
+-- pending, a combo is forming, so it waits longer (COMBO_GAP_MULTI) for a
+-- possible third — a human "full combo" (potion, trinket, THEN BL) is spread
+-- over a second or two and the BL is usually last. All three present → flush
+-- immediately. COMBO_MAX caps the total wait. The window is re-armed on every
+-- trigger (debounce). Config lives in UnbunkUtilityDB.combo (global).
 
-local COMBO_WINDOW = 0.5
+local COMBO_GAP_SINGLE = 0.5  -- lone trigger: flush quickly
+local COMBO_GAP_MULTI  = 2.5  -- 2 categories pending: wait for a possible third
+local COMBO_MAX        = 5.0  -- never wait longer than this from the first trigger
 
 ns.combo = ns.combo or {}
 ns.combo.pending = {}
 ns.combo.timer   = nil
+ns.combo.firstAt = nil
 
 local function ComboCfg() return UnbunkUtilityDB and UnbunkUtilityDB.combo end
 
@@ -191,6 +220,7 @@ function ns.combo.Flush()
     local pending = ns.combo.pending
     ns.combo.pending = {}
     ns.combo.timer = nil
+    ns.combo.firstAt = nil
 
     -- pending[category] is a LIST of fallback fns (multiple same-category
     -- sounds can queue within one window, e.g. health + combat potion).
@@ -225,9 +255,30 @@ function ns.combo.Notify(category, fallbackSoundFn)
         ns.combo.pending[category] = list
     end
     table.insert(list, fallbackSoundFn)
-    if not ns.combo.timer then
-        ns.combo.timer = C_Timer.NewTimer(COMBO_WINDOW, ns.combo.Flush)
+
+    local p = ns.combo.pending
+    local function has(c) local l = p[c]; return l and #l > 0 end
+    local catCount = (has("bl") and 1 or 0) + (has("potion") and 1 or 0)
+        + (has("trinket") and 1 or 0)
+
+    local now = GetTime()
+    ns.combo.firstAt = ns.combo.firstAt or now
+
+    -- Re-arm the flush timer on every trigger (debounce).
+    if ns.combo.timer then ns.combo.timer:Cancel(); ns.combo.timer = nil end
+
+    -- All three categories present: the top combo (BL + the two others) is
+    -- already decided and no later trigger can improve it — flush immediately.
+    if catCount >= 3 then
+        ns.combo.Flush()
+        return
     end
+
+    -- One category → likely a lone trigger, flush quickly. Two → a combo is
+    -- forming, so wait longer for a possible third. Capped at COMBO_MAX total.
+    local gap          = (catCount >= 2) and COMBO_GAP_MULTI or COMBO_GAP_SINGLE
+    local capRemaining = (ns.combo.firstAt + COMBO_MAX) - now
+    ns.combo.timer = C_Timer.NewTimer(math.min(gap, math.max(0, capRemaining)), ns.combo.Flush)
 end
 
 -- ── Sound key migration ─────────────────────────────────────────────────────
