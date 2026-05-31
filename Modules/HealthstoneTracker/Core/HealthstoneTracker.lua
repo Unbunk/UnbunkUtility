@@ -139,7 +139,8 @@ local function CreateTracker(index)
         end,
         getItemId = function() return t.assignedId end,
         hasItem   = function(itemId)
-            return itemId ~= nil and (GetItemCount(itemId) or 0) > 0
+            -- includeUses=true: count charges (a healthstone has several).
+            return itemId ~= nil and (GetItemCount(itemId, false, true) or 0) > 0
         end,
         onDragStop = function(x, y)
             -- Only the primary slot writes back the configured position;
@@ -197,7 +198,11 @@ local function ApplyStackVisualsFor(t)
     fs:SetTextColor(c.r, c.g, c.b, c.a or 1)
 
     local id = t.assignedId
-    local count = id and (GetItemCount(id) or 0) or 0
+    -- includeUses=true (3rd arg) so the count reflects healthstone CHARGES, not
+    -- the number of item stacks — a healthstone carries multiple charges. Do NOT
+    -- "simplify" this to GetItemCount(id) (that drops the charge count). includeBank
+    -- is false so bank stones aren't counted.
+    local count = id and (GetItemCount(id, false, true) or 0) or 0
     if count > 0 then
         fs:SetText(tostring(count))
         fs:Show()
@@ -303,7 +308,7 @@ function HT.ApplyAll()
         local t = EnsureTracker(i)
         local id = ids[i]
         t.assignedId = id
-        if usedInCombatById[id] and (GetItemCount(id) or 0) <= 0 then
+        if usedInCombatById[id] and (GetItemCount(id, false, true) or 0) <= 0 then
             -- Consumed-in-combat variant no longer in bags: drive the icon
             -- directly (ApplyVisuals would hide it since hasItem is false) so
             -- the "C" marker has an icon to sit on.
