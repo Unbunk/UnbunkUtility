@@ -184,8 +184,8 @@ zoneGuard:SetScript("OnEvent", function() lastZoneAt = GetTime() end)
 -- trigger (debounce). Config lives in UnbunkUtilityDB.combo (global).
 
 local COMBO_GAP_SINGLE = 0.5  -- lone trigger: flush quickly
-local COMBO_GAP_MULTI  = 2.5  -- 2 categories pending: wait for a possible third
-local COMBO_MAX        = 5.0  -- never wait longer than this from the first trigger
+local COMBO_GAP_MULTI  = 1.5  -- 2 categories pending: wait for a possible third
+local COMBO_MAX        = 3.0  -- never wait longer than this from the first trigger
 
 ns.combo = ns.combo or {}
 ns.combo.pending = {}
