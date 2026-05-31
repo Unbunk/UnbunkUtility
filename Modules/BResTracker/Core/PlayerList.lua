@@ -20,7 +20,6 @@ local BRES_CLASSES = {
     DEATHKNIGHT = true,   -- Raise Ally
     WARLOCK     = true,   -- Soulstone
     PALADIN     = true,   -- Intercession
-    HUNTER      = true,   -- Eternal Guardian (Spirit Beast pet)
 }
 
 local CHECK_TEXTURE = ns.GREEN_CHECK_TEXTURE

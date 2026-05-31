@@ -59,7 +59,7 @@ function BR.RunTest(duration)
         { guid = "test2", name = "Deathk", class = "DEATHKNIGHT" },
         { guid = "test3", name = "Locky",  class = "WARLOCK"     },
         { guid = "test4", name = "Praes",  class = "DRUID"       },
-        { guid = "test5", name = "Huntr",  class = "HUNTER"      },
+        { guid = "test5", name = "Pala",   class = "PALADIN"     },
     }
     BR.testCooldownEnds = {
         test2 = now + 480,  -- 8:00 remaining
