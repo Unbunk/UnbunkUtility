@@ -368,17 +368,25 @@ local DEFAULTS_DPS_SPAM = {
     suppressDuration = 6,
 }
 
+local DEFAULTS_BOSS_RESET = {
+    enabled   = true,   -- on by default, playing the bundled "Disappear" sound
+    soundKey  = "UnbunkUtility: Disappear",
+    soundPath = nil,
+}
+
 local function InitGeneralCfg()
     UnbunkUtilityDB = UnbunkUtilityDB or {}
     -- Walk the whole DB (combo keys + profile snapshots in
     -- UnbunkUtilityDB.profiles) to rewrite any pre-restructure sound key.
     ns.MigrateSoundKeys(UnbunkUtilityDB)
-    UnbunkUtilityDB.combo   = UnbunkUtilityDB.combo   or {}
-    UnbunkUtilityDB.wipe    = UnbunkUtilityDB.wipe    or {}
-    UnbunkUtilityDB.dpsSpam = UnbunkUtilityDB.dpsSpam or {}
-    ns.MergeDefaults(UnbunkUtilityDB.combo,   DEFAULTS_COMBO)
-    ns.MergeDefaults(UnbunkUtilityDB.wipe,    DEFAULTS_WIPE)
-    ns.MergeDefaults(UnbunkUtilityDB.dpsSpam, DEFAULTS_DPS_SPAM)
+    UnbunkUtilityDB.combo     = UnbunkUtilityDB.combo     or {}
+    UnbunkUtilityDB.wipe      = UnbunkUtilityDB.wipe      or {}
+    UnbunkUtilityDB.dpsSpam   = UnbunkUtilityDB.dpsSpam   or {}
+    UnbunkUtilityDB.bossReset = UnbunkUtilityDB.bossReset or {}
+    ns.MergeDefaults(UnbunkUtilityDB.combo,     DEFAULTS_COMBO)
+    ns.MergeDefaults(UnbunkUtilityDB.wipe,      DEFAULTS_WIPE)
+    ns.MergeDefaults(UnbunkUtilityDB.dpsSpam,   DEFAULTS_DPS_SPAM)
+    ns.MergeDefaults(UnbunkUtilityDB.bossReset, DEFAULTS_BOSS_RESET)
 end
 
 local cfgInit = CreateFrame("Frame")

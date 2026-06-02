@@ -32,6 +32,7 @@ UI/Shared/ItemTracker.lua
 Core/Core.lua
 Core/SlashCommands.lua
 Core/Profiles.lua
+Modules/GeneralSettings/Core/BossReset.lua
 Modules/GeneralSettings/UI/ConfigWindow.lua
 Modules/HealerRange/Core/Config.lua
 Modules/HealerRange/Core/Alert.lua

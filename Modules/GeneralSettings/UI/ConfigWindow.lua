@@ -145,6 +145,28 @@ local function CreateGeneralSettingsPanel(parent)
     ))
     AddModule(dpsFrame)
 
+    -- ── Boss reset sound section ─────────────────────────────────────────────
+
+    local bossResetTitleFrame = CreateFrame("Frame", nil, content)
+    bossResetTitleFrame:SetHeight(20)
+    local bossResetTitleLbl = bossResetTitleFrame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    bossResetTitleLbl:SetPoint("TOPLEFT", bossResetTitleFrame, "TOPLEFT", 0, 0)
+    bossResetTitleLbl:SetText(L["Boss reset sound"])
+    AddModule(bossResetTitleFrame)
+
+    local bossResetPicker = ns.ui.CreateSoundPicker(content, LSM, {
+        label          = L["Play a sound when a boss is reset (raid/party wipe)"],
+        getSoundKey    = function() return UnbunkUtilityDB.bossReset.soundKey end,
+        getSoundEnable = function() return UnbunkUtilityDB.bossReset.enabled end,
+        onSoundSelect  = function(key, path)
+            UnbunkUtilityDB.bossReset.soundKey  = key
+            UnbunkUtilityDB.bossReset.soundPath = path
+        end,
+        onEnableToggle = function(val) UnbunkUtilityDB.bossReset.enabled = val end,
+        onTest         = function() ns.bossReset.PlayTest() end,
+    })
+    AddModule(bossResetPicker.frame)
+
     -- ── OnShow refresh ───────────────────────────────────────────────────────
 
     parent:HookScript("OnShow", function()
@@ -154,6 +176,7 @@ local function CreateGeneralSettingsPanel(parent)
         potionComboPicker.Refresh()
         wipeCb.SetChecked(UnbunkUtilityDB.wipe.enabled == true)
         dpsCb.SetChecked(UnbunkUtilityDB.dpsSpam.enabled == true)
+        bossResetPicker.Refresh()
     end)
 end
 

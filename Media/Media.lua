@@ -48,6 +48,10 @@ initMedia:SetScript("OnEvent", function(self, event, addonName)
         -- FAHH lives at the Sounds root, no loudness variants.
         LSM:Register("sound", "UnbunkUtility: FAHH",
             ADDON_PATH .. "Sounds\\FAHH.mp3")
+
+        -- Disappear: single-file "boss reset / wipe" sound, no loudness variants.
+        LSM:Register("sound", "UnbunkUtility: Disappear",
+            ADDON_PATH .. "Sounds\\Disappear.mp3")
     end
     self:UnregisterEvent("ADDON_LOADED")
 end)

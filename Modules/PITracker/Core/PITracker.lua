@@ -79,6 +79,13 @@ local function SyncBuff()
             duration       = PI.testEndsAt - PI.testStartTime,
         }
     else
+        -- Out-of-combat only: in instanced combat Blizzard flags the Power
+        -- Infusion buff as a "secret" aura, so GetPlayerAuraBySpellID returns
+        -- nil for it (verified in-game). Unlike BLTracker there is no non-secret
+        -- fallback — PI has no fatigue debuff, its cooldown sits on the priest,
+        -- and registering COMBAT_LOG_EVENT_UNFILTERED is forbidden to addons
+        -- inside instances. The only in-combat signal would be the raw haste
+        -- spike (UnitSpellHaste), a heuristic too false-positive-prone to use.
         aura = C_UnitAuras.GetPlayerAuraBySpellID(PI_SPELL_ID)
     end
 
