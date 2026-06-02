@@ -58,6 +58,8 @@ local currentIcon  = nil
 local hasDebuff    = false
 local hasBuff      = false
 local lastDebuffEnd = 0  -- GetTime() at which the fatigue (Sated) debuff ends
+local lustAnnounced = false  -- the "gained" sound has fired for the current lust cycle
+local moduleActive  = false  -- false until the first tracking pass (login / re-enable)
 
 -- ── TimerIcon ─────────────────────────────────────────────────────────────────
 
@@ -126,6 +128,12 @@ function BL.GetFrame()      return blIcon.GetFrame() end
 -- spellId from another player's cast is a "secret value" (Blizzard protection)
 -- that cannot be used as a table key. Detection runs through the player's own
 -- auras (SyncDebuff), which covers any caster and plays the sound on gain.
+--
+-- Important: in instanced combat Blizzard hides the *beneficial* lust buff from
+-- C_UnitAuras.GetPlayerAuraBySpellID (it returns nil), while the matching
+-- fatigue debuff (Sated/Exhaustion) stays readable. SyncDebuff therefore treats
+-- "buff OR debuff present" as the lust being active, so the gain sound still
+-- fires in combat where buff-only detection used to go silent.
 
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -149,39 +157,68 @@ local function FindPlayerAura(idSet)
 end
 
 local function SyncDebuff()
-    if not BL.CfgGet("enabled") then return end
+    if not BL.CfgGet("enabled") then
+        moduleActive = false  -- re-enabling re-adopts the current lust silently
+        return
+    end
 
-    -- Active beneficial buff (Bloodlust/Heroism/...) takes priority.
-    local buff = FindPlayerAura(BL_BUFFS)
-    if buff then
-        currentIcon = buff.icon
-        if not hasBuff then
-            hasBuff = true
-            -- Play the sound when the buff is gained (any caster), routed
-            -- through the combo coordinator so nearly-simultaneous tracker
-            -- alerts can collapse into a single combo sound.
-            if BL.CfgGet("soundOnBL") then
+    local buff   = FindPlayerAura(BL_BUFFS)
+    local debuff = FindPlayerAura(BL_DEBUFFS)
+
+    -- Track the real aura presence for ApplyVisuals. Note: in instanced combat
+    -- Blizzard restricts the *beneficial* lust buff (GetPlayerAuraBySpellID
+    -- returns nil for it), so `buff` is reliably visible only out of combat.
+    -- The fatigue debuff (Sated/Exhaustion/Temporal Displacement) is flagged
+    -- "never secret" and stays queryable in combat.
+    hasBuff   = (buff ~= nil)
+    hasDebuff = (debuff ~= nil)
+
+    -- First pass after login or after the module was re-enabled: adopt whatever
+    -- lust is already present WITHOUT announcing it, so a lingering buff / Sated
+    -- never self-fires a "gained" or, once it expires, a false "ready".
+    if not moduleActive then
+        moduleActive  = true
+        lustAnnounced = (buff ~= nil) or (debuff ~= nil)
+        lastDebuffEnd = (debuff and debuff.expirationTime) or 0
+    end
+
+    if buff or debuff then
+        -- A lust applies the buff and the fatigue debuff together, so the
+        -- presence of EITHER means "lust active". Detecting via the debuff is
+        -- what keeps the sound working in combat, where the buff is hidden.
+        if not lustAnnounced then
+            lustAnnounced = true
+            -- Suppress the sound when we merely zoned into a lingering lust
+            -- (stale-read window): a residual Sated shouldn't announce itself
+            -- once the zone-settle delay lapses. Routed through the combo
+            -- coordinator so nearly-simultaneous alerts collapse into one sound.
+            if not ns.RecentlyZoned() and BL.CfgGet("soundOnBL") then
                 ns.combo.Notify("bl", function() BL.PlaySound("soundPathBL") end)
             end
         end
-        hasDebuff = false
-        blIcon.SetTimer(buff.expirationTime, buff.duration, { r=0, g=1, b=0 })
-        BL.ApplyVisuals()
-        return
-    end
-    hasBuff = false
 
-    -- Otherwise, fatigue debuff (Sated/Exhaustion/...).
-    local debuff = FindPlayerAura(BL_DEBUFFS)
-    if debuff then
-        currentIcon = debuff.icon
-        hasDebuff   = true
-        lastDebuffEnd = debuff.expirationTime or 0
-        blIcon.SetTimer(debuff.expirationTime, debuff.duration)
+        -- Prefer the buff for the icon/timer (green, haste remaining) when it is
+        -- actually visible; otherwise fall back to the fatigue debuff (default
+        -- colour, cooldown until BL can be used again — this is what shows in
+        -- combat).
+        if buff then
+            currentIcon = buff.icon
+            blIcon.SetTimer(buff.expirationTime, buff.duration, { r = 0, g = 1, b = 0 })
+        else
+            currentIcon = debuff.icon
+            blIcon.SetTimer(debuff.expirationTime, debuff.duration)
+        end
+        -- Keep the fatigue end fresh whenever the debuff is visible (even while
+        -- the green buff timer is showing), so the "ready" completion check
+        -- below always validates against THIS cycle's Sated, never a stale one.
+        if debuff then
+            lastDebuffEnd = debuff.expirationTime or 0
+        end
     else
-        if hasDebuff then
-            hasDebuff   = false
-            currentIcon = GetDefaultClassIcon(playerClass)
+        -- Neither aura present.
+        if lustAnnounced then
+            lustAnnounced = false
+            currentIcon   = GetDefaultClassIcon(playerClass)
             -- Only "ready" if the fatigue debuff actually expired. A loading
             -- screen can report it as gone before its real end (e.g. leaving a
             -- follower dungeon) — stale read, not BL coming back up.
@@ -196,14 +233,21 @@ local function SyncDebuff()
         else
             blIcon.ClearTimer()
         end
+        -- Consume the recorded end so a stale value can never validate a future
+        -- "ready" once we are back to the idle (no-lust) state.
+        lastDebuffEnd = 0
     end
 
     BL.ApplyVisuals()
 end
 
 C_Timer.NewTicker(0.5, function()
-    -- Do ~zero work per tick while the module is disabled (S3 guard).
-    if not BL.CfgGet("enabled") then return end
+    -- Do ~zero work per tick while the module is disabled (S3 guard). Still flag
+    -- the module inactive so a later re-enable re-adopts the lust state silently.
+    if not BL.CfgGet("enabled") then
+        moduleActive = false
+        return
+    end
     SyncDebuff()
 end)
 

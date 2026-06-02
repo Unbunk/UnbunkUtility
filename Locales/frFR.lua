@@ -160,6 +160,10 @@ L["Enable combo sounds (collapse near-simultaneous tracker sounds into one)"] = 
 L["BL combo (Bloodlust + Potion / Trinket)"] = "Combo BL (Bloodlust + Potion / Bijou)"
 L["Potion combo (Potion + Trinket, without BL)"] = "Combo potion (Potion + Bijou, sans BL)"
 
+-- ── Boss reset sound (General Settings) ──────────────────────────────────────
+L["Boss reset sound"] = "Son de reset de boss"
+L["Play a sound when a boss is reset (raid/party wipe)"] = "Jouer un son quand un boss est reset (wipe du groupe/raid)"
+
 -- ── BL Tracker ───────────────────────────────────────────────────────────────
 L["Enable BL Tracker"] = "Activer le suivi BL"
 

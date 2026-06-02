@@ -134,8 +134,14 @@ function ns.ui.CreateTimerIcon(config)
         end
         if color then
             result._timerColor = color
+            -- A coloured timer marks an *active* state (buff / lust up), so keep
+            -- the icon at full colour under the rotating swipe.
+            iconTex:SetDesaturated(false)
         else
             result._timerColor = nil
+            -- The default (uncoloured) timer is a cooldown / unavailable state:
+            -- grey the icon out behind the swipe so it reads as "not ready".
+            iconTex:SetDesaturated(true)
         end
     end
 
@@ -144,6 +150,7 @@ function ns.ui.CreateTimerIcon(config)
         lastSecs = nil
         timerText:Hide()
         cooldown:Clear()
+        iconTex:SetDesaturated(false)  -- restore full colour once the CD/timer ends
         -- The check is now driven separately (Show / Hide / Blink) by
         -- consumers, so they can flash it on CD-completion instead of
         -- leaving it permanently visible.
