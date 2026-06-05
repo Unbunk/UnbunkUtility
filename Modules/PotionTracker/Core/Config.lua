@@ -4,8 +4,6 @@ local _, ns = ...
 ns.PotionTracker = ns.PotionTracker or {}
 local PT = ns.PotionTracker
 
-PotionTrackerDB = PotionTrackerDB or {}
-
 local DEFAULTS = {
     enabled         = true,
     instanceFilter  = {
@@ -75,19 +73,23 @@ local DEFAULTS = {
 }
 
 function PT.CfgInit()
-    ns.MigrateSoundKeys(PotionTrackerDB)
-    ns.MergeDefaults(PotionTrackerDB, DEFAULTS)
+    ns.db.profile.PotionTracker = ns.db.profile.PotionTracker or {}
+    ns.MigrateSoundKeys(ns.db.profile.PotionTracker)
+    ns.MergeDefaults(ns.db.profile.PotionTracker, DEFAULTS)
 end
 ns.RegisterCfgInitHook(PT.CfgInit)
 
 function PT.CfgGet(key)
-    local v = PotionTrackerDB[key]
+    local t = ns.db and ns.db.profile.PotionTracker
+    local v = t and t[key]
     if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
     return v
 end
 
 function PT.CfgSet(key, value)
-    PotionTrackerDB[key] = value
+    if not ns.db then return end
+    ns.db.profile.PotionTracker = ns.db.profile.PotionTracker or {}
+    ns.db.profile.PotionTracker[key] = value
     -- Config drives which potion the resolver picks; invalidate the cache
     -- so the next GetActiveItemId() reflects the change.
     if PT.InvalidateActiveCache then PT.InvalidateActiveCache() end
@@ -102,11 +104,3 @@ function PT.PlaySound(prefix, key)
         ns.PlaySoundFromCfg(cfg, "soundPathReady", "soundKeyReady")
     end
 end
-
-local initDB = CreateFrame("Frame")
-initDB:RegisterEvent("ADDON_LOADED")
-initDB:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
-    PT.CfgInit()
-    self:UnregisterEvent("ADDON_LOADED")
-end)

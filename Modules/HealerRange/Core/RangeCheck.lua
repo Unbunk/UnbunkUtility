@@ -4,6 +4,11 @@ local _, ns = ...
 ns.HealerRange = ns.HealerRange or {}
 local HR = ns.HealerRange
 
+local AceEvent = LibStub("AceEvent-3.0")
+local AceTimer = LibStub("AceTimer-3.0")
+AceEvent:Embed(HR)
+AceTimer:Embed(HR)
+
 local CHECK_INTERVAL = 0.1
 local timer          = 0
 local isOutOfRange   = false
@@ -150,7 +155,10 @@ end
 local function StopChecking()
     mainFrame:SetScript("OnUpdate", nil)
     isOutOfRange = false
-    if not HR.IsUnlocked() then
+    -- Respect IsTesting too (symmetry with ForceClearAlert): otherwise leaving
+    -- combat / dying while a Test Alert is on screen would hide the test frame
+    -- out from under the user before its timer ends.
+    if not HR.IsUnlocked() and not HR.IsTesting() then
         HR.GetFrame():Hide()
     end
 end
@@ -164,37 +172,33 @@ local function RefreshChecking()
     end
 end
 
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_LOGIN")
-eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-eventFrame:RegisterEvent("PLAYER_DEAD")
-eventFrame:RegisterEvent("PLAYER_UNGHOST")
+HR:RegisterEvent("PLAYER_REGEN_DISABLED", function(event)
+    inCombat = true
+    RefreshChecking()
+end)
+HR:RegisterEvent("PLAYER_REGEN_ENABLED", function(event)
+    inCombat = false
+    RefreshChecking()
+end)
+HR:RegisterEvent("GROUP_ROSTER_UPDATE", function(event)
+    RefreshChecking()
+end)
+HR:RegisterEvent("PLAYER_DEAD", function(event)
+    StopChecking()
+end)
 -- PLAYER_ALIVE fires on an in-place resurrect (battle-res / Reincarnation), where
 -- PLAYER_UNGHOST never fires because the player never became a ghost; route it to
 -- RefreshChecking so range alerts resume after a combat res.
-eventFrame:RegisterEvent("PLAYER_ALIVE")
+local function OnPlayerAlive(event)
+    RefreshChecking()
+end
+HR:RegisterEvent("PLAYER_UNGHOST", OnPlayerAlive)
+HR:RegisterEvent("PLAYER_ALIVE", OnPlayerAlive)
 -- The combat-probe availability only changes on spec/talent changes; refresh the
 -- cached boolean on those (and login) rather than per range tick.
-eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
-eventFrame:SetScript("OnEvent", function(self, event)
-    if event == "PLAYER_REGEN_DISABLED" then
-        inCombat = true
-        RefreshChecking()
-    elseif event == "PLAYER_REGEN_ENABLED" then
-        inCombat = false
-        RefreshChecking()
-    elseif event == "GROUP_ROSTER_UPDATE" then
-        RefreshChecking()
-    elseif event == "PLAYER_DEAD" then
-        StopChecking()
-    elseif event == "PLAYER_UNGHOST" or event == "PLAYER_ALIVE" then
-        RefreshChecking()
-    elseif event == "PLAYER_LOGIN"
-        or event == "PLAYER_SPECIALIZATION_CHANGED"
-        or event == "ACTIVE_TALENT_GROUP_CHANGED" then
-        RefreshCombatProbe()
-    end
-end)
+local function OnProbeRefresh(event)
+    RefreshCombatProbe()
+end
+HR:RegisterEvent("PLAYER_LOGIN", OnProbeRefresh)
+HR:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", OnProbeRefresh)
+HR:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", OnProbeRefresh)

@@ -7,6 +7,17 @@ local _, ns = ...
 ns.BResTracker = ns.BResTracker or {}
 local BR = ns.BResTracker
 
+-- Dedicated AceEvent embed for this file's event listeners. BResTracker.lua
+-- already embeds AceEvent on the shared BR table and registers
+-- PLAYER_ENTERING_WORLD / GROUP_ROSTER_UPDATE on it; AceEvent (via
+-- CallbackHandler) keys callbacks by (object, event), so registering those same
+-- events on BR again here would OVERWRITE BResTracker's handlers. A separate
+-- object keeps both handlers live, matching the two independent CreateFrame
+-- frames the original code used.
+local AceEvent = LibStub("AceEvent-3.0")
+local plEvents = {}
+AceEvent:Embed(plEvents)
+
 -- Fallback per-player cooldown estimate (seconds). The actual cooldown of
 -- another player can't be read reliably (see the AttributeBResCast note below),
 -- so a single heuristic value is used across all BRes classes; the real spell
@@ -319,7 +330,7 @@ function BR.RefreshList()
         if remain > 0 then
             row.check:Hide()
             row.timer:SetFont(fontPath, fontSize, outline)
-            row.timer:SetText(string.format("%d:%02d", remain / 60, remain % 60))
+            row.timer:SetText(ns.FormatMMSS(remain))
             row.timer:Show()
             LayoutCell(row, row.name, row.timer, statusSide, cellWidth)
         else
@@ -415,9 +426,7 @@ end
 -- We ignore the spellId argument entirely (it's secret for other players).
 -- Hot path in raids (hundreds of casts/sec): the class lookup is served from
 -- the cached classByGUID map populated on GROUP_ROSTER_UPDATE.
-local castListener = CreateFrame("Frame")
-castListener:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-castListener:SetScript("OnEvent", function(_, _, unit)
+plEvents:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit)
     -- Classify + remap pet→owner in a single pass; nil means "not a group unit".
     unit = ResolveGroupOwnerUnit(unit)
     if not unit then return end
@@ -431,13 +440,12 @@ end)
 
 -- ── Roster events ────────────────────────────────────────────────────────────
 
-local re = CreateFrame("Frame")
-re:RegisterEvent("GROUP_ROSTER_UPDATE")
-re:RegisterEvent("PLAYER_ENTERING_WORLD")
-re:SetScript("OnEvent", function()
+local function OnRosterRefresh(event)
     RefreshRoster()
     BR.RefreshList()
-end)
+end
+plEvents:RegisterEvent("GROUP_ROSTER_UPDATE", OnRosterRefresh)
+plEvents:RegisterEvent("PLAYER_ENTERING_WORLD", OnRosterRefresh)
 
 -- ── Init ─────────────────────────────────────────────────────────────────────
 

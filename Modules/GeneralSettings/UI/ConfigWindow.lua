@@ -8,176 +8,153 @@ local L = ns.L
 local function CreateGeneralSettingsPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
-    local content = CreateFrame("Frame", nil, parent)
-    content:SetAllPoints(parent)
+    local options = {
+        -- ── Minimap icon section ─────────────────────────────────────────────
+        {
+            type = "header",
+            font = "GameFontNormalLarge",
+            text = L["Minimap icon"],
+        },
+        {
+            type   = "checkbox",
+            label  = L["Show minimap button (left-click to open settings, drag to reposition)"],
+            get    = function() return not (ns.MinimapIcon_IsHidden and ns.MinimapIcon_IsHidden()) end,
+            set    = function(val)
+                if ns.MinimapIcon_SetHidden then ns.MinimapIcon_SetHidden(not val) end
+            end,
+        },
 
-    local GAP = 12
-    local lastFrame = nil
+        -- ── Combo sounds section ─────────────────────────────────────────────
+        {
+            type = "header",
+            font = "GameFontNormalLarge",
+            text = L["Multi-alert combo sounds"],
+        },
+        {
+            type   = "checkbox",
+            label  = L["Enable combo sounds (collapse near-simultaneous tracker sounds into one)"],
+            get    = function() return ns.db.global.combo.enabled == true end,
+            set    = function(val) ns.db.global.combo.enabled = val end,
+        },
 
-    -- Stacks each section frame under the previous one. Heights are not tracked
-    -- here; Core.lua's ComputeModuleHeight measures child bottoms at runtime.
-    local function AddModule(frame)
-        frame:SetWidth(518)
-        if lastFrame then
-            frame:SetPoint("TOPLEFT", lastFrame, "BOTTOMLEFT", 0, -GAP)
-        else
-            frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
-        end
-        lastFrame = frame
-    end
+        -- BL combo sound picker
+        {
+            type      = "sound",
+            LSM       = LSM,
+            label     = L["BL combo (Bloodlust + Potion / Trinket)"],
+            getKey    = function() return ns.db.global.combo.blKey end,
+            getEnable = function() return ns.db.global.combo.blEnabled end,
+            onSelect  = function(key, path)
+                ns.db.global.combo.blKey  = key
+                ns.db.global.combo.blPath = path
+            end,
+            onToggle  = function(val) ns.db.global.combo.blEnabled = val end,
+            onTest    = function() ns.combo.PlayBLCombo() end,
+        },
 
-    -- ── Minimap icon section ─────────────────────────────────────────────────
+        -- Potion combo sound picker
+        {
+            type      = "sound",
+            LSM       = LSM,
+            label     = L["Potion combo (Potion + Trinket, without BL)"],
+            getKey    = function() return ns.db.global.combo.potionKey end,
+            getEnable = function() return ns.db.global.combo.potionEnabled end,
+            onSelect  = function(key, path)
+                ns.db.global.combo.potionKey  = key
+                ns.db.global.combo.potionPath = path
+            end,
+            onToggle  = function(val) ns.db.global.combo.potionEnabled = val end,
+            onTest    = function() ns.combo.PlayPotionCombo() end,
+        },
 
-    local minimapTitleFrame = CreateFrame("Frame", nil, content)
-    minimapTitleFrame:SetHeight(20)
-    local minimapTitleLbl = minimapTitleFrame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    minimapTitleLbl:SetPoint("TOPLEFT", minimapTitleFrame, "TOPLEFT", 0, 0)
-    minimapTitleLbl:SetText(L["Minimap icon"])
-    AddModule(minimapTitleFrame)
+        -- ── Death-alert anti-spam section ────────────────────────────────────
+        {
+            type = "header",
+            font = "GameFontNormalLarge",
+            text = L["Death alert anti-spam"],
+        },
 
-    local minimapFrame = CreateFrame("Frame", nil, content)
-    minimapFrame:SetHeight(24)
-    local minimapCb = ns.ui.CreateCheckbox({
-        parent  = minimapFrame,
-        label   = L["Show minimap button (left-click to open settings, drag to reposition)"],
-        checked = not (ns.MinimapIcon_IsHidden and ns.MinimapIcon_IsHidden()),
-        onClick = function(val)
-            if ns.MinimapIcon_SetHidden then ns.MinimapIcon_SetHidden(not val) end
-        end,
-    })
-    minimapCb.frame:SetPoint("TOPLEFT", minimapFrame, "TOPLEFT", 0, 0)
-    AddModule(minimapFrame)
+        -- Wipe detection (checkbox + greyed description on the line below).
+        -- Kept as custom to preserve the description FontString anchored to the
+        -- host at (26, -20), which the plain "checkbox" type cannot reproduce.
+        {
+            type   = "custom",
+            height = 40,
+            build  = function(host)
+                local cb = ns.ui.CreateCheckbox({
+                    parent  = host,
+                    label   = L["Wipe detection: silence ALL death alerts when many people die at once"],
+                    checked = ns.db.global.wipe.enabled == true,
+                    onClick = function(val) ns.db.global.wipe.enabled = val end,
+                })
+                cb.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                local desc = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                desc:SetPoint("TOPLEFT", host, "TOPLEFT", 26, -20)
+                desc:SetText(string.format(
+                    L["|cffaaaaaa%d+ deaths in %ds, silence for %ds|r"],
+                    ns.db.global.wipe.deathThreshold or 8,
+                    ns.db.global.wipe.timeWindow or 3,
+                    ns.db.global.wipe.suppressDuration or 15
+                ))
+                return {
+                    frame   = host,
+                    height  = 40,
+                    Refresh = function() cb.SetChecked(ns.db.global.wipe.enabled == true) end,
+                }
+            end,
+        },
 
-    -- ── Combo sounds section ─────────────────────────────────────────────────
+        -- DPS spam guard (checkbox + greyed description on the line below).
+        {
+            type   = "custom",
+            height = 40,
+            build  = function(host)
+                local cb = ns.ui.CreateCheckbox({
+                    parent  = host,
+                    label   = L["DPS spam guard: silence DPS death alerts on burst DPS deaths"],
+                    checked = ns.db.global.dpsSpam.enabled == true,
+                    onClick = function(val) ns.db.global.dpsSpam.enabled = val end,
+                })
+                cb.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                local desc = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                desc:SetPoint("TOPLEFT", host, "TOPLEFT", 26, -20)
+                desc:SetText(string.format(
+                    L["|cffaaaaaa%d+ DPS deaths in %ds, silence DPS alerts for %ds|r"],
+                    ns.db.global.dpsSpam.deathThreshold or 3,
+                    ns.db.global.dpsSpam.timeWindow or 3,
+                    ns.db.global.dpsSpam.suppressDuration or 6
+                ))
+                return {
+                    frame   = host,
+                    height  = 40,
+                    Refresh = function() cb.SetChecked(ns.db.global.dpsSpam.enabled == true) end,
+                }
+            end,
+        },
 
-    local comboTitleFrame = CreateFrame("Frame", nil, content)
-    comboTitleFrame:SetHeight(20)
-    local comboTitleLbl = comboTitleFrame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    comboTitleLbl:SetPoint("TOPLEFT", comboTitleFrame, "TOPLEFT", 0, 0)
-    comboTitleLbl:SetText(L["Multi-alert combo sounds"])
-    AddModule(comboTitleFrame)
+        -- ── Boss reset sound section ─────────────────────────────────────────
+        {
+            type = "header",
+            font = "GameFontNormalLarge",
+            text = L["Boss reset sound"],
+        },
+        {
+            type      = "sound",
+            LSM       = LSM,
+            label     = L["Play a sound when a boss is reset (raid/party wipe)"],
+            getKey    = function() return ns.db.global.bossReset.soundKey end,
+            getEnable = function() return ns.db.global.bossReset.enabled end,
+            onSelect  = function(key, path)
+                ns.db.global.bossReset.soundKey  = key
+                ns.db.global.bossReset.soundPath = path
+            end,
+            onToggle  = function(val) ns.db.global.bossReset.enabled = val end,
+            onTest    = function() ns.bossReset.PlayTest() end,
+        },
+    }
 
-    local comboMasterFrame = CreateFrame("Frame", nil, content)
-    comboMasterFrame:SetHeight(24)
-    local comboMasterCb = ns.ui.CreateCheckbox({
-        parent  = comboMasterFrame,
-        label   = L["Enable combo sounds (collapse near-simultaneous tracker sounds into one)"],
-        checked = UnbunkUtilityDB.combo.enabled == true,
-        onClick = function(val) UnbunkUtilityDB.combo.enabled = val end,
-    })
-    comboMasterCb.frame:SetPoint("TOPLEFT", comboMasterFrame, "TOPLEFT", 0, 0)
-    AddModule(comboMasterFrame)
-
-    -- BL combo sound picker
-    local blComboPicker = ns.ui.CreateSoundPicker(content, LSM, {
-        label          = L["BL combo (Bloodlust + Potion / Trinket)"],
-        getSoundKey    = function() return UnbunkUtilityDB.combo.blKey end,
-        getSoundEnable = function() return UnbunkUtilityDB.combo.blEnabled end,
-        onSoundSelect  = function(key, path)
-            UnbunkUtilityDB.combo.blKey  = key
-            UnbunkUtilityDB.combo.blPath = path
-        end,
-        onEnableToggle = function(val) UnbunkUtilityDB.combo.blEnabled = val end,
-        onTest         = function() ns.combo.PlayBLCombo() end,
-    })
-    AddModule(blComboPicker.frame)
-
-    -- Potion combo sound picker
-    local potionComboPicker = ns.ui.CreateSoundPicker(content, LSM, {
-        label          = L["Potion combo (Potion + Trinket, without BL)"],
-        getSoundKey    = function() return UnbunkUtilityDB.combo.potionKey end,
-        getSoundEnable = function() return UnbunkUtilityDB.combo.potionEnabled end,
-        onSoundSelect  = function(key, path)
-            UnbunkUtilityDB.combo.potionKey  = key
-            UnbunkUtilityDB.combo.potionPath = path
-        end,
-        onEnableToggle = function(val) UnbunkUtilityDB.combo.potionEnabled = val end,
-        onTest         = function() ns.combo.PlayPotionCombo() end,
-    })
-    AddModule(potionComboPicker.frame)
-
-    -- ── Death-alert anti-spam section ────────────────────────────────────────
-
-    local antiTitleFrame = CreateFrame("Frame", nil, content)
-    antiTitleFrame:SetHeight(20)
-    local antiTitleLbl = antiTitleFrame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    antiTitleLbl:SetPoint("TOPLEFT", antiTitleFrame, "TOPLEFT", 0, 0)
-    antiTitleLbl:SetText(L["Death alert anti-spam"])
-    AddModule(antiTitleFrame)
-
-    -- Wipe detection
-    local wipeFrame = CreateFrame("Frame", nil, content)
-    wipeFrame:SetHeight(40)
-    local wipeCb = ns.ui.CreateCheckbox({
-        parent  = wipeFrame,
-        label   = L["Wipe detection: silence ALL death alerts when many people die at once"],
-        checked = UnbunkUtilityDB.wipe.enabled == true,
-        onClick = function(val) UnbunkUtilityDB.wipe.enabled = val end,
-    })
-    wipeCb.frame:SetPoint("TOPLEFT", wipeFrame, "TOPLEFT", 0, 0)
-    local wipeDesc = wipeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    wipeDesc:SetPoint("TOPLEFT", wipeFrame, "TOPLEFT", 26, -20)
-    wipeDesc:SetText(string.format(
-        L["|cffaaaaaa%d+ deaths in %ds, silence for %ds|r"],
-        UnbunkUtilityDB.wipe.deathThreshold or 8,
-        UnbunkUtilityDB.wipe.timeWindow or 3,
-        UnbunkUtilityDB.wipe.suppressDuration or 15
-    ))
-    AddModule(wipeFrame)
-
-    -- DPS spam guard
-    local dpsFrame = CreateFrame("Frame", nil, content)
-    dpsFrame:SetHeight(40)
-    local dpsCb = ns.ui.CreateCheckbox({
-        parent  = dpsFrame,
-        label   = L["DPS spam guard: silence DPS death alerts on burst DPS deaths"],
-        checked = UnbunkUtilityDB.dpsSpam.enabled == true,
-        onClick = function(val) UnbunkUtilityDB.dpsSpam.enabled = val end,
-    })
-    dpsCb.frame:SetPoint("TOPLEFT", dpsFrame, "TOPLEFT", 0, 0)
-    local dpsDesc = dpsFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    dpsDesc:SetPoint("TOPLEFT", dpsFrame, "TOPLEFT", 26, -20)
-    dpsDesc:SetText(string.format(
-        L["|cffaaaaaa%d+ DPS deaths in %ds, silence DPS alerts for %ds|r"],
-        UnbunkUtilityDB.dpsSpam.deathThreshold or 3,
-        UnbunkUtilityDB.dpsSpam.timeWindow or 3,
-        UnbunkUtilityDB.dpsSpam.suppressDuration or 6
-    ))
-    AddModule(dpsFrame)
-
-    -- ── Boss reset sound section ─────────────────────────────────────────────
-
-    local bossResetTitleFrame = CreateFrame("Frame", nil, content)
-    bossResetTitleFrame:SetHeight(20)
-    local bossResetTitleLbl = bossResetTitleFrame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    bossResetTitleLbl:SetPoint("TOPLEFT", bossResetTitleFrame, "TOPLEFT", 0, 0)
-    bossResetTitleLbl:SetText(L["Boss reset sound"])
-    AddModule(bossResetTitleFrame)
-
-    local bossResetPicker = ns.ui.CreateSoundPicker(content, LSM, {
-        label          = L["Play a sound when a boss is reset (raid/party wipe)"],
-        getSoundKey    = function() return UnbunkUtilityDB.bossReset.soundKey end,
-        getSoundEnable = function() return UnbunkUtilityDB.bossReset.enabled end,
-        onSoundSelect  = function(key, path)
-            UnbunkUtilityDB.bossReset.soundKey  = key
-            UnbunkUtilityDB.bossReset.soundPath = path
-        end,
-        onEnableToggle = function(val) UnbunkUtilityDB.bossReset.enabled = val end,
-        onTest         = function() ns.bossReset.PlayTest() end,
-    })
-    AddModule(bossResetPicker.frame)
-
-    -- ── OnShow refresh ───────────────────────────────────────────────────────
-
-    parent:HookScript("OnShow", function()
-        minimapCb.SetChecked(not (ns.MinimapIcon_IsHidden and ns.MinimapIcon_IsHidden()))
-        comboMasterCb.SetChecked(UnbunkUtilityDB.combo.enabled == true)
-        blComboPicker.Refresh()
-        potionComboPicker.Refresh()
-        wipeCb.SetChecked(UnbunkUtilityDB.wipe.enabled == true)
-        dpsCb.SetChecked(UnbunkUtilityDB.dpsSpam.enabled == true)
-        bossResetPicker.Refresh()
-    end)
+    -- gap=12, width=518, autoHook=true -> OnShow re-sync is generated automatically.
+    return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
 end
 
 -- ── Registration ──────────────────────────────────────────────────────────────

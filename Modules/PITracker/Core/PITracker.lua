@@ -4,11 +4,19 @@ local _, ns = ...
 ns.PITracker = ns.PITracker or {}
 local PI = ns.PITracker
 
+local AceEvent = LibStub("AceEvent-3.0")
+local AceTimer = LibStub("AceTimer-3.0")
+AceEvent:Embed(PI)
+AceTimer:Embed(PI)
+
 local PI_SPELL_ID  = 10060
 local PI_ICON_ID   = 135960 -- native Power Infusion icon
 
 local playerHasPI  = false
 local hasBuff      = false
+-- True until the first buff sync runs, so a Power Infusion that is already up at
+-- login / reload is adopted silently instead of replaying the "gained" sound.
+local firstSync    = true
 
 local piIcon = ns.ui.CreateTimerIcon({
     name    = "PITrackerFrame",
@@ -31,9 +39,16 @@ local function CheckPlayerHasPI()
     playerHasPI = class == "PRIEST"
 end
 
+-- Power Infusion's iconID is constant for the session, so resolve it once and
+-- cache it. C_Spell.GetSpellInfo can return nil while spell data is still
+-- loading, so keep trying (don't cache the nil) until it resolves.
+local piIconID
 local function GetPIIcon()
-    local spellInfo = C_Spell.GetSpellInfo(PI_SPELL_ID)
-    return spellInfo and spellInfo.iconID or PI_ICON_ID
+    if not piIconID then
+        local spellInfo = C_Spell.GetSpellInfo(PI_SPELL_ID)
+        piIconID = spellInfo and spellInfo.iconID
+    end
+    return piIconID or PI_ICON_ID
 end
 
 function PI.ApplyVisuals()
@@ -64,8 +79,9 @@ PI.testMode      = false
 PI.testStartTime = 0
 PI.testEndsAt    = 0
 
-local function SyncBuff()
+local function SyncBuff(opts)
     if not PI.CfgGet("enabled") then return end
+    local forceAnnounce = opts and opts.forceAnnounce
 
     -- Auto-stop the test once its duration elapses.
     if PI.testMode and GetTime() >= PI.testEndsAt then
@@ -90,10 +106,16 @@ local function SyncBuff()
     end
 
     if aura then
-        if not hasBuff then
+        if not hasBuff or forceAnnounce then
+            local wasNew = not hasBuff
             hasBuff = true
             piIcon.SetGlow(true)
-            if PI.CfgGet("soundOnPI") then
+            -- Announce (sound) only for a genuinely new application or an explicit
+            -- Test click — NOT when silently adopting a buff already up at the
+            -- first sync (login / reload), and NOT during the post-loading-screen
+            -- settle window where aura reads are unreliable (matches BLTracker).
+            local announce = forceAnnounce or (wasNew and not firstSync and not ns.RecentlyZoned())
+            if announce and PI.CfgGet("soundOnPI") then
                 PI.PlaySound()
             end
         end
@@ -105,6 +127,7 @@ local function SyncBuff()
         piIcon.ClearTimer()
         piIcon.BlinkCheck()  -- flash to signal PI is back up
     end
+    firstSync = false
     PI.ApplyVisuals()
 end
 
@@ -114,9 +137,10 @@ function PI.RunTest(duration)
     PI.testMode      = true
     PI.testStartTime = now
     PI.testEndsAt    = now + duration
-    -- Run immediately so the buff-acquired transition (glow + sound) fires
-    -- right when the user clicks Test rather than on the next 0.5s tick.
-    SyncBuff()
+    -- Run immediately with forceAnnounce so the glow + sound fire right when the
+    -- user clicks Test — even if the real PI buff happens to be active already
+    -- (without the force flag the false→true transition would be skipped).
+    SyncBuff({ forceAnnounce = true })
 end
 
 -- ── Public API ────────────────────────────────────────────────────────────────
@@ -130,20 +154,28 @@ function PI.GetFrame()      return piIcon.GetFrame()   end
 
 -- ── Events ────────────────────────────────────────────────────────────────────
 
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterEvent("SPELLS_CHANGED")
-
-eventFrame:SetScript("OnEvent", function(self, event)
+local function OnPlayerStateRefresh(event)
     CheckPlayerHasPI()
     PI.ApplyVisuals()
+end
+PI:RegisterEvent("PLAYER_ENTERING_WORLD", OnPlayerStateRefresh)
+PI:RegisterEvent("SPELLS_CHANGED", OnPlayerStateRefresh)
+
+-- Instant detection: UNIT_AURA on the player fires the moment Power Infusion is
+-- applied or removed, so the glow / sound / timer react immediately instead of
+-- waiting up to 0.5s for the next ticker pass (matches BLTracker's auraFrame).
+-- AceEvent has no unit filter (no RegisterUnitEvent equivalent), so register
+-- UNIT_AURA unfiltered and discard every fire whose unit token isn't "player".
+PI:RegisterEvent("UNIT_AURA", function(event, unit)
+    if unit ~= "player" then return end
+    SyncBuff()
 end)
 
-C_Timer.NewTicker(0.5, function()
+PI:ScheduleRepeatingTimer(function()
     -- A disabled module does ~zero per-tick work.
     if not PI.CfgGet("enabled") then return end
     SyncBuff()
-end)
+end, 0.5)
 
 ns.RegisterReloadHook(function()
     PI.ApplyPosition()

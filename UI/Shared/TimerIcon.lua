@@ -40,6 +40,20 @@ function ns.ui.CreateTimerIcon(config)
     -- reformats/SetText/SetTextColor when the displayed mm:ss actually changes
     -- (instead of every frame at 60-144 Hz). Reset whenever a timer (re)starts.
     local lastSecs = nil
+    -- Urgency colouring + flash for COOLDOWN timers only (NOT active
+    -- positive-buff timers, which keep their own colour — green/PI): the text
+    -- turns yellow at <=15s and red at <=5s remaining, and flashes briefly each
+    -- time it crosses one of those thresholds. A timer set with an explicit
+    -- colour (result._timerColor) is an active buff and is left untouched.
+    local URGENT_YELLOW  = 15
+    local URGENT_RED     = 5
+    local FLASH_DURATION = 0.6   -- seconds the text flashes at a threshold
+    local flashUntil     = nil   -- GetTime() until which the text is flashing
+    -- The text also grows a little at each tier for extra urgency.
+    local SIZE_YELLOW    = 1.2   -- font scale at the yellow tier
+    local SIZE_RED       = 1.45  -- font scale at the red tier
+    local baseFontSize   = nil   -- un-scaled timer font size (set by ApplySize/ApplyFont)
+    local sizeScale      = 1     -- current urgency font scale (cooldown timers only)
 
     -- ── Frame ─────────────────────────────────────────────────────────────────
 
@@ -82,6 +96,17 @@ function ns.ui.CreateTimerIcon(config)
         if onDragStop then onDragStop(math.floor(x), math.floor(y)) end
     end)
 
+    -- Applies the timer font at the current urgency size scale. Both ApplySize
+    -- (which runs every tick) and the OnUpdate go through this, so the scaled
+    -- size stays consistent — otherwise ApplySize would reset the grown text to
+    -- base every tick and it would flicker.
+    local function SetTimerFont()
+        if not baseFontSize then return end
+        local path    = ns.ResolveFontPath(getCfg("timerFontPath"), getCfg("timerFontKey"))
+        local outline = getCfg("timerOutline") or ""
+        timerText:SetFont(path, math.max(8, math.floor(baseFontSize * sizeScale)), outline)
+    end
+
     -- ── OnUpdate ──────────────────────────────────────────────────────────────
 
     frame:SetScript("OnUpdate", function(self)
@@ -92,20 +117,30 @@ function ns.ui.CreateTimerIcon(config)
         local remaining = expirationTime - GetTime()
         if remaining <= 0 then
             timerText:Hide()
+            timerText:SetAlpha(1)
             expirationTime = nil
             lastSecs = nil
+            flashUntil = nil
+            sizeScale = 1  -- next timer starts at base size, not a stale grown one
             if result.onExpire then result.onExpire() end
         else
             -- Only the whole-second value drives the displayed mm:ss, so skip
             -- the format/SetText/SetTextColor work on frames where it is unchanged.
             local total = math.floor(remaining)
             if total ~= lastSecs then
+                local prev = lastSecs
                 lastSecs = total
                 local mins = math.floor(total / 60)
                 local secs = total % 60
                 timerText:SetText(string.format("%d:%02d", mins, secs))
                 if result._timerColor then
+                    -- Active positive buff (green / PI yellow): keep its colour
+                    -- as-is — never urgency-recolour and never flash these.
                     timerText:SetTextColor(result._timerColor.r, result._timerColor.g, result._timerColor.b, 1)
+                elseif total <= URGENT_RED then
+                    timerText:SetTextColor(1, 0, 0, 1)        -- red <=5s
+                elseif total <= URGENT_YELLOW then
+                    timerText:SetTextColor(1, 0.82, 0, 1)     -- yellow <=15s
                 else
                     local c = getCfg("timerColor")
                     if c then
@@ -114,7 +149,38 @@ function ns.ui.CreateTimerIcon(config)
                         timerText:SetTextColor(1, 0, 0, 1)
                     end
                 end
+                -- Grow the text at each urgency tier (cooldown timers only).
+                local scale = 1
+                if not result._timerColor then
+                    if total <= URGENT_RED then
+                        scale = SIZE_RED
+                    elseif total <= URGENT_YELLOW then
+                        scale = SIZE_YELLOW
+                    end
+                end
+                if scale ~= sizeScale then
+                    sizeScale = scale
+                    SetTimerFont()
+                end
+                -- Flash on crossing a threshold — cooldown timers only (active
+                -- buffs keep their colour and never flash).
+                if not result._timerColor and prev then
+                    if (prev > URGENT_YELLOW and total <= URGENT_YELLOW)
+                        or (prev > URGENT_RED and total <= URGENT_RED) then
+                        flashUntil = GetTime() + FLASH_DURATION
+                    end
+                end
                 timerText:Show()
+            end
+            -- Per-frame: pulse the text alpha during a flash window, then restore.
+            if flashUntil then
+                if GetTime() < flashUntil then
+                    local on = (math.floor(GetTime() / 0.12) % 2) == 0
+                    timerText:SetAlpha(on and 1 or 0.15)
+                else
+                    flashUntil = nil
+                    timerText:SetAlpha(1)
+                end
             end
         end
     end)
@@ -128,12 +194,15 @@ function ns.ui.CreateTimerIcon(config)
     function result.SetTimer(expiry, duration, color)
         expirationTime = expiry
         lastSecs = nil  -- force a re-render of text/color on the next OnUpdate
+        flashUntil = nil
+        timerText:SetAlpha(1)
         checkTex:Hide()
         if expiry and duration then
             cooldown:SetCooldown(expiry - duration, duration)
         end
         if color then
             result._timerColor = color
+            sizeScale = 1  -- active buffs are never urgency-grown
             -- A coloured timer marks an *active* state (buff / lust up), so keep
             -- the icon at full colour under the rotating swipe.
             iconTex:SetDesaturated(false)
@@ -173,10 +242,8 @@ function ns.ui.CreateTimerIcon(config)
     end
 
     function result.ApplyFont()
-        local fontPath = getCfg("timerFontPath")
-        local fontSize = getCfg("timerFontSize") or 20
-        local outline  = getCfg("timerOutline") or ""
-        timerText:SetFont(ns.ResolveFontPath(fontPath, getCfg("timerFontKey")), fontSize, outline)
+        baseFontSize = getCfg("timerFontSize") or 20
+        SetTimerFont()
     end
 
     function result.ApplyPosition()
@@ -192,10 +259,8 @@ function ns.ui.CreateTimerIcon(config)
         w = math.max(8, math.min(512, w))
         h = math.max(8, math.min(512, h))
         frame:SetSize(w, h)
-        local fontSize = math.max(10, math.floor(math.min(w, h) * 0.4))
-        local fontPath = getCfg("timerFontPath")
-        local outline  = getCfg("timerOutline") or ""
-        timerText:SetFont(ns.ResolveFontPath(fontPath, getCfg("timerFontKey")), fontSize, outline)
+        baseFontSize = math.max(10, math.floor(math.min(w, h) * 0.4))
+        SetTimerFont()
         local checkSize = math.floor(math.min(w, h) * 0.6)
         checkTex:SetSize(checkSize, checkSize)
     end

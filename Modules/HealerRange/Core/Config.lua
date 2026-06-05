@@ -5,8 +5,6 @@ local L = ns.L
 ns.HealerRange = ns.HealerRange or {}
 local HR = ns.HealerRange
 
-HealerRangeDB = HealerRangeDB or {}
-
 local DEFAULTS = {
     enabled       = true,
     soundPath     = nil,
@@ -39,31 +37,27 @@ local DEFAULTS = {
 }
 
 function HR.CfgInit()
-    ns.MigrateSoundKeys(HealerRangeDB)
-    ns.MergeDefaults(HealerRangeDB, DEFAULTS)
+    ns.db.profile.HealerRange = ns.db.profile.HealerRange or {}
+    ns.MigrateSoundKeys(ns.db.profile.HealerRange)
+    ns.MergeDefaults(ns.db.profile.HealerRange, DEFAULTS)
 end
 
 ns.RegisterCfgInitHook(HR.CfgInit)
 
 function HR.CfgGet(key)
-    local v = HealerRangeDB[key]
+    local t = ns.db and ns.db.profile.HealerRange
+    local v = t and t[key]
     if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
     return v
 end
 
 function HR.CfgSet(key, value)
-    HealerRangeDB[key] = value
+    if not ns.db then return end
+    ns.db.profile.HealerRange = ns.db.profile.HealerRange or {}
+    ns.db.profile.HealerRange[key] = value
 end
 
 function HR.PlaySound()
     if not HR.CfgGet("enableSound") then return end
-    ns.PlaySoundFromCfg(HealerRangeDB, "soundPath", "soundKey")
+    ns.PlaySoundFromCfg(ns.db.profile.HealerRange, "soundPath", "soundKey")
 end
-
-local initDB = CreateFrame("Frame")
-initDB:RegisterEvent("ADDON_LOADED")
-initDB:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
-    HR.CfgInit()
-    self:UnregisterEvent("ADDON_LOADED")
-end)

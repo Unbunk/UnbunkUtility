@@ -19,6 +19,20 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
         HR.CfgSet("enableSound", val)
     end
     local onTest = config.onTest or HR.PlaySound
+
+    -- Localised "no sound" sentinel, used consistently for the list entry, the
+    -- current-value display and the onSelect comparison (so localising the
+    -- label can't break the comparison).
+    local NONE = L["None"]
+
+    -- The no-LSM fallback EditBox is numeric; only pre-fill it when the stored
+    -- value is actually a numeric sound id. A stored LSM *key* is text, which a
+    -- numeric box renders blank — looking like the user lost their setting.
+    local function NumericSoundText()
+        local k = getSoundKey()
+        return (k and tonumber(k)) and tostring(k) or "8959"
+    end
+
     local container = CreateFrame("Frame", nil, parent)
     container:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
     container:SetWidth(518)
@@ -52,15 +66,15 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
             itemHeight    = 20,
             visibleItems  = 10,
             getList       = function()
-                local list = { "None" }
+                local list = { NONE }
                 for _, name in ipairs(LSM:List("sound")) do
                     table.insert(list, name)
                 end
                 return list
             end,
-            getCurrentKey = function() return getSoundKey() or "None" end,
+            getCurrentKey = function() return getSoundKey() or NONE end,
             onSelect      = function(name)
-                if name == "None" then
+                if name == NONE then
                     onSoundSelect(nil, nil)
                 else
                     local path = LSM:Fetch("sound", name)
@@ -68,7 +82,7 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
                 end
             end,
         })
-        dd.selectedText:SetText(getSoundKey() or "None")
+        dd.selectedText:SetText(getSoundKey() or NONE)
         selectedText = dd.selectedText
 
         local soundTest = CreateFrame("Button", nil, container)
@@ -93,7 +107,7 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
         soundBox:SetAutoFocus(false)
         soundBox:SetNumeric(true)
         soundBox:SetMaxLetters(6)
-        soundBox:SetText(getSoundKey() or "8959")
+        soundBox:SetText(NumericSoundText())
         -- Persist the entered sound id so the no-LSM fallback actually saves.
         soundBox:SetScript("OnEnterPressed", function(self)
             self:ClearFocus()
@@ -124,10 +138,10 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
     function result.Refresh()
         soundCheckbox.SetChecked(getSoundEnable() ~= false)
         if selectedText then
-            selectedText:SetText(getSoundKey() or "None")
+            selectedText:SetText(getSoundKey() or NONE)
         end
         if soundEntry then
-            soundEntry:SetText(getSoundKey() or "8959")
+            soundEntry:SetText(NumericSoundText())
         end
     end
 

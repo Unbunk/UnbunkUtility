@@ -7,220 +7,197 @@ local PI = ns.PITracker
 
 local function CreatePITrackerPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    local menu  -- forward declare so closures can reach menu.refs.pe
 
-    local content = CreateFrame("Frame", nil, parent)
-    content:SetAllPoints(parent)
+    local options = {
+        -- ── Enable checkbox + Test button (inline) ────────────────────────────
+        {
+            type   = "checkbox",
+            label  = L["Enable PI Tracker"],
+            height = 28,
+            get    = function() return PI.CfgGet("enabled") ~= false end,
+            set    = function(val)
+                PI.CfgSet("enabled", val)
+                PI.ApplyVisuals()
+            end,
+            inline = {
+                {
+                    type    = "button",
+                    label   = L["Test"],
+                    width   = 80,
+                    height  = 22,
+                    onClick = function() PI.RunTest(20) end,
+                    -- testBtn.frame:SetPoint("LEFT", enableCb.frame, "RIGHT", 180, 0)
+                    point   = { "LEFT", "RIGHT", 180, 0 },
+                },
+            },
+        },
 
-    local GAP = 12
-    local lastFrame = nil
+        -- ── Instance filter ───────────────────────────────────────────────────
+        {
+            type      = "instanceFilter",
+            getConfig = function() return PI.CfgGet("instanceFilter") end,
+            setConfig = function(key, val)
+                local filter = PI.CfgGet("instanceFilter")
+                filter[key] = val
+                PI.CfgSet("instanceFilter", filter)
+            end,
+        },
 
-    -- moduleHeight is intentionally ignored: scroll-child sizing is computed by
-    -- Core.lua's ComputeModuleHeight at runtime. The arg is kept for call-site
-    -- symmetry with the sibling config panels (BResTracker, BLTracker, ...).
-    local function AddModule(moduleFrame, moduleHeight)
-        moduleFrame:SetWidth(518)
-        if lastFrame then
-            moduleFrame:SetPoint("TOPLEFT", lastFrame, "BOTTOMLEFT", 0, -GAP)
-        else
-            moduleFrame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
-        end
-        lastFrame = moduleFrame
-    end
+        -- ── Sound PI ──────────────────────────────────────────────────────────
+        {
+            type      = "sound",
+            LSM       = LSM,
+            label     = L["Sound on PI"],
+            getKey    = function() return PI.CfgGet("soundKeyPI") end,
+            getEnable = function() return PI.CfgGet("soundOnPI") end,
+            onSelect  = function(key, path)
+                PI.CfgSet("soundKeyPI", key)
+                PI.CfgSet("soundPathPI", path)
+            end,
+            onToggle  = function(val) PI.CfgSet("soundOnPI", val) end,
+            onTest    = function() PI.PlaySound() end,
+        },
 
-    -- ── Enable checkbox + Test button ─────────────────────────────────────────
+        -- ── Show icon checkbox ────────────────────────────────────────────────
+        {
+            type   = "checkbox",
+            label  = L["Show icon"],
+            height = 24,
+            get    = function() return PI.CfgGet("showIcon") ~= false end,
+            set    = function(val)
+                PI.CfgSet("showIcon", val)
+                PI.ApplyVisuals()
+            end,
+        },
 
-    local enableFrame = CreateFrame("Frame", nil, content)
-    enableFrame:SetHeight(28)
-    local enableCb = ns.ui.CreateCheckbox({
-        parent  = enableFrame,
-        label   = L["Enable PI Tracker"],
-        checked = PI.CfgGet("enabled") ~= false,
-        onClick = function(val)
-            PI.CfgSet("enabled", val)
-            PI.ApplyVisuals()
-        end,
-    })
-    enableCb.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
+        -- ── Icon size  W / H  (composite -> custom escape hatch) ──────────────
+        {
+            type   = "custom",
+            height = 46,
+            build  = function(host)
+                local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                sizeLbl:SetText(L["Icon size"])
 
-    local testBtn = ns.ui.CreateButton({
-        parent  = enableFrame,
-        label   = L["Test"],
-        width   = 80,
-        height  = 22,
-        onClick = function() PI.RunTest(20) end,
-    })
-    testBtn.frame:SetPoint("LEFT", enableCb.frame, "RIGHT", 180, 0)
-    AddModule(enableFrame, 28)
+                local wLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
+                wLbl:SetText(L["W"])
 
-    -- ── Instance filter ───────────────────────────────────────────────────────
+                local wInput = ns.ui.CreateTextInput({
+                    parent     = host,
+                    width      = 46,
+                    height     = 22,
+                    numeric    = true,
+                    min        = 8,
+                    max        = 512,
+                    maxLetters = 3,
+                    text       = tostring(PI.CfgGet("iconWidth") or 40),
+                    onEnter    = function(val)
+                        if val and val > 0 then
+                            PI.CfgSet("iconWidth", val)
+                            PI.ApplySize()
+                        end
+                    end,
+                })
+                wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
 
-    local iF = ns.ui.CreateInstanceFilter({
-        parent    = content,
-        getConfig = function() return PI.CfgGet("instanceFilter") end,
-        setConfig = function(key, val)
-            local filter = PI.CfgGet("instanceFilter")
-            filter[key] = val
-            PI.CfgSet("instanceFilter", filter)
-        end,
-    })
-    AddModule(iF.frame, iF.height)
+                local hLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
+                hLbl:SetText(L["H"])
 
-    -- ── Sound PI ──────────────────────────────────────────────────────────────
+                local hInput = ns.ui.CreateTextInput({
+                    parent     = host,
+                    width      = 46,
+                    height     = 22,
+                    numeric    = true,
+                    min        = 8,
+                    max        = 512,
+                    maxLetters = 3,
+                    text       = tostring(PI.CfgGet("iconHeight") or 40),
+                    onEnter    = function(val)
+                        if val and val > 0 then
+                            PI.CfgSet("iconHeight", val)
+                            PI.ApplySize()
+                        end
+                    end,
+                })
+                hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
 
-    local soundResult = ns.ui.CreateSoundPicker(content, LSM, {
-        label          = L["Sound on PI"],
-        getSoundKey    = function() return PI.CfgGet("soundKeyPI") end,
-        getSoundEnable = function() return PI.CfgGet("soundOnPI") end,
-        onSoundSelect  = function(key, path)
-            PI.CfgSet("soundKeyPI", key)
-            PI.CfgSet("soundPathPI", path)
-        end,
-        onEnableToggle = function(val) PI.CfgSet("soundOnPI", val) end,
-        onTest         = function() PI.PlaySound() end,
-    })
-    AddModule(soundResult.frame, soundResult.height)
+                return {
+                    frame   = host,
+                    height  = 46,
+                    Refresh = function()
+                        wInput.SetText(tostring(PI.CfgGet("iconWidth")  or 40))
+                        hInput.SetText(tostring(PI.CfgGet("iconHeight") or 40))
+                    end,
+                }
+            end,
+        },
 
-    -- ── Show icon checkbox ────────────────────────────────────────────────────
+        -- ── Position editor (named ref for the onLock self-refresh) ───────────
+        {
+            type       = "position",
+            ref        = "pe",
+            onBuilt    = function(w) PI.pe = w end,
+            label      = L["Icon position (offset from screen center)"],
+            getX       = function() return PI.CfgGet("posX") end,
+            getY       = function() return PI.CfgGet("posY") end,
+            onApply    = function(x, yv)
+                if x  then PI.CfgSet("posX", x)  end
+                if yv then PI.CfgSet("posY", yv) end
+                PI.ApplyPosition()
+            end,
+            onUnlock   = function() PI.SetUnlocked(true) end,
+            onLock     = function()
+                PI.SetUnlocked(false)
+                if PI.pe then PI.pe.Refresh() end
+            end,
+            isUnlocked = function() return PI.IsUnlocked() end,
+        },
 
-    local showIconFrame = CreateFrame("Frame", nil, content)
-    showIconFrame:SetHeight(24)
-    local showIconCb = ns.ui.CreateCheckbox({
-        parent  = showIconFrame,
-        label   = L["Show icon"],
-        checked = PI.CfgGet("showIcon") ~= false,
-        onClick = function(val)
-            PI.CfgSet("showIcon", val)
-            PI.ApplyVisuals()
-        end,
-    })
-    showIconCb.frame:SetPoint("TOPLEFT", showIconFrame, "TOPLEFT", 0, 0)
-    AddModule(showIconFrame, 24)
+        -- ── Timer text ────────────────────────────────────────────────────────
+        {
+            type            = "textEditor",
+            LSM             = LSM,
+            label           = L["Timer text"],
+            showText        = false,
+            showFont        = true,
+            showSize        = true,
+            showColor       = true,
+            showOutline     = true,
+            getFontKey      = function() return PI.CfgGet("timerFontKey") end,
+            getFontPath     = function() return PI.CfgGet("timerFontPath") end,
+            getFontSize     = function() return PI.CfgGet("timerFontSize") end,
+            getColor        = function() return PI.CfgGet("timerColor") end,
+            getOutline      = function() return PI.CfgGet("timerOutline") end,
+            onFontChange    = function(key, path)
+                PI.CfgSet("timerFontKey", key)
+                PI.CfgSet("timerFontPath", path)
+                PI.ApplyFont()
+            end,
+            onSizeChange    = function(size)
+                PI.CfgSet("timerFontSize", size)
+                PI.ApplyFont()
+            end,
+            onColorChange   = function(r, g, b, a)
+                PI.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
+                PI.ApplyFont()
+            end,
+            onOutlineChange = function(outline)
+                PI.CfgSet("timerOutline", outline)
+                PI.ApplyFont()
+            end,
+        },
+    }
 
-    -- ── Icon size ─────────────────────────────────────────────────────────────
-
-    local sizeFrame = CreateFrame("Frame", nil, content)
-    sizeFrame:SetHeight(46)
-
-    local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
-    sizeLbl:SetText(L["Icon size"])
-
-    local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
-    wLbl:SetText("W")
-
-    local wInput = ns.ui.CreateTextInput({
-        parent     = sizeFrame,
-        width      = 46,
-        height     = 22,
-        numeric    = true,
-        min        = 8,
-        max        = 512,
-        maxLetters = 3,
-        text       = tostring(PI.CfgGet("iconWidth") or 64),
-        onEnter    = function(val)
-            if val and val > 0 then
-                PI.CfgSet("iconWidth", val)
-                PI.ApplySize()
-            end
-        end,
-    })
-    wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-
-    local hLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
-    hLbl:SetText("H")
-
-    local hInput = ns.ui.CreateTextInput({
-        parent     = sizeFrame,
-        width      = 46,
-        height     = 22,
-        numeric    = true,
-        min        = 8,
-        max        = 512,
-        maxLetters = 3,
-        text       = tostring(PI.CfgGet("iconHeight") or 64),
-        onEnter    = function(val)
-            if val and val > 0 then
-                PI.CfgSet("iconHeight", val)
-                PI.ApplySize()
-            end
-        end,
-    })
-    hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-
-    AddModule(sizeFrame, 46)
-
-    -- ── Position editor ───────────────────────────────────────────────────────
-
-    PI.pe = ns.ui.CreatePositionEditor(content, {
-        label      = L["Icon position (offset from screen center)"],
-        getX       = function() return PI.CfgGet("posX") end,
-        getY       = function() return PI.CfgGet("posY") end,
-        onApply    = function(x, yv)
-            if x  then PI.CfgSet("posX", x)  end
-            if yv then PI.CfgSet("posY", yv) end
-            PI.ApplyPosition()
-        end,
-        onUnlock   = function() PI.SetUnlocked(true) end,
-        onLock     = function()
-            PI.SetUnlocked(false)
-            if PI.pe then PI.pe.Refresh() end
-        end,
-        isUnlocked = function() return PI.IsUnlocked() end,
-    })
-    AddModule(PI.pe.frame, PI.pe.height)
-
-    -- ── Timer text ────────────────────────────────────────────────────────────
-
-    local te = ns.ui.CreateTextEditor(content, {
-        LSM          = LSM,
-        label        = L["Timer text"],
-        showText     = false,
-        showFont     = true,
-        showSize     = true,
-        showColor    = true,
-        showOutline  = true,
-        getFontKey   = function() return PI.CfgGet("timerFontKey") end,
-        getFontPath  = function() return PI.CfgGet("timerFontPath") end,
-        getFontSize  = function() return PI.CfgGet("timerFontSize") end,
-        getColor     = function() return PI.CfgGet("timerColor") end,
-        getOutline   = function() return PI.CfgGet("timerOutline") end,
-        onFontChange = function(key, path)
-            PI.CfgSet("timerFontKey", key)
-            PI.CfgSet("timerFontPath", path)
-            PI.ApplyFont()
-        end,
-        onSizeChange = function(size)
-            PI.CfgSet("timerFontSize", size)
-            PI.ApplyFont()
-        end,
-        onColorChange = function(r, g, b, a)
-            PI.CfgSet("timerColor", { r=r, g=g, b=b, a=a })
-            PI.ApplyFont()
-        end,
-        onOutlineChange = function(outline)
-            PI.CfgSet("timerOutline", outline)
-            PI.ApplyFont()
-        end,
-    })
-    AddModule(te.frame, te.height)
-
-    -- ── OnShow refresh ────────────────────────────────────────────────────────
-
-    parent:HookScript("OnShow", function()
-        enableCb.SetChecked(PI.CfgGet("enabled") ~= false)
-        showIconCb.SetChecked(PI.CfgGet("showIcon") ~= false)
-        iF.Refresh()
-        soundResult.Refresh()
-        wInput.SetText(tostring(PI.CfgGet("iconWidth") or 64))
-        hInput.SetText(tostring(PI.CfgGet("iconHeight") or 64))
-        PI.pe.Refresh()
-        te.Refresh()
-    end)
+    -- gap=12, width=518, autoHook=true -> OnShow re-sync is generated automatically.
+    menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
+    -- NOTE: no parent:HookScript("OnShow", ...) here anymore — BuildMenu did it.
+    return menu
 end
 
--- ── Enregistrement ────────────────────────────────────────────────────────────
+-- ── Enregistrement ──────────────────────────────────────────────────────────────
 
 local initPIUI = CreateFrame("Frame")
 initPIUI:RegisterEvent("ADDON_LOADED")

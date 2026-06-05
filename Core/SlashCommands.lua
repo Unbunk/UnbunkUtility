@@ -34,11 +34,13 @@ SlashCmdList["UNBUNKUTILITY"] = function(msg)
             return
         end
         print(L["|cffff4444[UnbunkUtility]|r Debug — Friend checkers |cffff9900in combat|r:"])
-        for _, rc in ipairs(RangeCheck.friendRCInCombat) do
+        -- `or {}` guards against a future LibRangeCheck dropping/renaming these
+        -- internal fields (ipairs on nil would error in this dev-only command).
+        for _, rc in ipairs(RangeCheck.friendRCInCombat or {}) do
             print("  |cffffd700" .. rc.range .. "y|r — " .. tostring(rc.info))
         end
         print(L["|cffff4444[UnbunkUtility]|r Debug — Friend checkers |cff00ff00out of combat|r:"])
-        for _, rc in ipairs(RangeCheck.friendRC) do
+        for _, rc in ipairs(RangeCheck.friendRC or {}) do
             print("  |cffffd700" .. rc.range .. "y|r — " .. tostring(rc.info))
         end
         print(L["|cffff4444[UnbunkUtility]|r Debug — Res checkers |cffff9900in combat|r:"])

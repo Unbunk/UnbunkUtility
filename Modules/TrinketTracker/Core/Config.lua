@@ -4,8 +4,6 @@ local _, ns = ...
 ns.TrinketTracker = ns.TrinketTracker or {}
 local TT = ns.TrinketTracker
 
-TrinketTrackerDB = TrinketTrackerDB or {}
-
 local DEFAULTS = {
     enabled        = true,
     instanceFilter = {
@@ -57,21 +55,25 @@ local DEFAULTS = {
 }
 
 function TT.CfgInit()
-    ns.MigrateSoundKeys(TrinketTrackerDB)
-    ns.MergeDefaults(TrinketTrackerDB, DEFAULTS)
+    ns.db.profile.TrinketTracker = ns.db.profile.TrinketTracker or {}
+    ns.MigrateSoundKeys(ns.db.profile.TrinketTracker)
+    ns.MergeDefaults(ns.db.profile.TrinketTracker, DEFAULTS)
 end
 
 -- Re-apply defaults + sound migration whenever a profile is loaded/imported/reset.
 ns.RegisterCfgInitHook(TT.CfgInit)
 
 function TT.CfgGet(key)
-    local v = TrinketTrackerDB[key]
+    local t = ns.db and ns.db.profile.TrinketTracker
+    local v = t and t[key]
     if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
     return v
 end
 
 function TT.CfgSet(key, value)
-    TrinketTrackerDB[key] = value
+    if not ns.db then return end
+    ns.db.profile.TrinketTracker = ns.db.profile.TrinketTracker or {}
+    ns.db.profile.TrinketTracker[key] = value
 end
 
 function TT.PlaySound(prefix, key)
@@ -89,11 +91,3 @@ function TT.PlaySound(prefix, key)
     end
     ns.PlaySoundFromCfg(cfg, pathKey, soundKeyKey)
 end
-
-local initDB = CreateFrame("Frame")
-initDB:RegisterEvent("ADDON_LOADED")
-initDB:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
-    TT.CfgInit()
-    self:UnregisterEvent("ADDON_LOADED")
-end)

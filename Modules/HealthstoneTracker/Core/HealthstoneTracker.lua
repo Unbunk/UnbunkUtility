@@ -3,8 +3,14 @@
 -- time, side by side in a horizontal row anchored at the configured position.
 
 local _, ns = ...
+local L = ns.L
 ns.HealthstoneTracker = ns.HealthstoneTracker or {}
 local HT = ns.HealthstoneTracker
+
+local AceEvent = LibStub("AceEvent-3.0")
+local AceTimer = LibStub("AceTimer-3.0")
+AceEvent:Embed(HT)
+AceTimer:Embed(HT)
 
 local function IsActiveInCurrentInstance()
     return ns.IsActiveInInstance(HT.CfgGet("instanceFilter"))
@@ -113,6 +119,11 @@ local trackers = {}  -- pool, lazily grown up to MAX_TRACKERS
 -- and that id has left the bag (and thus the resolved active-id list).
 local usedInCombatById = {}
 
+-- Reused scratch tables for the in-combat display-list build in ApplyAll, so a
+-- combat tick with a sticky variant doesn't allocate two fresh tables every pass.
+local scratchIds  = {}
+local scratchSeen = {}
+
 local function PlayReadySoundDebounced()
     -- All variants likely share the GCD on combat exit; debounce so we don't
     -- play the ready sound multiple times in the same tick.
@@ -168,7 +179,7 @@ local function CreateTracker(index)
     combatC:SetPoint("CENTER", frame, "CENTER", 0, 0)
     combatC:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
     combatC:SetTextColor(1, 0.15, 0.15, 1)
-    combatC:SetText("C")
+    combatC:SetText(L["C"])
     combatC:Hide()
     t.combatC = combatC
 
@@ -288,18 +299,19 @@ function HT.ApplyAll()
     local present = GetActiveItemIds()
     local ids = present
     if next(usedInCombatById) and UnitAffectingCombat("player") then
-        ids = {}
-        local seen = {}
+        wipe(scratchIds)
+        wipe(scratchSeen)
         for _, id in ipairs(present) do
-            ids[#ids + 1] = id
-            seen[id] = true
+            scratchIds[#scratchIds + 1] = id
+            scratchSeen[id] = true
         end
         for id in pairs(usedInCombatById) do
-            if not seen[id] then
-                ids[#ids + 1] = id
-                seen[id] = true
+            if not scratchSeen[id] then
+                scratchIds[#scratchIds + 1] = id
+                scratchSeen[id] = true
             end
         end
+        ids = scratchIds
     end
 
     local n = math.min(#ids, MAX_TRACKERS)
@@ -311,14 +323,22 @@ function HT.ApplyAll()
         if usedInCombatById[id] and (GetItemCount(id, false, true) or 0) <= 0 then
             -- Consumed-in-combat variant no longer in bags: drive the icon
             -- directly (ApplyVisuals would hide it since hasItem is false) so
-            -- the "C" marker has an icon to sit on.
+            -- the "C" marker has an icon to sit on — but only when the module
+            -- would actually show an icon here. This direct path used to bypass
+            -- the enabled / instance-filter / showIcon checks that the
+            -- ApplyVisuals branch honours, leaving a ghost icon + "C" even with
+            -- the module off or in an excluded instance.
             t.usedInCombat = true
-            local _, _, _, _, iconID = C_Item.GetItemInfoInstant(id)
-            if iconID then t.icon.SetIcon(iconID) end
-            t.icon.ApplySize()
-            t.icon.Show()
-            t.icon.HideCheck()
-            t.icon.ClearTimer()
+            if HT.CfgGet("enabled") and IsActiveInCurrentInstance() and HT.CfgGet("showIcon") then
+                local _, _, _, _, iconID = C_Item.GetItemInfoInstant(id)
+                if iconID then t.icon.SetIcon(iconID) end
+                t.icon.ApplySize()
+                t.icon.Show()
+                t.icon.HideCheck()
+                t.icon.ClearTimer()
+            else
+                t.icon.Hide()
+            end
         else
             t.ApplyVisuals()
         end
@@ -424,58 +444,62 @@ function HT.GetTracker() return trackers[1] end
 
 -- ── Events ────────────────────────────────────────────────────────────────────
 
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")
-eventFrame:RegisterEvent("BAG_UPDATE")
-eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+-- BAG_UPDATE_COOLDOWN is intentionally NOT registered (matches PotionTracker):
+-- it fires on essentially every cooldown tick in combat, and invalidating the
+-- resolver cache + a full ApplyAll there is redundant — the resolver only cares
+-- about bag *contents* (BAG_UPDATE) and the 0.5s ticker keeps the cooldown swipe
+-- in sync by reading cooldown state fresh each pass.
+-- AceEvent callbacks receive (event, ...) — not (self, event, ...). Each branch
+-- of the old OnEvent ladder becomes its own handler; every one ends with
+-- HT.ApplyAll() to mirror the single trailing call the ladder ran per event.
 
-eventFrame:SetScript("OnEvent", function(self, event, ...)
-    if event == "BAG_UPDATE" or event == "BAG_UPDATE_COOLDOWN"
-        or event == "PLAYER_ENTERING_WORLD" then
-        InvalidateActiveCache()
+local function OnBagOrEnteringWorld(event)
+    InvalidateActiveCache()
+    HT.ApplyAll()
+end
+HT:RegisterEvent("PLAYER_ENTERING_WORLD", OnBagOrEnteringWorld)
+HT:RegisterEvent("BAG_UPDATE", OnBagOrEnteringWorld)
+
+HT:RegisterEvent("PLAYER_REGEN_ENABLED", function(event)
+    -- Combat ended: clear the per-tracker and per-variant "used in combat"
+    -- flags so the "C" marker doesn't linger into the next pull.
+    wipe(usedInCombatById)
+    for _, t in ipairs(trackers) do
+        t.usedInCombat = false
+        if t.combatC then t.combatC:Hide() end
     end
-    if event == "PLAYER_REGEN_ENABLED" then
-        -- Combat ended: clear the per-tracker and per-variant "used in combat"
-        -- flags so the "C" marker doesn't linger into the next pull.
-        wipe(usedInCombatById)
+    HT.ApplyAll()
+end)
+
+HT:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit, _, spellId)
+    if unit == "player" then
+        local inCombat = UnitAffectingCombat("player")
         for _, t in ipairs(trackers) do
-            t.usedInCombat = false
-            if t.combatC then t.combatC:Hide() end
-        end
-    end
-    if event == "UNIT_SPELLCAST_SUCCEEDED" then
-        local unit, _, spellId = ...
-        if unit == "player" then
-            local inCombat = UnitAffectingCombat("player")
-            for _, t in ipairs(trackers) do
-                local id = t.assignedId
-                local itemSpellId = GetSpellIdForItem(id)
-                if itemSpellId and itemSpellId == spellId then
-                    if HT.CfgGet("soundOnUse") then
-                        HT.PlaySound("soundUse")
-                    end
-                    if inCombat then
-                        t.usedInCombat = true
-                        -- Sticky by variant id: this survives the variant's
-                        -- last stone leaving the bag, so the "C" still shows
-                        -- after the final healthstone is consumed (until
-                        -- PLAYER_REGEN_ENABLED). See ApplyAll.
-                        usedInCombatById[id] = true
-                    end
-                    break
+            local id = t.assignedId
+            local itemSpellId = id and GetSpellIdForItem(id)
+            if itemSpellId and itemSpellId == spellId then
+                if HT.CfgGet("soundOnUse") then
+                    HT.PlaySound("soundUse")
                 end
+                if inCombat then
+                    t.usedInCombat = true
+                    -- Sticky by variant id: this survives the variant's
+                    -- last stone leaving the bag, so the "C" still shows
+                    -- after the final healthstone is consumed (until
+                    -- PLAYER_REGEN_ENABLED). See ApplyAll.
+                    usedInCombatById[id] = true
+                end
+                break
             end
         end
     end
     HT.ApplyAll()
 end)
 
-C_Timer.NewTicker(0.5, function()
+HT:ScheduleRepeatingTimer(function()
     if not HT.CfgGet("enabled") then return end
     HT.ApplyAll()
-end)
+end, 0.5)
 
 ns.RegisterReloadHook(function()
     InvalidateActiveCache()

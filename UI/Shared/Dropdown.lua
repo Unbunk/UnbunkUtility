@@ -60,6 +60,20 @@ function ns.ui.CreateDropdown(config)
     result.selectedText = selectedText
     result.toggleBtn    = toggleBtn
 
+    -- Initialise the toggle label to the current value. Callers used to have to
+    -- do this by hand (dd.selectedText:SetText(...)); the ones that forgot left
+    -- "(select...)" showing on an already-set value. In every real caller the
+    -- key returned by getCurrentKey is also the display string.
+    local function SetCurrent(key)
+        selectedText:SetText(key ~= nil and key or L["(select...)"])
+    end
+    result.SetCurrent = SetCurrent
+
+    do
+        local initialKey = getCurrentKey()
+        if initialKey ~= nil then selectedText:SetText(initialKey) end
+    end
+
     if UNBUNK_ICON_DROPDOWN_ARROW then
         local arrowTex = toggleBtn:CreateTexture(nil, "OVERLAY")
         arrowTex:SetSize(14, 14)

@@ -4,8 +4,6 @@ local _, ns = ...
 ns.BLTracker = ns.BLTracker or {}
 local BL = ns.BLTracker
 
-BLTrackerDB = BLTrackerDB or {}
-
 local DEFAULTS = {
     enabled         = true,
     showIcon        = true,
@@ -33,29 +31,26 @@ local DEFAULTS = {
 }
 
 function BL.CfgInit()
-    ns.MigrateSoundKeys(BLTrackerDB)
-    ns.MergeDefaults(BLTrackerDB, DEFAULTS)
+    ns.db.profile.BLTracker = ns.db.profile.BLTracker or {}
+    ns.MigrateSoundKeys(ns.db.profile.BLTracker)
+    ns.MergeDefaults(ns.db.profile.BLTracker, DEFAULTS)
 end
 ns.RegisterCfgInitHook(BL.CfgInit)
 
 function BL.CfgGet(key)
-    local v = BLTrackerDB[key]
+    local t = ns.db and ns.db.profile.BLTracker
+    local v = t and t[key]
     if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
     return v
 end
 
 function BL.CfgSet(key, value)
-    BLTrackerDB[key] = value
+    if not ns.db then return end
+    ns.db.profile.BLTracker = ns.db.profile.BLTracker or {}
+    ns.db.profile.BLTracker[key] = value
 end
 
 function BL.PlaySound(key)
-    ns.PlaySoundFromCfg(BLTrackerDB, key, key:gsub("Path", "Key"))
+    if not ns.db then return end
+    ns.PlaySoundFromCfg(ns.db.profile.BLTracker, key, key:gsub("Path", "Key"))
 end
-
-local initDB = CreateFrame("Frame")
-initDB:RegisterEvent("ADDON_LOADED")
-initDB:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
-    BL.CfgInit()
-    self:UnregisterEvent("ADDON_LOADED")
-end)

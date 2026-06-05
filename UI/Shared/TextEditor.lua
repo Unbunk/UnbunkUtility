@@ -68,7 +68,10 @@ function ns.ui.CreateTextEditor(parent, config)
             maxLetters = 100,
             text       = getText and getText() or "",
             onEnter    = function(val)
-                if val and val ~= "" and onTextChange then onTextChange(val) end
+                -- Allow saving an empty string so the user can deliberately
+                -- clear the message (previously the blank was dropped and the
+                -- old value reappeared on the next Refresh).
+                if val ~= nil and onTextChange then onTextChange(val) end
             end,
         })
         textInput.frame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
