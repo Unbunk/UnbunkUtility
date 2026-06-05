@@ -4,6 +4,11 @@ local _, ns = ...
 ns.PlayerDeath = ns.PlayerDeath or {}
 local PD = ns.PlayerDeath
 
+local AceEvent = LibStub("AceEvent-3.0")
+local AceTimer = LibStub("AceTimer-3.0")
+AceEvent:Embed(PD)
+AceTimer:Embed(PD)
+
 local animFrame = CreateFrame("Frame", "PlayerDeathAnimFrame", UIParent, "BackdropTemplate")
 animFrame:SetFrameStrata("TOOLTIP")
 animFrame:Hide()
@@ -39,8 +44,10 @@ local function StopAnimation()
 end
 
 local function ApplySize()
-    local w = PD.CfgGet("animWidth") or 300
-    local h = PD.CfgGet("animHeight") or 300
+    -- CfgGet already falls back to DEFAULTS (250 / 100); the `or` is just a
+    -- belt-and-suspenders kept in sync with those defaults.
+    local w = PD.CfgGet("animWidth") or 250
+    local h = PD.CfgGet("animHeight") or 100
     animFrame:SetSize(w, h)
     animFrame:ClearAllPoints()
     animFrame:SetPoint("CENTER", UIParent, "CENTER",
@@ -63,8 +70,10 @@ local function PlayAnimation()
     animFrame:Show()
 
     local duration    = PD.CfgGet("animDuration") or 3
-    local fps         = PD.CfgGet("animFPS") or 24
-    local totalFrames = anim.frameCount
+    local fps         = PD.CfgGet("animFPS") or 16
+    -- `or 1` guards against a future UNBUNK_ANIMATIONS entry lacking frameCount
+    -- (currentFrame >= nil would error every frame).
+    local totalFrames = anim.frameCount or 1
     local frameTime   = 1 / fps
 
     local loop = PD.CfgGet("animLoop")
@@ -150,22 +159,19 @@ end
 
 -- ── Events ────────────────────────────────────────────────────────────────────
 
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_DEAD")
-eventFrame:RegisterEvent("PLAYER_ALIVE")
-eventFrame:RegisterEvent("PLAYER_UNGHOST")
-
-eventFrame:SetScript("OnEvent", function(self, event)
-    if event == "PLAYER_DEAD" then
-        if not PD.CfgGet("enabled") then return end
-        if PD.CfgGet("soundEnabled") then
-            PD.PlaySound()
-        end
-        PlayAnimation()
-    elseif event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
-        StopAnimation()
+PD:RegisterEvent("PLAYER_DEAD", function(event)
+    if not PD.CfgGet("enabled") then return end
+    if PD.CfgGet("soundEnabled") then
+        PD.PlaySound()
     end
+    PlayAnimation()
 end)
+
+local function OnPlayerRevive(event)
+    StopAnimation()
+end
+PD:RegisterEvent("PLAYER_ALIVE", OnPlayerRevive)
+PD:RegisterEvent("PLAYER_UNGHOST", OnPlayerRevive)
 
 ns.RegisterReloadHook(function()
     PD.ApplyPosition()

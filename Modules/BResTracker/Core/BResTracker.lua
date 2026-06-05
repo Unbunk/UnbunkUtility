@@ -7,6 +7,11 @@ local _, ns = ...
 ns.BResTracker = ns.BResTracker or {}
 local BR = ns.BResTracker
 
+local AceEvent = LibStub("AceEvent-3.0")
+local AceTimer = LibStub("AceTimer-3.0")
+AceEvent:Embed(BR)
+AceTimer:Embed(BR)
+
 local BRES_SPELL_ID  = 20484    -- Rebirth (represents the shared BRes pool)
 local BRES_ICON_ID   = 136080   -- Rebirth icon (fallback)
 
@@ -38,6 +43,8 @@ countText:Hide()
 
 -- Internal state for detecting the "charge regained" transition.
 local lastCharges = nil
+local lastMax     = nil   -- pool size at the last tick, to tell a real consume
+                          -- from the pool shrinking (raid losing members)
 local lastCooldownStart = 0
 
 -- Test mode state (shared with PlayerList via the BR namespace).
@@ -126,32 +133,37 @@ function BR.ApplyVisuals()
         cdDur   = info.cooldownDuration
     end
 
-    if not BR.CfgGet("showIcon") then
-        frame:Hide()
-        return
-    end
+    -- Render the icon only when showIcon is on, but keep running the charge-
+    -- transition detection below regardless: the ready/used sounds are separate
+    -- toggles, and short-circuiting here used to also leave lastCharges stale
+    -- (a phantom sound when the icon was later re-enabled).
+    if BR.CfgGet("showIcon") then
+        frame:Show()
+        iconTex:SetTexture(ResolveIcon())
 
-    frame:Show()
-    iconTex:SetTexture(ResolveIcon())
+        -- Charge counter (green when at least one available, red otherwise).
+        countText:SetText(tostring(cur))
+        if cur > 0 then
+            countText:SetTextColor(0, 1, 0, 1)
+        else
+            countText:SetTextColor(1, 0, 0, 1)
+        end
+        countText:Show()
 
-    -- Charge counter (green when at least one available, red otherwise).
-    countText:SetText(tostring(cur))
-    if cur > 0 then
-        countText:SetTextColor(0, 1, 0, 1)
-    else
-        countText:SetTextColor(1, 0, 0, 1)
-    end
-    countText:Show()
-
-    -- Cooldown / timer for the next incoming charge.
-    if cur < maxC and cdStart and cdStart > 0 then
-        local remain = (cdStart + cdDur) - GetTime()
-        if remain > 0 then
-            timerText:SetText(string.format("%d:%02d", remain / 60, remain % 60))
-            timerText:Show()
-            if lastCooldownStart ~= cdStart then
-                cooldown:SetCooldown(cdStart, cdDur)
-                lastCooldownStart = cdStart
+        -- Cooldown / timer for the next incoming charge.
+        if cur < maxC and cdStart and cdStart > 0 then
+            local remain = (cdStart + cdDur) - GetTime()
+            if remain > 0 then
+                timerText:SetText(ns.FormatMMSS(remain))
+                timerText:Show()
+                if lastCooldownStart ~= cdStart then
+                    cooldown:SetCooldown(cdStart, cdDur)
+                    lastCooldownStart = cdStart
+                end
+            else
+                timerText:Hide()
+                cooldown:Clear()
+                lastCooldownStart = 0
             end
         else
             timerText:Hide()
@@ -159,14 +171,14 @@ function BR.ApplyVisuals()
             lastCooldownStart = 0
         end
     else
-        timerText:Hide()
-        cooldown:Clear()
-        lastCooldownStart = 0
+        frame:Hide()
     end
 
-    -- Charge transitions (suppressed during test mode, and for a moment after a
-    -- loading screen where the charge count reads as stale — see ns.RecentlyZoned).
-    if not BR.testMode and lastCharges ~= nil and not ns.RecentlyZoned() then
+    -- Charge transitions. Suppressed during test mode, for a moment after a
+    -- loading screen where the count reads stale (ns.RecentlyZoned), and when the
+    -- pool size changed this tick: a shrinking raid lowers currentCharges with no
+    -- actual cast, which must not fire the "used" sound / false attribution.
+    if not BR.testMode and lastCharges ~= nil and lastMax == maxC and not ns.RecentlyZoned() then
         if cur > lastCharges and BR.CfgGet("soundOnReady") then
             BR.PlaySound()
         elseif cur < lastCharges then
@@ -177,6 +189,7 @@ function BR.ApplyVisuals()
         end
     end
     lastCharges = cur
+    lastMax     = maxC
 end
 
 -- ── Apply font / size / position ─────────────────────────────────────────────
@@ -259,23 +272,21 @@ function BR.GetFrame() return frame end
 
 -- ── Events ───────────────────────────────────────────────────────────────────
 
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-eventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
-
-eventFrame:SetScript("OnEvent", function()
+local function OnVisualsRefresh(event)
     BR.ApplyVisuals()
-end)
+end
+BR:RegisterEvent("PLAYER_ENTERING_WORLD", OnVisualsRefresh)
+BR:RegisterEvent("ZONE_CHANGED_NEW_AREA", OnVisualsRefresh)
+BR:RegisterEvent("GROUP_ROSTER_UPDATE", OnVisualsRefresh)
+BR:RegisterEvent("SPELL_UPDATE_CHARGES", OnVisualsRefresh)
 
 -- Ticker: refreshes the mm:ss countdown and catches charge regained.
 -- Early-out when disabled so a turned-off module does ~zero per-tick work.
-C_Timer.NewTicker(0.5, function()
+BR:ScheduleRepeatingTimer(function()
     if not BR.CfgGet("enabled") then return end
     BR.ApplyVisuals()
     if BR.RefreshList then BR.RefreshList() end
-end)
+end, 0.5)
 
 -- Reload hook: re-applies everything when a profile is loaded.
 ns.RegisterReloadHook(function()

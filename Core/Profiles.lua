@@ -1,40 +1,25 @@
 -- Core/Profiles.lua
+--
+-- Public profile API (ns.profiles.*) layered on top of the AceDB engine created
+-- in Core/DB.lua (ns.db). AceDB owns the storage and writes live, so there is no
+-- snapshot-on-logout step here anymore: every setter mutates ns.db.profile.* in
+-- place and AceDB persists it. This file only adapts AceDB's profile methods to
+-- the API the UI expects, plus export/import.
+--
+-- AceSerializer gives a safe, tested table round-trip for profile export/import
+-- (no loadstring/setfenv on imported text, and correct escaping — replaces our
+-- hand-rolled Serialize, which the audit found buggy). Its output is wrapped in
+-- our Base64 layer so the blob stays paste-safe. Optional: if the lib is missing
+-- we fall back to the legacy serializer. Format is auto-detected on import (an
+-- AceSerializer blob decodes to a string starting with "^"; the legacy one to a
+-- Lua table literal starting with "{"), so blobs exported before this still load.
 
 local _, ns = ...
+local L = ns.L
+
+local AceSerializer = LibStub and LibStub("AceSerializer-3.0", true)
 
 ns.profiles = ns.profiles or {}
-local ALL_DBS = {
-    HealerRange       = function() return HealerRangeDB       end,
-    DeathAlert        = function() return DeathAlertDB        end,
-    BLTracker         = function() return BLTrackerDB         end,
-    PotionTracker     = function() return PotionTrackerDB     end,
-    TrinketTracker    = function() return TrinketTrackerDB    end,
-    PITracker         = function() return PITrackerDB         end,
-    PlayerDeath       = function() return PlayerDeathDB       end,
-    BResTracker       = function() return BResTrackerDB       end,
-    HealthstoneTracker = function() return HealthstoneTrackerDB end,
-}
-
-local ALL_SETTERS = {
-    HealerRange       = function(t) HealerRangeDB       = t end,
-    DeathAlert        = function(t) DeathAlertDB        = t end,
-    BLTracker         = function(t) BLTrackerDB         = t end,
-    PotionTracker     = function(t) PotionTrackerDB     = t end,
-    TrinketTracker    = function(t) TrinketTrackerDB    = t end,
-    PITracker         = function(t) PITrackerDB         = t end,
-    PlayerDeath       = function(t) PlayerDeathDB       = t end,
-    BResTracker       = function(t) BResTrackerDB       = t end,
-    HealthstoneTracker = function(t) HealthstoneTrackerDB = t end,
-}
-
-local function InitDB()
-    UnbunkUtilityDB = UnbunkUtilityDB or {}
-    UnbunkUtilityDB.currentProfile = UnbunkUtilityDB.currentProfile or "Default"
-    UnbunkUtilityDB.profiles       = UnbunkUtilityDB.profiles or {}
-    if not UnbunkUtilityDB.profiles["Default"] then
-        UnbunkUtilityDB.profiles["Default"] = {}
-    end
-end
 
 -- Serialize a Lua table to a string literal (for profile export). Skips
 -- function/userdata values and guards non-finite numbers so the blob always
@@ -59,7 +44,10 @@ local function Serialize(t)
         if vt ~= "function" and vt ~= "userdata" then
             local key
             if type(k) == "string" then
-                key = '["' .. k .. '"]'
+                -- %q escapes quotes/backslashes/newlines so keys containing them
+                -- (e.g. a user-named profile or a custom LSM sound key) round-trip
+                -- through loadstring instead of producing an invalid chunk.
+                key = string.format("[%q]", k)
             else
                 key = "[" .. tostring(k) .. "]"
             end
@@ -115,105 +103,139 @@ end
 -- ── Public API ────────────────────────────────────────────────────────────────
 
 function ns.profiles.GetCurrent()
-    return UnbunkUtilityDB.currentProfile or "Default"
+    if not ns.db then return "Default" end
+    return ns.db:GetCurrentProfile()
 end
 
 function ns.profiles.GetList()
-    local list = {}
-    for name in pairs(UnbunkUtilityDB.profiles) do
-        table.insert(list, name)
-    end
+    if not ns.db then return { "Default" } end
+    local list = ns.db:GetProfiles()
     table.sort(list)
     return list
 end
 
-local function DeepCopy(t)
-    if type(t) ~= "table" then return t end
-    local copy = {}
-    for k, v in pairs(t) do
-        copy[k] = DeepCopy(v)
-    end
-    return copy
-end
-
-function ns.profiles.SaveCurrent()
-    local name = ns.profiles.GetCurrent()
-    local snapshot = {}
-    for dbName, getter in pairs(ALL_DBS) do
-        snapshot[dbName] = DeepCopy(getter())
-    end
-    UnbunkUtilityDB.profiles[name] = snapshot
-end
-
+-- Switch the active profile. AceDB's OnProfileChanged callback (Core/DB.lua) has
+-- already re-applied every module's CfgInit + Reload hooks, so we only need to
+-- rebuild any open config frames here. Returns false for an unknown profile to
+-- preserve the legacy contract (AceDB:SetProfile would otherwise create it).
 function ns.profiles.Load(name)
-    if not UnbunkUtilityDB.profiles[name] then return false end
-    local snapshot = UnbunkUtilityDB.profiles[name]
-    for dbName, setter in pairs(ALL_SETTERS) do
-        if snapshot[dbName] then
-            setter(DeepCopy(snapshot[dbName]))
-        end
+    if not ns.db then return false end
+    if name == ns.db:GetCurrentProfile() then
+        ns.profiles.ReloadAll()
+        return true
     end
-    UnbunkUtilityDB.currentProfile = name
-    -- Re-apply every module's defaults + sound-key migration onto the freshly
-    -- loaded DB tables: older/imported snapshots may be missing newer keys, and
-    -- nothing else runs CfgInit after login.
-    ns.RunCfgInitHooks()
+    local known = false
+    for _, p in ipairs(ns.db:GetProfiles()) do
+        if p == name then known = true break end
+    end
+    if not known then return false end
+    ns.db:SetProfile(name)          -- fires OnProfileChanged -> CfgInit + Reload
     ns.profiles.ReloadAll()
     return true
 end
 
--- Reset every module's saved variables to their defaults, then snapshot the
--- clean state into the current profile. Driven generically off ALL_SETTERS +
--- the CfgInit hook registry so no module can be forgotten.
+-- Wipe the current profile back to module defaults. AceDB:ResetProfile fires
+-- OnProfileReset (Core/DB.lua), which re-runs every module's CfgInit so the
+-- defaults are re-merged; we then rebuild any open config frames.
 function ns.profiles.ResetCurrent()
-    for _, setter in pairs(ALL_SETTERS) do
-        setter({})
-    end
-    ns.RunCfgInitHooks()
-    ns.profiles.SaveCurrent()
+    if not ns.db then return false end
+    ns.db:ResetProfile()            -- fires OnProfileReset -> CfgInit + Reload
     ns.profiles.ReloadAll()
     return true
 end
 
+-- Create a new profile cloned from the current one. Returns false if the name is
+-- empty or already exists. Switching to the (not-yet-existing) name creates it
+-- lazily; CopyProfile then copies the previous current profile's settings into it.
 function ns.profiles.Create(name)
+    if not ns.db then return false end
     if not name or name == "" then return false end
-    if UnbunkUtilityDB.profiles[name] then return false end
-    -- Snapshot the current profile first so we clone its latest state.
-    ns.profiles.SaveCurrent()
-    -- Create the new profile as a copy of the current one.
-    local currentName = ns.profiles.GetCurrent()
-    UnbunkUtilityDB.profiles[name] = DeepCopy(UnbunkUtilityDB.profiles[currentName])
-    UnbunkUtilityDB.currentProfile = name
+    for _, p in ipairs(ns.db:GetProfiles()) do
+        if p == name then return false end
+    end
+    local oldCurrent = ns.db:GetCurrentProfile()
+    ns.db:SetProfile(name)                  -- creates + activates the new profile
+    ns.db:CopyProfile(oldCurrent, true)     -- clone the previous current into it
+    ns.profiles.ReloadAll()
     return true
 end
 
+-- Delete a profile. "Default" is protected. If the active profile is deleted we
+-- must switch away first (AceDB:DeleteProfile errors on the active profile),
+-- falling back to "Default".
 function ns.profiles.Delete(name)
+    if not ns.db then return false end
     if name == "Default" then return false end
-    if not UnbunkUtilityDB.profiles[name] then return false end
-    UnbunkUtilityDB.profiles[name] = nil
-    if ns.profiles.GetCurrent() == name then
-        ns.profiles.Load("Default")
+    local known = false
+    for _, p in ipairs(ns.db:GetProfiles()) do
+        if p == name then known = true break end
     end
+    if not known then return false end
+    if ns.db:GetCurrentProfile() == name then
+        ns.db:SetProfile("Default")  -- fires OnProfileChanged -> CfgInit + Reload
+        ns.profiles.ReloadAll()
+    end
+    ns.db:DeleteProfile(name, true)
     return true
 end
 
 function ns.profiles.Export()
-    ns.profiles.SaveCurrent()
-    local name = ns.profiles.GetCurrent()
-    local data = Serialize(UnbunkUtilityDB.profiles[name])
-    return Base64Encode(data)
+    if not ns.db then return "" end
+    -- Wrap a snapshot of the active profile in a small versioned envelope so
+    -- Import can recognise our blobs and reject foreign / future ones cleanly.
+    -- Legacy headerless blobs stay importable (see Import below).
+    local payload = {
+        addon   = "UnbunkUtility",
+        version = 1,
+        data    = ns.DeepCopy(ns.db.profile),
+    }
+    if AceSerializer then
+        return Base64Encode(AceSerializer:Serialize(payload))
+    end
+    return Base64Encode(Serialize(payload))  -- legacy fallback if the lib is absent
 end
 
 function ns.profiles.Import(str)
-    local data = Base64Decode(str)
-    local t, err = Deserialize(data)
-    if not t then return false, err end
-    -- Migrate any pre-restructure sound keys in the imported blob; Load() then
-    -- re-runs every module's CfgInit so missing defaults are backfilled too.
-    ns.MigrateSoundKeys(t)
-    local name = ns.profiles.GetCurrent()
-    UnbunkUtilityDB.profiles[name] = t
-    ns.profiles.Load(name)
+    if not ns.db then return false end
+    local decoded = Base64Decode(str)
+    -- Auto-detect the serializer: AceSerializer blobs start with "^", the legacy
+    -- hand-rolled ones with a "{" table literal — so old exports still import.
+    local raw, err
+    if AceSerializer and decoded:sub(1, 1) == "^" then
+        local ok, result = AceSerializer:Deserialize(decoded)
+        if not ok then return false, result end
+        raw = result
+    else
+        raw, err = Deserialize(decoded)
+    end
+    if type(raw) ~= "table" then return false, err or L["invalid profile data"] end
+
+    -- Accept both the versioned envelope { addon, version, data } and a legacy
+    -- bare snapshot (a table of per-module DBs, none of which is named addon/
+    -- version/data), so blobs exported before versioning still import.
+    local snapshot = raw
+    if raw.addon ~= nil or raw.version ~= nil or raw.data ~= nil then
+        if raw.addon ~= "UnbunkUtility" then
+            return false, L["not an UnbunkUtility profile"]
+        end
+        if type(raw.data) ~= "table" then
+            return false, L["invalid profile data"]
+        end
+        snapshot = raw.data
+    end
+
+    -- Migrate any pre-restructure sound keys in the imported blob before it is
+    -- written; the CfgInit re-run below backfills missing defaults too.
+    ns.MigrateSoundKeys(snapshot)
+
+    -- Wipe-and-copy the snapshot into the live profile table in place (keeping the
+    -- same table identity AceDB tracks), then re-apply: CfgInit re-merges defaults
+    -- + sound-key migration and ReloadAll re-applies settings / rebuilds frames.
+    local profile = ns.db.profile
+    for k in pairs(profile) do profile[k] = nil end
+    for k, v in pairs(snapshot) do profile[k] = ns.DeepCopy(v) end
+    ns.RunCfgInitHooks()
+    ns.profiles.ReloadAll()
     return true
 end
 
@@ -234,16 +256,3 @@ function ns.profiles.ReloadAll()
         end
     end
 end
-
-local initProfiles = CreateFrame("Frame")
-initProfiles:RegisterEvent("ADDON_LOADED")
-initProfiles:RegisterEvent("PLAYER_LOGOUT")
-initProfiles:SetScript("OnEvent", function(self, event, addonName)
-    if event == "PLAYER_LOGOUT" then
-        ns.profiles.SaveCurrent()
-        return
-    end
-    if addonName ~= "UnbunkUtility" then return end
-    InitDB()
-    self:UnregisterEvent("ADDON_LOADED")
-end)

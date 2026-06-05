@@ -4,8 +4,6 @@ local _, ns = ...
 ns.BResTracker = ns.BResTracker or {}
 local BR = ns.BResTracker
 
-BResTrackerDB = BResTrackerDB or {}
-
 local DEFAULTS = {
     enabled        = true,
     showIcon       = true,
@@ -52,43 +50,43 @@ local DEFAULTS = {
 }
 
 function BR.CfgInit()
-    ns.MigrateSoundKeys(BResTrackerDB)
+    ns.db.profile.BResTracker = ns.db.profile.BResTracker or {}
+    local cfg = ns.db.profile.BResTracker
+    ns.MigrateSoundKeys(cfg)
     -- Migrate older boolean keys to the new "side" string keys.
-    if BResTrackerDB.listOnRight ~= nil and BResTrackerDB.listSide == nil then
-        BResTrackerDB.listSide = BResTrackerDB.listOnRight and "Right" or "Left"
-        BResTrackerDB.listOnRight = nil
+    if cfg.listOnRight ~= nil and cfg.listSide == nil then
+        cfg.listSide = cfg.listOnRight and "Right" or "Left"
+        cfg.listOnRight = nil
     end
-    if BResTrackerDB.rowStatusOnRight ~= nil and BResTrackerDB.rowStatusSide == nil then
-        BResTrackerDB.rowStatusSide = BResTrackerDB.rowStatusOnRight and "Right" or "Left"
-        BResTrackerDB.rowStatusOnRight = nil
+    if cfg.rowStatusOnRight ~= nil and cfg.rowStatusSide == nil then
+        cfg.rowStatusSide = cfg.rowStatusOnRight and "Right" or "Left"
+        cfg.rowStatusOnRight = nil
     end
 
     -- Recursive backfill (also fills newly-added nested keys, e.g. a future
     -- instanceFilter sub-key) so upgraders are not left with nil defaults.
-    ns.MergeDefaults(BResTrackerDB, DEFAULTS)
+    ns.MergeDefaults(cfg, DEFAULTS)
 end
 
 ns.RegisterCfgInitHook(BR.CfgInit)
 
 function BR.CfgGet(key)
-    local v = BResTrackerDB[key]
+    local t = ns.db and ns.db.profile.BResTracker
+    local v = t and t[key]
     if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
     return v
 end
-function BR.CfgSet(key, value) BResTrackerDB[key] = value end
+
+function BR.CfgSet(key, value)
+    if not ns.db then return end
+    ns.db.profile.BResTracker = ns.db.profile.BResTracker or {}
+    ns.db.profile.BResTracker[key] = value
+end
 
 function BR.PlaySound()
-    ns.PlaySoundFromCfg(BResTrackerDB, "soundPathReady", "soundKeyReady")
+    ns.PlaySoundFromCfg(ns.db.profile.BResTracker, "soundPathReady", "soundKeyReady")
 end
 
 function BR.PlaySoundUsed()
-    ns.PlaySoundFromCfg(BResTrackerDB, "soundPathUsed", "soundKeyUsed")
+    ns.PlaySoundFromCfg(ns.db.profile.BResTracker, "soundPathUsed", "soundKeyUsed")
 end
-
-local initDB = CreateFrame("Frame")
-initDB:RegisterEvent("ADDON_LOADED")
-initDB:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
-    BR.CfgInit()
-    self:UnregisterEvent("ADDON_LOADED")
-end)

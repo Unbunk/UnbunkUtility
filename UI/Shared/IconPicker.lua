@@ -214,6 +214,8 @@ function ns.ui.CreateIconPicker(config)
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 8,
+        max        = 128,
         maxLetters = 3,
         text       = tostring(initCfg.width or 32),
         onEnter    = function(val)
@@ -231,6 +233,8 @@ function ns.ui.CreateIconPicker(config)
         width      = 46,
         height     = 22,
         numeric    = true,
+        min        = 8,
+        max        = 128,
         maxLetters = 3,
         text       = tostring(initCfg.height or 32),
         onEnter    = function(val)
@@ -249,15 +253,24 @@ function ns.ui.CreateIconPicker(config)
         local cfg = getConfig()
         enableCb.SetChecked(cfg.enabled ~= false)
         customCb.SetChecked(cfg.useCustom or false)
-        if cfg.customId then customInput.SetText(tostring(cfg.customId)) end
+        -- Clear the field too when customId went back to nil (was sticky before).
+        customInput.SetText(cfg.customId and tostring(cfg.customId) or "")
         wInput.SetText(tostring(cfg.width or 32))
         hInput.SetText(tostring(cfg.height or 32))
         if cfg.iconPath then
             for _, ic in ipairs(icons) do
                 if ic.path == cfg.iconPath then
-                    iconDD.selectedText:SetText(ic.label)
+                    iconDD.SetCurrent(ic.label)
                     break
                 end
+            end
+        end
+        -- Position dropdown was never refreshed before, so its label could drift
+        -- from the saved config until the panel was reopened.
+        for _, p in ipairs(POSITIONS) do
+            if p.key == cfg.position then
+                posDD.SetCurrent(p.label)
+                break
             end
         end
         RefreshPreview()

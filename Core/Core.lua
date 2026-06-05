@@ -44,25 +44,25 @@ local function ComputeModuleHeight(modFrame)
         end
     end
 
-    -- Direct child frames, plus one level of their children.
-    for i = 1, modFrame:GetNumChildren() do
-        local child = select(i, modFrame:GetChildren())
-        if child then
-            consider(child)
-            for j = 1, child:GetNumChildren() do
-                consider(select(j, child:GetChildren()))
+    -- Walk the whole subtree (every child frame + every frame's own regions) so
+    -- deeply-nested content — e.g. controls inside a CollapsibleSection's
+    -- content frame — is measured too, not just the first two levels. Depth-
+    -- capped as a cheap guard against a pathological frame tree.
+    local function walk(frame, depth)
+        if depth > 8 then return end
+        for i = 1, frame:GetNumChildren() do
+            local child = select(i, frame:GetChildren())
+            if child then
+                consider(child)
+                walk(child, depth + 1)
             end
-            for j = 1, child:GetNumRegions() do
-                consider(select(j, child:GetRegions()))
-            end
+        end
+        for i = 1, frame:GetNumRegions() do
+            consider(select(i, frame:GetRegions()))
         end
     end
 
-    -- Regions created directly on the module frame.
-    for i = 1, modFrame:GetNumRegions() do
-        consider(select(i, modFrame:GetRegions()))
-    end
-
+    walk(modFrame, 0)
     return maxDepth
 end
 
@@ -171,11 +171,11 @@ local function BuildNavbar()
 
         btn:SetScript("OnClick", function() ShowModule(i) end)
         tabButtons[i] = btn
-
-        local rows = math.ceil(#registeredModules / TABS_PER_ROW)
-        navbarHeight = rows * (TAB_HEIGHT + TAB_GAP)
     end
 
+    -- Computed once after the loop (was recomputed every iteration).
+    local rows = math.ceil(#registeredModules / TABS_PER_ROW)
+    navbarHeight = rows * (TAB_HEIGHT + TAB_GAP)
     navbar:SetHeight(navbarHeight)
 end
 
