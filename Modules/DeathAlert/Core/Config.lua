@@ -5,8 +5,6 @@ local L = ns.L
 ns.DeathAlert = ns.DeathAlert or {}
 local DA = ns.DeathAlert
 
-DeathAlertDB = DeathAlertDB or {}
-
 local DEFAULTS = {
     -- Tank alert
     tankEnabled      = true,
@@ -103,20 +101,24 @@ local DEFAULTS = {
 }
 
 function DA.CfgInit()
-    ns.MigrateSoundKeys(DeathAlertDB)
-    ns.MergeDefaults(DeathAlertDB, DEFAULTS)
+    ns.db.profile.DeathAlert = ns.db.profile.DeathAlert or {}
+    ns.MigrateSoundKeys(ns.db.profile.DeathAlert)
+    ns.MergeDefaults(ns.db.profile.DeathAlert, DEFAULTS)
 end
 
 ns.RegisterCfgInitHook(DA.CfgInit)
 
 function DA.CfgGet(key)
-    local v = DeathAlertDB[key]
+    local t = ns.db and ns.db.profile.DeathAlert
+    local v = t and t[key]
     if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
     return v
 end
 
 function DA.CfgSet(key, value)
-    DeathAlertDB[key] = value
+    if not ns.db then return end
+    ns.db.profile.DeathAlert = ns.db.profile.DeathAlert or {}
+    ns.db.profile.DeathAlert[key] = value
 end
 
 function DA.PlaySound(prefix)
@@ -124,13 +126,5 @@ function DA.PlaySound(prefix)
     -- Delegates to the shared resolver (explicit path > migrated LSM key >
     -- nothing). Plays nothing when neither resolves, matching the other
     -- trackers and avoiding a surprise default chime on a missing sound.
-    ns.PlaySoundFromCfg(DeathAlertDB, prefix .. "SoundPath", prefix .. "SoundKey")
+    ns.PlaySoundFromCfg(ns.db and ns.db.profile.DeathAlert, prefix .. "SoundPath", prefix .. "SoundKey")
 end
-
-local initDB = CreateFrame("Frame")
-initDB:RegisterEvent("ADDON_LOADED")
-initDB:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
-    DA.CfgInit()
-    self:UnregisterEvent("ADDON_LOADED")
-end)

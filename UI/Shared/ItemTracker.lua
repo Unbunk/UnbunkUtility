@@ -30,6 +30,8 @@ function ns.ui.CreateItemTracker(config)
     local tracker    = {}
     local hasCooldown = false
     local lastExpiry  = nil  -- GetTime() at which the tracked cooldown ends
+    local lastUseAt   = nil  -- GetTime() of the last use (set by NotifyUsed), for
+                             -- the in-combat heuristic green timer
 
     local icon = ns.ui.CreateTimerIcon({
         name    = frameName,
@@ -76,15 +78,35 @@ function ns.ui.CreateItemTracker(config)
         icon.ApplySize()
         icon.Show()
 
-        -- Check buff actif d'abord
+        -- Green "active" timer, in priority order:
+        --   1) the LIVE aura, but only when its fields are safe to read — out of
+        --      combat, OR a never-secret aura (ns.AuraTimerReadable). This gives
+        --      the EXACT remaining (and learns the duration), and crucially never
+        --      reads a SECRET aura's fields (which would taint the addon). A buff
+        --      that IS never-secret therefore gets its exact timer even in combat.
+        --   2) the HEURISTIC fallback — in combat, when the buff is hidden/secret:
+        --      the recorded use time (NotifyUsed) + the learned/seeded/parsed
+        --      duration (ns.GetAuraDuration). Dynamic green in combat, no pre-pot.
         local foundBuff = false
         local spellId = getCfg("spellId")
         if spellId then
             local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellId)
-            if aura then
+            if aura and ns.AuraTimerReadable(spellId) then
                 foundBuff = true
+                ns.LearnAuraDuration(spellId, aura.duration)
                 icon.SetTimer(aura.expirationTime, aura.duration, { r=0, g=1, b=0 })
                 icon.HideCheck()
+            elseif lastUseAt and UnitAffectingCombat("player") then
+                -- Aura nil: only fall back to the heuristic IN COMBAT (where the
+                -- buff is hidden/secret). Out of combat a nil aura means the buff
+                -- is genuinely gone — expired OR manually cancelled — so we let
+                -- the green disappear instead of trusting the use-time window.
+                local dur = ns.GetAuraDuration(spellId)
+                if dur and GetTime() < lastUseAt + dur then
+                    foundBuff = true
+                    icon.SetTimer(lastUseAt + dur, dur, { r=0, g=1, b=0 })
+                    icon.HideCheck()
+                end
             end
         end
 
@@ -125,6 +147,11 @@ function ns.ui.CreateItemTracker(config)
             end
         end
     end
+
+    -- Called by the owning module when it detects this item's use spell was cast
+    -- (it already watches UNIT_SPELLCAST_SUCCEEDED for the use sound). Starts the
+    -- in-combat heuristic green timer from the actual use moment.
+    function tracker.NotifyUsed() lastUseAt = GetTime() end
 
     function tracker.ApplyPosition() icon.ApplyPosition() end
     function tracker.ApplyFont()     icon.ApplyFont()     end

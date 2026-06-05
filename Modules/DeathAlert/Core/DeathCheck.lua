@@ -4,6 +4,11 @@ local _, ns = ...
 ns.DeathAlert = ns.DeathAlert or {}
 local DA = ns.DeathAlert
 
+-- DeathAlert only registers events (no polling ticker), so AceEvent is embedded
+-- but AceTimer is not — its one-shot auto-hide uses C_Timer.After directly.
+local AceEvent = LibStub("AceEvent-3.0")
+AceEvent:Embed(DA)
+
 local TANK_ROLES   = { TANK = true }
 local HEALER_ROLES = { HEALER = true }
 local DPS_ROLES    = { DAMAGER = true }
@@ -33,8 +38,8 @@ local recentDeaths       = {}
 local wipeSuppressUntil  = 0
 local dpsSpamSuppressUntil = 0
 
-local function WipeCfg()    return UnbunkUtilityDB and UnbunkUtilityDB.wipe    end
-local function DpsSpamCfg() return UnbunkUtilityDB and UnbunkUtilityDB.dpsSpam end
+local function WipeCfg()    return ns.db and ns.db.global.wipe    end
+local function DpsSpamCfg() return ns.db and ns.db.global.dpsSpam end
 
 local function PruneDeaths(now)
     local w = WipeCfg() and WipeCfg().timeWindow or 3
@@ -93,8 +98,17 @@ local function CheckUnitDeath(unit)
     -- the byte gate but are then rejected by the precise %d+ patterns below.
     local b = strbyte(unit)
     if b ~= 112 and b ~= 114 then return end -- 'p' / 'r'
-    -- Only handle group member unit tokens (party1-4 / raid1-40).
-    if not string.match(unit, "^party%d+$") and not string.match(unit, "^raid%d+$") then return end
+    -- Handle group member tokens (party1-4 / raid1-40) AND "player": in a 5-man
+    -- party the player has no partyN token for themselves, so their own
+    -- UNIT_HEALTH/UNIT_FLAGS only arrive under "player" and were being dropped,
+    -- meaning the user's own death never alerted nor fed the wipe/dps buffers.
+    -- In a raid the player is also raidN; the per-GUID dedup below prevents a
+    -- double alert when both tokens are seen.
+    if unit ~= "player"
+        and not string.match(unit, "^party%d+$")
+        and not string.match(unit, "^raid%d+$") then
+        return
+    end
     if not UnitExists(unit) then return end
 
     local guid = UnitGUID(unit)
@@ -157,48 +171,45 @@ end
 -- unbounded group. Instead the handler fires for every unit and CheckUnitDeath's
 -- cheap first-byte 'p'/'r' gate + ^party%d+$/^raid%d+$ patterns reject the
 -- irrelevant churn (nameplates, target, focus, boss, arena, pets) up front.
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("UNIT_HEALTH")
-eventFrame:RegisterEvent("UNIT_FLAGS")
-eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-eventFrame:SetScript("OnEvent", function(self, event, unit)
-    if event == "PLAYER_REGEN_ENABLED" then
-        -- Combat ended: clear everything so the next pull starts fresh.
-        alertedGuids = {}
-        recentDeaths = {}
-        wipeSuppressUntil  = 0
-        dpsSpamSuppressUntil = 0
-        return
-    end
-
-    if event == "GROUP_ROSTER_UPDATE" then
-        -- Roster changes fire often during combat (disconnects, summons, pets)
-        -- and must NOT clear the death buffers, otherwise a real wipe with
-        -- simultaneous disconnects could silently bypass the anti-spam
-        -- thresholds. Only purge per-GUID alert flags for members who left, so a
-        -- future death on that slot can re-alert.
-        local present = {}
-        if IsInRaid() then
-            for i = 1, GetNumGroupMembers() do
-                local g = UnitGUID("raid" .. i)
-                if g then present[g] = true end
-            end
-        elseif IsInGroup() then
-            local g = UnitGUID("player")
-            if g then present[g] = true end
-            for i = 1, GetNumSubgroupMembers() do
-                g = UnitGUID("party" .. i)
-                if g then present[g] = true end
-            end
-        end
-        for guid in pairs(alertedGuids) do
-            if not present[guid] then alertedGuids[guid] = nil end
-        end
-        return
-    end
-
+-- AceEvent has no unit filter (no RegisterUnitEvent equivalent), which suits the
+-- unbounded-group need here: register globally and let CheckUnitDeath gate.
+local function OnUnitHealthOrFlags(event, unit)
     -- UNIT_HEALTH / UNIT_FLAGS: only evaluate the unit that fired the event.
     if not IsInGroup() and not IsInRaid() then return end
     CheckUnitDeath(unit)
+end
+DA:RegisterEvent("UNIT_HEALTH", OnUnitHealthOrFlags)
+DA:RegisterEvent("UNIT_FLAGS", OnUnitHealthOrFlags)
+
+DA:RegisterEvent("GROUP_ROSTER_UPDATE", function(event)
+    -- Roster changes fire often during combat (disconnects, summons, pets)
+    -- and must NOT clear the death buffers, otherwise a real wipe with
+    -- simultaneous disconnects could silently bypass the anti-spam
+    -- thresholds. Only purge per-GUID alert flags for members who left, so a
+    -- future death on that slot can re-alert.
+    local present = {}
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do
+            local g = UnitGUID("raid" .. i)
+            if g then present[g] = true end
+        end
+    elseif IsInGroup() then
+        local g = UnitGUID("player")
+        if g then present[g] = true end
+        for i = 1, GetNumSubgroupMembers() do
+            g = UnitGUID("party" .. i)
+            if g then present[g] = true end
+        end
+    end
+    for guid in pairs(alertedGuids) do
+        if not present[guid] then alertedGuids[guid] = nil end
+    end
+end)
+
+DA:RegisterEvent("PLAYER_REGEN_ENABLED", function(event)
+    -- Combat ended: clear everything so the next pull starts fresh.
+    alertedGuids = {}
+    recentDeaths = {}
+    wipeSuppressUntil  = 0
+    dpsSpamSuppressUntil = 0
 end)

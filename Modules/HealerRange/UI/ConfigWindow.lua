@@ -8,253 +8,244 @@ local HR = ns.HealerRange
 local function CreateHealerRangePanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
-    local content = CreateFrame("Frame", nil, parent)
-    content:SetAllPoints(parent)
+    local options = {
+        -- ── Enable checkbox ───────────────────────────────────────────────────
+        {
+            type   = "checkbox",
+            label  = L["Enable Healer Range"],
+            height = 24,
+            get    = function() return HR.CfgGet("enabled") ~= false end,
+            set    = function(val)
+                HR.CfgSet("enabled", val)
+            end,
+        },
 
-    local GAP = 12
-    local totalHeight = 0
-    local lastFrame = nil
+        -- ── Probe status (FontString with custom Refresh) ─────────────────────
+        {
+            type   = "custom",
+            height = 30,
+            build  = function(host)
+                local probeMsg = host:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+                probeMsg:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                probeMsg:SetWidth(500)
+                probeMsg:SetJustifyH("LEFT")
+                probeMsg:SetWordWrap(true)
 
-    local function AddModule(moduleFrame, moduleHeight)
-        moduleFrame:SetWidth(518)
-        if lastFrame then
-            moduleFrame:SetPoint("TOPLEFT", lastFrame, "BOTTOMLEFT", 0, -GAP)
-        else
-            moduleFrame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
-        end
-        totalHeight = totalHeight + moduleHeight + GAP
-        lastFrame = moduleFrame
-    end
-
-    -- ── Enable checkbox ───────────────────────────────────────────────────────
-
-    local enableFrame = CreateFrame("Frame", nil, content)
-    enableFrame:SetHeight(24)
-
-    local enableCheckbox = ns.ui.CreateCheckbox({
-        parent  = enableFrame,
-        label   = L["Enable Healer Range"],
-        checked = HR.CfgGet("enabled") ~= false,
-        onClick = function(val)
-            HR.CfgSet("enabled", val)
-        end,
-    })
-    enableCheckbox.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
-    AddModule(enableFrame, 24)
-
-    -- ── Probe status ──────────────────────────────────────────────────────────
-
-    local probeFrame = CreateFrame("Frame", nil, content)
-    probeFrame:SetHeight(30)
-
-    local probeMsg = probeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    probeMsg:SetPoint("TOPLEFT", probeFrame, "TOPLEFT", 0, 0)
-    probeMsg:SetWidth(500)
-    probeMsg:SetJustifyH("LEFT")
-    probeMsg:SetWordWrap(true)
-    AddModule(probeFrame, 30)
-
-    -- ── Test Alert button + test duration input ──────────────────────────────
-
-    local testFrame = CreateFrame("Frame", nil, content)
-    testFrame:SetHeight(30)
-
-    local testAlertBtn = ns.ui.CreateButton({
-        parent  = testFrame,
-        label   = L["Test Alert"],
-        width   = 100,
-        height  = 22,
-        onClick = function()
-            -- Cancel any in-flight test so a second click doesn't let the first
-            -- timer fire mid-test (which would SetTesting(false)/hide early).
-            if HR.testTimer then HR.testTimer:Cancel() end
-            HR.SetTesting(true)
-            HR.GetFrame():Show()
-            HR.PlaySound()
-            local duration = HR.CfgGet("alertDuration") or 5
-            HR.testTimer = C_Timer.NewTimer(duration, function()
-                HR.testTimer = nil
-                HR.SetTesting(false)
-                if not HR.IsUnlocked() then
-                    HR.GetFrame():Hide()
+                local function RefreshProbeStatus()
+                    if not HR.HasCombatProbe() then
+                        probeMsg:SetText(L["|cffff4444Combat range detection unavailable — your class has no friendly spell probe usable in combat. The alert will not trigger.|r"])
+                    else
+                        probeMsg:SetText(L["|cff00ff00Combat range detection available. Note: Evoker healers are ignored unless other healers are present in the group.|r"])
+                    end
                 end
-            end)
-        end,
-    })
-    testAlertBtn.frame:SetPoint("TOPLEFT", testFrame, "TOPLEFT", 0, -4)
 
-    local durLbl = testFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    durLbl:SetPoint("LEFT", testAlertBtn.frame, "RIGHT", 16, 0)
-    durLbl:SetText(L["Duration"])
+                return {
+                    frame   = host,
+                    height  = 30,
+                    Refresh = RefreshProbeStatus,
+                }
+            end,
+        },
 
-    local durMinusBtn = ns.ui.CreateButton({
-        parent  = testFrame,
-        label   = "-",
-        width   = 22,
-        height  = 22,
-    })
-    durMinusBtn.frame:SetPoint("LEFT", durLbl, "RIGHT", 6, 0)
+        -- ── Test Alert button + test duration input ───────────────────────────
+        {
+            type   = "custom",
+            height = 30,
+            build  = function(host)
+                local testAlertBtn = ns.ui.CreateButton({
+                    parent  = host,
+                    label   = L["Test Alert"],
+                    width   = 100,
+                    height  = 22,
+                    onClick = function()
+                        -- Cancel any in-flight test so a second click doesn't let the first
+                        -- timer fire mid-test (which would SetTesting(false)/hide early).
+                        if HR.testTimer then HR.testTimer:Cancel() end
+                        HR.SetTesting(true)
+                        HR.GetFrame():Show()
+                        HR.PlaySound()
+                        local duration = HR.CfgGet("alertDuration") or 5
+                        HR.testTimer = C_Timer.NewTimer(duration, function()
+                            HR.testTimer = nil
+                            HR.SetTesting(false)
+                            if not HR.IsUnlocked() then
+                                HR.GetFrame():Hide()
+                            end
+                        end)
+                    end,
+                })
+                testAlertBtn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -4)
 
-    -- Forward-declared so the onEnter closure below can reflect the clamped
-    -- value back into the edit box (assigned just after durInput is created).
-    local durBox
+                local durLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                durLbl:SetPoint("LEFT", testAlertBtn.frame, "RIGHT", 16, 0)
+                durLbl:SetText(L["Duration"])
 
-    local durInput = ns.ui.CreateTextInput({
-        parent     = testFrame,
-        width      = 40,
-        height     = 22,
-        numeric    = true,
-        maxLetters = 3,
-        text       = tostring(HR.CfgGet("alertDuration") or 5),
-        onEnter    = function(val)
-            -- Clamp typed input to the same [1,60] range the +/- buttons enforce.
-            if val and val > 0 then
-                val = math.min(60, math.max(1, val))
-                HR.CfgSet("alertDuration", val)
-                if durBox then durBox:SetText(tostring(val)) end
-            end
-        end,
-    })
-    durInput.frame:SetPoint("LEFT", durMinusBtn.frame, "RIGHT", 4, 0)
-    durBox = durInput.editBox
+                local durMinusBtn = ns.ui.CreateButton({
+                    parent  = host,
+                    label   = "-",
+                    width   = 22,
+                    height  = 22,
+                })
+                durMinusBtn.frame:SetPoint("LEFT", durLbl, "RIGHT", 6, 0)
 
-    local durPlusBtn = ns.ui.CreateButton({
-        parent  = testFrame,
-        label   = "+",
-        width   = 22,
-        height  = 22,
-    })
-    durPlusBtn.frame:SetPoint("LEFT", durBox, "RIGHT", 4, 0)
+                -- Forward-declared so the onEnter closure below can reflect the clamped
+                -- value back into the edit box (assigned just after durInput is created).
+                local durBox
 
-    durMinusBtn.frame:SetScript("OnClick", function()
-        local v = tonumber(durBox:GetText()) or HR.CfgGet("alertDuration") or 5
-        v = math.max(1, v - 1)
-        durBox:SetText(tostring(v))
-        HR.CfgSet("alertDuration", v)
-    end)
-    durPlusBtn.frame:SetScript("OnClick", function()
-        local v = tonumber(durBox:GetText()) or HR.CfgGet("alertDuration") or 5
-        v = math.min(60, v + 1)
-        durBox:SetText(tostring(v))
-        HR.CfgSet("alertDuration", v)
-    end)
+                local durInput = ns.ui.CreateTextInput({
+                    parent     = host,
+                    width      = 40,
+                    height     = 22,
+                    numeric    = true,
+                    maxLetters = 3,
+                    text       = tostring(HR.CfgGet("alertDuration") or 5),
+                    onEnter    = function(val)
+                        -- Clamp typed input to the same [1,60] range the +/- buttons enforce.
+                        if val and val > 0 then
+                            val = math.min(60, math.max(1, val))
+                            HR.CfgSet("alertDuration", val)
+                            if durBox then durBox:SetText(tostring(val)) end
+                        end
+                    end,
+                })
+                durInput.frame:SetPoint("LEFT", durMinusBtn.frame, "RIGHT", 4, 0)
+                durBox = durInput.editBox
 
-    local durSecLbl = testFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    durSecLbl:SetPoint("LEFT", durPlusBtn.frame, "RIGHT", 6, 0)
-    durSecLbl:SetText(L["sec"])
+                local durPlusBtn = ns.ui.CreateButton({
+                    parent  = host,
+                    label   = "+",
+                    width   = 22,
+                    height  = 22,
+                })
+                durPlusBtn.frame:SetPoint("LEFT", durBox, "RIGHT", 4, 0)
 
-    AddModule(testFrame, 30)
+                durMinusBtn.frame:SetScript("OnClick", function()
+                    local v = tonumber(durBox:GetText()) or HR.CfgGet("alertDuration") or 5
+                    v = math.max(1, v - 1)
+                    durBox:SetText(tostring(v))
+                    HR.CfgSet("alertDuration", v)
+                end)
+                durPlusBtn.frame:SetScript("OnClick", function()
+                    local v = tonumber(durBox:GetText()) or HR.CfgGet("alertDuration") or 5
+                    v = math.min(60, v + 1)
+                    durBox:SetText(tostring(v))
+                    HR.CfgSet("alertDuration", v)
+                end)
 
-    -- ── Instance filter ───────────────────────────────────────────────────────
+                local durSecLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                durSecLbl:SetPoint("LEFT", durPlusBtn.frame, "RIGHT", 6, 0)
+                durSecLbl:SetText(L["sec"])
 
-    local iF = ns.ui.CreateInstanceFilter({
-        parent    = content,
-        getConfig = function() return HR.CfgGet("instanceFilter") end,
-        setConfig = function(key, val)
-            local filter = HR.CfgGet("instanceFilter")
-            filter[key] = val
-            HR.CfgSet("instanceFilter", filter)
-        end,
-    })
-    AddModule(iF.frame, iF.height)
+                return {
+                    frame   = host,
+                    height  = 30,
+                    Refresh = function()
+                        durBox:SetText(tostring(HR.CfgGet("alertDuration") or 5))
+                    end,
+                }
+            end,
+        },
 
-    -- ── Icon picker ───────────────────────────────────────────────────────────
+        -- ── Instance filter ───────────────────────────────────────────────────
+        {
+            type      = "instanceFilter",
+            getConfig = function() return HR.CfgGet("instanceFilter") end,
+            setConfig = function(key, val)
+                local filter = HR.CfgGet("instanceFilter")
+                filter[key] = val
+                HR.CfgSet("instanceFilter", filter)
+            end,
+        },
 
-    local ip = ns.ui.CreateIconPicker({
-        parent    = content,
-        getConfig = function() return HR.CfgGet("icon") end,
-        setConfig = function(key, val)
-            local cfg = HR.CfgGet("icon")
-            cfg[key] = val
-            HR.CfgSet("icon", cfg)
-            HR.ApplyIcon()
-        end,
-        icons = UNBUNK_ICONS or {},
-    })
-    AddModule(ip.frame, ip.height)
+        -- ── Icon picker ───────────────────────────────────────────────────────
+        {
+            type      = "iconPicker",
+            getConfig = function() return HR.CfgGet("icon") end,
+            setConfig = function(key, val)
+                local cfg = HR.CfgGet("icon")
+                cfg[key] = val
+                HR.CfgSet("icon", cfg)
+                HR.ApplyIcon()
+            end,
+            icons = UNBUNK_ICONS or {},
+        },
 
-    -- ── Sound picker ──────────────────────────────────────────────────────────
+        -- ── Sound picker ──────────────────────────────────────────────────────
+        -- The original called ns.ui.CreateSoundPicker(content, LSM) with no config,
+        -- relying on the HealerRange-specific defaults baked into that constructor
+        -- (soundKey/enableSound get/set, HR.PlaySound, L["Alert sound"] label). We
+        -- pass only the label and let those same defaults apply -> identical panel.
+        {
+            type  = "sound",
+            LSM   = LSM,
+            label = L["Alert sound"],
+        },
 
-    local soundResult = ns.ui.CreateSoundPicker(content, LSM)
-    AddModule(soundResult.frame, soundResult.height)
+        -- ── Text editor ───────────────────────────────────────────────────────
+        {
+            type            = "textEditor",
+            LSM             = LSM,
+            label           = L["Alert text"],
+            getText         = function() return HR.CfgGet("alertMessage") end,
+            getFontKey      = function() return HR.CfgGet("fontKey") end,
+            getFontPath     = function() return HR.CfgGet("fontPath") end,
+            getFontSize     = function() return HR.CfgGet("fontSize") end,
+            getColor        = function() return HR.CfgGet("color") end,
+            getOutline      = function() return HR.CfgGet("outline") end,
+            onTextChange    = function(txt)
+                HR.CfgSet("alertMessage", txt)
+                if HR.ApplyMessage then HR.ApplyMessage() end
+            end,
+            onFontChange    = function(key, path)
+                HR.CfgSet("fontKey", key)
+                HR.CfgSet("fontPath", path)
+                if HR.ApplyFont then HR.ApplyFont() end
+            end,
+            onSizeChange    = function(size)
+                HR.CfgSet("fontSize", size)
+                if HR.ApplyFont then HR.ApplyFont() end
+            end,
+            onColorChange   = function(r, g, b, a)
+                HR.CfgSet("color", { r=r, g=g, b=b, a=a })
+                if HR.ApplyColor then HR.ApplyColor() end
+            end,
+            onOutlineChange = function(outline)
+                HR.CfgSet("outline", outline)
+                if HR.ApplyFont then HR.ApplyFont() end
+            end,
+        },
 
-    -- ── Text editor ───────────────────────────────────────────────────────────
+        -- ── Position editor (named ref captured into HR.pe for drag callbacks) ─
+        {
+            type        = "position",
+            ref         = "pe",
+            onBuilt     = function(w) HR.pe = w end,
+            label       = L["Alert position (offset from screen center)"],
+            getX        = function() return HR.CfgGet("posX") end,
+            getY        = function() return HR.CfgGet("posY") end,
+            onApply     = function(x, yv)
+                if x  then HR.CfgSet("posX", x)  end
+                if yv then HR.CfgSet("posY", yv) end
+                if HR.ApplyPosition then HR.ApplyPosition() end
+            end,
+            onUnlock    = function()
+                if HR.SetUnlocked then HR.SetUnlocked(true) end
+                print(L["|cffff4444[UnbunkUtility]|r Alert unlocked — drag to reposition, then click Lock to save."])
+            end,
+            onLock      = function()
+                if HR.SetUnlocked then HR.SetUnlocked(false) end
+            end,
+            isUnlocked  = function()
+                return HR.IsUnlocked and HR.IsUnlocked() or false
+            end,
+        },
+    }
 
-    local te = ns.ui.CreateTextEditor(content, {
-        LSM             = LSM,
-        label           = L["Alert text"],
-        getText         = function() return HR.CfgGet("alertMessage") end,
-        getFontKey      = function() return HR.CfgGet("fontKey") end,
-        getFontPath     = function() return HR.CfgGet("fontPath") end,
-        getFontSize     = function() return HR.CfgGet("fontSize") end,
-        getColor        = function() return HR.CfgGet("color") end,
-        getOutline      = function() return HR.CfgGet("outline") end,
-        onTextChange    = function(txt)
-            HR.CfgSet("alertMessage", txt)
-            if HR.ApplyMessage then HR.ApplyMessage() end
-        end,
-        onFontChange    = function(key, path)
-            HR.CfgSet("fontKey", key)
-            HR.CfgSet("fontPath", path)
-            if HR.ApplyFont then HR.ApplyFont() end
-        end,
-        onSizeChange    = function(size)
-            HR.CfgSet("fontSize", size)
-            if HR.ApplyFont then HR.ApplyFont() end
-        end,
-        onColorChange   = function(r, g, b, a)
-            HR.CfgSet("color", { r=r, g=g, b=b, a=a })
-            if HR.ApplyColor then HR.ApplyColor() end
-        end,
-        onOutlineChange = function(outline)
-            HR.CfgSet("outline", outline)
-            if HR.ApplyFont then HR.ApplyFont() end
-        end,
-    })
-    AddModule(te.frame, te.height)
-
-    -- ── Position editor ───────────────────────────────────────────────────────
-
-    HR.pe = ns.ui.CreatePositionEditor(content, {
-        label       = L["Alert position (offset from screen center)"],
-        getX        = function() return HR.CfgGet("posX") end,
-        getY        = function() return HR.CfgGet("posY") end,
-        onApply     = function(x, yv)
-            if x  then HR.CfgSet("posX", x)  end
-            if yv then HR.CfgSet("posY", yv) end
-            if HR.ApplyPosition then HR.ApplyPosition() end
-        end,
-        onUnlock    = function()
-            if HR.SetUnlocked then HR.SetUnlocked(true) end
-            print(L["|cffff4444[UnbunkUtility]|r Alert unlocked — drag to reposition, then click Lock to save."])
-        end,
-        onLock      = function()
-            if HR.SetUnlocked then HR.SetUnlocked(false) end
-        end,
-        isUnlocked  = function()
-            return HR.IsUnlocked and HR.IsUnlocked() or false
-        end,
-    })
-    AddModule(HR.pe.frame, HR.pe.height)
-
-    local function RefreshProbeStatus()
-        if not HR.HasCombatProbe() then
-            probeMsg:SetText(L["|cffff4444Combat range detection unavailable — your class has no friendly spell probe usable in combat. The alert will not trigger.|r"])
-        else
-            probeMsg:SetText(L["|cff00ff00Combat range detection available. Note: Evoker healers are ignored unless other healers are present in the group.|r"])
-        end
-    end
-
-    parent:HookScript("OnShow", function()
-        enableCheckbox.SetChecked(HR.CfgGet("enabled") ~= false)
-        soundResult.Refresh()
-        te.Refresh()
-        durBox:SetText(tostring(HR.CfgGet("alertDuration") or 5))
-        if HR.pe then HR.pe.Refresh() end
-        iF.Refresh()
-        ip.Refresh()
-        RefreshProbeStatus()
-    end)
+    -- gap=12, width=518, autoHook=true -> the per-entry Refresh closures (enable
+    -- checkbox, probe status, duration box, instance filter, icon picker, sound,
+    -- text editor, position) are collected and re-run on OnShow automatically.
+    local menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
+    return menu
 end
 
 -- ── Registration ──────────────────────────────────────────────────────────────

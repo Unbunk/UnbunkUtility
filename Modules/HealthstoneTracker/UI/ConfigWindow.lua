@@ -7,290 +7,268 @@ local HT = ns.HealthstoneTracker
 
 local function CreateHealthstoneTrackerPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    local menu  -- forward declare so closures can reach menu.refs.pe
 
-    local content = CreateFrame("Frame", nil, parent)
-    content:SetAllPoints(parent)
+    local options = {
+        -- ── Test button (toggles Test / Stop Test) ────────────────────────────
+        {
+            type   = "custom",
+            height = 30,
+            build  = function(host)
+                local testBtn
+                local function RefreshTestBtn()
+                    testBtn.SetText(HT.IsTesting() and L["Stop Test"] or L["Test"])
+                end
 
-    local GAP = 12
-    local lastFrame = nil
+                testBtn = ns.ui.CreateButton({
+                    parent  = host,
+                    label   = L["Test"],
+                    width   = 100,
+                    height  = 22,
+                    onClick = function()
+                        if HT.IsTesting() then
+                            HT.StopTest()
+                        else
+                            HT.RunTest()
+                        end
+                        RefreshTestBtn()
+                    end,
+                })
+                testBtn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -4)
 
-    local function AddModule(moduleFrame, moduleHeight)
-        moduleFrame:SetWidth(518)
-        if lastFrame then
-            moduleFrame:SetPoint("TOPLEFT", lastFrame, "BOTTOMLEFT", 0, -GAP)
-        else
-            moduleFrame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
-        end
-        lastFrame = moduleFrame
-    end
+                return {
+                    frame   = host,
+                    height  = 30,
+                    Refresh = RefreshTestBtn,
+                }
+            end,
+        },
 
-    -- ── Test button (toggles Test / Stop Test) ───────────────────────────────
-
-    local testFrame = CreateFrame("Frame", nil, content)
-    testFrame:SetHeight(30)
-
-    local testBtn
-    local function RefreshTestBtn()
-        testBtn.SetText(HT.IsTesting() and L["Stop Test"] or L["Test"])
-    end
-
-    testBtn = ns.ui.CreateButton({
-        parent  = testFrame,
-        label   = L["Test"],
-        width   = 100,
-        height  = 22,
-        onClick = function()
-            if HT.IsTesting() then
-                HT.StopTest()
-            else
-                HT.RunTest()
-            end
-            RefreshTestBtn()
-        end,
-    })
-    testBtn.frame:SetPoint("TOPLEFT", testFrame, "TOPLEFT", 0, -4)
-
-    AddModule(testFrame, 30)
-
-    -- ── Enable checkbox ───────────────────────────────────────────────────────
-
-    local enableFrame = CreateFrame("Frame", nil, content)
-    enableFrame:SetHeight(24)
-    local enableCb = ns.ui.CreateCheckbox({
-        parent  = enableFrame,
-        label   = L["Enable Healthstone Tracker"],
-        checked = HT.CfgGet("enabled") ~= false,
-        onClick = function(val)
-            HT.CfgSet("enabled", val)
-            HT.ApplyAll()
-        end,
-    })
-    enableCb.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
-    AddModule(enableFrame, 24)
-
-    -- ── Instance filter ───────────────────────────────────────────────────────
-
-    local iF = ns.ui.CreateInstanceFilter({
-        parent    = content,
-        getConfig = function() return HT.CfgGet("instanceFilter") end,
-        setConfig = function(key, val)
-            local filter = HT.CfgGet("instanceFilter")
-            filter[key] = val
-            HT.CfgSet("instanceFilter", filter)
-        end,
-    })
-    AddModule(iF.frame, iF.height)
-
-    -- ── Sound on use ──────────────────────────────────────────────────────────
-
-    local soundUseResult = ns.ui.CreateSoundPicker(content, LSM, {
-        label          = L["Sound on use"],
-        getSoundKey    = function() return HT.CfgGet("soundKeyUse") end,
-        getSoundEnable = function() return HT.CfgGet("soundOnUse") end,
-        onSoundSelect  = function(key, path)
-            HT.CfgSet("soundKeyUse", key)
-            HT.CfgSet("soundPathUse", path)
-        end,
-        onEnableToggle = function(val) HT.CfgSet("soundOnUse", val) end,
-        onTest         = function() HT.PlaySound("soundUse") end,
-    })
-    AddModule(soundUseResult.frame, soundUseResult.height)
-
-    -- ── Sound when ready ──────────────────────────────────────────────────────
-
-    local soundReadyResult = ns.ui.CreateSoundPicker(content, LSM, {
-        label          = L["Sound when ready"],
-        getSoundKey    = function() return HT.CfgGet("soundKeyReady") end,
-        getSoundEnable = function() return HT.CfgGet("soundOnReady") end,
-        onSoundSelect  = function(key, path)
-            HT.CfgSet("soundKeyReady", key)
-            HT.CfgSet("soundPathReady", path)
-        end,
-        onEnableToggle = function(val) HT.CfgSet("soundOnReady", val) end,
-        onTest         = function() HT.PlaySound("soundReady") end,
-    })
-    AddModule(soundReadyResult.frame, soundReadyResult.height)
-
-    -- ── Show icon checkbox ────────────────────────────────────────────────────
-
-    local showIconFrame = CreateFrame("Frame", nil, content)
-    showIconFrame:SetHeight(24)
-    local showIconCb = ns.ui.CreateCheckbox({
-        parent  = showIconFrame,
-        label   = L["Show icon"],
-        checked = HT.CfgGet("showIcon") ~= false,
-        onClick = function(val)
-            HT.CfgSet("showIcon", val)
-            HT.ApplyAll()
-        end,
-    })
-    showIconCb.frame:SetPoint("TOPLEFT", showIconFrame, "TOPLEFT", 0, 0)
-    AddModule(showIconFrame, 24)
-
-    -- ── Icon size ─────────────────────────────────────────────────────────────
-
-    local sizeFrame = CreateFrame("Frame", nil, content)
-    sizeFrame:SetHeight(46)
-
-    local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
-    sizeLbl:SetText(L["Icon size"])
-
-    local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
-    wLbl:SetText(L["W"])
-
-    local wInput = ns.ui.CreateTextInput({
-        parent     = sizeFrame,
-        width      = 46,
-        height     = 22,
-        numeric    = true,
-        min        = 8,
-        max        = 512,
-        maxLetters = 3,
-        text       = tostring(HT.CfgGet("iconWidth") or 30),
-        onEnter    = function(val)
-            if val and val > 0 then
-                HT.CfgSet("iconWidth", val)
-                local t = HT.GetTracker()
-                if t and t.ApplySize then t.ApplySize() end
+        -- ── Enable checkbox ───────────────────────────────────────────────────
+        {
+            type   = "checkbox",
+            label  = L["Enable Healthstone Tracker"],
+            get    = function() return HT.CfgGet("enabled") ~= false end,
+            set    = function(val)
+                HT.CfgSet("enabled", val)
                 HT.ApplyAll()
-            end
-        end,
-    })
-    wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+            end,
+        },
 
-    local hLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
-    hLbl:SetText(L["H"])
+        -- ── Instance filter ───────────────────────────────────────────────────
+        {
+            type      = "instanceFilter",
+            getConfig = function() return HT.CfgGet("instanceFilter") end,
+            setConfig = function(key, val)
+                local filter = HT.CfgGet("instanceFilter")
+                filter[key] = val
+                HT.CfgSet("instanceFilter", filter)
+            end,
+        },
 
-    local hInput = ns.ui.CreateTextInput({
-        parent     = sizeFrame,
-        width      = 46,
-        height     = 22,
-        numeric    = true,
-        min        = 8,
-        max        = 512,
-        maxLetters = 3,
-        text       = tostring(HT.CfgGet("iconHeight") or 30),
-        onEnter    = function(val)
-            if val and val > 0 then
-                HT.CfgSet("iconHeight", val)
-                local t = HT.GetTracker()
-                if t and t.ApplySize then t.ApplySize() end
+        -- ── Sound on use ──────────────────────────────────────────────────────
+        {
+            type      = "sound",
+            LSM       = LSM,
+            label     = L["Sound on use"],
+            getKey    = function() return HT.CfgGet("soundKeyUse") end,
+            getEnable = function() return HT.CfgGet("soundOnUse") end,
+            onSelect  = function(key, path)
+                HT.CfgSet("soundKeyUse", key)
+                HT.CfgSet("soundPathUse", path)
+            end,
+            onToggle  = function(val) HT.CfgSet("soundOnUse", val) end,
+            onTest    = function() HT.PlaySound("soundUse") end,
+        },
+
+        -- ── Sound when ready ──────────────────────────────────────────────────
+        {
+            type      = "sound",
+            LSM       = LSM,
+            label     = L["Sound when ready"],
+            getKey    = function() return HT.CfgGet("soundKeyReady") end,
+            getEnable = function() return HT.CfgGet("soundOnReady") end,
+            onSelect  = function(key, path)
+                HT.CfgSet("soundKeyReady", key)
+                HT.CfgSet("soundPathReady", path)
+            end,
+            onToggle  = function(val) HT.CfgSet("soundOnReady", val) end,
+            onTest    = function() HT.PlaySound("soundReady") end,
+        },
+
+        -- ── Show icon checkbox ────────────────────────────────────────────────
+        {
+            type   = "checkbox",
+            label  = L["Show icon"],
+            get    = function() return HT.CfgGet("showIcon") ~= false end,
+            set    = function(val)
+                HT.CfgSet("showIcon", val)
                 HT.ApplyAll()
-            end
-        end,
-    })
-    hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+            end,
+        },
 
-    AddModule(sizeFrame, 46)
+        -- ── Icon size  W / H  (composite -> custom escape hatch) ──────────────
+        {
+            type   = "custom",
+            height = 46,
+            build  = function(host)
+                local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                sizeLbl:SetText(L["Icon size"])
 
-    -- ── Position editor ───────────────────────────────────────────────────────
+                local wLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
+                wLbl:SetText(L["W"])
 
-    HT.pe = ns.ui.CreatePositionEditor(content, {
-        label      = L["Icon position (offset from screen center)"],
-        getX       = function() return HT.CfgGet("posX") end,
-        getY       = function() return HT.CfgGet("posY") end,
-        onApply    = function(x, yv)
-            if x  then HT.CfgSet("posX", x)  end
-            if yv then HT.CfgSet("posY", yv) end
-            HT.ApplyAll()
-        end,
-        onUnlock   = function() HT.SetUnlocked(true)  end,
-        onLock     = function()
-            HT.SetUnlocked(false)
-            if HT.pe then HT.pe.Refresh() end
-        end,
-        isUnlocked = function() return HT.IsUnlocked() end,
-    })
-    AddModule(HT.pe.frame, HT.pe.height)
+                local wInput = ns.ui.CreateTextInput({
+                    parent     = host,
+                    width      = 46,
+                    height     = 22,
+                    numeric    = true,
+                    min        = 8,
+                    max        = 512,
+                    maxLetters = 3,
+                    text       = tostring(HT.CfgGet("iconWidth") or 30),
+                    onEnter    = function(val)
+                        if val and val > 0 then
+                            HT.CfgSet("iconWidth", val)
+                            local t = HT.GetTracker()
+                            if t and t.ApplySize then t.ApplySize() end
+                            HT.ApplyAll()
+                        end
+                    end,
+                })
+                wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
 
-    -- ── Timer text editor ─────────────────────────────────────────────────────
+                local hLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
+                hLbl:SetText(L["H"])
 
-    local te = ns.ui.CreateTextEditor(content, {
-        LSM             = LSM,
-        label           = L["Timer text"],
-        showText        = false,
-        showFont        = true,
-        showSize        = true,
-        showColor       = true,
-        showOutline     = true,
-        getFontKey      = function() return HT.CfgGet("timerFontKey") end,
-        getFontPath     = function() return HT.CfgGet("timerFontPath") end,
-        getFontSize     = function() return HT.CfgGet("timerFontSize") end,
-        getColor        = function() return HT.CfgGet("timerColor") end,
-        getOutline      = function() return HT.CfgGet("timerOutline") end,
-        onFontChange    = function(key, path)
-            HT.CfgSet("timerFontKey", key)
-            HT.CfgSet("timerFontPath", path)
-            HT.ApplyTimerVisuals()
-        end,
-        onSizeChange    = function(size)
-            HT.CfgSet("timerFontSize", size)
-            HT.ApplyTimerVisuals()
-        end,
-        onColorChange   = function(r, g, b, a)
-            HT.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
-            HT.ApplyTimerVisuals()
-        end,
-        onOutlineChange = function(outline)
-            HT.CfgSet("timerOutline", outline)
-            HT.ApplyTimerVisuals()
-        end,
-    })
-    AddModule(te.frame, te.height)
+                local hInput = ns.ui.CreateTextInput({
+                    parent     = host,
+                    width      = 46,
+                    height     = 22,
+                    numeric    = true,
+                    min        = 8,
+                    max        = 512,
+                    maxLetters = 3,
+                    text       = tostring(HT.CfgGet("iconHeight") or 30),
+                    onEnter    = function(val)
+                        if val and val > 0 then
+                            HT.CfgSet("iconHeight", val)
+                            local t = HT.GetTracker()
+                            if t and t.ApplySize then t.ApplySize() end
+                            HT.ApplyAll()
+                        end
+                    end,
+                })
+                hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
 
-    -- ── Stack text editor ────────────────────────────────────────────────────
+                return {
+                    frame   = host,
+                    height  = 46,
+                    Refresh = function()
+                        wInput.SetText(tostring(HT.CfgGet("iconWidth")  or 30))
+                        hInput.SetText(tostring(HT.CfgGet("iconHeight") or 30))
+                    end,
+                }
+            end,
+        },
 
-    local ste = ns.ui.CreateTextEditor(content, {
-        LSM             = LSM,
-        label           = L["Stack text"],
-        showText        = false,
-        showFont        = true,
-        showSize        = true,
-        showColor       = true,
-        showOutline     = true,
-        getFontKey      = function() return HT.CfgGet("stackFontKey") end,
-        getFontPath     = function() return HT.CfgGet("stackFontPath") end,
-        getFontSize     = function() return HT.CfgGet("stackFontSize") end,
-        getColor        = function() return HT.CfgGet("stackColor") end,
-        getOutline      = function() return HT.CfgGet("stackOutline") end,
-        onFontChange    = function(key, path)
-            HT.CfgSet("stackFontKey", key)
-            HT.CfgSet("stackFontPath", path)
-            HT.ApplyStackVisuals()
-        end,
-        onSizeChange    = function(size)
-            HT.CfgSet("stackFontSize", size)
-            HT.ApplyStackVisuals()
-        end,
-        onColorChange   = function(r, g, b, a)
-            HT.CfgSet("stackColor", { r = r, g = g, b = b, a = a })
-            HT.ApplyStackVisuals()
-        end,
-        onOutlineChange = function(outline)
-            HT.CfgSet("stackOutline", outline)
-            HT.ApplyStackVisuals()
-        end,
-    })
-    AddModule(ste.frame, ste.height)
+        -- ── Position editor (named ref for the onLock self-refresh) ───────────
+        {
+            type       = "position",
+            ref        = "pe",
+            onBuilt    = function(w) HT.pe = w end,
+            label      = L["Icon position (offset from screen center)"],
+            getX       = function() return HT.CfgGet("posX") end,
+            getY       = function() return HT.CfgGet("posY") end,
+            onApply    = function(x, yv)
+                if x  then HT.CfgSet("posX", x)  end
+                if yv then HT.CfgSet("posY", yv) end
+                HT.ApplyAll()
+            end,
+            onUnlock   = function() HT.SetUnlocked(true)  end,
+            onLock     = function()
+                HT.SetUnlocked(false)
+                if HT.pe then HT.pe.Refresh() end
+            end,
+            isUnlocked = function() return HT.IsUnlocked() end,
+        },
 
-    -- ── OnShow refresh ────────────────────────────────────────────────────────
+        -- ── Timer text ────────────────────────────────────────────────────────
+        {
+            type            = "textEditor",
+            LSM             = LSM,
+            label           = L["Timer text"],
+            showText        = false,
+            showFont        = true,
+            showSize        = true,
+            showColor       = true,
+            showOutline     = true,
+            getFontKey      = function() return HT.CfgGet("timerFontKey") end,
+            getFontPath     = function() return HT.CfgGet("timerFontPath") end,
+            getFontSize     = function() return HT.CfgGet("timerFontSize") end,
+            getColor        = function() return HT.CfgGet("timerColor") end,
+            getOutline      = function() return HT.CfgGet("timerOutline") end,
+            onFontChange    = function(key, path)
+                HT.CfgSet("timerFontKey", key)
+                HT.CfgSet("timerFontPath", path)
+                HT.ApplyTimerVisuals()
+            end,
+            onSizeChange    = function(size)
+                HT.CfgSet("timerFontSize", size)
+                HT.ApplyTimerVisuals()
+            end,
+            onColorChange   = function(r, g, b, a)
+                HT.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
+                HT.ApplyTimerVisuals()
+            end,
+            onOutlineChange = function(outline)
+                HT.CfgSet("timerOutline", outline)
+                HT.ApplyTimerVisuals()
+            end,
+        },
 
-    parent:HookScript("OnShow", function()
-        RefreshTestBtn()
-        enableCb.SetChecked(HT.CfgGet("enabled") ~= false)
-        showIconCb.SetChecked(HT.CfgGet("showIcon") ~= false)
-        iF.Refresh()
-        soundUseResult.Refresh()
-        soundReadyResult.Refresh()
-        wInput.SetText(tostring(HT.CfgGet("iconWidth") or 30))
-        hInput.SetText(tostring(HT.CfgGet("iconHeight") or 30))
-        HT.pe.Refresh()
-        te.Refresh()
-        ste.Refresh()
-    end)
+        -- ── Stack text ────────────────────────────────────────────────────────
+        {
+            type            = "textEditor",
+            LSM             = LSM,
+            label           = L["Stack text"],
+            showText        = false,
+            showFont        = true,
+            showSize        = true,
+            showColor       = true,
+            showOutline     = true,
+            getFontKey      = function() return HT.CfgGet("stackFontKey") end,
+            getFontPath     = function() return HT.CfgGet("stackFontPath") end,
+            getFontSize     = function() return HT.CfgGet("stackFontSize") end,
+            getColor        = function() return HT.CfgGet("stackColor") end,
+            getOutline      = function() return HT.CfgGet("stackOutline") end,
+            onFontChange    = function(key, path)
+                HT.CfgSet("stackFontKey", key)
+                HT.CfgSet("stackFontPath", path)
+                HT.ApplyStackVisuals()
+            end,
+            onSizeChange    = function(size)
+                HT.CfgSet("stackFontSize", size)
+                HT.ApplyStackVisuals()
+            end,
+            onColorChange   = function(r, g, b, a)
+                HT.CfgSet("stackColor", { r = r, g = g, b = b, a = a })
+                HT.ApplyStackVisuals()
+            end,
+            onOutlineChange = function(outline)
+                HT.CfgSet("stackOutline", outline)
+                HT.ApplyStackVisuals()
+            end,
+        },
+    }
+
+    -- gap=12, width=518, autoHook=true -> OnShow re-sync is generated automatically.
+    menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
+    -- NOTE: no parent:HookScript("OnShow", ...) here anymore — BuildMenu did it.
+    return menu
 end
 
 -- ── Registration ──────────────────────────────────────────────────────────────

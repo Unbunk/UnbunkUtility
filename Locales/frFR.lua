@@ -42,6 +42,8 @@ L["|cffff4444[UnbunkUtility]|r Profile already exists: %s"] = "|cffff4444[Unbunk
 L["|cffff4444[UnbunkUtility]|r Profile reset to defaults: %s"] = "|cffff4444[UnbunkUtility]|r Profil réinitialisé : %s"
 L["|cffff4444[UnbunkUtility]|r Profile imported successfully."] = "|cffff4444[UnbunkUtility]|r Profil importé avec succès."
 L["|cffff4444[UnbunkUtility]|r Import failed: %s"] = "|cffff4444[UnbunkUtility]|r Échec de l'import : %s"
+L["not an UnbunkUtility profile"] = "ce n'est pas un profil UnbunkUtility"
+L["invalid profile data"] = "données de profil invalides"
 
 -- ── Module / tab names ───────────────────────────────────────────────────────
 L["General Settings"] = "Réglages généraux"
@@ -53,6 +55,7 @@ L["Healthstone Tracker"] = "Suivi des pierres de soin"
 L["Trinket Tracker"] = "Suivi des bijoux"
 L["PI Tracker"] = "Suivi PI"
 L["BRez Tracker"] = "Suivi BRez"
+L["Death Anim"] = "Anim. mort"
 
 -- ── Common labels ────────────────────────────────────────────────────────────
 L["Test"] = "Test"
@@ -92,6 +95,8 @@ L["Outdoor"] = "Extérieur"
 -- ── Positions / sides ────────────────────────────────────────────────────────
 L["Left"] = "Gauche"
 L["Right"] = "Droite"
+L["Above"] = "Au-dessus"
+L["Below"] = "En dessous"
 L["Top Left"] = "Haut gauche"
 L["Top Center"] = "Haut centre"
 L["Top Right"] = "Haut droite"
@@ -159,6 +164,8 @@ L["Multi-alert combo sounds"] = "Sons combo multi-alertes"
 L["Enable combo sounds (collapse near-simultaneous tracker sounds into one)"] = "Activer les sons combo (fusionne les sons quasi simultanés en un seul)"
 L["BL combo (Bloodlust + Potion / Trinket)"] = "Combo BL (Bloodlust + Potion / Bijou)"
 L["Potion combo (Potion + Trinket, without BL)"] = "Combo potion (Potion + Bijou, sans BL)"
+
+L["|cffaaaaaaThese settings apply to all profiles.|r"] = "|cffaaaaaaCes réglages s'appliquent à tous les profils.|r"
 
 -- ── Boss reset sound (General Settings) ──────────────────────────────────────
 L["Boss reset sound"] = "Son de reset de boss"

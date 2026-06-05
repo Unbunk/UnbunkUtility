@@ -1,7 +1,7 @@
 -- Modules/MinimapIcon/Core/MinimapIcon.lua
 -- Minimap button to open the UnbunkUtility config window. Self-contained
 -- (no LibDBIcon dependency); position is stored as an angle around the
--- minimap edge in UnbunkUtilityDB.minimap.
+-- minimap edge in ns.db.global.minimap.
 
 local _, ns = ...
 local L = ns.L
@@ -21,9 +21,8 @@ local DEFAULTS = {
 }
 
 local function CfgInit()
-    UnbunkUtilityDB = UnbunkUtilityDB or {}
-    UnbunkUtilityDB.minimap = UnbunkUtilityDB.minimap or {}
-    ns.MergeDefaults(UnbunkUtilityDB.minimap, DEFAULTS)
+    ns.db.global.minimap = ns.db.global.minimap or {}
+    ns.MergeDefaults(ns.db.global.minimap, DEFAULTS)
 end
 
 ns.RegisterCfgInitHook(CfgInit)
@@ -32,7 +31,8 @@ local button
 
 local function UpdatePosition()
     if not button then return end
-    local cfg    = UnbunkUtilityDB.minimap
+    local cfg    = ns.db and ns.db.global.minimap
+    if not cfg then return end
     local angle  = math.rad(cfg.angle or 200)
     local radius = cfg.radius or 80
     button:ClearAllPoints()
@@ -47,6 +47,9 @@ local function CreateButton()
     button:SetSize(32, 32)
     button:SetFrameStrata("MEDIUM")
     button:SetFrameLevel(8)
+    -- Keep the button on screen even when the minimap is dragged near an edge,
+    -- so it never ends up off-screen and unclickable.
+    button:SetClampedToScreen(true)
     -- Only left-click is handled (matches the tooltip). Right-click is a no-op;
     -- there is no context menu, so it is deliberately not registered.
     button:RegisterForClicks("LeftButtonUp")
@@ -87,8 +90,14 @@ local function CreateButton()
     button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- Drag — recompute the angle from the cursor's position relative to the
-    -- minimap center so the button stays on the minimap edge.
-    local function UpdateAngleFromCursor()
+    -- minimap center so the button stays on the minimap edge. Throttled to
+    -- ~50 Hz: a repositioning drag doesn't need the per-frame atan2/cos/sin.
+    local DRAG_THROTTLE = 0.02
+    local dragAccum = 0
+    local function UpdateAngleFromCursor(_, elapsed)
+        dragAccum = dragAccum + (elapsed or 0)
+        if dragAccum < DRAG_THROTTLE then return end
+        dragAccum = 0
         local cx, cy = Minimap:GetCenter()
         if not cx then return end
         local scale = Minimap:GetEffectiveScale()
@@ -96,10 +105,11 @@ local function CreateButton()
         mx, my = mx / scale, my / scale
         local angle = math.deg(math.atan2(my - cy, mx - cx))
         if angle < 0 then angle = angle + 360 end
-        UnbunkUtilityDB.minimap.angle = angle
+        if ns.db then ns.db.global.minimap.angle = angle end
         UpdatePosition()
     end
     button:SetScript("OnDragStart", function(self)
+        dragAccum = 0
         self:SetScript("OnUpdate", UpdateAngleFromCursor)
     end)
     button:SetScript("OnDragStop", function(self)
@@ -111,24 +121,26 @@ end
 
 -- Public API so a future config toggle can hide / show the button.
 function ns.MinimapIcon_SetHidden(hide)
+    if not ns.db then return end
     CfgInit()
-    UnbunkUtilityDB.minimap.hide = hide and true or false
+    ns.db.global.minimap.hide = hide and true or false
     if not button then return end
     if hide then button:Hide() else button:Show() end
 end
 
 function ns.MinimapIcon_IsHidden()
-    return UnbunkUtilityDB and UnbunkUtilityDB.minimap
-        and UnbunkUtilityDB.minimap.hide == true
+    return ns.db and ns.db.global.minimap
+        and ns.db.global.minimap.hide == true
 end
 
+-- Button/visual setup runs on PLAYER_LOGIN, which fires after Core/DB.lua's
+-- ADDON_LOADED Bootstrap has created ns.db and run the CfgInit hooks (so
+-- ns.db.global.minimap is already merged with DEFAULTS by this point).
 local init = CreateFrame("Frame")
-init:RegisterEvent("ADDON_LOADED")
-init:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
-    CfgInit()
+init:RegisterEvent("PLAYER_LOGIN")
+init:SetScript("OnEvent", function(self)
     CreateButton()
     UpdatePosition()
-    if UnbunkUtilityDB.minimap.hide then button:Hide() end
-    self:UnregisterEvent("ADDON_LOADED")
+    if ns.db and ns.db.global.minimap and ns.db.global.minimap.hide then button:Hide() end
+    self:UnregisterEvent("PLAYER_LOGIN")
 end)

@@ -101,6 +101,12 @@ function ns.ui.CreatePositionEditor(parent, config)
     end)
 
     parent:HookScript("OnHide", function()
+        -- If the panel is hidden (tab switch / window close) while still
+        -- unlocked, run the lock callback so the target frame is actually
+        -- re-locked via the consumer's SetUnlocked(false). Without this it
+        -- stays movable + force-shown until the config is reopened and Lock
+        -- is clicked manually.
+        if currentlyUnlocked and onLock then onLock() end
         currentlyUnlocked = false
         unlockBtnWidget.SetText(L["Unlock"])
     end)

@@ -4,6 +4,64 @@
 
 local ADDON, ns = ...
 
+local AceEvent = LibStub("AceEvent-3.0")
+local AceTimer = LibStub("AceTimer-3.0")
+
+-- ── Output ──────────────────────────────────────────────────────────────────
+-- Single source for the chat prefix + a print helper, so the coloured tag is
+-- defined once instead of being copy-pasted as a literal across files.
+ns.PREFIX = "|cffff4444[UnbunkUtility]|r "
+
+function ns.Print(msg)
+    print(ns.PREFIX .. tostring(msg))
+end
+
+-- mm:ss formatter shared by the trackers (BRes icon + player list). Floors the
+-- remaining seconds first so the minutes/seconds split can't disagree.
+function ns.FormatMMSS(remain)
+    if not remain or remain < 0 then remain = 0 end
+    local total = math.floor(remain)
+    return string.format("%d:%02d", math.floor(total / 60), total % 60)
+end
+
+-- ── Never-secret auras ───────────────────────────────────────────────────────
+-- In combat WoW hides ("secret values") most aura fields from addons, so reading
+-- expirationTime/duration/icon off such an aura breaks any timer driven from it.
+-- Only the auras in this set stay readable in combat. Beneficial buffs
+-- (Bloodlust, combat potions, on-use trinkets) are NOT in it, which is why their
+-- green "active" timer can't be derived in combat — the fatigue debuffs
+-- (Sated/Exhaustion/Temporal Displacement/Insanity/Fatigued) ARE never-secret,
+-- so trackers fall back to them. List provided by the addon author; keep in sync
+-- with the in-game source.
+do
+    local ids = {
+        33763, 17, 774, 395152, 462854, 124682, 139, 115175, 1126, 6673, 8936,
+        1459, 974, 155777, 381637, 21562, 53563, 360827, 48438, 1217607, 156322,
+        413984, 61295, 364343, 369459, 200025, 156910, 382021, 366155, 2823,
+        1253593, 439530, 3408, 410089, 26013, 433568, 71041, 194384, 5761,
+        457496, 315584, 367364, 381664, 57724, 8679, 119611, 57723, 395296,
+        457481, 205473, 382024, 124255, 404468, 462757, 447959, 431381, 433583,
+        80354, 381754, 260286, 264689, 77489, 381756, 410686, 450769, 404464,
+        418590, 381732, 1225789, 319773, 355941, 383648, 41635, 363502, 381741,
+        390435, 447960, 381749, 381753, 1244893, 207400, 410263, 444490, 1292922,
+        388367, 409895, 381746, 381758, 382022, 427490, 1227702, 373267, 381750,
+        462742, 95809, 377234, 381751, 376788, 381748, 381757, 405189, 319778,
+        381752, 474754, 344179, 1283888, 369968, 160455,
+    }
+    ns.NEVER_SECRET = {}
+    for _, id in ipairs(ids) do ns.NEVER_SECRET[id] = true end
+end
+
+-- True when an aura's timer fields can be trusted right now to drive a timer:
+-- either the aura is flagged never-secret, or we are out of combat (every aura
+-- is readable then). Call this before reading expirationTime/duration off an
+-- aura you intend to show a timer for, so a secret buff in combat can't break it.
+function ns.AuraTimerReadable(spellId)
+    if not spellId then return false end
+    if ns.NEVER_SECRET[spellId] then return true end
+    return not UnitAffectingCombat("player")
+end
+
 -- ── Instance filter ─────────────────────────────────────────────────────────
 -- Returns true when the module should be active in the current instance,
 -- based on the filter table { dungeon, raid, battleground, outdoor }.
@@ -57,7 +115,7 @@ function ns.RunReloadHooks()
     for _, fn in ipairs(ns.reloadHooks) do
         local ok, err = pcall(fn)
         if not ok then
-            print("|cffff4444[UnbunkUtility]|r reload hook error: " .. tostring(err))
+            ns.Print("reload hook error: " .. tostring(err))
         end
     end
 end
@@ -79,7 +137,7 @@ function ns.RunCfgInitHooks()
     for _, fn in ipairs(ns.cfgInitHooks) do
         local ok, err = pcall(fn)
         if not ok then
-            print("|cffff4444[UnbunkUtility]|r cfgInit hook error: " .. tostring(err))
+            ns.Print("cfgInit hook error: " .. tostring(err))
         end
     end
 end
@@ -115,6 +173,12 @@ function ns.CopyDefault(v)
     return copy
 end
 
+-- A plain deep copy of a value (scalars as-is, tables recursively cloned). Same
+-- implementation as CopyDefault; exposed under a neutral name so callers that
+-- aren't dealing with config defaults (e.g. the profile snapshotter) can share
+-- the single implementation instead of hand-rolling their own.
+ns.DeepCopy = ns.CopyDefault
+
 -- ── Sound playback ──────────────────────────────────────────────────────────
 -- Plays a configured sound: explicit file path > LSM key > nothing. `cfg` is
 -- the (sub)table holding the two keys. Replaces the per-module PlaySound copies
@@ -135,6 +199,73 @@ end
 
 -- Shared texture path for the green "ready" check used by the trackers.
 ns.GREEN_CHECK_TEXTURE = "Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\GreenCheck.tga"
+
+-- ── Learned buff durations (persisted) ───────────────────────────────────────
+-- In combat Blizzard makes the player's buff aura fields ("secret values")
+-- COMPLETELY unreadable: GetPlayerAuraBySpellID returns nil, and even the
+-- UNIT_AURA payload's duration/expirationTime are secret — merely COMPARING one
+-- errors and taints the addon. So an active-buff timer can't be derived from
+-- live data in combat. Instead we remember each buff's duration the first time
+-- we see it readable OUT of combat (where it is a normal number) and persist it
+-- across sessions in ns.db.global.auraDurations. Combined with the use event, that drives
+-- the in-combat green timer. Seeded with known values so common items work on
+-- the very first use without any prior out-of-combat observation.
+-- IMPORTANT: only ever pass a duration read OUT of combat here — never a secret.
+local AURA_DURATION_SEED = {
+    [1236994] = 30,  -- Potion of Recklessness
+}
+
+-- Session-only cache of durations parsed from a spell's static description
+-- (approximate; never persisted, so a later EXACT observation always wins).
+local parsedDuration = {}
+
+-- Best-effort: read the spell's STATIC description (readable in combat — it is
+-- spell data, not a secret aura value) and pull the "... for N sec/min" duration
+-- out of it. This is the "via the item" path: it lets a never-before-seen
+-- potion/trinket get a green timer on its very first in-combat use, with zero
+-- setup. Localised "sec"/"min" are matched as prefixes (covers enUS/frFR).
+local function ParseSpellDuration(spellId)
+    local desc
+    if C_Spell and C_Spell.GetSpellDescription then
+        desc = C_Spell.GetSpellDescription(spellId)
+    elseif GetSpellDescription then
+        desc = GetSpellDescription(spellId)
+    end
+    if type(desc) ~= "string" or desc == "" then return nil end
+    -- Take the LAST number before a sec/min unit (buff durations are stated last,
+    -- e.g. "increases Haste by 1418 for 30 sec").
+    local secs
+    for n in desc:gmatch("(%d+)%s*[sS]ec") do secs = tonumber(n) end
+    if secs and secs > 0 then return secs end
+    local mins
+    for n in desc:gmatch("(%d+)%s*[mM]in") do mins = tonumber(n) end
+    if mins and mins > 0 then return mins * 60 end
+    return nil
+end
+
+function ns.LearnAuraDuration(spellId, duration)
+    if not spellId or type(duration) ~= "number" or duration <= 0 then return end
+    if not ns.db then return end
+    ns.db.global.auraDurations = ns.db.global.auraDurations or {}
+    ns.db.global.auraDurations[spellId] = duration
+end
+
+function ns.GetAuraDuration(spellId)
+    if not spellId then return nil end
+    -- 1) Exact duration observed out of combat (persisted) or seeded.
+    local db = ns.db and ns.db.global.auraDurations
+    local d = (db and db[spellId]) or AURA_DURATION_SEED[spellId]
+    if d then return d end
+    -- 2) Best-effort parse from the spell description. Only positive results are
+    -- cached, so a description that is still loading (empty) is retried later
+    -- rather than permanently failing for the session.
+    local p = parsedDuration[spellId]
+    if not p then
+        p = ParseSpellDuration(spellId)
+        if p then parsedDuration[spellId] = p end
+    end
+    return p
+end
 
 -- ── Tracker icon layering ────────────────────────────────────────────────────
 -- Layer a tracker icon BELOW HIGH-strata UI panels (e.g. the talents/spellbook
@@ -166,9 +297,11 @@ function ns.RecentlyZoned()
     return (GetTime() - lastZoneAt) < ns.ZONE_SETTLE
 end
 
-local zoneGuard = CreateFrame("Frame")
-zoneGuard:RegisterEvent("PLAYER_ENTERING_WORLD")
-zoneGuard:SetScript("OnEvent", function() lastZoneAt = GetTime() end)
+local zoneGuard = {}
+AceEvent:Embed(zoneGuard)
+zoneGuard:RegisterEvent("PLAYER_ENTERING_WORLD", function(event)
+    lastZoneAt = GetTime()
+end)
 
 -- ── Combo sound coordinator ─────────────────────────────────────────────────
 -- Each tracker (BL / Potion / Trinket) routes its on-trigger sound through
@@ -181,18 +314,19 @@ zoneGuard:SetScript("OnEvent", function() lastZoneAt = GetTime() end)
 -- possible third — a human "full combo" (potion, trinket, THEN BL) is spread
 -- over a second or two and the BL is usually last. All three present → flush
 -- immediately. COMBO_MAX caps the total wait. The window is re-armed on every
--- trigger (debounce). Config lives in UnbunkUtilityDB.combo (global).
+-- trigger (debounce). Config lives in ns.db.global.combo (account-wide).
 
 local COMBO_GAP_SINGLE = 0.5  -- lone trigger: flush quickly
 local COMBO_GAP_MULTI  = 1.5  -- 2 categories pending: wait for a possible third
 local COMBO_MAX        = 3.0  -- never wait longer than this from the first trigger
 
 ns.combo = ns.combo or {}
+AceTimer:Embed(ns.combo)
 ns.combo.pending = {}
 ns.combo.timer   = nil
 ns.combo.firstAt = nil
 
-local function ComboCfg() return UnbunkUtilityDB and UnbunkUtilityDB.combo end
+local function ComboCfg() return ns.db and ns.db.global.combo end
 
 function ns.combo.IsEnabled()
     local c = ComboCfg()
@@ -200,17 +334,9 @@ function ns.combo.IsEnabled()
 end
 
 local function PlayConfiguredSound(pathKey, soundKey)
-    local cfg = ComboCfg()
-    if not cfg then return end
-    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-    local path = cfg[pathKey]
-    if path then
-        PlaySoundFile(path, "Master")
-    elseif LSM then
-        local key = cfg[soundKey]
-        local resolved = key and LSM:Fetch("sound", key)
-        if resolved then PlaySoundFile(resolved, "Master") end
-    end
+    -- Same path > LSM-key > nothing logic as every other sound; reuse the
+    -- shared helper instead of duplicating it here.
+    ns.PlaySoundFromCfg(ComboCfg(), pathKey, soundKey)
 end
 
 function ns.combo.PlayBLCombo()     PlayConfiguredSound("blPath",     "blKey")     end
@@ -265,7 +391,7 @@ function ns.combo.Notify(category, fallbackSoundFn)
     ns.combo.firstAt = ns.combo.firstAt or now
 
     -- Re-arm the flush timer on every trigger (debounce).
-    if ns.combo.timer then ns.combo.timer:Cancel(); ns.combo.timer = nil end
+    if ns.combo.timer then ns.combo:CancelTimer(ns.combo.timer); ns.combo.timer = nil end
 
     -- All three categories present: the top combo (BL + the two others) is
     -- already decided and no later trigger can improve it — flush immediately.
@@ -274,11 +400,18 @@ function ns.combo.Notify(category, fallbackSoundFn)
         return
     end
 
-    -- One category → likely a lone trigger, flush quickly. Two → a combo is
-    -- forming, so wait longer for a possible third. Capped at COMBO_MAX total.
-    local gap          = (catCount >= 2) and COMBO_GAP_MULTI or COMBO_GAP_SINGLE
-    local capRemaining = (ns.combo.firstAt + COMBO_MAX) - now
-    ns.combo.timer = C_Timer.NewTimer(math.min(gap, math.max(0, capRemaining)), ns.combo.Flush)
+    -- One category → likely a lone trigger, flush quickly (plain debounce, no
+    -- cap: a lone repeated trigger shouldn't be force-split mid-stream). Two →
+    -- a combo is forming, so wait longer for a possible third, but never longer
+    -- than COMBO_MAX from the first trigger.
+    local wait
+    if catCount >= 2 then
+        local capRemaining = (ns.combo.firstAt + COMBO_MAX) - now
+        wait = math.min(COMBO_GAP_MULTI, math.max(0, capRemaining))
+    else
+        wait = COMBO_GAP_SINGLE
+    end
+    ns.combo.timer = ns.combo:ScheduleTimer(ns.combo.Flush, wait)
 end
 
 -- ── Sound key migration ─────────────────────────────────────────────────────
@@ -287,8 +420,9 @@ end
 -- variant carries its loudness in the key. This map rewrites any value in a
 -- table that matches an old key to its new equivalent, so existing users do
 -- not lose their sounds when they update. Recursive so nested config tables
--- (e.g. PotionTracker.health.soundKeyUse) and profile snapshots in
--- UnbunkUtilityDB.profiles are migrated in one pass.
+-- (e.g. PotionTracker.health.soundKeyUse) are migrated in one pass. Applied to
+-- each active profile via the module CfgInit hooks, to imported blobs, and once
+-- to the legacy data during the AceDB migration (Core/DB.lua).
 local SOUND_KEY_MIGRATIONS = {
     -- v1 (pre-restructure): unsuffixed keys → new defaults.
     -- Most sounds default to High; BRez Ready/Used default to Medium.
@@ -340,9 +474,10 @@ function ns.MigrateSoundKeys(tbl)
     end
 end
 
--- ── General settings init ───────────────────────────────────────────────────
--- UnbunkUtilityDB lives across all profiles. Bootstraps the global config
--- sub-tables (combo, wipe, dpsSpam) when they are missing.
+-- ── Global settings init ────────────────────────────────────────────────────
+-- ns.db.global lives across all profiles (account-wide). Bootstraps the global
+-- config sub-tables (combo, wipe, dpsSpam, bossReset) when they are missing.
+-- Runs as a CfgInit hook so it executes AFTER Core/DB.lua has created ns.db.
 
 local DEFAULTS_COMBO = {
     enabled       = true,   -- master switch for the whole combo feature
@@ -374,25 +509,19 @@ local DEFAULTS_BOSS_RESET = {
     soundPath = nil,
 }
 
-local function InitGeneralCfg()
-    UnbunkUtilityDB = UnbunkUtilityDB or {}
-    -- Walk the whole DB (combo keys + profile snapshots in
-    -- UnbunkUtilityDB.profiles) to rewrite any pre-restructure sound key.
-    ns.MigrateSoundKeys(UnbunkUtilityDB)
-    UnbunkUtilityDB.combo     = UnbunkUtilityDB.combo     or {}
-    UnbunkUtilityDB.wipe      = UnbunkUtilityDB.wipe      or {}
-    UnbunkUtilityDB.dpsSpam   = UnbunkUtilityDB.dpsSpam   or {}
-    UnbunkUtilityDB.bossReset = UnbunkUtilityDB.bossReset or {}
-    ns.MergeDefaults(UnbunkUtilityDB.combo,     DEFAULTS_COMBO)
-    ns.MergeDefaults(UnbunkUtilityDB.wipe,      DEFAULTS_WIPE)
-    ns.MergeDefaults(UnbunkUtilityDB.dpsSpam,   DEFAULTS_DPS_SPAM)
-    ns.MergeDefaults(UnbunkUtilityDB.bossReset, DEFAULTS_BOSS_RESET)
+function ns.InitGlobalCfg()
+    if not ns.db then return end
+    local g = ns.db.global
+    -- Walk the global table to rewrite any pre-restructure sound key.
+    ns.MigrateSoundKeys(g)
+    g.combo     = g.combo     or {}
+    g.wipe      = g.wipe      or {}
+    g.dpsSpam   = g.dpsSpam   or {}
+    g.bossReset = g.bossReset or {}
+    ns.MergeDefaults(g.combo,     DEFAULTS_COMBO)
+    ns.MergeDefaults(g.wipe,      DEFAULTS_WIPE)
+    ns.MergeDefaults(g.dpsSpam,   DEFAULTS_DPS_SPAM)
+    ns.MergeDefaults(g.bossReset, DEFAULTS_BOSS_RESET)
 end
 
-local cfgInit = CreateFrame("Frame")
-cfgInit:RegisterEvent("ADDON_LOADED")
-cfgInit:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= ADDON then return end
-    InitGeneralCfg()
-    self:UnregisterEvent("ADDON_LOADED")
-end)
+ns.RegisterCfgInitHook(ns.InitGlobalCfg)

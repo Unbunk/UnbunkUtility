@@ -4,6 +4,11 @@ local _, ns = ...
 ns.BLTracker = ns.BLTracker or {}
 local BL = ns.BLTracker
 
+local AceEvent = LibStub("AceEvent-3.0")
+local AceTimer = LibStub("AceTimer-3.0")
+AceEvent:Embed(BL)
+AceTimer:Embed(BL)
+
 local BL_SPELLS = {
     [2825]   = { name = "Bloodlust",          icon = 136012,  debuff = 57724  },
     [32182]  = { name = "Heroism",             icon = 135413,  debuff = 57723  },
@@ -45,11 +50,26 @@ local DEFAULT_CLASS_SPELLS = {
     HUNTER = 264667, -- Primal Rage
 }
 
+-- Active lust window. Bloodlust / Heroism / Time Warp / Primal Rage / Fury of
+-- the Aspects / Ancient Hysteria are all 40s. Used to derive a heuristic green
+-- "active" timer in combat, where the beneficial buff is secret — see SyncDebuff.
+local BL_ACTIVE_DURATION = 40
+
+-- A class's default lust iconID is invariant for the session, so resolve it
+-- once per class and cache it (this is recomputed whenever the lust drops and on
+-- PLAYER_ENTERING_WORLD/SPELLS_CHANGED). C_Spell.GetSpellInfo can return nil
+-- while spell data loads, so the nil is not cached — a later call retries.
+local classIconCache = {}
 local function GetDefaultClassIcon(class)
+    if not class then return nil end
+    local cached = classIconCache[class]
+    if cached ~= nil then return cached end
     local spellId = DEFAULT_CLASS_SPELLS[class]
     if not spellId then return nil end
     local spellInfo = C_Spell.GetSpellInfo(spellId)
-    return spellInfo and spellInfo.iconID or nil
+    local iconID = spellInfo and spellInfo.iconID
+    if iconID then classIconCache[class] = iconID end
+    return iconID
 end
 
 local playerHasBL  = false
@@ -135,23 +155,22 @@ function BL.GetFrame()      return blIcon.GetFrame() end
 -- "buff OR debuff present" as the lust being active, so the gain sound still
 -- fires in combat where buff-only detection used to go silent.
 
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterEvent("SPELLS_CHANGED")
-
-eventFrame:SetScript("OnEvent", function(self, event)
+local function OnPlayerStateRefresh(event)
     CheckPlayerHasBL()
     if not hasDebuff and playerClass then
         currentIcon = GetDefaultClassIcon(playerClass)
     end
     BL.ApplyVisuals()
-end)
+end
+BL:RegisterEvent("PLAYER_ENTERING_WORLD", OnPlayerStateRefresh)
+BL:RegisterEvent("SPELLS_CHANGED", OnPlayerStateRefresh)
 
--- Returns the first player aura present from a set of spellIds.
+-- Returns the first player aura present from a set of spellIds, plus the spellId
+-- it matched (needed to decide whether its timer fields are readable in combat).
 local function FindPlayerAura(idSet)
     for spellId in pairs(idSet) do
         local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellId)
-        if aura then return aura end
+        if aura then return aura, spellId end
     end
     return nil
 end
@@ -162,8 +181,8 @@ local function SyncDebuff()
         return
     end
 
-    local buff   = FindPlayerAura(BL_BUFFS)
-    local debuff = FindPlayerAura(BL_DEBUFFS)
+    local buff,   buffId = FindPlayerAura(BL_BUFFS)
+    local debuff         = FindPlayerAura(BL_DEBUFFS)
 
     -- Track the real aura presence for ApplyVisuals. Note: in instanced combat
     -- Blizzard restricts the *beneficial* lust buff (GetPlayerAuraBySpellID
@@ -197,16 +216,35 @@ local function SyncDebuff()
             end
         end
 
-        -- Prefer the buff for the icon/timer (green, haste remaining) when it is
-        -- actually visible; otherwise fall back to the fatigue debuff (default
-        -- colour, cooldown until BL can be used again — this is what shows in
-        -- combat).
-        if buff then
+        -- Pick the timer source. The lust BUFF gives the exact haste remaining
+        -- but is "secret" (unreadable) in combat (it is not a never-secret aura);
+        -- the fatigue DEBUFF is never-secret (readable in combat) and, being
+        -- applied together with the lust, lets us estimate the active window in
+        -- combat then show the cooldown after it.
+        if buff and ns.AuraTimerReadable(buffId) then
             currentIcon = buff.icon
             blIcon.SetTimer(buff.expirationTime, buff.duration, { r = 0, g = 1, b = 0 })
-        else
+        elseif debuff then
             currentIcon = debuff.icon
-            blIcon.SetTimer(debuff.expirationTime, debuff.duration)
+            -- Heuristic green: the debuff's start (expirationTime - duration) is
+            -- when the lust was applied, so + the standard lust window is the
+            -- active end. Green until then, the default (grey) cooldown after.
+            -- Gate the green on being IN COMBAT: out of combat the readable buff
+            -- is used above, so reaching here out of combat means the buff is nil
+            -- = the lust ended or was cancelled → show grey, not a phantom green.
+            local lustStart = (debuff.expirationTime or 0) - (debuff.duration or 0)
+            local activeEnd = lustStart + BL_ACTIVE_DURATION
+            if GetTime() < activeEnd and UnitAffectingCombat("player") then
+                blIcon.SetTimer(activeEnd, BL_ACTIVE_DURATION, { r = 0, g = 1, b = 0 })
+            else
+                blIcon.SetTimer(debuff.expirationTime, debuff.duration)
+            end
+        elseif buff then
+            -- Buff present but unreadable and no debuff (shouldn't happen — a
+            -- lust always applies both). Show the class icon with no timer rather
+            -- than read the buff's secret fields.
+            currentIcon = GetDefaultClassIcon(playerClass) or currentIcon
+            blIcon.ClearTimer()
         end
         -- Keep the fatigue end fresh whenever the debuff is visible (even while
         -- the green buff timer is showing), so the "ready" completion check
@@ -241,7 +279,7 @@ local function SyncDebuff()
     BL.ApplyVisuals()
 end
 
-C_Timer.NewTicker(0.5, function()
+BL:ScheduleRepeatingTimer(function()
     -- Do ~zero work per tick while the module is disabled (S3 guard). Still flag
     -- the module inactive so a later re-enable re-adopts the lust state silently.
     if not BL.CfgGet("enabled") then
@@ -249,15 +287,18 @@ C_Timer.NewTicker(0.5, function()
         return
     end
     SyncDebuff()
-end)
+end, 0.5)
 
 -- Instant aura detection: UNIT_AURA fires the moment the player gains/loses an
 -- aura, so SyncDebuff runs (and ns.combo.Notify("bl", ...) fires) without
 -- waiting up to 500ms for the next ticker. Without this, a near-simultaneous
 -- potion cast would flush as "potion combo" before BL is even detected.
-local auraFrame = CreateFrame("Frame")
-auraFrame:RegisterUnitEvent("UNIT_AURA", "player")
-auraFrame:SetScript("OnEvent", function() SyncDebuff() end)
+-- AceEvent has no unit filter (no RegisterUnitEvent equivalent), so register
+-- UNIT_AURA unfiltered and discard every fire whose unit token isn't "player".
+BL:RegisterEvent("UNIT_AURA", function(event, unit)
+    if unit ~= "player" then return end
+    SyncDebuff()
+end)
 
 ns.RegisterReloadHook(function()
     BL.ApplyPosition()

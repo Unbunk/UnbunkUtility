@@ -2,15 +2,20 @@
 ## Title: Unbunk Utility
 ## Notes: Utility addon
 ## Author: Unbunk
-## Version: 3.0.7
-## SavedVariables: HealerRangeDB, DeathAlertDB, BLTrackerDB, PotionTrackerDB, TrinketTrackerDB, UnbunkUtilityDB, PITrackerDB, PlayerDeathDB, BResTrackerDB, HealthstoneTrackerDB
+## Version: 3.1.0
+## SavedVariables: HealerRangeDB, DeathAlertDB, BLTrackerDB, PotionTrackerDB, TrinketTrackerDB, UnbunkUtilityDB, PITrackerDB, PlayerDeathDB, BResTrackerDB, HealthstoneTrackerDB, UnbunkUtilityAceDB
 ## IconTexture: Interface\AddOns\UnbunkUtility\Media\Icons\UnbunkUtility.tga
 
 Libs/LibStub-1.0/LibStub.lua
 Libs/CallbackHandler-1.0/CallbackHandler-1.0.lua
 Libs/LibSharedMedia-3.0/lib.xml
 Libs/LibRangeCheck-3.0/LibRangeCheck-3.0.lua
+Libs/Ace3-master/AceSerializer-3.0/AceSerializer-3.0.lua
+Libs/Ace3-master/AceTimer-3.0/AceTimer-3.0.lua
+Libs/Ace3-master/AceEvent-3.0/AceEvent-3.0.lua
+Libs/Ace3-master/AceDB-3.0/AceDB-3.0.lua
 Core/Shared.lua
+Core/DB.lua
 Locales/enUS.lua
 Locales/frFR.lua
 Media/Media.lua
@@ -29,6 +34,7 @@ UI/Shared/InstanceFilter.lua
 UI/Shared/AlertFrame.lua
 UI/Shared/TimerIcon.lua
 UI/Shared/ItemTracker.lua
+UI/Shared/BuildMenu.lua
 Core/Core.lua
 Core/SlashCommands.lua
 Core/Profiles.lua

@@ -6,15 +6,22 @@
 --     BigWigs_OnBossWipe, which lags a few seconds while it confirms the wipe);
 --   * it needs no dependency and fires exactly once, so there is no double.
 -- A short debounce guards against the rare case of the event repeating. Config
--- lives in UnbunkUtilityDB.bossReset (see Core/Shared.lua).
+-- lives in ns.db.global.bossReset (see Core/Shared.lua).
 
 local _, ns = ...
+ns.bossReset = ns.bossReset or {}
+local BR = ns.bossReset
+
+local AceEvent = LibStub("AceEvent-3.0")
+local AceTimer = LibStub("AceTimer-3.0")
+AceEvent:Embed(BR)
+AceTimer:Embed(BR)
 
 local DEBOUNCE = 3  -- minimum seconds between plays (guards against the event repeating)
 local lastPlay = 0
 
 local function Cfg()
-    return UnbunkUtilityDB and UnbunkUtilityDB.bossReset
+    return ns.db and ns.db.global.bossReset
 end
 
 -- Guarded play used by the encounter hook.
@@ -28,8 +35,7 @@ local function PlayBossReset()
 end
 
 -- Unguarded play for the options "test" button (ignores enabled / debounce).
-ns.bossReset = ns.bossReset or {}
-function ns.bossReset.PlayTest()
+function BR.PlayTest()
     local cfg = Cfg()
     if not cfg then return end
     ns.PlaySoundFromCfg(cfg, "soundPath", "soundKey")
@@ -38,9 +44,9 @@ end
 -- Native encounter end: success == 1 is a kill, anything else is a wipe / reset.
 -- A boolean `true` is treated as a kill too, so the "never on a kill" guarantee
 -- holds regardless of how the client represents the success flag.
-local encFrame = CreateFrame("Frame")
-encFrame:RegisterEvent("ENCOUNTER_END")
-encFrame:SetScript("OnEvent", function(_, _, _, _, _, _, success)
+-- AceEvent callback signature is (event, ...) — no leading `self` — so the
+-- success flag is the 5th payload arg (encounterID, name, difficultyID, groupSize, success).
+BR:RegisterEvent("ENCOUNTER_END", function(event, _, _, _, _, success)
     if success ~= 1 and success ~= true then
         PlayBossReset()
     end

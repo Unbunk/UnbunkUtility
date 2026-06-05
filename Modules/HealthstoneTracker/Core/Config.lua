@@ -4,8 +4,6 @@ local _, ns = ...
 ns.HealthstoneTracker = ns.HealthstoneTracker or {}
 local HT = ns.HealthstoneTracker
 
-HealthstoneTrackerDB = HealthstoneTrackerDB or {}
-
 local DEFAULTS = {
     enabled        = true,
     showIcon       = true,
@@ -42,17 +40,23 @@ local DEFAULTS = {
 }
 
 function HT.CfgInit()
-    ns.MigrateSoundKeys(HealthstoneTrackerDB)
-    ns.MergeDefaults(HealthstoneTrackerDB, DEFAULTS)
+    ns.db.profile.HealthstoneTracker = ns.db.profile.HealthstoneTracker or {}
+    ns.MigrateSoundKeys(ns.db.profile.HealthstoneTracker)
+    ns.MergeDefaults(ns.db.profile.HealthstoneTracker, DEFAULTS)
 end
 ns.RegisterCfgInitHook(HT.CfgInit)
 
 function HT.CfgGet(key)
-    local v = HealthstoneTrackerDB[key]
+    local t = ns.db and ns.db.profile.HealthstoneTracker
+    local v = t and t[key]
     if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
     return v
 end
-function HT.CfgSet(key, value) HealthstoneTrackerDB[key] = value end
+function HT.CfgSet(key, value)
+    if not ns.db then return end
+    ns.db.profile.HealthstoneTracker = ns.db.profile.HealthstoneTracker or {}
+    ns.db.profile.HealthstoneTracker[key] = value
+end
 
 function HT.PlaySound(key)
     local pathKey, soundKeyKey
@@ -63,13 +67,5 @@ function HT.PlaySound(key)
     else
         return
     end
-    ns.PlaySoundFromCfg(HealthstoneTrackerDB, pathKey, soundKeyKey)
+    ns.PlaySoundFromCfg(ns.db and ns.db.profile.HealthstoneTracker, pathKey, soundKeyKey)
 end
-
-local initDB = CreateFrame("Frame")
-initDB:RegisterEvent("ADDON_LOADED")
-initDB:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
-    HT.CfgInit()
-    self:UnregisterEvent("ADDON_LOADED")
-end)

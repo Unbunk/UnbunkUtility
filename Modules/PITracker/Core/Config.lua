@@ -4,8 +4,6 @@ local _, ns = ...
 ns.PITracker = ns.PITracker or {}
 local PI = ns.PITracker
 
-PITrackerDB = PITrackerDB or {}
-
 local DEFAULTS = {
     enabled        = true,
     showIcon       = true,
@@ -30,26 +28,24 @@ local DEFAULTS = {
 }
 
 function PI.CfgInit()
-    ns.MigrateSoundKeys(PITrackerDB)
-    ns.MergeDefaults(PITrackerDB, DEFAULTS)
+    ns.db.profile.PITracker = ns.db.profile.PITracker or {}
+    ns.MigrateSoundKeys(ns.db.profile.PITracker)
+    ns.MergeDefaults(ns.db.profile.PITracker, DEFAULTS)
 end
 ns.RegisterCfgInitHook(PI.CfgInit)
 
 function PI.CfgGet(key)
-    local v = PITrackerDB[key]
+    local t = ns.db and ns.db.profile.PITracker
+    local v = t and t[key]
     if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
     return v
 end
-function PI.CfgSet(key, value) PITrackerDB[key] = value end
-
-function PI.PlaySound()
-    ns.PlaySoundFromCfg(PITrackerDB, "soundPathPI", "soundKeyPI")
+function PI.CfgSet(key, value)
+    if not ns.db then return end
+    ns.db.profile.PITracker = ns.db.profile.PITracker or {}
+    ns.db.profile.PITracker[key] = value
 end
 
-local initDB = CreateFrame("Frame")
-initDB:RegisterEvent("ADDON_LOADED")
-initDB:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
-    PI.CfgInit()
-    self:UnregisterEvent("ADDON_LOADED")
-end)
+function PI.PlaySound()
+    ns.PlaySoundFromCfg(ns.db.profile.PITracker, "soundPathPI", "soundKeyPI")
+end
