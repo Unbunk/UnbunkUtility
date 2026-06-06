@@ -132,6 +132,32 @@ local function BuildTrinketOptions(prefix, LSM)
             end,
         },
 
+        -- ── Border ────────────────────────────────────────────────────────────
+        {
+            type = "checkbox", label = L["Show border"],
+            get = function() return GetCfg("borderEnabled") == true end,
+            set = function(v) SetCfg("borderEnabled", v); if tracker then tracker.ApplyBorder() end end,
+        },
+        {
+            type = "textEditor", label = L["Border color"],
+            showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+            getColor = function() return GetCfg("borderColor") end,
+            onColorChange = function(r, g, b, a)
+                SetCfg("borderColor", { r = r, g = g, b = b, a = a })
+                if tracker then tracker.ApplyBorder() end
+            end,
+        },
+        {
+            type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+            get = function() return GetCfg("borderSize") or 1 end,
+            set = function(v)
+                if v and v > 0 then
+                    SetCfg("borderSize", v)
+                    if tracker then tracker.ApplyBorder() end
+                end
+            end,
+        },
+
         -- ── Position editor (ref captured into tracker.pe for onLock refresh) ─
         {
             type       = "position",

@@ -136,6 +136,7 @@ end
 function BL.ApplyFont()     blIcon.ApplyFont()     end
 function BL.ApplyPosition() blIcon.ApplyPosition() end
 function BL.ApplySize()     blIcon.ApplySize()     end
+function BL.ApplyBorder()   blIcon.ApplyBorder()   end
 function BL.SetUnlocked(v)  blIcon.SetUnlocked(v)  end
 function BL.IsUnlocked()    return blIcon.IsUnlocked() end
 function BL.GetFrame()      return blIcon.GetFrame() end
@@ -304,6 +305,7 @@ ns.RegisterReloadHook(function()
     BL.ApplyPosition()
     BL.ApplyFont()
     BL.ApplySize()
+    BL.ApplyBorder()
     BL.ApplyVisuals()
 end)
 

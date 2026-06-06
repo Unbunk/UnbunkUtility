@@ -148,6 +148,7 @@ end
 function PI.ApplyFont()     piIcon.ApplyFont()     end
 function PI.ApplyPosition() piIcon.ApplyPosition() end
 function PI.ApplySize()     piIcon.ApplySize()     end
+function PI.ApplyBorder()   piIcon.ApplyBorder()   end
 function PI.SetUnlocked(v)  piIcon.SetUnlocked(v)  end
 function PI.IsUnlocked()    return piIcon.IsUnlocked() end
 function PI.GetFrame()      return piIcon.GetFrame()   end
@@ -181,6 +182,7 @@ ns.RegisterReloadHook(function()
     PI.ApplyPosition()
     PI.ApplyFont()
     PI.ApplySize()
+    PI.ApplyBorder()
     PI.ApplyVisuals()
 end)
 

@@ -41,6 +41,21 @@ local countText = frame:CreateFontString(nil, "OVERLAY")
 countText:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
 countText:Hide()
 
+-- ── Border (configurable) ──────────────────────────────────────────────────
+-- Mirrors result.ApplyBorder() in UI/Shared/TimerIcon.lua. This tracker uses a
+-- custom frame (not TimerIcon), so the four edge textures live on a dedicated
+-- child frame raised above the cooldown swipe; ApplyBorder refreshes their
+-- thickness / colour / visibility from config.
+local borderFrame = CreateFrame("Frame", nil, frame)
+borderFrame:SetAllPoints(frame)
+borderFrame:SetFrameLevel(frame:GetFrameLevel() + 10)
+local borderEdges = {}
+for _, edge in ipairs({ "top", "bottom", "left", "right" }) do
+    local t = borderFrame:CreateTexture(nil, "OVERLAY")
+    t:Hide()
+    borderEdges[edge] = t
+end
+
 -- Internal state for detecting the "charge regained" transition.
 local lastCharges = nil
 local lastMax     = nil   -- pool size at the last tick, to tell a real consume
@@ -220,6 +235,43 @@ function BR.ApplySize()
     local h = BR.CfgGet("iconHeight") or 48
     frame:SetSize(w, h)
     BR.ApplyFont()
+    BR.ApplyBorder()
+end
+
+-- Draw / refresh the configurable border from config (borderEnabled,
+-- borderColor, borderSize). Reproduces result.ApplyBorder() from
+-- UI/Shared/TimerIcon.lua. Cheap; safe to call on every size / reload pass.
+function BR.ApplyBorder()
+    if not BR.CfgGet("borderEnabled") then
+        for _, t in pairs(borderEdges) do t:Hide() end
+        return
+    end
+    local size = math.max(1, math.min(16, BR.CfgGet("borderSize") or 1))
+    local c = BR.CfgGet("borderColor") or { r = 0, g = 0, b = 0, a = 1 }
+    local r, g, b, a = c.r or 0, c.g or 0, c.b or 0, c.a or 1
+    for _, t in pairs(borderEdges) do t:SetColorTexture(r, g, b, a) end
+
+    borderEdges.top:ClearAllPoints()
+    borderEdges.top:SetPoint("TOPLEFT")
+    borderEdges.top:SetPoint("TOPRIGHT")
+    borderEdges.top:SetHeight(size)
+
+    borderEdges.bottom:ClearAllPoints()
+    borderEdges.bottom:SetPoint("BOTTOMLEFT")
+    borderEdges.bottom:SetPoint("BOTTOMRIGHT")
+    borderEdges.bottom:SetHeight(size)
+
+    borderEdges.left:ClearAllPoints()
+    borderEdges.left:SetPoint("TOPLEFT")
+    borderEdges.left:SetPoint("BOTTOMLEFT")
+    borderEdges.left:SetWidth(size)
+
+    borderEdges.right:ClearAllPoints()
+    borderEdges.right:SetPoint("TOPRIGHT")
+    borderEdges.right:SetPoint("BOTTOMRIGHT")
+    borderEdges.right:SetWidth(size)
+
+    for _, t in pairs(borderEdges) do t:Show() end
 end
 
 -- ── Drag / unlock ────────────────────────────────────────────────────────────
@@ -293,6 +345,7 @@ ns.RegisterReloadHook(function()
     BR.ApplyPosition()
     BR.ApplyFont()
     BR.ApplySize()
+    BR.ApplyBorder()
     BR.ApplyVisuals()
     if BR.ApplyListPosition then BR.ApplyListPosition() end
     if BR.RefreshList then BR.RefreshList() end

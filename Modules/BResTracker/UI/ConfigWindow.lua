@@ -153,6 +153,24 @@ local function CreateBResTrackerPanel(parent)
             end,
         },
 
+        -- ── Border ────────────────────────────────────────────────────────────
+        {
+            type = "checkbox", label = L["Show border"],
+            get = function() return BR.CfgGet("borderEnabled") == true end,
+            set = function(v) BR.CfgSet("borderEnabled", v); BR.ApplyBorder() end,
+        },
+        {
+            type = "textEditor", label = L["Border color"],
+            showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+            getColor = function() return BR.CfgGet("borderColor") end,
+            onColorChange = function(r, g, b, a) BR.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); BR.ApplyBorder() end,
+        },
+        {
+            type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+            get = function() return BR.CfgGet("borderSize") or 1 end,
+            set = function(v) if v and v > 0 then BR.CfgSet("borderSize", v); BR.ApplyBorder() end end,
+        },
+
         -- ── Position editor (named ref for the onLock self-refresh) ───────────
         {
             type       = "position",

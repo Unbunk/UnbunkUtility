@@ -234,6 +234,13 @@ function HT.ApplyTimerVisuals()
     end
 end
 
+-- Re-apply the configurable icon border to every pooled tracker.
+function HT.ApplyBorder()
+    for _, t in ipairs(trackers) do
+        if t.ApplyBorder then t.ApplyBorder() end
+    end
+end
+
 -- Size the red "C" marker relative to the icon, using the timer font config.
 local function ApplyCombatCFont(t)
     local iconW = HT.CfgGet("iconWidth")  or 30
@@ -503,6 +510,7 @@ end, 0.5)
 
 ns.RegisterReloadHook(function()
     InvalidateActiveCache()
+    HT.ApplyBorder()
     HT.ApplyAll()
 end)
 

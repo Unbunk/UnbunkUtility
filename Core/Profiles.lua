@@ -18,6 +18,10 @@ local _, ns = ...
 local L = ns.L
 
 local AceSerializer = LibStub and LibStub("AceSerializer-3.0", true)
+-- LibDeflate (optional): DEFLATE-compresses the serialized profile before encoding
+-- it, producing much shorter, still copy/paste-safe export strings. If absent we
+-- fall back to the Base64 blob formats below, which stay importable everywhere.
+local LibDeflate = LibStub and LibStub("LibDeflate", true)
 
 ns.profiles = ns.profiles or {}
 
@@ -189,6 +193,16 @@ function ns.profiles.Export()
         version = 1,
         data    = ns.DeepCopy(ns.db.profile),
     }
+    -- Preferred: AceSerializer -> DEFLATE -> print-safe encode, tagged with the
+    -- "!UU1!" format sentinel. DEFLATE shrinks the very redundant serialized text
+    -- a lot; EncodeForPrint keeps it copy/paste-safe ([a-zA-Z0-9()] only).
+    if AceSerializer and LibDeflate then
+        local serialized = AceSerializer:Serialize(payload)
+        local compressed = LibDeflate:CompressDeflate(serialized)  -- 2nd return (padding) ignored
+        return "!UU1!" .. LibDeflate:EncodeForPrint(compressed)
+    end
+    -- Fallbacks (lib missing / older client): keep the Base64 blob formats so the
+    -- export still works and stays importable by any version.
     if AceSerializer then
         return Base64Encode(AceSerializer:Serialize(payload))
     end
@@ -197,16 +211,40 @@ end
 
 function ns.profiles.Import(str)
     if not ns.db then return false end
-    local decoded = Base64Decode(str)
-    -- Auto-detect the serializer: AceSerializer blobs start with "^", the legacy
-    -- hand-rolled ones with a "{" table literal — so old exports still import.
+    if type(str) ~= "string" then return false, L["invalid profile data"] end
+    str = str:gsub("^%s+", "")  -- tolerate leading whitespace before the sentinel
+
     local raw, err
-    if AceSerializer and decoded:sub(1, 1) == "^" then
-        local ok, result = AceSerializer:Deserialize(decoded)
-        if not ok then return false, result end
+    if str:sub(1, 5) == "!UU1!" then
+        -- New compact format: AceSerializer -> DEFLATE -> EncodeForPrint, tagged
+        -- with a sentinel. This branch MUST run before any Base64Decode, which
+        -- would strip the "!" (outside its alphabet) and mis-route the blob.
+        if not (LibDeflate and AceSerializer) then
+            return false, L["This profile needs a newer version of UnbunkUtility."]
+        end
+        -- Strip ALL whitespace: a pasted blob may be wrapped onto several lines,
+        -- and DecodeForPrint only trims leading/trailing space, not interior.
+        local body = (str:sub(6)):gsub("%s", "")
+        -- DecodeForPrint / DecompressDeflate return nil (not a message) on bad
+        -- data and error() on a non-string, so pcall AND nil-check both.
+        local ok1, decoded = pcall(LibDeflate.DecodeForPrint, LibDeflate, body)
+        if not ok1 or not decoded then return false, L["corrupt profile data"] end
+        local ok2, serialized = pcall(LibDeflate.DecompressDeflate, LibDeflate, decoded)
+        if not ok2 or not serialized then return false, L["corrupt profile data"] end
+        local ok3, result = AceSerializer:Deserialize(serialized)
+        if not ok3 then return false, L["corrupt profile data"] end
         raw = result
     else
-        raw, err = Deserialize(decoded)
+        -- Legacy format: Base64 -> (AceSerializer "^" | hand-rolled "{") so every
+        -- blob exported before this version still imports unchanged.
+        local decoded = Base64Decode(str)
+        if AceSerializer and decoded:sub(1, 1) == "^" then
+            local ok, result = AceSerializer:Deserialize(decoded)
+            if not ok then return false, result end
+            raw = result
+        else
+            raw, err = Deserialize(decoded)
+        end
     end
     if type(raw) ~= "table" then return false, err or L["invalid profile data"] end
 

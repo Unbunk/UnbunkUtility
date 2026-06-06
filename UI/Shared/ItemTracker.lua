@@ -156,6 +156,7 @@ function ns.ui.CreateItemTracker(config)
     function tracker.ApplyPosition() icon.ApplyPosition() end
     function tracker.ApplyFont()     icon.ApplyFont()     end
     function tracker.ApplySize()     icon.ApplySize()     end
+    function tracker.ApplyBorder()   icon.ApplyBorder()   end
     function tracker.SetUnlocked(v)  icon.SetUnlocked(v)  end
     function tracker.IsUnlocked()    return icon.IsUnlocked() end
     function tracker.GetFrame()      return icon.GetFrame()   end

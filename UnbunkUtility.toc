@@ -14,6 +14,7 @@ Libs/Ace3-master/AceSerializer-3.0/AceSerializer-3.0.lua
 Libs/Ace3-master/AceTimer-3.0/AceTimer-3.0.lua
 Libs/Ace3-master/AceEvent-3.0/AceEvent-3.0.lua
 Libs/Ace3-master/AceDB-3.0/AceDB-3.0.lua
+Libs/LibDeflate-1.0.2-release/LibDeflate.lua
 Core/Shared.lua
 Core/DB.lua
 Locales/enUS.lua

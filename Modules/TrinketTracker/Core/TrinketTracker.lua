@@ -123,6 +123,14 @@ function TT.ApplyAll()
     trinket2Tracker.ApplyVisuals()
 end
 
+-- Passthrough to refresh the configurable icon border on both sub-icons
+-- (calqué sur ApplySize via ApplyVisuals); each tracker reads its own
+-- sub-config (border* keys) through its prefixed getCfg closure.
+function TT.ApplyBorder()
+    if trinket1Tracker then trinket1Tracker.ApplyBorder() end
+    if trinket2Tracker then trinket2Tracker.ApplyBorder() end
+end
+
 function TT.GetTracker1() return trinket1Tracker end
 function TT.GetTracker2() return trinket2Tracker end
 
@@ -173,7 +181,7 @@ TT:ScheduleRepeatingTimer(function()
     TT.ApplyAll()
 end, 0.5)
 
-ns.RegisterReloadHook(function() TT.ApplyAll() end)
+ns.RegisterReloadHook(function() TT.ApplyAll(); TT.ApplyBorder() end)
 
 local initTT = CreateFrame("Frame")
 initTT:RegisterEvent("PLAYER_LOGIN")

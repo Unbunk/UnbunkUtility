@@ -84,6 +84,22 @@ function ns.ui.CreateTimerIcon(config)
     timerText:SetPoint("CENTER", cooldown, "CENTER", 0, 0)
     timerText:Hide()
 
+    -- ── Border (configurable) ───────────────────────────────────────────────────
+    -- Independent of the frame backdrop (which SetUnlocked uses for the yellow drag
+    -- outline). Four thin edge textures on a dedicated child frame raised above the
+    -- cooldown swipe so the border stays visible over it. The edges are anchored to
+    -- the corners, so they auto-track icon resizes; ApplyBorder only refreshes their
+    -- thickness / colour / visibility from config.
+    local borderFrame = CreateFrame("Frame", nil, frame)
+    borderFrame:SetAllPoints(frame)
+    borderFrame:SetFrameLevel(frame:GetFrameLevel() + 10)
+    local borderEdges = {}
+    for _, edge in ipairs({ "top", "bottom", "left", "right" }) do
+        local t = borderFrame:CreateTexture(nil, "OVERLAY")
+        t:Hide()
+        borderEdges[edge] = t
+    end
+
     -- ── Drag ──────────────────────────────────────────────────────────────────
 
     frame:SetMovable(true)
@@ -263,6 +279,42 @@ function ns.ui.CreateTimerIcon(config)
         SetTimerFont()
         local checkSize = math.floor(math.min(w, h) * 0.6)
         checkTex:SetSize(checkSize, checkSize)
+        result.ApplyBorder()
+    end
+
+    -- Draw / refresh the configurable border from config (borderEnabled,
+    -- borderColor, borderSize). Cheap; safe to call on every size / reload pass.
+    function result.ApplyBorder()
+        if not getCfg("borderEnabled") then
+            for _, t in pairs(borderEdges) do t:Hide() end
+            return
+        end
+        local size = math.max(1, math.min(16, getCfg("borderSize") or 1))
+        local c = getCfg("borderColor") or { r = 0, g = 0, b = 0, a = 1 }
+        local r, g, b, a = c.r or 0, c.g or 0, c.b or 0, c.a or 1
+        for _, t in pairs(borderEdges) do t:SetColorTexture(r, g, b, a) end
+
+        borderEdges.top:ClearAllPoints()
+        borderEdges.top:SetPoint("TOPLEFT")
+        borderEdges.top:SetPoint("TOPRIGHT")
+        borderEdges.top:SetHeight(size)
+
+        borderEdges.bottom:ClearAllPoints()
+        borderEdges.bottom:SetPoint("BOTTOMLEFT")
+        borderEdges.bottom:SetPoint("BOTTOMRIGHT")
+        borderEdges.bottom:SetHeight(size)
+
+        borderEdges.left:ClearAllPoints()
+        borderEdges.left:SetPoint("TOPLEFT")
+        borderEdges.left:SetPoint("BOTTOMLEFT")
+        borderEdges.left:SetWidth(size)
+
+        borderEdges.right:ClearAllPoints()
+        borderEdges.right:SetPoint("TOPRIGHT")
+        borderEdges.right:SetPoint("BOTTOMRIGHT")
+        borderEdges.right:SetWidth(size)
+
+        for _, t in pairs(borderEdges) do t:Show() end
     end
 
     function result.SetUnlocked(val)

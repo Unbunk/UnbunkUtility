@@ -122,6 +122,14 @@ function PT.ApplyAll()
     PT.ApplyStackVisuals("combat", combatTracker)
 end
 
+-- Passthrough to refresh the configurable icon border on both sub-icons (health
+-- + combat), mirroring how ApplyAll fans out ApplyVisuals. Each sub-tracker reads
+-- its own sub-config's borderEnabled/Color/Size.
+function PT.ApplyBorder()
+    if healthTracker then healthTracker.ApplyBorder() end
+    if combatTracker then combatTracker.ApplyBorder() end
+end
+
 function PT.GetHealthTracker() return healthTracker end
 function PT.GetCombatTracker() return combatTracker end
 
@@ -432,6 +440,7 @@ end, 0.5)
 ns.RegisterReloadHook(function()
     InvalidateActiveCache()
     PT.ApplyAll()
+    PT.ApplyBorder()
 end)
 
 local initPT = CreateFrame("Frame")
