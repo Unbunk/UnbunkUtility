@@ -33,14 +33,6 @@ cooldown:SetAllPoints(frame)
 cooldown:SetHideCountdownNumbers(true)
 cooldown:SetDrawEdge(false)
 
-local timerText = cooldown:CreateFontString(nil, "OVERLAY")
-timerText:SetPoint("CENTER", frame, "CENTER", 0, 0)
-timerText:Hide()
-
-local countText = frame:CreateFontString(nil, "OVERLAY")
-countText:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
-countText:Hide()
-
 -- ── Border (configurable) ──────────────────────────────────────────────────
 -- Mirrors result.ApplyBorder() in UI/Shared/TimerIcon.lua. This tracker uses a
 -- custom frame (not TimerIcon), so the four edge textures live on a dedicated
@@ -55,6 +47,21 @@ for _, edge in ipairs({ "top", "bottom", "left", "right" }) do
     t:Hide()
     borderEdges[edge] = t
 end
+
+-- Timer + charge count live on a host frame raised ABOVE the border (like
+-- TimerIcon's timerHost) so they stay readable over both the cooldown swipe and
+-- the configurable border.
+local timerHost = CreateFrame("Frame", nil, frame)
+timerHost:SetAllPoints(frame)
+timerHost:SetFrameLevel(borderFrame:GetFrameLevel() + 1)
+
+local timerText = timerHost:CreateFontString(nil, "OVERLAY")
+timerText:SetPoint("CENTER", frame, "CENTER", 0, 0)
+timerText:Hide()
+
+local countText = timerHost:CreateFontString(nil, "OVERLAY")
+countText:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
+countText:Hide()
 
 -- Internal state for detecting the "charge regained" transition.
 local lastCharges = nil
@@ -224,15 +231,58 @@ function BR.ApplyFont()
 end
 
 function BR.ApplyPosition()
+    -- Cooldown Manager integration: ns.CDMAnchor owns this frame's position (and,
+    -- for native-row destinations, its size). The below-player artificial row is
+    -- always available; the essential/utility rows only when their viewer exists.
+    -- Don't self-anchor in either case — just request a refresh.
+    if BR.CfgGet("includeInCdm") and ns.CDMAnchor
+        and (BR.CfgGet("cdmDest") == "belowPlayer"
+            or (ns.GetCDMViewer and ns.GetCDMViewer(BR.CfgGet("cdmDest")))) then
+        ns.CDMAnchor.RefreshAll()
+        return
+    end
+    -- Free: positioned on screen by posX/posY.
     frame:ClearAllPoints()
     frame:SetPoint("CENTER", UIParent, "CENTER",
         BR.CfgGet("posX") or 0,
         BR.CfgGet("posY") or 0)
 end
 
+-- Follow the native Cooldown Manager: when this custom frame is anchored to a
+-- viewer, ns.CDMAnchor re-applies its position whenever the viewer relayouts /
+-- moves. In slot mode it also sizes the frame to the native row via SetSlotSize.
+-- Registered once at module load (mirrors TimerIcon's self-registration).
+if ns.CDMAnchor then
+    ns.CDMAnchor.Register({
+        apply   = BR.ApplyPosition,
+        frame   = frame,
+        getCfg  = BR.CfgGet,
+        setSize = function(w, h) BR.SetSlotSize(w, h) end,
+    })
+end
+
 function BR.ApplySize()
-    local w = BR.CfgGet("iconWidth") or 48
-    local h = BR.CfgGet("iconHeight") or 48
+    -- A native-row destination (essential/utility) is sized to the native icons by
+    -- ns.CDMAnchor, so do NOT override it with the configured size (just refresh
+    -- font/border). Below-player and free icons use the configured size.
+    local dest = BR.CfgGet("includeInCdm") and BR.CfgGet("cdmDest")
+    local matchNative = (dest == "essential" or dest == "utility")
+        and ns.GetCDMViewer and ns.GetCDMViewer(dest)
+    if not matchNative then
+        local w = BR.CfgGet("iconWidth") or 48
+        local h = BR.CfgGet("iconHeight") or 48
+        frame:SetSize(w, h)
+    end
+    BR.ApplyFont()
+    BR.ApplyBorder()
+end
+
+-- Called by ns.CDMAnchor in slot mode to match the native row's icon size. The
+-- iconTex / cooldown / borderFrame textures are SetAllPoints(frame) so they
+-- follow the resize; we only re-apply the font (size-independent here) and border.
+function BR.SetSlotSize(w, h)
+    w = math.max(8, math.min(512, w or 48))
+    h = math.max(8, math.min(512, h or 48))
     frame:SetSize(w, h)
     BR.ApplyFont()
     BR.ApplyBorder()
@@ -284,6 +334,8 @@ function BR.SetUnlocked(val)
         frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
         frame:SetScript("OnDragStop", function(self)
             self:StopMovingOrSizing()
+            -- A CDM-managed icon is not free-draggable, so a drop is always a plain
+            -- screen-offset reposition.
             local _, _, _, x, y = self:GetPoint()
             BR.CfgSet("posX", math.floor(x))
             BR.CfgSet("posY", math.floor(y))

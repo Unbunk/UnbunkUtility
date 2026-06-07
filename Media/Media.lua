@@ -10,8 +10,10 @@ initMedia:SetScript("OnEvent", function(self, event, addonName)
         local ADDON_PATH = "Interface\\AddOns\\UnbunkUtility\\Media\\"
 
         -- Sounds available in every loudness variant (High / Medium / Low /
-        -- Loud). Every LSM key carries its loudness suffix so the picker is
-        -- unambiguous; module defaults explicitly select the High variant.
+        -- Loud). Every LSM key carries its loudness in parentheses so the
+        -- picker reads e.g. "BL Ready (Loud)"; module defaults explicitly
+        -- select the High variant. (The legacy un-parenthesised keys are
+        -- rewritten to this form by ns.MigrateSoundKeys.)
         local BASE_SOUNDS = {
             { key = "BL",                  file = "BL" },
             { key = "Bloodlust",           file = "Bloodlust" },
@@ -34,13 +36,13 @@ initMedia:SetScript("OnEvent", function(self, event, addonName)
             { key = "Potion Ready",        file = "PotionReady" },
             { key = "Tank Died",           file = "TankDied" },
             { key = "Trinket",             file = "Trinket" },
-            { key = "Trinket Combo",       file = "Trinket Combo" },
+            { key = "Trinket Combo",       file = "TrinketCombo" },
             { key = "Trinket Ready",       file = "TrinketReady" },
         }
         local VARIANTS = { "High", "Medium", "Low", "Loud" }
         for _, s in ipairs(BASE_SOUNDS) do
             for _, v in ipairs(VARIANTS) do
-                LSM:Register("sound", "UnbunkUtility: " .. s.key .. " " .. v,
+                LSM:Register("sound", "UnbunkUtility: " .. s.key .. " (" .. v .. ")",
                     ADDON_PATH .. "Sounds\\" .. v .. "\\" .. s.file .. v .. ".mp3")
             end
         end

@@ -55,6 +55,7 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
 
     local selectedText = nil
     local soundEntry = nil
+    local dropFrameRef = nil
 
     if LSM then
         local ddAnchor = soundCheckbox.frame
@@ -82,8 +83,9 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
                 end
             end,
         })
-        dd.selectedText:SetText(getSoundKey() or NONE)
+        -- (CreateDropdown already initialises selectedText from getCurrentKey.)
         selectedText = dd.selectedText
+        dropFrameRef = dd.dropFrame
 
         local soundTest = CreateFrame("Button", nil, container)
         soundTest:SetSize(22, 22)
@@ -134,6 +136,7 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
     result.frame = container
     result.height = height
     result.soundCheckbox = soundCheckbox
+    result.dropFrame = dropFrameRef   -- so BuildMenu.Rebuild reclaims the drop frame
 
     function result.Refresh()
         soundCheckbox.SetChecked(getSoundEnable() ~= false)

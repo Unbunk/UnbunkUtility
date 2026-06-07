@@ -78,13 +78,12 @@ end)
 
 local function ApplyLayout()
     if not healthTracker or not combatTracker then return end
-    local healthCfg = PT.CfgGet("health")
-    local combatCfg = PT.CfgGet("combat")
-    if not healthCfg or not combatCfg then return end
-    healthTracker.GetFrame():ClearAllPoints()
-    healthTracker.GetFrame():SetPoint("CENTER", UIParent, "CENTER", healthCfg.posX, healthCfg.posY)
-    combatTracker.GetFrame():ClearAllPoints()
-    combatTracker.GetFrame():SetPoint("CENTER", UIParent, "CENTER", combatCfg.posX, combatCfg.posY)
+    -- Delegate to each sub-icon's new-model-aware ApplyPosition: when the Cooldown
+    -- Manager integration is active (includeInCdm) ns.CDMAnchor owns position+size;
+    -- otherwise the icon is free and positioned on screen by posX/posY. This runs on
+    -- the 0.5s ticker too, so the chosen placement is kept, not clobbered.
+    healthTracker.ApplyPosition()
+    combatTracker.ApplyPosition()
 end
 
 -- Refreshes the stack-count FontString (text + font/color) below a tracker.
@@ -107,6 +106,9 @@ function PT.ApplyStackVisuals(prefix, tracker)
     local count = itemId and (GetItemCount(itemId) or 0) or 0
     if count > 0 then
         fs:SetText(tostring(count))
+        fs:Show()
+    elseif cfg.showAtZero then
+        fs:SetText("0")
         fs:Show()
     else
         fs:Hide()
@@ -355,6 +357,10 @@ local function ResolveActiveItemId(prefix)
         end
     end
 
+    -- Nothing of this category is in bags. Prefer the favourite (if enabled) so
+    -- "show at 0 stacks" displays the user's preferred potion icon; otherwise the
+    -- last configured one. (When show-at-0 is off the icon is hidden anyway.)
+    if cfg.favoriteEnabled and cfg.favoriteId then return cfg.favoriteId end
     return configuredId
 end
 

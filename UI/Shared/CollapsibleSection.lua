@@ -26,6 +26,12 @@ function ns.ui.CreateCollapsibleSection(config)
     local isChecked     = config.isChecked
     local onCheck       = config.onCheck
     local createContent = config.createContent
+    -- Optional collapse-state persistence: when the panel is rebuilt (e.g. a
+    -- reactive option toggle), getCollapsed restores whether this section was
+    -- collapsed, and onCollapse stores the new state. Without them the section
+    -- always starts expanded (the previous behaviour).
+    local getCollapsed  = config.getCollapsed
+    local onCollapse    = config.onCollapse
 
     local result = {}
 
@@ -87,32 +93,35 @@ function ns.ui.CreateCollapsibleSection(config)
 
     -- ── Content frame ─────────────────────────────────────────────────────────
 
-    local contentFrame = CreateFrame("Frame", nil, container)
+    -- Bordered content box: when expanded the whole section reads as a framed
+    -- block (a header bar + a bordered body), not just a header. The nested
+    -- BuildMenu lays its content at originX +8 / originY -8 inside this frame, so
+    -- the border frames it with even margins.
+    local contentFrame = CreateFrame("Frame", nil, container, "BackdropTemplate")
     contentFrame:SetPoint("TOPLEFT", headerBtn, "BOTTOMLEFT", 0, -4)
     contentFrame:SetPoint("TOPRIGHT", headerBtn, "BOTTOMRIGHT", 0, -4)
+    contentFrame:SetBackdrop({
+        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
+        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+        edgeSize = 12,
+        insets   = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    contentFrame:SetBackdropColor(0.10, 0.10, 0.10, 0.5)
+    contentFrame:SetBackdropBorderColor(0.45, 0.45, 0.45, 1)
 
     local contentHeight = 0
     if createContent then
         contentHeight = createContent(contentFrame) or 0
     end
-    contentFrame:SetHeight(contentHeight)
+    -- Pad the bottom to match the +8 top inset so the border has even margins.
+    local boxedHeight = contentHeight + 16
+    contentFrame:SetHeight(boxedHeight)
 
     -- ── Collapse logic ────────────────────────────────────────────────────────
 
-    local collapsed = false
+    local collapsed = getCollapsed and getCollapsed() or false
 
-    local function UpdateHeight()
-        if collapsed then
-            container:SetHeight(HEADER_HEIGHT)
-        else
-            container:SetHeight(HEADER_HEIGHT + 4 + contentHeight)
-        end
-        result.height = container:GetHeight()
-    end
-
-    headerBtn:SetScript("OnClick", function(self, btn)
-        if btn ~= "LeftButton" then return end
-        collapsed = not collapsed
+    local function ApplyCollapsedVisual()
         if collapsed then
             arrow:SetRotation(math.rad(-90))
             contentFrame:Hide()
@@ -120,9 +129,26 @@ function ns.ui.CreateCollapsibleSection(config)
             arrow:SetRotation(0)
             contentFrame:Show()
         end
+    end
+
+    local function UpdateHeight()
+        if collapsed then
+            container:SetHeight(HEADER_HEIGHT)
+        else
+            container:SetHeight(HEADER_HEIGHT + 4 + boxedHeight)
+        end
+        result.height = container:GetHeight()
+    end
+
+    headerBtn:SetScript("OnClick", function(self, btn)
+        if btn ~= "LeftButton" then return end
+        collapsed = not collapsed
+        if onCollapse then onCollapse(collapsed) end
+        ApplyCollapsedVisual()
         UpdateHeight()
     end)
 
+    ApplyCollapsedVisual()
     UpdateHeight()
 
     -- ── Refresh ───────────────────────────────────────────────────────────────

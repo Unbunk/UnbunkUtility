@@ -19,6 +19,10 @@ local _, ns = ...
 local L = ns.L
 ns.ui = ns.ui or {}
 
+-- Horizontal inset of a group box's content from its border (also the visual
+-- indent of a nested sub-box from its parent box).
+local GROUP_SIDEPAD = 10
+
 -- ── Per-type default host heights (for widgets with no intrinsic height) ──────
 local DEFAULT_HEIGHTS = {
     checkbox  = 24,
@@ -147,7 +151,11 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
 
     local width    = panelOpts.width   or 518
     local gap      = panelOpts.gap     or 12
-    local originX  = panelOpts.originX or 0
+    -- Top-level panels get a left margin so a group box's left border is not
+    -- clipped at the scroll-viewport edge and the 518 stack reads centred in the
+    -- ~550 content area. Nested BuildMenus (sections / groups) pass originX
+    -- explicitly, so this default only affects the outer module call.
+    local originX  = panelOpts.originX or 16
     local originY  = panelOpts.originY or 0
     local autoHook = panelOpts.autoHook
     if autoHook == nil then autoHook = true end
@@ -160,16 +168,21 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
     content:SetAllPoints(contentParent)
 
     local result = {
-        content = content,
-        refs    = {},
-        frames  = {},
-        widgets = {},
+        content   = content,
+        refs      = {},
+        frames    = {},
+        widgets   = {},
+        -- UIParent-parented helper frames (dropdown drop-frames, incl. those of
+        -- nested group/section menus) that Rebuild must Hide+SetParent(nil) so they
+        -- don't accumulate on UIParent across rebuilds.
+        auxFrames = {},
     }
     local refs       = result.refs
     local refreshers = {}
 
     local lastFrame  = nil
     local totalHeight = 0
+    local built      = {}   -- every host frame stacked this pass (for Rebuild teardown)
 
     -- Stack one resolved frame `f` below the previous one. `spentHeight` is the
     -- height this entry contributes to the running total (and is applied to the
@@ -188,8 +201,10 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
         end
         totalHeight = totalHeight + (spentHeight or 0)
         lastFrame = f
+        built[#built + 1] = f
     end
 
+    local function buildAll()
     for _, entry in ipairs(options) do
         -- Skip entries gated by a `shown` / `when` predicate that is false.
         local gate = entry.shown or entry.when
@@ -251,6 +266,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                 widget = ns.ui.CreateTextEditor(content, {
                     LSM             = entry.LSM or LSM,
                     label           = entry.label,
+                    textWidth       = entry.textWidth,
                     showText        = entry.showText,
                     showFont        = entry.showFont,
                     showSize        = entry.showSize,
@@ -290,6 +306,8 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                     showCheckbox  = entry.showCheckbox,
                     isChecked     = entry.isChecked,
                     onCheck       = entry.onCheck,
+                    getCollapsed  = entry.getCollapsed,
+                    onCollapse    = entry.onCollapse,
                     createContent = function(cf)
                         local innerOptions = entry.build and entry.build(cf) or {}
                         sectionSub = ns.ui.BuildMenu(cf, innerOptions, {
@@ -312,6 +330,50 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                 addRefresh = function()
                     if widget.Refresh then widget.Refresh() end
                     if sectionSub then sectionSub.Refresh() end
+                end
+                if sectionSub and sectionSub.auxFrames then
+                    for _, fr in ipairs(sectionSub.auxFrames) do
+                        result.auxFrames[#result.auxFrames + 1] = fr
+                    end
+                end
+
+            -- ── Group box (bordered frame around a nested BuildMenu) ───────────
+            elseif t == "group" then
+                local groupSub
+                -- The box fills `boxW` (current panel width by default) and insets
+                -- its content by GROUP_SIDEPAD on each side, so the nested stack is
+                -- innerW wide. Nesting one group inside another therefore indents
+                -- the inner box by GROUP_SIDEPAD — borders never reach the edge.
+                local boxW   = entry.width or width
+                local innerW = boxW - 2 * GROUP_SIDEPAD
+                widget = ns.ui.CreateGroupBox({
+                    parent  = content,
+                    title   = entry.title or entry.label,
+                    width   = boxW,
+                    sidePad = GROUP_SIDEPAD,
+                    topPad  = entry.topPad,
+                    botPad  = entry.botPad,
+                    createContent = function(cf)
+                        local innerOptions = entry.build and entry.build(cf) or (entry.children or {})
+                        groupSub = ns.ui.BuildMenu(cf, innerOptions, {
+                            width    = innerW,
+                            gap      = entry.innerGap or panelOpts.innerGap or gap,
+                            originX  = 0,
+                            originY  = 0,
+                            autoHook = false,
+                            LSM      = entry.LSM or LSM,
+                        })
+                        return groupSub.height
+                    end,
+                })
+                hostFrame, spentHeight, setHostHeight = widget.frame, widget.height, false
+                addRefresh = function()
+                    if groupSub then groupSub.Refresh() end
+                end
+                if groupSub and groupSub.auxFrames then
+                    for _, fr in ipairs(groupSub.auxFrames) do
+                        result.auxFrames[#result.auxFrames + 1] = fr
+                    end
                 end
 
             -- ── Fixed-height widgets hosted in a wrapper frame ─────────────────
@@ -423,6 +485,18 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                     addRefresh = widget.RefreshList
                 end
 
+            -- ── Reorder: arrow buttons ( < > ) to move an item within a row ────
+            elseif t == "reorder" then
+                widget = ns.ui.CreateReorder({
+                    parent   = content,
+                    label    = entry.label,
+                    getState = entry.getState,
+                    onMove   = entry.onMove,
+                })
+                hostFrame   = widget.frame
+                spentHeight = entry.height or 26
+                if widget.Refresh then addRefresh = widget.Refresh end
+
             -- ── Row: an array of leaf children laid out by explicit points ─────
             elseif t == "row" then
                 hostFrame = CreateFrame("Frame", nil, content)
@@ -436,13 +510,15 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
             elseif t == "custom" then
                 hostFrame = CreateFrame("Frame", nil, content)
                 hostFrame:SetWidth(entry.width or width)
-                local built = entry.build and entry.build(hostFrame) or { frame = hostFrame }
-                widget = built
+                -- `builtWidget` (NOT `built`): avoid shadowing the outer host-frame
+                -- teardown list `built` declared above.
+                local builtWidget = entry.build and entry.build(hostFrame) or { frame = hostFrame }
+                widget = builtWidget
                 -- Prefer the frame the builder returns; default to the host.
-                hostFrame = built.frame or hostFrame
+                hostFrame = builtWidget.frame or hostFrame
                 -- Height priority: builder height > entry height > current height.
-                spentHeight = built.height or entry.height or hostFrame:GetHeight()
-                if built.Refresh then addRefresh = built.Refresh end
+                spentHeight = builtWidget.height or entry.height or hostFrame:GetHeight()
+                if builtWidget.Refresh then addRefresh = builtWidget.Refresh end
                 if entry.refresh then
                     local prev = addRefresh
                     addRefresh = function()
@@ -486,18 +562,66 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                 entry.onBuilt(widget, entry)
             end
             table.insert(result.widgets, widget)
+            -- Collect UIParent-parented drop-frames (a single .dropFrame, or a
+            -- widget exposing several via .dropFrames) so Rebuild can reclaim them.
+            if widget then
+                if widget.dropFrame then
+                    result.auxFrames[#result.auxFrames + 1] = widget.dropFrame
+                end
+                if widget.dropFrames then
+                    for _, fr in ipairs(widget.dropFrames) do
+                        result.auxFrames[#result.auxFrames + 1] = fr
+                    end
+                end
+            end
             if addRefresh then
                 table.insert(refreshers, addRefresh)
             end
         end
     end
+    end  -- buildAll
 
+    -- Initial build pass.
+    buildAll()
     result.height = totalHeight
 
     function result.Refresh()
         for _, fn in ipairs(refreshers) do
             fn()
         end
+    end
+
+    -- Tear down everything built and rebuild from the (static) options list,
+    -- re-evaluating each entry's `when`/`shown` predicate. Used for reactive
+    -- panels where toggling one control changes which entries are shown (e.g. the
+    -- CDM block vs the position editor). Old frames are hidden + orphaned (WoW
+    -- frames are not destroyable); a settings panel is toggled rarely so this is
+    -- fine. After rebuilding it asks the host to re-measure its scroll height.
+    function result.Rebuild()
+        for _, f in ipairs(built) do
+            f:Hide()
+            f:ClearAllPoints()
+            f:SetParent(nil)
+        end
+        -- Reclaim UIParent-parented drop-frames (incl. those from nested
+        -- group/section menus) so they don't pile up on UIParent each Rebuild.
+        for _, f in ipairs(result.auxFrames) do
+            f:Hide()
+            f:ClearAllPoints()
+            f:SetParent(nil)
+        end
+        wipe(result.auxFrames)
+        wipe(built)
+        wipe(result.widgets)
+        wipe(result.frames)
+        wipe(refs)
+        wipe(refreshers)
+        lastFrame   = nil
+        totalHeight = 0
+        buildAll()
+        result.height = totalHeight
+        result.Refresh()
+        if ns.ResizeActiveModule then ns.ResizeActiveModule() end
     end
 
     if autoHook and parent and parent.HookScript then

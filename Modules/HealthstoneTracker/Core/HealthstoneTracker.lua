@@ -217,6 +217,9 @@ local function ApplyStackVisualsFor(t)
     if count > 0 then
         fs:SetText(tostring(count))
         fs:Show()
+    elseif HT.CfgGet("showAtZero") then
+        fs:SetText("0")
+        fs:Show()
     else
         fs:Hide()
     end
@@ -274,9 +277,25 @@ local function ApplyCombatMarkerFor(t)
     t.combatC:Show()
 end
 
+-- True when the Cooldown Manager integration owns the icons: each variant is
+-- placed individually by ns.CDMAnchor (native essential/utility row slot, or the
+-- artificial below-player row) via its per-icon TimerIcon descriptor. Our own
+-- ApplyLayout row must stand down so it doesn't clobber those positions.
+local function CDMActive()
+    if not HT.CfgGet("includeInCdm") then return false end
+    local dest = HT.CfgGet("cdmDest")
+    if dest == "belowPlayer" then return true end
+    return (ns.GetCDMViewer and ns.GetCDMViewer(dest)) ~= nil
+end
+
 -- Layout active trackers in a horizontal row to the right of the configured
 -- position. Hidden trackers (no assignedId) are skipped.
+-- We only SetPoint OUR (unprotected) frames — nothing protected is moved.
 local function ApplyLayout()
+    -- CDM integration active: each variant icon is placed into its destination by
+    -- ns.CDMAnchor (via its per-icon TimerIcon descriptor), so skip our own row
+    -- layout — running it (incl. on the 0.5s ticker) would clobber those positions.
+    if CDMActive() then return end
     local x = HT.CfgGet("posX")     or 0
     local y = HT.CfgGet("posY")     or 0
     local w = HT.CfgGet("iconWidth") or 30
@@ -288,6 +307,17 @@ local function ApplyLayout()
                 x + (i - 1) * (w + ICON_GAP), y)
         end
     end
+end
+
+-- Re-apply the row position. The position editor calls this directly; in CDM mode
+-- the variant icons are laid into their destination by ns.CDMAnchor instead, so
+-- just ask it for a refresh.
+function HT.ApplyPosition()
+    if CDMActive() then
+        if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+        return
+    end
+    ApplyLayout()
 end
 
 -- ── Main update ───────────────────────────────────────────────────────────────
@@ -319,6 +349,14 @@ function HT.ApplyAll()
             end
         end
         ids = scratchIds
+    end
+
+    -- Show-at-zero: nothing in bags but the option is on -> display the default
+    -- Healthstone icon (with a "0" stack) so the slot stays as a restock reminder.
+    -- ItemTracker.ApplyVisuals shows it despite hasItem=false because showAtZero is set.
+    if #ids == 0 and HT.CfgGet("showAtZero")
+       and HT.CfgGet("enabled") and IsActiveInCurrentInstance() and HT.CfgGet("showIcon") then
+        ids = { FALLBACK_PREVIEW_ID }
     end
 
     local n = math.min(#ids, MAX_TRACKERS)
@@ -466,6 +504,10 @@ local function OnBagOrEnteringWorld(event)
 end
 HT:RegisterEvent("PLAYER_ENTERING_WORLD", OnBagOrEnteringWorld)
 HT:RegisterEvent("BAG_UPDATE", OnBagOrEnteringWorld)
+-- Late-loading item/spell data: refresh once it arrives so the first post-login
+-- icon/spell resolves promptly instead of waiting up to one 0.5s ticker (mirrors
+-- PotionTracker's ITEM_DATA_LOAD_RESULT handling).
+HT:RegisterEvent("ITEM_DATA_LOAD_RESULT", OnBagOrEnteringWorld)
 
 HT:RegisterEvent("PLAYER_REGEN_ENABLED", function(event)
     -- Combat ended: clear the per-tracker and per-variant "used in combat"
@@ -513,6 +555,12 @@ ns.RegisterReloadHook(function()
     HT.ApplyBorder()
     HT.ApplyAll()
 end)
+
+-- NOTE: no bare ns.CDMAnchor.Register(HT.ApplyPosition) here — each variant's own
+-- TimerIcon already registers a full descriptor that ns.CDMAnchor lays out (and
+-- re-applies on viewer relayout) in CDM mode; free mode is driven by HT's 0.5s
+-- ticker + reload hook. A bare applier only re-entered RefreshAll (guarded no-op),
+-- matching PotionTracker/TrinketTracker which add no such applier.
 
 local initHT = CreateFrame("Frame")
 initHT:RegisterEvent("PLAYER_LOGIN")

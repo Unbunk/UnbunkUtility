@@ -238,5 +238,10 @@ function ns.ui.CreateDropdown(config)
     end)
 
     result.RefreshList = RefreshList
+    -- Exposed so BuildMenu.Rebuild can reclaim it: the drop frame is parented to
+    -- UIParent (to float on the TOOLTIP strata, escaping scroll-frame clipping), so
+    -- it is NOT torn down when its host frame is orphaned — BuildMenu collects it
+    -- into its auxFrames list and Hide+SetParent(nil)s it on Rebuild.
+    result.dropFrame = dropFrame
     return result
 end

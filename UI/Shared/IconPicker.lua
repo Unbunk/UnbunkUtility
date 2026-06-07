@@ -248,6 +248,8 @@ function ns.ui.CreateIconPicker(config)
     container:SetHeight(height)
     result.frame  = container
     result.height = height
+    -- Exposed so BuildMenu.Rebuild reclaims the UIParent-parented drop frames.
+    result.dropFrames = { iconDD.dropFrame, posDD.dropFrame }
 
     function result.Refresh()
         local cfg = getConfig()

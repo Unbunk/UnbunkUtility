@@ -426,40 +426,40 @@ end
 local SOUND_KEY_MIGRATIONS = {
     -- v1 (pre-restructure): unsuffixed keys → new defaults.
     -- Most sounds default to High; BRez Ready/Used default to Medium.
-    ["UnbunkUtility: BL"]                    = "UnbunkUtility: BL High",
-    ["UnbunkUtility: Bloodlust"]             = "UnbunkUtility: Bloodlust High",
-    ["UnbunkUtility: Bloodlust Combo"]       = "UnbunkUtility: Bloodlust Combo High",
-    ["UnbunkUtility: BL Ready"]              = "UnbunkUtility: BL Ready High",
-    ["UnbunkUtility: BRez Ready"]            = "UnbunkUtility: BRez Ready Medium",
-    ["UnbunkUtility: BRez Used"]             = "UnbunkUtility: BRez Used Medium",
-    ["UnbunkUtility: Combat Potion"]         = "UnbunkUtility: Combat Potion High",
-    ["UnbunkUtility: Combat Potion Ready"]   = "UnbunkUtility: Combat Potion Ready High",
-    ["UnbunkUtility: DPS Died"]              = "UnbunkUtility: DPS Died High",
-    ["UnbunkUtility: Drink"]                 = "UnbunkUtility: Drink High",
-    ["UnbunkUtility: Healer Died"]           = "UnbunkUtility: Healer Died High",
-    ["UnbunkUtility: Health Potion"]         = "UnbunkUtility: Health Potion High",
-    ["UnbunkUtility: Health Potion Ready"]   = "UnbunkUtility: Health Potion Ready High",
-    ["UnbunkUtility: Healthstone"]           = "UnbunkUtility: Healthstone High",
-    ["UnbunkUtility: Healthstone Ready"]     = "UnbunkUtility: Healthstone Ready High",
-    ["UnbunkUtility: No Heal"]               = "UnbunkUtility: No Heal High",
-    ["UnbunkUtility: PI"]                    = "UnbunkUtility: PI High",
-    ["UnbunkUtility: Potion Combo"]          = "UnbunkUtility: Potion Combo High",
-    ["UnbunkUtility: Potion Ready"]          = "UnbunkUtility: Potion Ready High",
-    ["UnbunkUtility: Tank Died"]             = "UnbunkUtility: Tank Died High",
-    ["UnbunkUtility: Trinket"]               = "UnbunkUtility: Trinket High",
-    ["UnbunkUtility: Trinket Combo"]         = "UnbunkUtility: Trinket Combo High",
-    ["UnbunkUtility: Trinket Ready"]         = "UnbunkUtility: Trinket Ready High",
+    ["UnbunkUtility: BL"]                    = "UnbunkUtility: BL (High)",
+    ["UnbunkUtility: Bloodlust"]             = "UnbunkUtility: Bloodlust (High)",
+    ["UnbunkUtility: Bloodlust Combo"]       = "UnbunkUtility: Bloodlust Combo (High)",
+    ["UnbunkUtility: BL Ready"]              = "UnbunkUtility: BL Ready (High)",
+    ["UnbunkUtility: BRez Ready"]            = "UnbunkUtility: BRez Ready (Medium)",
+    ["UnbunkUtility: BRez Used"]             = "UnbunkUtility: BRez Used (Medium)",
+    ["UnbunkUtility: Combat Potion"]         = "UnbunkUtility: Combat Potion (High)",
+    ["UnbunkUtility: Combat Potion Ready"]   = "UnbunkUtility: Combat Potion Ready (High)",
+    ["UnbunkUtility: DPS Died"]              = "UnbunkUtility: DPS Died (High)",
+    ["UnbunkUtility: Drink"]                 = "UnbunkUtility: Drink (High)",
+    ["UnbunkUtility: Healer Died"]           = "UnbunkUtility: Healer Died (High)",
+    ["UnbunkUtility: Health Potion"]         = "UnbunkUtility: Health Potion (High)",
+    ["UnbunkUtility: Health Potion Ready"]   = "UnbunkUtility: Health Potion Ready (High)",
+    ["UnbunkUtility: Healthstone"]           = "UnbunkUtility: Healthstone (High)",
+    ["UnbunkUtility: Healthstone Ready"]     = "UnbunkUtility: Healthstone Ready (High)",
+    ["UnbunkUtility: No Heal"]               = "UnbunkUtility: No Heal (High)",
+    ["UnbunkUtility: PI"]                    = "UnbunkUtility: PI (High)",
+    ["UnbunkUtility: Potion Combo"]          = "UnbunkUtility: Potion Combo (High)",
+    ["UnbunkUtility: Potion Ready"]          = "UnbunkUtility: Potion Ready (High)",
+    ["UnbunkUtility: Tank Died"]             = "UnbunkUtility: Tank Died (High)",
+    ["UnbunkUtility: Trinket"]               = "UnbunkUtility: Trinket (High)",
+    ["UnbunkUtility: Trinket Combo"]         = "UnbunkUtility: Trinket Combo (High)",
+    ["UnbunkUtility: Trinket Ready"]         = "UnbunkUtility: Trinket Ready (High)",
 
     -- v2 (intermediate patch): sounds that defaulted to " Loud" but now
     -- have High/Medium/Low variants available — switch to the new default.
-    ["UnbunkUtility: BRez Ready Loud"]       = "UnbunkUtility: BRez Ready Medium",
-    ["UnbunkUtility: BRez Used Loud"]        = "UnbunkUtility: BRez Used Medium",
-    ["UnbunkUtility: Bloodlust Combo Loud"]  = "UnbunkUtility: Bloodlust Combo High",
-    ["UnbunkUtility: Drink Loud"]            = "UnbunkUtility: Drink High",
-    ["UnbunkUtility: Healthstone Loud"]      = "UnbunkUtility: Healthstone High",
-    ["UnbunkUtility: Healthstone Ready Loud"]= "UnbunkUtility: Healthstone Ready High",
-    ["UnbunkUtility: Potion Combo Loud"]     = "UnbunkUtility: Potion Combo High",
-    ["UnbunkUtility: Trinket Combo Loud"]    = "UnbunkUtility: Trinket Combo High",
+    ["UnbunkUtility: BRez Ready Loud"]       = "UnbunkUtility: BRez Ready (Medium)",
+    ["UnbunkUtility: BRez Used Loud"]        = "UnbunkUtility: BRez Used (Medium)",
+    ["UnbunkUtility: Bloodlust Combo Loud"]  = "UnbunkUtility: Bloodlust Combo (High)",
+    ["UnbunkUtility: Drink Loud"]            = "UnbunkUtility: Drink (High)",
+    ["UnbunkUtility: Healthstone Loud"]      = "UnbunkUtility: Healthstone (High)",
+    ["UnbunkUtility: Healthstone Ready Loud"]= "UnbunkUtility: Healthstone Ready (High)",
+    ["UnbunkUtility: Potion Combo Loud"]     = "UnbunkUtility: Potion Combo (High)",
+    ["UnbunkUtility: Trinket Combo Loud"]    = "UnbunkUtility: Trinket Combo (High)",
 }
 
 function ns.MigrateSoundKeys(tbl)
@@ -467,7 +467,20 @@ function ns.MigrateSoundKeys(tbl)
     for k, v in pairs(tbl) do
         if type(v) == "string" then
             local migrated = SOUND_KEY_MIGRATIONS[v]
-            if migrated then tbl[k] = migrated end
+            if migrated then
+                tbl[k] = migrated
+            else
+                -- v3 → v4: move a trailing loudness word into parentheses, e.g.
+                -- "UnbunkUtility: BL Ready Loud" → "UnbunkUtility: BL Ready (Loud)".
+                -- Lua patterns have no alternation, so capture the last word and
+                -- check it against the known variants. Keys already in the
+                -- parenthesised form end in ")" and never match here.
+                local base, vol = v:match("^(UnbunkUtility: .+) (%a+)$")
+                if base and (vol == "High" or vol == "Medium"
+                          or vol == "Low"  or vol == "Loud") then
+                    tbl[k] = base .. " (" .. vol .. ")"
+                end
+            end
         elseif type(v) == "table" then
             ns.MigrateSoundKeys(v)
         end
@@ -482,10 +495,10 @@ end
 local DEFAULTS_COMBO = {
     enabled       = true,   -- master switch for the whole combo feature
     blEnabled     = true,   -- play the BL combo sound when applicable
-    blKey         = "UnbunkUtility: Bloodlust Combo High",
+    blKey         = "UnbunkUtility: Bloodlust Combo (High)",
     blPath        = nil,
     potionEnabled = true,   -- play the Potion combo sound when applicable
-    potionKey     = "UnbunkUtility: Potion Combo High",
+    potionKey     = "UnbunkUtility: Potion Combo (High)",
     potionPath    = nil,
 }
 
@@ -509,19 +522,31 @@ local DEFAULTS_BOSS_RESET = {
     soundPath = nil,
 }
 
+-- Account-wide size of the icons placed in the artificial "below player frame"
+-- CDM row (cdmDest = "belowPlayer"). Configured in General Settings; applied to
+-- every below-player icon by ns.CDMAnchor (so they share one consistent size).
+local DEFAULTS_CDM_BELOW_ROW = {
+    width   = 36,
+    height  = 36,
+    offsetX = 0,    -- manual nudge from PlayerFrame's BOTTOMLEFT (default: flush)
+    offsetY = 0,
+}
+
 function ns.InitGlobalCfg()
     if not ns.db then return end
     local g = ns.db.global
     -- Walk the global table to rewrite any pre-restructure sound key.
     ns.MigrateSoundKeys(g)
-    g.combo     = g.combo     or {}
-    g.wipe      = g.wipe      or {}
-    g.dpsSpam   = g.dpsSpam   or {}
-    g.bossReset = g.bossReset or {}
-    ns.MergeDefaults(g.combo,     DEFAULTS_COMBO)
-    ns.MergeDefaults(g.wipe,      DEFAULTS_WIPE)
-    ns.MergeDefaults(g.dpsSpam,   DEFAULTS_DPS_SPAM)
-    ns.MergeDefaults(g.bossReset, DEFAULTS_BOSS_RESET)
+    g.combo       = g.combo       or {}
+    g.wipe        = g.wipe        or {}
+    g.dpsSpam     = g.dpsSpam     or {}
+    g.bossReset   = g.bossReset   or {}
+    g.cdmBelowRow = g.cdmBelowRow or {}
+    ns.MergeDefaults(g.combo,       DEFAULTS_COMBO)
+    ns.MergeDefaults(g.wipe,        DEFAULTS_WIPE)
+    ns.MergeDefaults(g.dpsSpam,     DEFAULTS_DPS_SPAM)
+    ns.MergeDefaults(g.bossReset,   DEFAULTS_BOSS_RESET)
+    ns.MergeDefaults(g.cdmBelowRow, DEFAULTS_CDM_BELOW_ROW)
 end
 
 ns.RegisterCfgInitHook(ns.InitGlobalCfg)

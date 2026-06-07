@@ -203,7 +203,7 @@ local function BuildPotionSectionOptions(prefix, LSM)
             onTest    = function() PT.PlaySound(prefix, "soundReady") end,
         },
 
-        -- ── Show icon checkbox ─────────────────────────────────────────────────
+        -- ── Show icon checkbox + Show-at-0-stacks toggle (inline, to its right) ──
         {
             type   = "checkbox",
             label  = L["Show icon"],
@@ -213,70 +213,150 @@ local function BuildPotionSectionOptions(prefix, LSM)
                 SetCfg("showIcon", val)
                 tracker.ApplyVisuals()
             end,
+            inline = {
+                {
+                    type  = "checkbox",
+                    label = L["Show at 0 stacks"],
+                    get   = function() return GetCfg("showAtZero") == true end,
+                    set   = function(val)
+                        SetCfg("showAtZero", val)
+                        tracker.ApplyVisuals()
+                        PT.ApplyStackVisuals(prefix, tracker)
+                    end,
+                    point = { "LEFT", "LEFT", 150, 0 },
+                },
+            },
         },
 
-        -- ── Icon size  W / H  (composite -> custom escape hatch) ───────────────
+        -- ── Placement sub-box: Cooldown Manager slot OR free position. ──────────
+        -- "Include in cdm" toggles which controls show; its set calls
+        -- PT.configMenu.Rebuild() so the CDM options swap with the position editor.
         {
-            type   = "custom",
-            height = 46,
-            build  = function(sizeFrame)
-                sizeFrame:SetHeight(46)
-
-                local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-                sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
-                sizeLbl:SetText(L["Icon size"])
-
-                local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
-                wLbl:SetText(L["W"])
-
-                local wInput = ns.ui.CreateTextInput({
-                    parent     = sizeFrame,
-                    width      = 46,
-                    height     = 22,
-                    numeric    = true,
-                    min        = 8,
-                    max        = 512,
-                    maxLetters = 3,
-                    text       = tostring(GetCfg("iconWidth") or 30),
-                    onEnter    = function(val)
-                        if val and val > 0 then
-                            SetCfg("iconWidth", val)
-                            tracker.ApplySize()
-                        end
-                    end,
-                })
-                wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-
-                local hLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
-                hLbl:SetText(L["H"])
-
-                local hInput = ns.ui.CreateTextInput({
-                    parent     = sizeFrame,
-                    width      = 46,
-                    height     = 22,
-                    numeric    = true,
-                    min        = 8,
-                    max        = 512,
-                    maxLetters = 3,
-                    text       = tostring(GetCfg("iconHeight") or 30),
-                    onEnter    = function(val)
-                        if val and val > 0 then
-                            SetCfg("iconHeight", val)
-                            tracker.ApplySize()
-                        end
-                    end,
-                })
-                hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-
+            type  = "group",
+            title = L["Placement"],
+            build = function()
                 return {
-                    frame   = sizeFrame,
-                    height  = 46,
-                    Refresh = function()
-                        wInput.SetText(tostring(GetCfg("iconWidth") or 30))
-                        hInput.SetText(tostring(GetCfg("iconHeight") or 30))
-                    end,
+                    {
+                        type = "checkbox", label = L["Include in cdm"],
+                        get = function() return GetCfg("includeInCdm") == true end,
+                        set = function(v)
+                            SetCfg("includeInCdm", v); tracker.ApplySize(); tracker.ApplyPosition()
+                            if PT.configMenu then PT.configMenu.Rebuild() end
+                        end,
+                    },
+                    {
+                        type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
+                        when = function() return GetCfg("includeInCdm") == true end,
+                        getList = function() return ns.CDMDestList() end,
+                        getCurrentKey = function() return ns.CDMDestLabel(GetCfg("cdmDest") or "essential") end,
+                        onSelect = function(label) SetCfg("cdmDest", ns.CDMDestKeyFromLabel(label)); tracker.ApplySize(); tracker.ApplyPosition(); if PT.configMenu then PT.configMenu.Refresh() end end,
+                    },
+                    {
+                        type = "checkbox", label = L["Icon at the end of the row"],
+                        when = function() return GetCfg("includeInCdm") == true end,
+                        get = function() return GetCfg("cdmAtEnd") ~= false end,
+                        set = function(v) SetCfg("cdmAtEnd", v); tracker.ApplyPosition(); if PT.configMenu then PT.configMenu.Refresh() end end,
+                    },
+                    {
+                        type = "dropdown", label = L["Row"], width = 120, height = 50,
+                        when = function() return GetCfg("includeInCdm") == true end,
+                        getList = function() return ns.CDMRowList(GetCfg("cdmDest") or "essential") end,
+                        getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(GetCfg("cdmDest") or "essential", GetCfg("cdmRow"))) end,
+                        onSelect = function(label) SetCfg("cdmRow", ns.CDMRowFromLabel(label)); tracker.ApplyPosition(); if PT.configMenu then PT.configMenu.Refresh() end end,
+                    },
+                    {
+                        type = "reorder", label = L["Move in row"],
+                        when = function() return GetCfg("includeInCdm") == true end,
+                        getState = function() return ns.CDMAnchor.GetMoveState(tracker.GetFrame()) end,
+                        onMove = function(dir) ns.CDMAnchor.Move(tracker.GetFrame(), dir) end,
+                    },
+                    -- Free icon position (only when NOT in the CDM)
+                    {
+                        type       = "position",
+                        ref        = "pe",
+                        when       = function() return GetCfg("includeInCdm") ~= true end,
+                        onBuilt    = function(w) tracker.pe = w end,
+                        label      = L["Icon position (offset from screen center)"],
+                        getX       = function() return GetCfg("posX") end,
+                        getY       = function() return GetCfg("posY") end,
+                        onApply    = function(x, yv)
+                            if x  then SetCfg("posX", x)  end
+                            if yv then SetCfg("posY", yv) end
+                            PT.ApplyAll()
+                        end,
+                        onUnlock   = function() tracker.SetUnlocked(true) end,
+                        onLock     = function()
+                            tracker.SetUnlocked(false)
+                            if tracker.pe then tracker.pe.Refresh() end
+                        end,
+                        isUnlocked = function() return tracker.IsUnlocked() end,
+                    },
+                    -- Icon size — free mode only. In the CDM the size is automatic.
+                    {
+                        type   = "custom",
+                        height = 46,
+                        when   = function() return GetCfg("includeInCdm") ~= true end,
+                        build  = function(sizeFrame)
+                            sizeFrame:SetHeight(46)
+
+                            local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                            sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
+                            sizeLbl:SetText(L["Icon size"])
+
+                            local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                            wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
+                            wLbl:SetText(L["W"])
+
+                            local wInput = ns.ui.CreateTextInput({
+                                parent     = sizeFrame,
+                                width      = 46,
+                                height     = 22,
+                                numeric    = true,
+                                min        = 8,
+                                max        = 512,
+                                maxLetters = 3,
+                                text       = tostring(GetCfg("iconWidth") or 30),
+                                onEnter    = function(val)
+                                    if val and val > 0 then
+                                        SetCfg("iconWidth", val)
+                                        tracker.ApplySize()
+                                    end
+                                end,
+                            })
+                            wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+
+                            local hLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                            hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
+                            hLbl:SetText(L["H"])
+
+                            local hInput = ns.ui.CreateTextInput({
+                                parent     = sizeFrame,
+                                width      = 46,
+                                height     = 22,
+                                numeric    = true,
+                                min        = 8,
+                                max        = 512,
+                                maxLetters = 3,
+                                text       = tostring(GetCfg("iconHeight") or 30),
+                                onEnter    = function(val)
+                                    if val and val > 0 then
+                                        SetCfg("iconHeight", val)
+                                        tracker.ApplySize()
+                                    end
+                                end,
+                            })
+                            hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+
+                            return {
+                                frame   = sizeFrame,
+                                height  = 46,
+                                Refresh = function()
+                                    wInput.SetText(tostring(GetCfg("iconWidth") or 30))
+                                    hInput.SetText(tostring(GetCfg("iconHeight") or 30))
+                                end,
+                            }
+                        end,
+                    },
                 }
             end,
         },
@@ -299,27 +379,6 @@ local function BuildPotionSectionOptions(prefix, LSM)
             type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
             get = function() return GetCfg("borderSize") or 1 end,
             set = function(v) if v and v > 0 then SetCfg("borderSize", v); tracker.ApplyBorder() end end,
-        },
-
-        -- ── Position editor (named ref for the onLock self-refresh) ────────────
-        {
-            type       = "position",
-            ref        = "pe",
-            onBuilt    = function(w) tracker.pe = w end,
-            label      = L["Icon position (offset from screen center)"],
-            getX       = function() return GetCfg("posX") end,
-            getY       = function() return GetCfg("posY") end,
-            onApply    = function(x, yv)
-                if x  then SetCfg("posX", x)  end
-                if yv then SetCfg("posY", yv) end
-                PT.ApplyAll()
-            end,
-            onUnlock   = function() tracker.SetUnlocked(true) end,
-            onLock     = function()
-                tracker.SetUnlocked(false)
-                if tracker.pe then tracker.pe.Refresh() end
-            end,
-            isUnlocked = function() return tracker.IsUnlocked() end,
         },
 
         -- ── Timer text ─────────────────────────────────────────────────────────
@@ -420,26 +479,35 @@ local function CreatePotionTrackerPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
     local options = {
-        -- ── Enable checkbox ───────────────────────────────────────────────────
+        -- ════════════ General: enable + where it is active ════════════
         {
-            type   = "checkbox",
-            label  = L["Enable Potion Tracker"],
-            height = 24,
-            get    = function() return PT.CfgGet("enabled") ~= false end,
-            set    = function(val)
-                PT.CfgSet("enabled", val)
-                PT.ApplyAll()
-            end,
-        },
+            type  = "group",
+            title = L["General"],
+            build = function()
+                return {
+                    -- ── Enable checkbox ───────────────────────────────────────────────────
+                    {
+                        type   = "checkbox",
+                        label  = L["Enable Potion Tracker"],
+                        height = 24,
+                        get    = function() return PT.CfgGet("enabled") ~= false end,
+                        set    = function(val)
+                            PT.CfgSet("enabled", val)
+                            PT.ApplyAll()
+                        end,
+                    },
 
-        -- ── Instance filter ───────────────────────────────────────────────────
-        {
-            type      = "instanceFilter",
-            getConfig = function() return PT.CfgGet("instanceFilter") end,
-            setConfig = function(key, val)
-                local filter = PT.CfgGet("instanceFilter")
-                filter[key] = val
-                PT.CfgSet("instanceFilter", filter)
+                    -- ── Instance filter ───────────────────────────────────────────────────
+                    {
+                        type      = "instanceFilter",
+                        getConfig = function() return PT.CfgGet("instanceFilter") end,
+                        setConfig = function(key, val)
+                            local filter = PT.CfgGet("instanceFilter")
+                            filter[key] = val
+                            PT.CfgSet("instanceFilter", filter)
+                        end,
+                    },
+                }
             end,
         },
 
@@ -455,6 +523,8 @@ local function CreatePotionTrackerPanel(parent)
                 PT.CfgSet("health", cfg)
                 PT.ApplyAll()
             end,
+            getCollapsed = function() return PT._uiCollapsed and PT._uiCollapsed["health"] end,
+            onCollapse   = function(v) PT._uiCollapsed = PT._uiCollapsed or {}; PT._uiCollapsed["health"] = v end,
             build     = function() return BuildPotionSectionOptions("health", LSM) end,
         },
 
@@ -470,6 +540,8 @@ local function CreatePotionTrackerPanel(parent)
                 PT.CfgSet("combat", cfg)
                 PT.ApplyAll()
             end,
+            getCollapsed = function() return PT._uiCollapsed and PT._uiCollapsed["combat"] end,
+            onCollapse   = function(v) PT._uiCollapsed = PT._uiCollapsed or {}; PT._uiCollapsed["combat"] = v end,
             build     = function() return BuildPotionSectionOptions("combat", LSM) end,
         },
     }
@@ -478,13 +550,14 @@ local function CreatePotionTrackerPanel(parent)
     -- origin (8,-8), matching the old CreatePotionSection AddWidget loop. autoHook
     -- generates the OnShow re-sync (enable, instance filter, both sections and all
     -- their inner widgets).
-    return ns.ui.BuildMenu(parent, options, {
+    PT.configMenu = ns.ui.BuildMenu(parent, options, {
         gap        = 8,
         width      = 518,
         LSM        = LSM,
         innerWidth = 500,
         innerGap   = 10,
     })
+    return PT.configMenu
 end
 
 -- ── Enregistrement ────────────────────────────────────────────────────────────
