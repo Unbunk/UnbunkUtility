@@ -17,6 +17,7 @@ Libs/Ace3-master/AceDB-3.0/AceDB-3.0.lua
 Libs/LibDeflate-1.0.2-release/LibDeflate.lua
 Core/Shared.lua
 Core/DB.lua
+Core/CDMAnchor.lua
 Locales/enUS.lua
 Locales/frFR.lua
 Media/Media.lua
@@ -35,6 +36,8 @@ UI/Shared/InstanceFilter.lua
 UI/Shared/AlertFrame.lua
 UI/Shared/TimerIcon.lua
 UI/Shared/ItemTracker.lua
+UI/Shared/Reorder.lua
+UI/Shared/GroupBox.lua
 UI/Shared/BuildMenu.lua
 Core/Core.lua
 Core/SlashCommands.lua

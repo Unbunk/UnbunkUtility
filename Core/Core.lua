@@ -88,7 +88,9 @@ local function ShowModule(index)
     if not mod.frame then
         mod.frame = CreateFrame("Frame", nil, contentArea)
         mod.frame:SetAllPoints(contentArea)
-        mod.createFn(mod.frame)
+        -- Capture the BuildMenu result so ns.profiles.ReloadAll can reclaim its
+        -- UIParent-parented dropdown drop-frames (auxFrames) on a profile switch.
+        mod.menu = mod.createFn(mod.frame)
     end
 
     mod.frame:Show()
@@ -114,6 +116,23 @@ local function ShowModule(index)
             btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
         end
     end
+end
+
+-- Re-measure the active module's content height and resize the scroll area.
+-- Called by BuildMenu.Rebuild after a reactive panel relayout (e.g. toggling the
+-- "Include in cdm" checkbox swaps the CDM controls for the position editor, which
+-- changes the panel height). Deferred a frame so the rebuilt frames have realized
+-- positions before we measure them.
+function ns.ResizeActiveModule()
+    local idx = activeTab
+    if not idx then return end
+    C_Timer.After(0, function()
+        if activeTab ~= idx then return end
+        local mod = registeredModules[idx]
+        if mod and mod.frame and mod.frame:IsShown() then
+            ResizeContentArea(mod.frame)
+        end
+    end)
 end
 
 function UnbunkUtility.ShowActiveModule()

@@ -8,7 +8,7 @@ local DA = ns.DeathAlert
 local DEFAULTS = {
     -- Tank alert
     tankEnabled      = true,
-    tankSoundKey     = "UnbunkUtility: Tank Died High",
+    tankSoundKey     = "UnbunkUtility: Tank Died (High)",
     tankSoundPath    = nil,
     tankEnableSound  = true,
     tankFontKey      = "2002 Bold",
@@ -22,7 +22,7 @@ local DEFAULTS = {
     tankAlertDuration   = 3,
     -- Healer alert
     healerEnabled     = true,
-    healerSoundKey    = "UnbunkUtility: Healer Died High",
+    healerSoundKey    = "UnbunkUtility: Healer Died (High)",
     healerSoundPath   = nil,
     healerEnableSound = true,
     healerFontKey     = "2002 Bold",
@@ -36,7 +36,7 @@ local DEFAULTS = {
     healerAlertDuration = 3,
     -- DPS alert
     dpsEnabled     = false,
-    dpsSoundKey    = "UnbunkUtility: DPS Died High",
+    dpsSoundKey    = "UnbunkUtility: DPS Died (High)",
     dpsSoundPath   = nil,
     dpsEnableSound = true,
     dpsFontKey     = "2002 Bold",

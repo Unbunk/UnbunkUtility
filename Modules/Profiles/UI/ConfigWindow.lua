@@ -71,7 +71,7 @@ local function CreateProfilesPanel(parent)
                 -- Load() switches the profile and re-applies every module.
                 ns.profiles.Load(name)
                 SetCurrentText(name)
-                print(string.format(L["|cffff4444[UnbunkUtility]|r Profile loaded: %s"], name))
+                ns.Print(string.format(L["Profile loaded: %s"], name))
             end,
             onBuilt       = function(w)
                 profileDD = w
@@ -109,9 +109,9 @@ local function CreateProfilesPanel(parent)
                                 if profileDD then profileDD.selectedText:SetText(name) end
                                 SetCurrentText(name)
                                 createInput.SetText("")
-                                print(string.format(L["|cffff4444[UnbunkUtility]|r Profile created: %s"], name))
+                                ns.Print(string.format(L["Profile created: %s"], name))
                             else
-                                print(string.format(L["|cffff4444[UnbunkUtility]|r Profile already exists: %s"], name))
+                                ns.Print(string.format(L["Profile already exists: %s"], name))
                             end
                         end
                     end,
@@ -164,7 +164,7 @@ local function CreateProfilesPanel(parent)
                                 deleteDD.selectedText:SetText("")
                                 SetCurrentText(ns.profiles.GetCurrent())
                                 if profileDD then profileDD.selectedText:SetText(ns.profiles.GetCurrent()) end
-                                print(string.format(L["|cffff4444[UnbunkUtility]|r Profile deleted: %s"], name))
+                                ns.Print(string.format(L["Profile deleted: %s"], name))
                             end
                         end
                     end,
@@ -234,9 +234,9 @@ local function CreateProfilesPanel(parent)
                             local ok, err = ns.profiles.Import(str)
                             if ok then
                                 SetCurrentText(ns.profiles.GetCurrent())
-                                print(L["|cffff4444[UnbunkUtility]|r Profile imported successfully."])
+                                ns.Print(L["Profile imported successfully."])
                             else
-                                print(string.format(L["|cffff4444[UnbunkUtility]|r Import failed: %s"], tostring(err)))
+                                ns.Print(string.format(L["Import failed: %s"], tostring(err)))
                             end
                         end
                     end,
@@ -267,7 +267,7 @@ local function CreateProfilesPanel(parent)
                         -- which fires OnProfileReset -> every module's CfgInit hook re-merges
                         -- its DEFAULTS, then the panel rebuilds. No module can be missed.
                         ns.profiles.ResetCurrent()
-                        print(string.format(L["|cffff4444[UnbunkUtility]|r Profile reset to defaults: %s"], name))
+                        ns.Print(string.format(L["Profile reset to defaults: %s"], name))
                     end,
                 })
                 resetBtn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -22)

@@ -452,8 +452,12 @@ plEvents:RegisterEvent("PLAYER_ENTERING_WORLD", OnRosterRefresh)
 local init = CreateFrame("Frame")
 init:RegisterEvent("PLAYER_LOGIN")
 init:SetScript("OnEvent", function(self)
-    -- The list frame is parented to the icon frame so it inherits visibility.
-    listFrame = CreateFrame("Frame", "BResTrackerPlayerList", BR.GetFrame())
+    -- Parented to UIParent (NOT the icon frame) so the list can render even when
+    -- "Show icon" is off: ApplyListPosition anchors it to the icon frame via
+    -- SetPoint (which works regardless of the anchor's shown state), and
+    -- BR.RefreshList independently governs visibility (listEnabled + members).
+    listFrame = CreateFrame("Frame", "BResTrackerPlayerList", UIParent)
+    if ns.SetTrackerIconStrata then ns.SetTrackerIconStrata(listFrame) end
     listFrame:Hide()
     BR.list = { frame = listFrame }
 

@@ -16,6 +16,10 @@ local DEFAULTS = {
         enabled       = true,
         showIcon      = true,
         slot          = 13,
+        includeInCdm  = true,        -- default: shown in the CDM…
+        cdmDest       = "essential", -- …at the end of Essential row 2 (after the BL icon)
+        cdmAtEnd      = true,
+        cdmRow        = 2,
         posX          = 150,
         posY          = -150,
         iconWidth     = 40,
@@ -29,16 +33,20 @@ local DEFAULTS = {
         timerOutline  = "OUTLINE",
         timerColor    = { r=1, g=1, b=1, a=1 },
         soundOnUse    = true,
-        soundKeyUse   = "UnbunkUtility: Trinket High",
+        soundKeyUse   = "UnbunkUtility: Trinket (High)",
         soundPathUse  = nil,
         soundOnReady  = true,
-        soundKeyReady = "UnbunkUtility: Trinket Ready High",
+        soundKeyReady = "UnbunkUtility: Trinket Ready (High)",
         soundPathReady= nil,
     },
     trinket2 = {
         enabled       = true,
         showIcon      = true,
         slot          = 14,
+        includeInCdm  = true,        -- default: shown in the CDM…
+        cdmDest       = "essential", -- …at the end of Essential row 2 (after the BL icon)
+        cdmAtEnd      = true,
+        cdmRow        = 2,
         posX          = 190,
         posY          = -150,
         iconWidth     = 40,
@@ -52,10 +60,10 @@ local DEFAULTS = {
         timerOutline  = "OUTLINE",
         timerColor    = { r=1, g=1, b=1, a=1 },
         soundOnUse    = true,
-        soundKeyUse   = "UnbunkUtility: Trinket High",
+        soundKeyUse   = "UnbunkUtility: Trinket (High)",
         soundPathUse  = nil,
         soundOnReady  = true,
-        soundKeyReady = "UnbunkUtility: Trinket Ready High",
+        soundKeyReady = "UnbunkUtility: Trinket Ready (High)",
         soundPathReady= nil,
     },
 }

@@ -7,9 +7,14 @@ local HT = ns.HealthstoneTracker
 local DEFAULTS = {
     enabled        = true,
     showIcon       = true,
+    showAtZero     = false,  -- keep the icon visible even with 0 healthstones in bags
     -- itemId / spellId are now resolved dynamically by HT.GetActiveItemId
     -- so every known healthstone (5512, 224464, legacy ranks, etc.) works
     -- as long as one is in the player's bag.
+    includeInCdm   = true,           -- default: shown in the CDM…
+    cdmDest        = "belowPlayer",  -- …in the artificial row below the PlayerFrame (after the potions)
+    cdmAtEnd       = true,
+    cdmRow         = 1,
     posX           = -340,
     posY           = -300,
     iconWidth      = 30,
@@ -29,10 +34,10 @@ local DEFAULTS = {
     stackOutline   = "OUTLINE",
     stackColor     = { r = 1, g = 1, b = 1, a = 1 },
     soundOnUse     = true,
-    soundKeyUse    = "UnbunkUtility: Healthstone High",
+    soundKeyUse    = "UnbunkUtility: Healthstone (High)",
     soundPathUse   = nil,
     soundOnReady   = true,
-    soundKeyReady  = "UnbunkUtility: Healthstone Ready High",
+    soundKeyReady  = "UnbunkUtility: Healthstone Ready (High)",
     soundPathReady = nil,
     instanceFilter = {
         dungeon      = true,

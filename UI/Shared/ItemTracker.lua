@@ -50,7 +50,9 @@ function ns.ui.CreateItemTracker(config)
         end
 
         local itemId = getItemId()
-        local itemExists = itemId and hasItem(itemId)
+        -- "Show at 0 stacks" keeps the icon visible even with none in bags, as long
+        -- as an item id is known to draw (the favourite / configured / default one).
+        local itemExists = itemId and (getCfg("showAtZero") or hasItem(itemId))
 
         if not itemExists or not getCfg("showIcon") then
             icon.Hide()

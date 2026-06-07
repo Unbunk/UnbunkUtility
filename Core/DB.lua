@@ -136,9 +136,6 @@ local function Bootstrap()
     -- also run later from the modules' own PLAYER_LOGIN frames; running CfgInit now
     -- guarantees db.profile.* / db.global.* are populated before any CfgGet.)
     ns.RunCfgInitHooks()
-
-    ns.dbReady = true
-    if ns.OnDBReady then ns.OnDBReady() end
 end
 
 local f = CreateFrame("Frame")

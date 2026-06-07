@@ -55,6 +55,11 @@ local DEFAULT_CLASS_SPELLS = {
 -- "active" timer in combat, where the beneficial buff is secret — see SyncDebuff.
 local BL_ACTIVE_DURATION = 40
 
+-- Generic placeholder shown by the "Always show" option for classes that have no
+-- lust spell of their own (GetDefaultClassIcon returns nil for them): the classic
+-- Bloodlust iconID, so the tracker stays recognisable when nothing is active.
+local FALLBACK_BL_ICON = 136012
+
 -- A class's default lust iconID is invariant for the session, so resolve it
 -- once per class and cache it (this is recomputed whenever the lust drops and on
 -- PLAYER_ENTERING_WORLD/SPELLS_CHANGED). C_Spell.GetSpellInfo can return nil
@@ -115,10 +120,20 @@ function BL.ApplyVisuals()
     if not BL.CfgGet("showIcon") then
         blIcon.Hide()
     else
-        local icon = currentIcon or (playerClass and GetDefaultClassIcon(playerClass))
-        if icon then blIcon.SetIcon(icon) end
+        -- "Always show" (default on): keep the icon up even with no lust active
+        -- and even on classes that never get a lust — falling back to the generic
+        -- Bloodlust icon when no real one is known yet.
+        local alwaysShow = BL.CfgGet("alwaysShow") ~= false
+        -- Always resolve to *some* texture so the frame is never shown blank (e.g.
+        -- a BL class during the early-login window before C_Spell data resolves).
+        local icon = currentIcon or (playerClass and GetDefaultClassIcon(playerClass)) or FALLBACK_BL_ICON
+        blIcon.SetIcon(icon)
         blIcon.ApplySize()
-        if hasDebuff or playerHasBL then
+        -- When "Always show" is off the icon appears ONLY while a lust is actually
+        -- active (buff OR fatigue debuff present) — never just because the player's
+        -- class happens to own a lust spell. The "ready" sound still fires on
+        -- completion (SyncDebuff) even though the brief check flash stays hidden.
+        if alwaysShow or hasBuff or hasDebuff then
             blIcon.Show()
         else
             blIcon.Hide()

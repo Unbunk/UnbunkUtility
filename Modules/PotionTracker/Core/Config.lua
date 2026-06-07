@@ -15,11 +15,16 @@ local DEFAULTS = {
     health = {
         enabled         = true,
         showIcon        = true,
+        showAtZero      = false,  -- keep the icon visible even with 0 potions in bags
         -- itemId/spellId left unset on a fresh install: the main dropdown
         -- shows "None" until the player picks a potion or the resolver
         -- auto-fills via fallback / favorite.
         favoriteEnabled = true,
         favoriteId      = 241304,  -- Silvermoon Health Potion
+        includeInCdm  = true,           -- default: shown in the CDM…
+        cdmDest       = "belowPlayer",  -- …in the artificial row below the PlayerFrame
+        cdmAtEnd      = true,
+        cdmRow        = 1,
         posX          = -400,
         posY          = -300,
         iconWidth     = 30,
@@ -39,15 +44,16 @@ local DEFAULTS = {
         stackOutline    = "OUTLINE",
         stackColor      = { r=1, g=1, b=1, a=1 },
         soundOnUse    = true,
-        soundKeyUse   = "UnbunkUtility: Health Potion High",
+        soundKeyUse   = "UnbunkUtility: Health Potion (High)",
         soundPathUse  = nil,
         soundOnReady  = true,
-        soundKeyReady = "UnbunkUtility: Health Potion Ready High",
+        soundKeyReady = "UnbunkUtility: Health Potion Ready (High)",
         soundPathReady= nil,
     },
     combat = {
         enabled         = true,
         showIcon        = true,
+        showAtZero      = false,  -- keep the icon visible even with 0 potions in bags
         -- itemId/spellId left unset on a fresh install (see health section).
         favoriteEnabled = true,
         favoriteId      = 241308,  -- Light's Potential
@@ -57,6 +63,10 @@ local DEFAULTS = {
         stackFontSize   = 12,
         stackOutline    = "OUTLINE",
         stackColor      = { r=1, g=1, b=1, a=1 },
+        includeInCdm  = true,           -- default: shown in the CDM…
+        cdmDest       = "belowPlayer",  -- …in the artificial row below the PlayerFrame
+        cdmAtEnd      = true,
+        cdmRow        = 1,
         posX          = -370,
         posY          = -300,
         iconWidth     = 30,
@@ -70,10 +80,10 @@ local DEFAULTS = {
         timerOutline  = "OUTLINE",
         timerColor    = { r=1, g=1, b=1, a=1 },
         soundOnUse    = true,
-        soundKeyUse   = "UnbunkUtility: Combat Potion High",
+        soundKeyUse   = "UnbunkUtility: Combat Potion (High)",
         soundPathUse  = nil,
         soundOnReady  = true,
-        soundKeyReady = "UnbunkUtility: Combat Potion Ready High",
+        soundKeyReady = "UnbunkUtility: Combat Potion Ready (High)",
         soundPathReady= nil,
     },
 }

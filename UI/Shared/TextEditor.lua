@@ -27,22 +27,35 @@ ns.ui = ns.ui or {}
 function ns.ui.CreateTextEditor(parent, config)
     local LSM             = config.LSM
     local label           = config.label or L["Text"]
+    -- Width of the text input box. Default 340; callers in a narrow (nested) box
+    -- pass a smaller value so the trailing color swatch + size input still fit.
+    local textWidth       = config.textWidth or 340
     local showText        = config.showText    ~= false
     local showFont        = config.showFont    ~= false
     local showSize        = config.showSize    ~= false
     local showColor       = config.showColor   ~= false
     local showOutline     = config.showOutline ~= false
+    -- Safe defaults so a caller that enables a show* flag but forgets the matching
+    -- getter degrades gracefully (returns nil) instead of nil-deref'ing at build;
+    -- every downstream use already handles a nil return.
     local getText         = config.getText
-    local getFontKey      = config.getFontKey
+    local getFontKey      = config.getFontKey  or function() return nil end
     local getFontPath     = config.getFontPath
-    local getFontSize     = config.getFontSize
-    local getColor        = config.getColor
-    local getOutline      = config.getOutline
+    local getFontSize     = config.getFontSize or function() return nil end
+    local getColor        = config.getColor    or function() return nil end
+    local getOutline      = config.getOutline  or function() return nil end
     local onTextChange    = config.onTextChange
     local onFontChange    = config.onFontChange
     local onSizeChange    = config.onSizeChange
     local onColorChange   = config.onColorChange
     local onOutlineChange = config.onOutlineChange
+
+    -- When the text input, font dropdown and size are all shown, the size control
+    -- is relocated to the Font row (right of the font dropdown) instead of the
+    -- cramped text row, so it never overflows a narrow nested box (e.g. the
+    -- DeathAlert "Alert text" sub-box). Falls back to the text row when there is
+    -- no font row to host it (showFont false / LSM missing).
+    local sizeOnFontRow = showText and showSize and showFont and (LSM ~= nil)
 
     local container = CreateFrame("Frame", nil, parent)
     container:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
@@ -63,7 +76,7 @@ function ns.ui.CreateTextEditor(parent, config)
     if showText then
         local textInput = ns.ui.CreateTextInput({
             parent     = container,
-            width      = 340,
+            width      = textWidth,
             height     = 22,
             maxLetters = 100,
             text       = getText and getText() or "",
@@ -122,8 +135,9 @@ function ns.ui.CreateTextEditor(parent, config)
                 })
             end)
 
-            -- Size input to the right of the color swatch.
-            if showSize then
+            -- Size input to the right of the color swatch (unless relocated to the
+            -- Font row to keep a narrow box from overflowing).
+            if showSize and not sizeOnFontRow then
                 local sizeLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
                 sizeLbl:SetPoint("LEFT", colorLbl, "RIGHT", 10, 0)
                 sizeLbl:SetText(L["Size"])
@@ -144,7 +158,7 @@ function ns.ui.CreateTextEditor(parent, config)
                 sizeInput.frame:SetPoint("LEFT", sizeLbl, "RIGHT", 4, 0)
                 result.sizeBox = sizeInput.editBox
             end
-        elseif showSize then
+        elseif showSize and not sizeOnFontRow then
             local sizeLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
             sizeLbl:SetPoint("LEFT", textInput.frame, "RIGHT", 10, 0)
             sizeLbl:SetText(L["Size"])
@@ -272,6 +286,32 @@ function ns.ui.CreateTextEditor(parent, config)
         })
         fontDD.selectedText:SetText(getFontKey() or L["(select a font)"])
         result.fontSelectedText = fontDD.selectedText
+        -- Exposed so BuildMenu.Rebuild can reclaim the UIParent-parented drop frame.
+        result.dropFrames = { fontDD.dropFrame }
+
+        -- Size control on the Font row (right of the font dropdown) when relocated
+        -- off the text row — vertically aligned with the dropdown toggle button.
+        if sizeOnFontRow then
+            local sizeLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            sizeLbl:SetPoint("LEFT", fontDD.toggleBtn, "RIGHT", 16, 0)
+            sizeLbl:SetText(L["Size"])
+
+            local sizeInput = ns.ui.CreateTextInput({
+                parent     = container,
+                width      = 46,
+                height     = 22,
+                numeric    = true,
+                min        = 6,
+                max        = 64,
+                maxLetters = 3,
+                text       = tostring(getFontSize() or 22),
+                onEnter    = function(val)
+                    if val and val > 0 then onSizeChange(val) end
+                end,
+            })
+            sizeInput.frame:SetPoint("LEFT", sizeLbl, "RIGHT", 4, 0)
+            result.sizeBox = sizeInput.editBox
+        end
 
         height = height + 30
 
@@ -309,6 +349,7 @@ function ns.ui.CreateTextEditor(parent, config)
             })
             outlineDD.selectedText:SetText(OUTLINE_LABELS[getOutline() or ""] or L["No outline"])
             result.outlineSelectedText = outlineDD.selectedText
+            if result.dropFrames then result.dropFrames[#result.dropFrames + 1] = outlineDD.dropFrame end
 
             height = height + 30
         end

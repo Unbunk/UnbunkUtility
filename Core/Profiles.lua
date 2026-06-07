@@ -284,10 +284,21 @@ function ns.profiles.ReloadAll()
     -- Rebuild any open config frames to reflect the new profile.
     if UnbunkUtility and UnbunkUtility.registeredModules then
         for _, mod in ipairs(UnbunkUtility.registeredModules) do
+            -- Reclaim the panel's UIParent-parented dropdown drop-frames before
+            -- orphaning it (they aren't children of mod.frame, so dropping the
+            -- frame alone would leak them on every profile switch).
+            if mod.menu and mod.menu.auxFrames then
+                for _, fr in ipairs(mod.menu.auxFrames) do
+                    fr:Hide()
+                    fr:ClearAllPoints()
+                    fr:SetParent(nil)
+                end
+            end
             if mod.frame then
                 mod.frame:Hide()
                 mod.frame = nil
             end
+            mod.menu = nil
         end
         if UnbunkUtility.ShowActiveModule then
             UnbunkUtility.ShowActiveModule()

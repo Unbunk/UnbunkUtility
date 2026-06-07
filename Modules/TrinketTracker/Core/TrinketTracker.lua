@@ -107,13 +107,11 @@ end)
 
 local function ApplyLayout()
     if not trinket1Tracker or not trinket2Tracker then return end
-    local t1Cfg = TT.CfgGet("trinket1")
-    local t2Cfg = TT.CfgGet("trinket2")
-    if not t1Cfg or not t2Cfg then return end
-    trinket1Tracker.GetFrame():ClearAllPoints()
-    trinket1Tracker.GetFrame():SetPoint("CENTER", UIParent, "CENTER", t1Cfg.posX, t1Cfg.posY)
-    trinket2Tracker.GetFrame():ClearAllPoints()
-    trinket2Tracker.GetFrame():SetPoint("CENTER", UIParent, "CENTER", t2Cfg.posX, t2Cfg.posY)
+    -- Delegate to each sub-icon's anchor-aware ApplyPosition (when includeInCdm is
+    -- set, ns.CDMAnchor owns position+size; otherwise positioned freely on screen).
+    -- Runs on the 0.5s ticker too, so the chosen anchor is kept, not clobbered.
+    trinket1Tracker.ApplyPosition()
+    trinket2Tracker.ApplyPosition()
 end
 
 function TT.ApplyAll()

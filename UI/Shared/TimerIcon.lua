@@ -80,10 +80,6 @@ function ns.ui.CreateTimerIcon(config)
     cooldown:SetHideCountdownNumbers(true)
     cooldown:SetDrawEdge(false)
 
-    local timerText = cooldown:CreateFontString(nil, "OVERLAY")
-    timerText:SetPoint("CENTER", cooldown, "CENTER", 0, 0)
-    timerText:Hide()
-
     -- ── Border (configurable) ───────────────────────────────────────────────────
     -- Independent of the frame backdrop (which SetUnlocked uses for the yellow drag
     -- outline). Four thin edge textures on a dedicated child frame raised above the
@@ -100,12 +96,41 @@ function ns.ui.CreateTimerIcon(config)
         borderEdges[edge] = t
     end
 
+    -- ── Timer text ──────────────────────────────────────────────────────────────
+    -- On a dedicated host frame raised ABOVE the border frame so the countdown is
+    -- always readable over BOTH the cooldown swipe and the configurable border
+    -- (the border sits at frame+10; this sits one level higher).
+    local timerHost = CreateFrame("Frame", nil, frame)
+    timerHost:SetAllPoints(frame)
+    timerHost:SetFrameLevel(borderFrame:GetFrameLevel() + 1)
+    local timerText = timerHost:CreateFontString(nil, "OVERLAY")
+    timerText:SetPoint("CENTER", frame, "CENTER", 0, 0)
+    timerText:Hide()
+
     -- ── Drag ──────────────────────────────────────────────────────────────────
+
+    -- True when this icon is currently managed by the Cooldown Manager integration
+    -- (a native-row slot, or the below-player row). When true, ns.CDMAnchor owns the
+    -- position/size and the icon is not free-draggable.
+    local function CDMActive()
+        if not getCfg("includeInCdm") then return false end
+        local dest = getCfg("cdmDest")
+        if dest == "belowPlayer" then return true end
+        -- Require the viewer to be present AND shown: a hidden-but-present viewer
+        -- (e.g. disabled in EditMode) would otherwise strand our icon at its last
+        -- pinned offset; treating it as inactive reverts the icon to free placement.
+        local v = ns.GetCDMViewer and ns.GetCDMViewer(dest)
+        return v ~= nil and v:IsShown()
+    end
+    result.CDMActive = CDMActive
 
     frame:SetMovable(true)
     frame:EnableMouse(false)
     frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+    frame:SetScript("OnDragStart", function(self)
+        if CDMActive() then return end  -- CDM-managed: not free-draggable
+        self:StartMoving()
+    end)
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
         local _, _, _, x, y = self:GetPoint()
@@ -249,6 +274,9 @@ function ns.ui.CreateTimerIcon(config)
         if not unlocked then frame:Hide() end
     end
 
+    -- NOTE: reports the RAW frame state. While unlocked, Show()/Hide() are no-ops
+    -- (drag mode force-shows the frame), so this can read true even when the owner
+    -- logically wants it hidden. No caller relies on it today; treat with care.
     function result.IsShown()
         return frame:IsShown()
     end
@@ -263,23 +291,47 @@ function ns.ui.CreateTimerIcon(config)
     end
 
     function result.ApplyPosition()
+        -- When the Cooldown Manager integration is active, ns.CDMAnchor owns this
+        -- icon's position AND size (native-row slot or below-player row); just ask
+        -- for a refresh. Otherwise it's free — positioned on screen by posX/posY.
+        if CDMActive() then
+            if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+            return
+        end
         frame:ClearAllPoints()
-        frame:SetPoint("CENTER", UIParent, "CENTER",
-            getCfg("posX") or 0,
-            getCfg("posY") or 200)
+        frame:SetPoint("CENTER", UIParent, "CENTER", getCfg("posX") or 0, getCfg("posY") or 200)
     end
 
-    function result.ApplySize()
-        local w = getCfg("iconWidth") or 64
-        local h = getCfg("iconHeight") or 64
-        w = math.max(8, math.min(512, w))
-        h = math.max(8, math.min(512, h))
-        frame:SetSize(w, h)
+    -- Recompute font / check / border from the CURRENT frame size. Shared by
+    -- ApplySize (config size) and SetSlotSize (native row size) so the look stays
+    -- consistent whatever drives the size.
+    local function ApplyDerivedSizing()
+        local w, h = frame:GetSize()
         baseFontSize = math.max(10, math.floor(math.min(w, h) * 0.4))
         SetTimerFont()
         local checkSize = math.floor(math.min(w, h) * 0.6)
         checkTex:SetSize(checkSize, checkSize)
         result.ApplyBorder()
+    end
+
+    function result.ApplySize()
+        -- In any CDM mode the size is owned by ns.CDMAnchor via SetSlotSize:
+        -- essential/utility match the native row icons; below-player uses the
+        -- account-wide cdmBelowRow size. Only a FREE icon uses its configured size.
+        if not CDMActive() then
+            local w = math.max(8, math.min(512, getCfg("iconWidth") or 64))
+            local h = math.max(8, math.min(512, getCfg("iconHeight") or 64))
+            frame:SetSize(w, h)
+        end
+        ApplyDerivedSizing()
+    end
+
+    -- Called by ns.CDMAnchor in slot mode to match the native row's icon size.
+    function result.SetSlotSize(w, h)
+        w = math.max(8, math.min(512, w or 64))
+        h = math.max(8, math.min(512, h or 64))
+        frame:SetSize(w, h)
+        ApplyDerivedSizing()
     end
 
     -- Draw / refresh the configurable border from config (borderEnabled,
@@ -434,6 +486,27 @@ function ns.ui.CreateTimerIcon(config)
         elseif frame.pixelGlow then
             frame.pixelGlow:Hide()
         end
+    end
+
+    -- In slot mode, re-pack the row when this icon shows/hides: it occupies a slot
+    -- only while visible, and our own visibility changes don't trigger a native
+    -- viewer relayout, so nudge ns.CDMAnchor ourselves.
+    local function SlotRepack()
+        if ns.CDMAnchor and CDMActive() then ns.CDMAnchor.RefreshAll() end
+    end
+    frame:HookScript("OnShow", SlotRepack)
+    frame:HookScript("OnHide", SlotRepack)
+
+    -- Follow the native Cooldown Manager: ns.CDMAnchor re-applies this icon's
+    -- position whenever the viewer relayouts / moves; in slot mode it also sizes
+    -- the icon to the native row via SetSlotSize.
+    if ns.CDMAnchor then
+        ns.CDMAnchor.Register({
+            apply   = result.ApplyPosition,
+            frame   = frame,
+            getCfg  = getCfg,
+            setSize = result.SetSlotSize,
+        })
     end
 
     return result
