@@ -97,17 +97,29 @@ function ns.ui.CreateCollapsibleSection(config)
     -- block (a header bar + a bordered body), not just a header. The nested
     -- BuildMenu lays its content at originX +8 / originY -8 inside this frame, so
     -- the border frames it with even margins.
+    -- Flush against the header (no gap) so the collapse bar + its bordered body read
+    -- as one connected, foldable block. The body is drawn with a 3-sided border
+    -- (left / right / bottom, OPEN at the top) so it doesn't paint a redundant top
+    -- edge under the header — the header bar visually closes it off.
     local contentFrame = CreateFrame("Frame", nil, container, "BackdropTemplate")
-    contentFrame:SetPoint("TOPLEFT", headerBtn, "BOTTOMLEFT", 0, -4)
-    contentFrame:SetPoint("TOPRIGHT", headerBtn, "BOTTOMRIGHT", 0, -4)
+    contentFrame:SetPoint("TOPLEFT", headerBtn, "BOTTOMLEFT", 0, 0)
+    contentFrame:SetPoint("TOPRIGHT", headerBtn, "BOTTOMRIGHT", 0, 0)
     contentFrame:SetBackdrop({
-        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        edgeSize = 12,
-        insets   = { left = 3, right = 3, top = 3, bottom = 3 },
+        bgFile = "Interface/Tooltips/UI-Tooltip-Background",
+        insets = { left = 1, right = 1, top = 1, bottom = 1 },
     })
     contentFrame:SetBackdropColor(0.10, 0.10, 0.10, 0.5)
-    contentFrame:SetBackdropBorderColor(0.45, 0.45, 0.45, 1)
+
+    -- Manual left / right / bottom edges (no top), so the box opens upward into the
+    -- header bar instead of doubling its bottom border.
+    local function ContentEdge()
+        local t = contentFrame:CreateTexture(nil, "BORDER")
+        t:SetColorTexture(0.45, 0.45, 0.45, 1)
+        return t
+    end
+    local edgeL = ContentEdge(); edgeL:SetPoint("TOPLEFT");     edgeL:SetPoint("BOTTOMLEFT");  edgeL:SetWidth(1)
+    local edgeR = ContentEdge(); edgeR:SetPoint("TOPRIGHT");    edgeR:SetPoint("BOTTOMRIGHT"); edgeR:SetWidth(1)
+    local edgeB = ContentEdge(); edgeB:SetPoint("BOTTOMLEFT");  edgeB:SetPoint("BOTTOMRIGHT"); edgeB:SetHeight(1)
 
     local contentHeight = 0
     if createContent then
@@ -135,7 +147,7 @@ function ns.ui.CreateCollapsibleSection(config)
         if collapsed then
             container:SetHeight(HEADER_HEIGHT)
         else
-            container:SetHeight(HEADER_HEIGHT + 4 + boxedHeight)
+            container:SetHeight(HEADER_HEIGHT + boxedHeight)
         end
         result.height = container:GetHeight()
     end

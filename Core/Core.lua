@@ -53,7 +53,11 @@ local function ComputeModuleHeight(modFrame)
         for i = 1, frame:GetNumChildren() do
             local child = select(i, frame:GetChildren())
             if child then
-                consider(child)
+                -- Skip BuildMenu's full-bleed content wrapper (it SetAllPoints its
+                -- parent, so its bottom is the stale contentArea bottom and would
+                -- peg every tab to the tallest tab's height). Still recurse so the
+                -- real stacked widgets inside it ARE measured.
+                if not child._uuMenuContent then consider(child) end
                 walk(child, depth + 1)
             end
         end
