@@ -676,9 +676,102 @@ local function LayoutCDMRow(viewer, dest, list)
     end
 end
 
+-- ── Fade-along with the reference CDM addon ────────────────────────────────────────────────
+-- the reference addon fades the native CooldownViewer item frames; our injected icons are
+-- separate frames (parented to UIParent), so they wouldn't fade with them. the reference addon
+-- exposes a public extension point — CDM.Fading:RegisterTarget(dbKey, fn) calls
+-- fn(alpha) on every fade step — so we register our icons there. Essential AND the
+-- below-player row follow the Essential viewer's fade; Utility follows Utility's.
+local function SetDestAlpha(dest, a)
+    a = a or 1   -- defensive: never pass nil to SetAlpha if an external alpha is missing
+    for _, d in ipairs(appliers) do
+        if d.frame and d.getCfg and d.getCfg("includeInCdm")
+            and (d.getCfg("cdmDest") or "essential") == dest then
+            d.frame:SetAlpha(a)
+        end
+    end
+end
+
+local function the reference addonFading()
+    local A = _G.the reference CDM addon
+    local F = A and A.Fading
+    return (F and F.RegisterTarget) and F or nil
+end
+
+-- Re-apply the reference addon's CURRENT fade alpha to our icons after a layout pass, so an icon
+-- that just appeared mid-fade matches the faded state instead of popping to full.
+local function ReapplyFade()
+    local F = the reference addonFading()
+    if not (F and F.GetAlpha) then return end
+    local essA = F:GetAlpha("fadingEssential")
+    SetDestAlpha("essential", essA)
+    SetDestAlpha("belowPlayer", essA)
+    SetDestAlpha("utility", F:GetAlpha("fadingUtility"))
+end
+
+local fadeHooked = false
+local function Hookthe reference addonFading()
+    if fadeHooked then return end
+    local F = the reference addonFading()
+    if not F then return end
+    fadeHooked = true
+    F:RegisterTarget("fadingEssential", function(a)
+        SetDestAlpha("essential", a)
+        SetDestAlpha("belowPlayer", a)
+    end)
+    F:RegisterTarget("fadingUtility", function(a)
+        SetDestAlpha("utility", a)
+    end)
+    ReapplyFade()   -- sync immediately in case fading is already active
+end
+
 -- ── Refresh ──────────────────────────────────────────────────────────────────
+-- Layout signature of everything that affects OUR placement (which icons are
+-- shown + their dest/row/atEnd, reorder map, below-row geometry, viewer shown
+-- state). A non-forced refresh whose signature is unchanged is a no-op: this is
+-- what kills the steady-state cost of the 0.5s trackers poking RefreshAll ~ every
+-- tick. Native cooldown changes are NOT in the signature — they arrive via the
+-- viewer Layout/RefreshLayout hooks, which pass force=true so a re-pin still runs.
+local lastSig = nil
+local function ComputeSig()
+    local p = {}
+    for _, d in ipairs(appliers) do
+        if d.frame and d.getCfg and d.getCfg("includeInCdm")
+            and d.frame.IsShown and d.frame:IsShown() then
+            p[#p + 1] = (d.frame:GetName() or tostring(d.frame))
+                .. "/" .. tostring(d.getCfg("cdmDest"))
+                .. "/" .. tostring(d.getCfg("cdmRow"))
+                .. "/" .. tostring(d.getCfg("cdmAtEnd"))
+        end
+    end
+    table.sort(p)
+    -- Stable order (NOT pairs()) so identical state always yields the identical
+    -- signature string — otherwise the no-op skip could be defeated by hash order.
+    for _, k in ipairs(ns.CDM_DEST_ORDER) do
+        local vname = ns.CDM_VIEWER[k]
+        if vname then
+            local v = _G[vname]
+            p[#p + 1] = vname .. ((v and v.IsShown and v:IsShown()) and "=1" or "=0")
+        end
+    end
+    local map = ns.db and ns.db.profile and ns.db.profile.cdmOrder
+    if map then
+        local mk = {}
+        for k, val in pairs(map) do mk[#mk + 1] = tostring(k) .. ":" .. tostring(val) end
+        table.sort(mk)
+        p[#p + 1] = "O" .. table.concat(mk, ",")
+    end
+    local c = ns.db and ns.db.global and ns.db.global.cdmBelowRow
+    if c then
+        p[#p + 1] = "B" .. tostring(c.width) .. "," .. tostring(c.height)
+            .. "," .. tostring(c.offsetX) .. "," .. tostring(c.offsetY)
+    end
+    p[#p + 1] = belowUnlocked and "U1" or "U0"
+    return table.concat(p, "|")
+end
+
 local refreshing = false
-function ns.CDMAnchor.RefreshAll()
+local function DoRefresh(force)
     if refreshing then return end  -- re-entrancy guard (ApplyPosition calls back)
     -- We DON'T bail in combat: only the viewer glue is protected (skipped in combat
     -- inside LayoutCDMRow); everything else (container/pins/our icons) updates live
@@ -687,6 +780,9 @@ function ns.CDMAnchor.RefreshAll()
     -- Whole body in a pcall so a throwing getCfg can never leave `refreshing`
     -- stuck true (which would soft-lock every later refresh until /reload).
     local rok, rerr = pcall(function()
+    local sig = ComputeSig()
+    if not force and sig == lastSig then return end  -- nothing placement-relevant changed
+    lastSig = sig
     local groups, hasBelow = {}, false
     for _, d in ipairs(appliers) do
         local inc  = d.getCfg and d.getCfg("includeInCdm")
@@ -717,9 +813,31 @@ function ns.CDMAnchor.RefreshAll()
         local okB, errB = pcall(LayoutBelowPlayer, BelowList())
         if not okB then ns.Print("CDM below error: " .. tostring(errB)) end
     end
+    -- Keep our icons matching the reference addon's current fade alpha (icons just (re)laid out
+    -- would otherwise pop to full opacity mid-fade).
+    pcall(ReapplyFade)
     end)  -- pcall body
     refreshing = false
     if not rok then ns.Print("CDM refresh error: " .. tostring(rerr)) end
+end
+
+-- Public entry point. Coalesces every caller in the same frame (the 0.5s trackers,
+-- viewer Layout/RefreshLayout hooks, show/hide, config edits, fade) into ONE
+-- next-frame layout pass instead of running the heavy re-pin/re-glue per call.
+-- force=true (native relayout / combat-end / login / EditMode-exit) bypasses the
+-- no-change signature skip so a real re-pin always happens.
+local refreshScheduled = false
+local forceNext = false
+function ns.CDMAnchor.RefreshAll(force)
+    if force then forceNext = true end
+    if refreshScheduled then return end
+    refreshScheduled = true
+    C_Timer.After(0, function()
+        refreshScheduled = false
+        local fn = forceNext
+        forceNext = false
+        DoRefresh(fn)
+    end)
 end
 
 -- ── Follow the native viewers' relayout / move ───────────────────────────────
@@ -729,8 +847,8 @@ local function HookViewers()
         local v = _G[name]
         if v and not hooked[name] then
             hooked[name] = true
-            if v.RefreshLayout then hooksecurefunc(v, "RefreshLayout", function() ns.CDMAnchor.RefreshAll() end) end
-            if v.Layout       then hooksecurefunc(v, "Layout",       function() ns.CDMAnchor.RefreshAll() end) end
+            if v.RefreshLayout then hooksecurefunc(v, "RefreshLayout", function() ns.CDMAnchor.RefreshAll(true) end) end
+            if v.Layout       then hooksecurefunc(v, "Layout",       function() ns.CDMAnchor.RefreshAll(true) end) end
             -- Drop our pin when the pool recycles an item frame for new content, so
             -- a stale offset is never re-imposed before the next LayoutCDMRow.
             if v.OnAcquireItemFrame then
@@ -751,11 +869,12 @@ f:SetScript("OnEvent", function(_, event)
         -- Reconcile EditMode state that may have flipped during combat so it can't
         -- get stuck (which would freeze all re-imposition).
         editModeActive = (EditModeManagerFrame and EditModeManagerFrame:IsShown()) or false
-        if not editModeActive then ns.CDMAnchor.RefreshAll() end
+        if not editModeActive then ns.CDMAnchor.RefreshAll(true) end
         return
     end
     HookViewers()
-    C_Timer.After(0.1, function() ns.CDMAnchor.RefreshAll() end)
+    Hookthe reference addonFading()   -- register our icons with the reference CDM addon's fade pipeline (if present)
+    C_Timer.After(0.1, function() ns.CDMAnchor.RefreshAll(true) end)
 end)
 
 -- While EditMode is open we release the viewers (so the user can drag them
@@ -769,7 +888,7 @@ local function ExitEditMode()
     -- Drop the captured anchors so the next refresh re-reads the (possibly moved)
     -- EditMode position instead of restoring the stale one.
     for _, c in pairs(containers) do c._uuBase = nil end
-    C_Timer.After(0.1, function() ns.CDMAnchor.RefreshAll() end)
+    C_Timer.After(0.1, function() ns.CDMAnchor.RefreshAll(true) end)
 end
 
 if _G.EditModeManagerFrame then

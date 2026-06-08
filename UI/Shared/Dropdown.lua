@@ -166,6 +166,7 @@ function ns.ui.CreateDropdown(config)
 
             btn.name = name
             btn:SetFrameLevel(level + 2)
+            btn:Show()   -- re-show a pooled button that was hidden on a shorter pass
             btn.label:SetText(name)
 
             if name == currentKey then

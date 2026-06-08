@@ -298,6 +298,9 @@ function ns.ui.CreateTimerIcon(config)
             if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
             return
         end
+        -- Free placement: clear any fade alpha the CDM fade-along may have left on
+        -- this icon (it only fades icons currently in the CDM).
+        frame:SetAlpha(1)
         frame:ClearAllPoints()
         frame:SetPoint("CENTER", UIParent, "CENTER", getCfg("posX") or 0, getCfg("posY") or 200)
     end

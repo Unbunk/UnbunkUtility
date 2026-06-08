@@ -404,9 +404,21 @@ local function OnCacheInvalidatingEvent(event)
     InvalidateActiveCache()
     PT.ApplyAll()
 end
+-- ITEM_DATA_LOAD_RESULT fires once PER item as the server streams data — at login
+-- this module preloads dozens of favorite potions, so it bursts. Debounce it to a
+-- single invalidate+ApplyAll per 0.2s window instead of one per fire.
+local idlrPending = false
+local function OnItemDataLoaded()
+    if idlrPending then return end
+    idlrPending = true
+    C_Timer.After(0.2, function()
+        idlrPending = false
+        OnCacheInvalidatingEvent("ITEM_DATA_LOAD_RESULT")
+    end)
+end
 PT:RegisterEvent("BAG_UPDATE", OnCacheInvalidatingEvent)
 PT:RegisterEvent("PLAYER_ENTERING_WORLD", OnCacheInvalidatingEvent)
-PT:RegisterEvent("ITEM_DATA_LOAD_RESULT", OnCacheInvalidatingEvent)
+PT:RegisterEvent("ITEM_DATA_LOAD_RESULT", OnItemDataLoaded)
 -- BAG_UPDATE_COOLDOWN is intentionally NOT registered: it fires on essentially
 -- every cooldown tick in combat, and invalidating + full ApplyAll there is
 -- redundant — the 0.5s ticker already keeps cooldown visuals in sync and

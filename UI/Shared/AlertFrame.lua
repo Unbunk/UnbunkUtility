@@ -64,7 +64,11 @@ function ns.ui.CreateAlertFrame(config)
     alphaAnim:SetFromAlpha(1)
     alphaAnim:SetToAlpha(0.3)
     alphaAnim:SetDuration(0.5)
-    ag:Play()
+    -- Only pulse while the alert is actually visible (these frames are hidden 99%
+    -- of the time): play on show, stop + reset alpha on hide, instead of letting a
+    -- looping animation tick forever on an idle frame.
+    frame:HookScript("OnShow", function() ag:Play() end)
+    frame:HookScript("OnHide", function() ag:Stop(); frame:SetAlpha(1) end)
 
     -- ── Auto resize ───────────────────────────────────────────────────────────
     -- Resize to the text only when content/font changes, instead of every
