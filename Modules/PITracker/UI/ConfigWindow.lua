@@ -33,7 +33,9 @@ local function CreatePITrackerPanel(parent)
                                 width   = 80,
                                 height  = 22,
                                 onClick = function() PI.RunTest(20) end,
-                                point   = { "LEFT", "RIGHT", 180, 0 },
+                                -- Anchored to the checkbox container's RIGHT (300px); keep the
+                                -- 80px button inside the bordered group (content ~498px).
+                                point   = { "LEFT", "RIGHT", 110, 0 },
                             },
                         },
                     },

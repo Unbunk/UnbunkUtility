@@ -166,6 +166,11 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
     -- BuildMenu owns its inner content frame (callers stop creating it).
     local content = CreateFrame("Frame", nil, contentParent)
     content:SetAllPoints(contentParent)
+    -- Tag it as a full-bleed wrapper: it SetAllPoints its parent (so its bottom is
+    -- the parent's, not the content's), which would otherwise peg the main window's
+    -- per-tab scroll-height measurement to the tallest tab. ComputeModuleHeight skips
+    -- tagged frames when measuring but still walks INTO them for the real widgets.
+    content._uuMenuContent = true
 
     local result = {
         content   = content,
