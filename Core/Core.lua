@@ -74,6 +74,13 @@ local scrollBar  -- forward declaration; set in CreateMainWindow.
 
 local function ResizeContentArea(modFrame)
     if not contentArea or not scrollFrame then return end
+    -- Re-sync width to the real viewport: CreateMainWindow ran while the window was
+    -- hidden (scrollFrame:GetWidth()==0) and fell back to 550; once laid out the
+    -- viewport is a few px wider, so track it here (this runs deferred, post-layout).
+    local vw = scrollFrame:GetWidth() or 0
+    if vw > 0 and math.abs((contentArea:GetWidth() or 0) - vw) > 0.5 then
+        contentArea:SetWidth(vw)
+    end
     local viewport = scrollFrame:GetHeight() or 0
     local needed   = ComputeModuleHeight(modFrame) or 0
     -- Always leave at least the viewport so the scroll range is sane.
@@ -260,12 +267,9 @@ local function CreateMainWindow()
     scrollFrame:SetScrollChild(contentArea)
 
     scrollFrame:EnableMouseWheel(true)
-    scrollFrame:SetScript("OnMouseWheel", function(self, delta)
-        local current = self:GetVerticalScroll()
-        local max     = self:GetVerticalScrollRange()
-        local new     = math.max(0, math.min(max, current - delta * 30))
-        self:SetVerticalScroll(new)
-    end)
+    -- NOTE: the OnMouseWheel handler + OnVerticalScroll are installed by
+    -- ns.ui.CreateScrollBar below (it owns the scroll step); don't set one here or
+    -- it would just be overwritten (last-write-wins).
 
     -- Scrollbar — the thumb size is proportional to visibleItems / listSize.
     -- We want it to match (viewport / contentArea), so derive listSize from

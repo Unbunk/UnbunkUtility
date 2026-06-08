@@ -440,7 +440,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                     widget.frame:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", 0, 0)
                 end
                 if entry.get then
-                    addRefresh = function() widget.SetText(tostring(entry.get())) end
+                    addRefresh = function() widget.SetText(tostring(entry.get() or "")) end
                 end
 
             elseif t == "label" or t == "header" then

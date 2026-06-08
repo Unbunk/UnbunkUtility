@@ -505,9 +505,18 @@ end
 HT:RegisterEvent("PLAYER_ENTERING_WORLD", OnBagOrEnteringWorld)
 HT:RegisterEvent("BAG_UPDATE", OnBagOrEnteringWorld)
 -- Late-loading item/spell data: refresh once it arrives so the first post-login
--- icon/spell resolves promptly instead of waiting up to one 0.5s ticker (mirrors
--- PotionTracker's ITEM_DATA_LOAD_RESULT handling).
-HT:RegisterEvent("ITEM_DATA_LOAD_RESULT", OnBagOrEnteringWorld)
+-- icon/spell resolves promptly instead of waiting up to one 0.5s ticker. Debounced
+-- to a single refresh per 0.2s window because each preloaded healthstone fires this
+-- (mirrors PotionTracker's ITEM_DATA_LOAD_RESULT handling).
+local idlrPending = false
+HT:RegisterEvent("ITEM_DATA_LOAD_RESULT", function()
+    if idlrPending then return end
+    idlrPending = true
+    C_Timer.After(0.2, function()
+        idlrPending = false
+        OnBagOrEnteringWorld("ITEM_DATA_LOAD_RESULT")
+    end)
+end)
 
 HT:RegisterEvent("PLAYER_REGEN_ENABLED", function(event)
     -- Combat ended: clear the per-tracker and per-variant "used in combat"
