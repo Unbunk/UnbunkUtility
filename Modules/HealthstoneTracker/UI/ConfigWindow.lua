@@ -154,7 +154,8 @@ local function CreateHealthstoneTrackerPanel(parent)
                                 -- ── Cooldown Manager integration ──────────────────────────────────────
                                 {
                                     type = "checkbox", label = L["Include in cdm"],
-                                    get = function() return HT.CfgGet("includeInCdm") == true end,
+                                    disabled = function() return not ns.IsCDMEnabled() end,
+                                    get = function() return ns.CDMIncludedVal(HT.CfgGet("includeInCdm")) end,
                                     set = function(v)
                                         HT.CfgSet("includeInCdm", v)
                                         local t = HT.GetTracker()
@@ -166,7 +167,7 @@ local function CreateHealthstoneTrackerPanel(parent)
                                 },
                                 {
                                     type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
-                                    when = function() return HT.CfgGet("includeInCdm") == true end,
+                                    when = function() return ns.CDMIncludedVal(HT.CfgGet("includeInCdm")) end,
                                     getList = function() return ns.CDMDestList() end,
                                     getCurrentKey = function() return ns.CDMDestLabel(HT.CfgGet("cdmDest") or "essential") end,
                                     onSelect = function(label)
@@ -180,20 +181,20 @@ local function CreateHealthstoneTrackerPanel(parent)
                                 },
                                 {
                                     type = "checkbox", label = L["Icon at the end of the row"],
-                                    when = function() return HT.CfgGet("includeInCdm") == true end,
+                                    when = function() return ns.CDMIncludedVal(HT.CfgGet("includeInCdm")) end,
                                     get = function() return HT.CfgGet("cdmAtEnd") ~= false end,
                                     set = function(v) HT.CfgSet("cdmAtEnd", v); HT.ApplyPosition(); if menu then menu.Refresh() end end,
                                 },
                                 {
                                     type = "dropdown", label = L["Row"], width = 120, height = 50,
-                                    when = function() return HT.CfgGet("includeInCdm") == true end,
+                                    when = function() return ns.CDMIncludedVal(HT.CfgGet("includeInCdm")) end,
                                     getList = function() return ns.CDMRowList(HT.CfgGet("cdmDest") or "essential") end,
                                     getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(HT.CfgGet("cdmDest") or "essential", HT.CfgGet("cdmRow"))) end,
                                     onSelect = function(label) HT.CfgSet("cdmRow", ns.CDMRowFromLabel(label)); HT.ApplyPosition(); if menu then menu.Refresh() end end,
                                 },
                                 {
                                     type = "reorder", label = L["Move in row"],
-                                    when = function() return HT.CfgGet("includeInCdm") == true end,
+                                    when = function() return ns.CDMIncludedVal(HT.CfgGet("includeInCdm")) end,
                                     getState = function()
                                         local t = HT.GetTracker()
                                         return ns.CDMAnchor.GetMoveState(t and t.GetFrame())
@@ -209,7 +210,7 @@ local function CreateHealthstoneTrackerPanel(parent)
                                 {
                                     type       = "position",
                                     ref        = "pe",
-                                    when       = function() return HT.CfgGet("includeInCdm") ~= true end,
+                                    when       = function() return not ns.CDMIncludedVal(HT.CfgGet("includeInCdm")) end,
                                     onBuilt    = function(w) HT.pe = w end,
                                     label      = L["Icon position (offset from screen center)"],
                                     getX       = function() return HT.CfgGet("posX") end,
@@ -232,7 +233,7 @@ local function CreateHealthstoneTrackerPanel(parent)
                                 {
                                     type   = "custom",
                                     height = 46,
-                                    when   = function() return HT.CfgGet("includeInCdm") ~= true end,
+                                    when   = function() return not ns.CDMIncludedVal(HT.CfgGet("includeInCdm")) end,
                                     build  = function(host)
                                         local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
                                         sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)

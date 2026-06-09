@@ -282,6 +282,9 @@ end
 -- artificial below-player row) via its per-icon TimerIcon descriptor. Our own
 -- ApplyLayout row must stand down so it doesn't clobber those positions.
 local function CDMActive()
+    -- Cooldown Manager disabled in the game options -> integration inert, so the
+    -- row must lay out freely (matches TimerIcon's CDMActive + DoRefresh's cdmOn).
+    if ns.IsCDMEnabled and not ns.IsCDMEnabled() then return false end
     if not HT.CfgGet("includeInCdm") then return false end
     local dest = HT.CfgGet("cdmDest")
     if dest == "belowPlayer" then return true end

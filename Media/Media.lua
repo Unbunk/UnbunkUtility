@@ -47,6 +47,22 @@ initMedia:SetScript("OnEvent", function(self, event, addonName)
             end
         end
 
+        -- Racial / Racial Ready: same High/Medium/Low/Loud variants, but the
+        -- source files were added with a SPACE before the loudness
+        -- ("Racial High.mp3", "Racial Ready High.mp3") rather than the
+        -- concatenated "<file><variant>.mp3" the loop above expects — so register
+        -- them with their own space-separated path.
+        local RACIAL_SOUNDS = {
+            { key = "Racial",       base = "Racial" },
+            { key = "Racial Ready", base = "Racial Ready" },
+        }
+        for _, s in ipairs(RACIAL_SOUNDS) do
+            for _, v in ipairs(VARIANTS) do
+                LSM:Register("sound", "UnbunkUtility: " .. s.key .. " (" .. v .. ")",
+                    ADDON_PATH .. "Sounds\\" .. v .. "\\" .. s.base .. " " .. v .. ".mp3")
+            end
+        end
+
         -- FAHH lives at the Sounds root, no loudness variants.
         LSM:Register("sound", "UnbunkUtility: FAHH",
             ADDON_PATH .. "Sounds\\FAHH.mp3")

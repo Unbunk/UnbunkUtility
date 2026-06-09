@@ -152,6 +152,20 @@ function UnbunkUtility.ShowActiveModule()
     end
 end
 
+-- Rebuild the active module's config menu, re-evaluating every `when`/`shown`
+-- predicate (Refresh alone only re-syncs widget values). Used when an external
+-- state change must swap which controls a panel shows while it is already open —
+-- e.g. toggling the game's Cooldown Manager greys the "Include in cdm" checkbox
+-- and swaps the CDM controls for the free position editor. No-op if nothing is
+-- open or the active module has no rebuildable menu.
+function ns.RebuildActiveModule()
+    if not activeTab then return end
+    local mod = registeredModules[activeTab]
+    if mod and mod.frame and mod.frame:IsShown() and mod.menu and mod.menu.Rebuild then
+        mod.menu.Rebuild()
+    end
+end
+
 local function BuildNavbar()
     for _, btn in ipairs(tabButtons) do btn:Hide() end
     tabButtons = {}

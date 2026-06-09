@@ -148,18 +148,18 @@ function ns.profiles.ResetCurrent()
     return true
 end
 
--- Create a new profile cloned from the current one. Returns false if the name is
--- empty or already exists. Switching to the (not-yet-existing) name creates it
--- lazily; CopyProfile then copies the previous current profile's settings into it.
+-- Create a new profile with DEFAULT settings (NOT a clone of the current one).
+-- Returns false if the name is empty or already exists. SetProfile to the
+-- not-yet-existing name creates an EMPTY profile and switches to it; the
+-- OnProfileChanged callback (Core/DB.lua) then runs every module's CfgInit, which
+-- merges each module's DEFAULTS in — so the fresh profile starts at defaults.
 function ns.profiles.Create(name)
     if not ns.db then return false end
     if not name or name == "" then return false end
     for _, p in ipairs(ns.db:GetProfiles()) do
         if p == name then return false end
     end
-    local oldCurrent = ns.db:GetCurrentProfile()
-    ns.db:SetProfile(name)                  -- creates + activates the new profile
-    ns.db:CopyProfile(oldCurrent, true)     -- clone the previous current into it
+    ns.db:SetProfile(name)   -- creates + activates a fresh (empty -> defaults) profile
     ns.profiles.ReloadAll()
     return true
 end
@@ -209,9 +209,12 @@ function ns.profiles.Export()
     return Base64Encode(Serialize(payload))  -- legacy fallback if the lib is absent
 end
 
-function ns.profiles.Import(str)
-    if not ns.db then return false end
-    if type(str) ~= "string" then return false, L["invalid profile data"] end
+-- Decode an export blob into a profile snapshot (the per-module data table), or
+-- (nil, errorMessage). Handles the !UU1! compact format and the legacy Base64
+-- formats, and unwraps the versioned { addon, version, data } envelope. The caller
+-- decides WHERE to write the snapshot (the current profile vs a brand-new one).
+local function DecodeProfileBlob(str)
+    if type(str) ~= "string" then return nil, L["invalid profile data"] end
     str = str:gsub("^%s+", "")  -- tolerate leading whitespace before the sentinel
 
     local raw, err
@@ -220,7 +223,7 @@ function ns.profiles.Import(str)
         -- with a sentinel. This branch MUST run before any Base64Decode, which
         -- would strip the "!" (outside its alphabet) and mis-route the blob.
         if not (LibDeflate and AceSerializer) then
-            return false, L["This profile needs a newer version of UnbunkUtility."]
+            return nil, L["This profile needs a newer version of UnbunkUtility."]
         end
         -- Strip ALL whitespace: a pasted blob may be wrapped onto several lines,
         -- and DecodeForPrint only trims leading/trailing space, not interior.
@@ -228,11 +231,11 @@ function ns.profiles.Import(str)
         -- DecodeForPrint / DecompressDeflate return nil (not a message) on bad
         -- data and error() on a non-string, so pcall AND nil-check both.
         local ok1, decoded = pcall(LibDeflate.DecodeForPrint, LibDeflate, body)
-        if not ok1 or not decoded then return false, L["corrupt profile data"] end
+        if not ok1 or not decoded then return nil, L["corrupt profile data"] end
         local ok2, serialized = pcall(LibDeflate.DecompressDeflate, LibDeflate, decoded)
-        if not ok2 or not serialized then return false, L["corrupt profile data"] end
+        if not ok2 or not serialized then return nil, L["corrupt profile data"] end
         local ok3, result = AceSerializer:Deserialize(serialized)
-        if not ok3 then return false, L["corrupt profile data"] end
+        if not ok3 then return nil, L["corrupt profile data"] end
         raw = result
     else
         -- Legacy format: Base64 -> (AceSerializer "^" | hand-rolled "{") so every
@@ -240,13 +243,13 @@ function ns.profiles.Import(str)
         local decoded = Base64Decode(str)
         if AceSerializer and decoded:sub(1, 1) == "^" then
             local ok, result = AceSerializer:Deserialize(decoded)
-            if not ok then return false, result end
+            if not ok then return nil, result end
             raw = result
         else
             raw, err = Deserialize(decoded)
         end
     end
-    if type(raw) ~= "table" then return false, err or L["invalid profile data"] end
+    if type(raw) ~= "table" then return nil, err or L["invalid profile data"] end
 
     -- Accept both the versioned envelope { addon, version, data } and a legacy
     -- bare snapshot (a table of per-module DBs, none of which is named addon/
@@ -254,26 +257,55 @@ function ns.profiles.Import(str)
     local snapshot = raw
     if raw.addon ~= nil or raw.version ~= nil or raw.data ~= nil then
         if raw.addon ~= "UnbunkUtility" then
-            return false, L["not an UnbunkUtility profile"]
+            return nil, L["not an UnbunkUtility profile"]
         end
         if type(raw.data) ~= "table" then
-            return false, L["invalid profile data"]
+            return nil, L["invalid profile data"]
         end
         snapshot = raw.data
     end
+    return snapshot
+end
 
-    -- Migrate any pre-restructure sound keys in the imported blob before it is
-    -- written; the CfgInit re-run below backfills missing defaults too.
+-- Wipe the ACTIVE profile table in place (keeping the identity AceDB tracks) and
+-- copy `snapshot` into it, then re-apply: CfgInit re-merges defaults + sound-key
+-- migration and ReloadAll re-applies settings / rebuilds frames.
+local function ApplySnapshot(snapshot)
+    -- Migrate any pre-restructure sound keys in the blob before it is written; the
+    -- CfgInit re-run below backfills any missing defaults too.
     ns.MigrateSoundKeys(snapshot)
-
-    -- Wipe-and-copy the snapshot into the live profile table in place (keeping the
-    -- same table identity AceDB tracks), then re-apply: CfgInit re-merges defaults
-    -- + sound-key migration and ReloadAll re-applies settings / rebuilds frames.
     local profile = ns.db.profile
     for k in pairs(profile) do profile[k] = nil end
     for k, v in pairs(snapshot) do profile[k] = ns.DeepCopy(v) end
     ns.RunCfgInitHooks()
     ns.profiles.ReloadAll()
+end
+
+-- Import a blob OVER the current profile (kept for back-compat / callers that
+-- want the in-place overwrite).
+function ns.profiles.Import(str)
+    if not ns.db then return false end
+    local snapshot, err = DecodeProfileBlob(str)
+    if not snapshot then return false, err end
+    ApplySnapshot(snapshot)
+    return true
+end
+
+-- Import a blob into a NEW profile named `name`, leaving the current profile
+-- untouched until the switch. Rejects an empty or already-existing name, and
+-- validates the blob BEFORE creating the profile so a bad paste creates nothing.
+function ns.profiles.ImportAs(name, str)
+    if not ns.db then return false end
+    if type(name) ~= "string" or name:gsub("%s", "") == "" then
+        return false, L["Profile name required"]
+    end
+    for _, p in ipairs(ns.db:GetProfiles()) do
+        if p == name then return false, string.format(L["Profile already exists: %s"], name) end
+    end
+    local snapshot, err = DecodeProfileBlob(str)
+    if not snapshot then return false, err end
+    ns.db:SetProfile(name)   -- create + switch to the new (empty) profile
+    ApplySnapshot(snapshot)  -- the snapshot is now written into the new profile
     return true
 end
 

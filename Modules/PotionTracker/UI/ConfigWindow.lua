@@ -238,7 +238,8 @@ local function BuildPotionSectionOptions(prefix, LSM)
                 return {
                     {
                         type = "checkbox", label = L["Include in cdm"],
-                        get = function() return GetCfg("includeInCdm") == true end,
+                        disabled = function() return not ns.IsCDMEnabled() end,
+                        get = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                         set = function(v)
                             SetCfg("includeInCdm", v); tracker.ApplySize(); tracker.ApplyPosition()
                             if PT.configMenu then PT.configMenu.Rebuild() end
@@ -246,27 +247,27 @@ local function BuildPotionSectionOptions(prefix, LSM)
                     },
                     {
                         type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
-                        when = function() return GetCfg("includeInCdm") == true end,
+                        when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                         getList = function() return ns.CDMDestList() end,
                         getCurrentKey = function() return ns.CDMDestLabel(GetCfg("cdmDest") or "essential") end,
                         onSelect = function(label) SetCfg("cdmDest", ns.CDMDestKeyFromLabel(label)); tracker.ApplySize(); tracker.ApplyPosition(); if PT.configMenu then PT.configMenu.Refresh() end end,
                     },
                     {
                         type = "checkbox", label = L["Icon at the end of the row"],
-                        when = function() return GetCfg("includeInCdm") == true end,
+                        when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                         get = function() return GetCfg("cdmAtEnd") ~= false end,
                         set = function(v) SetCfg("cdmAtEnd", v); tracker.ApplyPosition(); if PT.configMenu then PT.configMenu.Refresh() end end,
                     },
                     {
                         type = "dropdown", label = L["Row"], width = 120, height = 50,
-                        when = function() return GetCfg("includeInCdm") == true end,
+                        when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                         getList = function() return ns.CDMRowList(GetCfg("cdmDest") or "essential") end,
                         getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(GetCfg("cdmDest") or "essential", GetCfg("cdmRow"))) end,
                         onSelect = function(label) SetCfg("cdmRow", ns.CDMRowFromLabel(label)); tracker.ApplyPosition(); if PT.configMenu then PT.configMenu.Refresh() end end,
                     },
                     {
                         type = "reorder", label = L["Move in row"],
-                        when = function() return GetCfg("includeInCdm") == true end,
+                        when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                         getState = function() return ns.CDMAnchor.GetMoveState(tracker.GetFrame()) end,
                         onMove = function(dir) ns.CDMAnchor.Move(tracker.GetFrame(), dir) end,
                     },
@@ -274,7 +275,7 @@ local function BuildPotionSectionOptions(prefix, LSM)
                     {
                         type       = "position",
                         ref        = "pe",
-                        when       = function() return GetCfg("includeInCdm") ~= true end,
+                        when       = function() return not ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                         onBuilt    = function(w) tracker.pe = w end,
                         label      = L["Icon position (offset from screen center)"],
                         getX       = function() return GetCfg("posX") end,
@@ -295,7 +296,7 @@ local function BuildPotionSectionOptions(prefix, LSM)
                     {
                         type   = "custom",
                         height = 46,
-                        when   = function() return GetCfg("includeInCdm") ~= true end,
+                        when   = function() return not ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                         build  = function(sizeFrame)
                             sizeFrame:SetHeight(46)
 

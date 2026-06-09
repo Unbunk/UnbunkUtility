@@ -235,7 +235,9 @@ function BR.ApplyPosition()
     -- for native-row destinations, its size). The below-player artificial row is
     -- always available; the essential/utility rows only when their viewer exists.
     -- Don't self-anchor in either case — just request a refresh.
-    if BR.CfgGet("includeInCdm") and ns.CDMAnchor
+    -- ns.CDMIncludedVal (not raw includeInCdm) so a disabled Cooldown Manager
+    -- falls through to the free SetPoint below instead of stranding the frame.
+    if ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) and ns.CDMAnchor
         and (BR.CfgGet("cdmDest") == "belowPlayer"
             or (ns.GetCDMViewer and ns.GetCDMViewer(BR.CfgGet("cdmDest")))) then
         ns.CDMAnchor.RefreshAll()
@@ -265,7 +267,7 @@ function BR.ApplySize()
     -- A native-row destination (essential/utility) is sized to the native icons by
     -- ns.CDMAnchor, so do NOT override it with the configured size (just refresh
     -- font/border). Below-player and free icons use the configured size.
-    local dest = BR.CfgGet("includeInCdm") and BR.CfgGet("cdmDest")
+    local dest = ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) and BR.CfgGet("cdmDest")
     local matchNative = (dest == "essential" or dest == "utility")
         and ns.GetCDMViewer and ns.GetCDMViewer(dest)
     if not matchNative then

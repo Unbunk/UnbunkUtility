@@ -106,7 +106,8 @@ local function CreatePITrackerPanel(parent)
                                 {
                                     type = "checkbox",
                                     label = L["Include in cdm"],
-                                    get = function() return PI.CfgGet("includeInCdm") == true end,
+                                    disabled = function() return not ns.IsCDMEnabled() end,
+                                    get = function() return ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
                                     set = function(v)
                                         PI.CfgSet("includeInCdm", v)
                                         PI.ApplySize(); PI.ApplyPosition()
@@ -118,7 +119,7 @@ local function CreatePITrackerPanel(parent)
                                     label = L["Anchor to"],
                                     width = 200,
                                     height = 50,
-                                    when = function() return PI.CfgGet("includeInCdm") == true end,
+                                    when = function() return ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
                                     getList = function() return ns.CDMDestList() end,
                                     getCurrentKey = function() return ns.CDMDestLabel(PI.CfgGet("cdmDest") or "essential") end,
                                     onSelect = function(label) PI.CfgSet("cdmDest", ns.CDMDestKeyFromLabel(label)); PI.ApplySize(); PI.ApplyPosition(); if menu then menu.Refresh() end end,
@@ -126,7 +127,7 @@ local function CreatePITrackerPanel(parent)
                                 {
                                     type = "checkbox",
                                     label = L["Icon at the end of the row"],
-                                    when = function() return PI.CfgGet("includeInCdm") == true end,
+                                    when = function() return ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
                                     get = function() return PI.CfgGet("cdmAtEnd") ~= false end,
                                     set = function(v) PI.CfgSet("cdmAtEnd", v); PI.ApplyPosition(); if menu then menu.Refresh() end end,
                                 },
@@ -135,7 +136,7 @@ local function CreatePITrackerPanel(parent)
                                     label = L["Row"],
                                     width = 120,
                                     height = 50,
-                                    when = function() return PI.CfgGet("includeInCdm") == true end,
+                                    when = function() return ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
                                     getList = function() return ns.CDMRowList(PI.CfgGet("cdmDest") or "essential") end,
                                     getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(PI.CfgGet("cdmDest") or "essential", PI.CfgGet("cdmRow"))) end,
                                     onSelect = function(label) PI.CfgSet("cdmRow", ns.CDMRowFromLabel(label)); PI.ApplyPosition(); if menu then menu.Refresh() end end,
@@ -143,7 +144,7 @@ local function CreatePITrackerPanel(parent)
                                 {
                                     type = "reorder",
                                     label = L["Move in row"],
-                                    when = function() return PI.CfgGet("includeInCdm") == true end,
+                                    when = function() return ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
                                     getState = function() return ns.CDMAnchor.GetMoveState(PI.GetFrame()) end,
                                     onMove = function(dir) ns.CDMAnchor.Move(PI.GetFrame(), dir) end,
                                 },
@@ -151,7 +152,7 @@ local function CreatePITrackerPanel(parent)
                                 {
                                     type       = "position",
                                     ref        = "pe",
-                                    when       = function() return PI.CfgGet("includeInCdm") ~= true end,
+                                    when       = function() return not ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
                                     onBuilt    = function(w) PI.pe = w end,
                                     label      = L["Icon position (offset from screen center)"],
                                     getX       = function() return PI.CfgGet("posX") end,
@@ -174,7 +175,7 @@ local function CreatePITrackerPanel(parent)
                                 {
                                     type   = "custom",
                                     height = 46,
-                                    when   = function() return PI.CfgGet("includeInCdm") ~= true end,
+                                    when   = function() return not ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
                                     build  = function(host)
                                         local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
                                         sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)

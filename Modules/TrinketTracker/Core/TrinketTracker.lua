@@ -52,7 +52,12 @@ local function CreateTrinketTracker(prefix, frameName)
         end
     end
 
-    local tracker = ns.ui.CreateItemTracker({
+    -- Forward-declared so the onDragStop closure below captures `tracker` as an
+    -- upvalue. With `local tracker = ns.ui.CreateItemTracker({...})` the name is
+    -- not yet in scope inside the table, so `tracker.pe` would resolve to the nil
+    -- global and error on drag-stop (matches PotionTracker's idiom).
+    local tracker
+    tracker = ns.ui.CreateItemTracker({
         frameName = frameName,
         getCfg    = function(key)
             if key == "enabled" then

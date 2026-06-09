@@ -138,24 +138,25 @@ local function CreateBResTrackerPanel(parent)
                             return {
                                 -- ── Cooldown Manager integration ──────────────────────────────
                                 { type = "checkbox", label = L["Include in cdm"],
-                                  get = function() return BR.CfgGet("includeInCdm") == true end,
+                                  disabled = function() return not ns.IsCDMEnabled() end,
+                                  get = function() return ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
                                   set = function(v) BR.CfgSet("includeInCdm", v); BR.ApplySize(); BR.ApplyPosition(); if menu then menu.Rebuild() end end },
                                 { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
-                                  when = function() return BR.CfgGet("includeInCdm") == true end,
+                                  when = function() return ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
                                   getList = function() return ns.CDMDestList() end,
                                   getCurrentKey = function() return ns.CDMDestLabel(BR.CfgGet("cdmDest") or "essential") end,
                                   onSelect = function(label) BR.CfgSet("cdmDest", ns.CDMDestKeyFromLabel(label)); BR.ApplySize(); BR.ApplyPosition(); if menu then menu.Refresh() end end },
                                 { type = "checkbox", label = L["Icon at the end of the row"],
-                                  when = function() return BR.CfgGet("includeInCdm") == true end,
+                                  when = function() return ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
                                   get = function() return BR.CfgGet("cdmAtEnd") ~= false end,
                                   set = function(v) BR.CfgSet("cdmAtEnd", v); BR.ApplyPosition(); if menu then menu.Refresh() end end },
                                 { type = "dropdown", label = L["Row"], width = 120, height = 50,
-                                  when = function() return BR.CfgGet("includeInCdm") == true end,
+                                  when = function() return ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
                                   getList = function() return ns.CDMRowList(BR.CfgGet("cdmDest") or "essential") end,
                                   getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(BR.CfgGet("cdmDest") or "essential", BR.CfgGet("cdmRow"))) end,
                                   onSelect = function(label) BR.CfgSet("cdmRow", ns.CDMRowFromLabel(label)); BR.ApplyPosition(); if menu then menu.Refresh() end end },
                                 { type = "reorder", label = L["Move in row"],
-                                  when = function() return BR.CfgGet("includeInCdm") == true end,
+                                  when = function() return ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
                                   getState = function() return ns.CDMAnchor.GetMoveState(BR.GetFrame()) end,
                                   onMove = function(dir) ns.CDMAnchor.Move(BR.GetFrame(), dir) end },
 
@@ -163,7 +164,7 @@ local function CreateBResTrackerPanel(parent)
                                 {
                                     type       = "position",
                                     ref        = "pe",
-                                    when       = function() return BR.CfgGet("includeInCdm") ~= true end,
+                                    when       = function() return not ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
                                     onBuilt    = function(w) BR.pe = w end,
                                     label      = L["Icon position (offset from screen center)"],
                                     getX       = function() return BR.CfgGet("posX") end,
@@ -185,7 +186,7 @@ local function CreateBResTrackerPanel(parent)
                                 {
                                     type   = "custom",
                                     height = 46,
-                                    when   = function() return BR.CfgGet("includeInCdm") ~= true end,
+                                    when   = function() return not ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
                                     build  = function(host)
                                         local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
                                         sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)

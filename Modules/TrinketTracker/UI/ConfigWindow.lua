@@ -78,7 +78,8 @@ local function BuildTrinketOptions(prefix, LSM)
                 return {
                     {
                         type = "checkbox", label = L["Include in cdm"],
-                        get = function() return GetCfg("includeInCdm") == true end,
+                        disabled = function() return not ns.IsCDMEnabled() end,
+                        get = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                         set = function(v)
                             SetCfg("includeInCdm", v)
                             if tracker then tracker.ApplySize() end
@@ -88,7 +89,7 @@ local function BuildTrinketOptions(prefix, LSM)
                     },
                     {
                         type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
-                        when = function() return GetCfg("includeInCdm") == true end,
+                        when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                         getList = function() return ns.CDMDestList() end,
                         getCurrentKey = function() return ns.CDMDestLabel(GetCfg("cdmDest") or "essential") end,
                         onSelect = function(label)
@@ -100,7 +101,7 @@ local function BuildTrinketOptions(prefix, LSM)
                     },
                     {
                         type = "checkbox", label = L["Icon at the end of the row"],
-                        when = function() return GetCfg("includeInCdm") == true end,
+                        when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                         get = function() return GetCfg("cdmAtEnd") ~= false end,
                         set = function(v)
                             SetCfg("cdmAtEnd", v)
@@ -110,7 +111,7 @@ local function BuildTrinketOptions(prefix, LSM)
                     },
                     {
                         type = "dropdown", label = L["Row"], width = 120, height = 50,
-                        when = function() return GetCfg("includeInCdm") == true end,
+                        when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                         getList = function() return ns.CDMRowList(GetCfg("cdmDest") or "essential") end,
                         getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(GetCfg("cdmDest") or "essential", GetCfg("cdmRow"))) end,
                         onSelect = function(label)
@@ -121,7 +122,7 @@ local function BuildTrinketOptions(prefix, LSM)
                     },
                     {
                         type = "reorder", label = L["Move in row"],
-                        when = function() return GetCfg("includeInCdm") == true end,
+                        when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                         getState = function() return ns.CDMAnchor.GetMoveState(tracker and tracker.GetFrame()) end,
                         onMove = function(dir) ns.CDMAnchor.Move(tracker and tracker.GetFrame(), dir) end,
                     },
@@ -131,7 +132,7 @@ local function BuildTrinketOptions(prefix, LSM)
                     {
                         type       = "position",
                         ref        = "pe",
-                        when       = function() return GetCfg("includeInCdm") ~= true end,
+                        when       = function() return not ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                         onBuilt    = function(w) if tracker then tracker.pe = w end end,
                         label      = L["Icon position (offset from screen center)"],
                         getX       = function() return GetCfg("posX") end,
@@ -154,7 +155,7 @@ local function BuildTrinketOptions(prefix, LSM)
                     {
                         type   = "custom",
                         height = 46,
-                        when   = function() return GetCfg("includeInCdm") ~= true end,
+                        when   = function() return not ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                         build  = function(host)
                             local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
                             sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)

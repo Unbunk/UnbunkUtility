@@ -199,7 +199,7 @@ local function CreateProfilesPanel(parent)
                         local str = ns.profiles.Export()
                         exportBox:SetText(str)
                         exportBox:SetFocus()
-                        exportBox:HighlightText()
+                        exportBox:HighlightText()   -- select all; the user copies with Ctrl+C
                     end,
                 })
                 exportBtn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -50)
@@ -215,7 +215,7 @@ local function CreateProfilesPanel(parent)
             build  = function(host)
                 local importLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
                 importLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                importLbl:SetText(L["Import profile (overwrites current)"])
+                importLbl:SetText(L["Import profile (creates a new profile)"])
 
                 local importBox = CreateFrame("EditBox", nil, host, "InputBoxTemplate")
                 importBox:SetSize(400, 22)
@@ -230,15 +230,27 @@ local function CreateProfilesPanel(parent)
                     height  = 22,
                     onClick = function()
                         local str = importBox:GetText()
-                        if str and str ~= "" then
-                            local ok, err = ns.profiles.Import(str)
-                            if ok then
-                                SetCurrentText(ns.profiles.GetCurrent())
-                                ns.Print(L["Profile imported successfully."])
-                            else
-                                ns.Print(string.format(L["Import failed: %s"], tostring(err)))
-                            end
-                        end
+                        if not str or str:gsub("%s", "") == "" then return end
+                        -- Prompt for a name and import INTO A NEW profile instead of
+                        -- overwriting the current one. ImportAs validates the blob +
+                        -- name, creates the profile and switches to it (then ReloadAll
+                        -- rebuilds this panel, so the current-profile label updates).
+                        ns.ui.ShowPrompt({
+                            title      = L["Import profile"],
+                            text       = L["Name the new profile:"],
+                            acceptText = L["Import"],
+                            maxLetters = 32,
+                            onAccept   = function(name)
+                                name = name and name:gsub("^%s+", ""):gsub("%s+$", "") or ""
+                                if name == "" then return end
+                                local ok, err = ns.profiles.ImportAs(name, str)
+                                if ok then
+                                    ns.Print(string.format(L["Profile imported as: %s"], name))
+                                else
+                                    ns.Print(string.format(L["Import failed: %s"], tostring(err)))
+                                end
+                            end,
+                        })
                     end,
                 })
                 importBtn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -50)
