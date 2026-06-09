@@ -113,6 +113,9 @@ function ns.ui.CreateTimerIcon(config)
     -- (a native-row slot, or the below-player row). When true, ns.CDMAnchor owns the
     -- position/size and the icon is not free-draggable.
     local function CDMActive()
+        -- Cooldown Manager disabled in the game options -> the integration is inert,
+        -- so the icon is always free (draggable, positioned by posX/posY).
+        if ns.IsCDMEnabled and not ns.IsCDMEnabled() then return false end
         if not getCfg("includeInCdm") then return false end
         local dest = getCfg("cdmDest")
         if dest == "belowPlayer" then return true end
@@ -133,8 +136,24 @@ function ns.ui.CreateTimerIcon(config)
     end)
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
-        local _, _, _, x, y = self:GetPoint()
-        if onDragStop then onDragStop(math.floor(x), math.floor(y)) end
+        -- CDM-managed icons are positioned by ns.CDMAnchor and aren't free-draggable
+        -- (OnDragStart bails too); never re-anchor one onto a free CENTER point here.
+        if CDMActive() then return end
+        -- Don't read GetPoint() here: StartMoving can leave the frame on a
+        -- different anchor/relativePoint than the CENTER/UIParent/CENTER that
+        -- ApplyPosition re-applies, so its xOfs/yOfs would be in that other anchor's
+        -- space and the icon would teleport on the next locked tick. Compute the
+        -- centre offset from UIParent directly (scale-normalised) and re-anchor to a
+        -- single CENTER point so the saved offset and the live frame stay in sync.
+        local es, ues = self:GetEffectiveScale(), UIParent:GetEffectiveScale()
+        local fx, fy = self:GetCenter()
+        local ux, uy = UIParent:GetCenter()
+        if not (fx and ux and es > 0) then return end
+        local x = math.floor((fx * es - ux * ues) / es)
+        local y = math.floor((fy * es - uy * ues) / es)
+        self:ClearAllPoints()
+        self:SetPoint("CENTER", UIParent, "CENTER", x, y)
+        if onDragStop then onDragStop(x, y) end
     end)
 
     -- Applies the timer font at the current urgency size scale. Both ApplySize
@@ -291,6 +310,13 @@ function ns.ui.CreateTimerIcon(config)
     end
 
     function result.ApplyPosition()
+        -- While unlocked the user is dragging the icon to place it. The owning
+        -- module's 0.5s layout ticker (and ns.CDMAnchor relayouts) also call this,
+        -- and a ClearAllPoints+SetPoint mid-drag fights StartMoving — the icon
+        -- teleports back to its saved spot, or lands at a random offset on a short
+        -- drag. Leave placement to the user until Lock; OnDragStop saves the drop
+        -- position and the next locked tick re-anchors from it.
+        if unlocked then return end
         -- When the Cooldown Manager integration is active, ns.CDMAnchor owns this
         -- icon's position AND size (native-row slot or below-player row); just ask
         -- for a refresh. Otherwise it's free — positioned on screen by posX/posY.

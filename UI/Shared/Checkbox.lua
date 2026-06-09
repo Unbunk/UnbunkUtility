@@ -20,6 +20,14 @@ function ns.ui.CreateCheckbox(config)
     local label   = config.label   or ""
     local checked = config.checked or false
     local onClick = config.onClick
+    -- Optional `disabled` (boolean | function -> boolean): when true the box is
+    -- greyed, always reads as unchecked, and ignores clicks/hover. Re-evaluated on
+    -- every UpdateVisual, so a SetChecked from a panel refresh reflects a live change.
+    local getDisabled = config.disabled
+    local function IsDisabled()
+        if type(getDisabled) == "function" then return getDisabled() and true or false end
+        return getDisabled == true
+    end
 
     local result = {}
 
@@ -42,9 +50,11 @@ function ns.ui.CreateCheckbox(config)
     box:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 
     box:SetScript("OnEnter", function(self)
+        if IsDisabled() then return end
         self:SetBackdropBorderColor(0.8, 0.8, 0.8, 1)
     end)
     box:SetScript("OnLeave", function(self)
+        if IsDisabled() then return end
         self:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
     end)
 
@@ -67,18 +77,30 @@ function ns.ui.CreateCheckbox(config)
     local isChecked = checked
 
     local function UpdateVisual()
-        if isChecked then
+        local disabled = IsDisabled()
+        -- Disabled always reads as unchecked + greyed (regardless of isChecked) so a
+        -- stored includeInCdm=true never shows ticked while the Cooldown Manager is off.
+        if isChecked and not disabled then
             checkTex:Show()
-            box:SetBackdropColor(0.2, 0.2, 0.2, 0.9)
         else
             checkTex:Hide()
-            box:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
+        end
+        if disabled then
+            box:SetBackdropColor(0.06, 0.06, 0.06, 0.7)
+            box:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.6)
+            lbl:SetTextColor(0.5, 0.5, 0.5)
+        else
+            local shade = isChecked and 0.2 or 0.1
+            box:SetBackdropColor(shade, shade, shade, 0.9)
+            box:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+            lbl:SetTextColor(1, 1, 1)
         end
     end
 
     UpdateVisual()
 
     box:SetScript("OnClick", function()
+        if IsDisabled() then return end
         isChecked = not isChecked
         UpdateVisual()
         if onClick then onClick(isChecked) end

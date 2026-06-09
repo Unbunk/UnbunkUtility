@@ -49,6 +49,26 @@ function ns.GetCDMViewer(dest)
     return name and _G[name] or nil
 end
 
+-- True when Blizzard's Cooldown Manager is enabled in the game options
+-- (Options > Gameplay > Cooldown Manager, i.e. the cooldownViewerEnabled CVar,
+-- "1" = on). When it is OFF the integration is inert: every tracker icon is placed
+-- freely and the "Include in cdm" checkbox is greyed out + uncheckable. Defaults to
+-- ON if the CVar can't be queried (should never happen on a CDM-capable client),
+-- so the integration is never disabled by a failed lookup.
+function ns.IsCDMEnabled()
+    local getBool = (C_CVar and C_CVar.GetCVarBool) or GetCVarBool
+    if not getBool then return true end
+    return getBool("cooldownViewerEnabled") and true or false
+end
+
+-- Effective "this icon belongs in the CDM": the Cooldown Manager is enabled AND
+-- the icon opted in. Config windows + TimerIcon's CDMActive use this instead of
+-- reading includeInCdm directly, so a disabled Cooldown Manager forces every icon
+-- to free placement without rewriting any saved config.
+function ns.CDMIncludedVal(includeInCdm)
+    return ns.IsCDMEnabled() and includeInCdm == true
+end
+
 -- ── Native row helpers ───────────────────────────────────────────────────────
 local function EnumNativeIcons(viewer)
     local out = {}
@@ -701,6 +721,9 @@ end
 -- Re-apply the reference addon's CURRENT fade alpha to our icons after a layout pass, so an icon
 -- that just appeared mid-fade matches the faded state instead of popping to full.
 local function ReapplyFade()
+    -- Cooldown Manager off -> icons are free (TimerIcon's free ApplyPosition resets
+    -- their alpha to 1), so never apply the native viewer's fade to them.
+    if not ns.IsCDMEnabled() then return end
     local F = the reference addonFading()
     if not (F and F.GetAlpha) then return end
     local essA = F:GetAlpha("fadingEssential")
@@ -767,6 +790,9 @@ local function ComputeSig()
             .. "," .. tostring(c.offsetX) .. "," .. tostring(c.offsetY)
     end
     p[#p + 1] = belowUnlocked and "U1" or "U0"
+    -- Whether the game's Cooldown Manager is on: toggling it in the options must
+    -- change the signature so a (non-forced) refresh re-lays-out every icon.
+    p[#p + 1] = ns.IsCDMEnabled() and "CDM1" or "CDM0"
     return table.concat(p, "|")
 end
 
@@ -784,8 +810,12 @@ local function DoRefresh(force)
     if not force and sig == lastSig then return end  -- nothing placement-relevant changed
     lastSig = sig
     local groups, hasBelow = {}, false
+    -- Cooldown Manager off in the options -> treat every icon as free (inc=false),
+    -- so they all fall to the d.apply free-placement branch and any owned viewer is
+    -- released below. Evaluated once per pass.
+    local cdmOn = ns.IsCDMEnabled()
     for _, d in ipairs(appliers) do
-        local inc  = d.getCfg and d.getCfg("includeInCdm")
+        local inc  = cdmOn and d.getCfg and d.getCfg("includeInCdm")
         local dest = (d.getCfg and d.getCfg("cdmDest")) or "essential"
         if d.frame and inc and dest == "belowPlayer" then
             hasBelow = true
@@ -860,11 +890,28 @@ local function HookViewers()
     end
 end
 
+-- Last-seen Cooldown Manager enable state, so a CVAR_UPDATE only does work when it
+-- actually flips (the event fires for every CVar). Seeded on the first login pass.
+local lastCdmEnabled
+
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
 f:RegisterEvent("PLAYER_REGEN_ENABLED")
+f:RegisterEvent("CVAR_UPDATE")
 f:SetScript("OnEvent", function(_, event)
+    if event == "CVAR_UPDATE" then
+        -- React only when the Cooldown Manager enable state flips: force a re-layout
+        -- (every icon moves between CDM and free placement) and rebuild any open
+        -- tracker config so its greyed checkbox + CDM/free controls update live.
+        local nowOn = ns.IsCDMEnabled()
+        if nowOn ~= lastCdmEnabled then
+            lastCdmEnabled = nowOn
+            ns.CDMAnchor.RefreshAll(true)
+            if ns.RebuildActiveModule then ns.RebuildActiveModule() end
+        end
+        return
+    end
     if event == "PLAYER_REGEN_ENABLED" then
         -- Reconcile EditMode state that may have flipped during combat so it can't
         -- get stuck (which would freeze all re-imposition).
@@ -874,6 +921,7 @@ f:SetScript("OnEvent", function(_, event)
     end
     HookViewers()
     Hookthe reference addonFading()   -- register our icons with the reference CDM addon's fade pipeline (if present)
+    lastCdmEnabled = ns.IsCDMEnabled()   -- seed so the first CVAR_UPDATE flip is detected
     C_Timer.After(0.1, function() ns.CDMAnchor.RefreshAll(true) end)
 end)
 

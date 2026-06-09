@@ -120,7 +120,8 @@ local function CreateBLTrackerPanel(parent)
                                 {
                                     type = "checkbox",
                                     label = L["Include in cdm"],
-                                    get = function() return BL.CfgGet("includeInCdm") == true end,
+                                    disabled = function() return not ns.IsCDMEnabled() end,
+                                    get = function() return ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
                                     set = function(v)
                                         BL.CfgSet("includeInCdm", v); BL.ApplySize(); BL.ApplyPosition()
                                         if menu then menu.Rebuild() end
@@ -131,7 +132,7 @@ local function CreateBLTrackerPanel(parent)
                                     label = L["Anchor to"],
                                     width = 200,
                                     height = 50,
-                                    when = function() return BL.CfgGet("includeInCdm") == true end,
+                                    when = function() return ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
                                     getList = function() return ns.CDMDestList() end,
                                     getCurrentKey = function() return ns.CDMDestLabel(BL.CfgGet("cdmDest") or "essential") end,
                                     -- Row is clamped for DISPLAY only (getCurrentKey below); never written
@@ -142,7 +143,7 @@ local function CreateBLTrackerPanel(parent)
                                 {
                                     type = "checkbox",
                                     label = L["Icon at the end of the row"],
-                                    when = function() return BL.CfgGet("includeInCdm") == true end,
+                                    when = function() return ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
                                     get = function() return BL.CfgGet("cdmAtEnd") ~= false end,
                                     set = function(v) BL.CfgSet("cdmAtEnd", v); BL.ApplyPosition(); if menu then menu.Refresh() end end,
                                 },
@@ -151,7 +152,7 @@ local function CreateBLTrackerPanel(parent)
                                     label = L["Row"],
                                     width = 120,
                                     height = 50,
-                                    when = function() return BL.CfgGet("includeInCdm") == true end,
+                                    when = function() return ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
                                     getList = function() return ns.CDMRowList(BL.CfgGet("cdmDest") or "essential") end,
                                     getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(BL.CfgGet("cdmDest") or "essential", BL.CfgGet("cdmRow"))) end,
                                     onSelect = function(label) BL.CfgSet("cdmRow", ns.CDMRowFromLabel(label)); BL.ApplyPosition(); if menu then menu.Refresh() end end,
@@ -159,7 +160,7 @@ local function CreateBLTrackerPanel(parent)
                                 {
                                     type = "reorder",
                                     label = L["Move in row"],
-                                    when = function() return BL.CfgGet("includeInCdm") == true end,
+                                    when = function() return ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
                                     getState = function() return ns.CDMAnchor.GetMoveState(BL.GetFrame()) end,
                                     onMove = function(dir) ns.CDMAnchor.Move(BL.GetFrame(), dir) end,
                                 },
@@ -167,7 +168,7 @@ local function CreateBLTrackerPanel(parent)
                                 {
                                     type       = "position",
                                     ref        = "pe",
-                                    when       = function() return BL.CfgGet("includeInCdm") ~= true end,
+                                    when       = function() return not ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
                                     onBuilt    = function(w) BL.pe = w end,
                                     label      = L["Icon position (offset from screen center)"],
                                     getX       = function() return BL.CfgGet("posX") end,
@@ -188,7 +189,7 @@ local function CreateBLTrackerPanel(parent)
                                 {
                                     type   = "custom",
                                     height = 46,
-                                    when   = function() return BL.CfgGet("includeInCdm") ~= true end,
+                                    when   = function() return not ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
                                     build  = function(host)
                                         local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
                                         sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)

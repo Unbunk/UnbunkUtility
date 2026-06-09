@@ -42,6 +42,12 @@ L["Profile already exists: %s"] = "Le profil existe déjà : %s"
 L["Profile reset to defaults: %s"] = "Profil réinitialisé : %s"
 L["Profile imported successfully."] = "Profil importé avec succès."
 L["Import failed: %s"] = "Échec de l'import : %s"
+L["Import profile (creates a new profile)"] = "Importer un profil (crée un nouveau profil)"
+L["Import profile"] = "Importer un profil"
+L["Name the new profile:"] = "Nommez le nouveau profil :"
+L["Profile imported as: %s"] = "Profil importé sous : %s"
+L["Profile name required"] = "Un nom de profil est requis"
+L["Cancel"] = "Annuler"
 L["not an UnbunkUtility profile"] = "ce n'est pas un profil UnbunkUtility"
 L["invalid profile data"] = "données de profil invalides"
 L["corrupt profile data"] = "données de profil corrompues"
@@ -58,6 +64,7 @@ L["Trinket Tracker"] = "Suivi des bijoux"
 L["PI Tracker"] = "Suivi PI"
 L["BRez Tracker"] = "Suivi BRez"
 L["Death Anim"] = "Anim. mort"
+L["Racial Tracker"] = "Suivi raciale"
 
 -- ── Common labels ────────────────────────────────────────────────────────────
 L["Test"] = "Test"
@@ -193,6 +200,13 @@ L["Potion combo (Potion + Trinket, without BL)"] = "Combo potion (Potion + Bijou
 L["Boss reset sound"] = "Son de reset de boss"
 L["Play a sound when a boss is reset (raid/party wipe)"] = "Jouer un son quand un boss est reset (wipe du groupe/raid)"
 
+-- ── Player speed display (General Settings) ──────────────────────────────────
+L["Player speed display"] = "Affichage de la vitesse"
+L["Show player movement speed on screen"] = "Afficher la vitesse de déplacement à l'écran"
+L["|cffaaaaaaText colour changes with speed.|r"] = "|cffaaaaaaLa couleur du texte change selon la vitesse.|r"
+L["Speed text appearance"] = "Apparence du texte de vitesse"
+L["Speed display position (offset from screen center)"] = "Position de l'affichage de vitesse (décalage depuis le centre)"
+
 -- ── BL Tracker ───────────────────────────────────────────────────────────────
 L["Enable BL Tracker"] = "Activer le suivi BL"
 
@@ -213,6 +227,12 @@ L["Trinket 2 (slot 2)"] = "Bijou 2 (emplacement 2)"
 
 -- ── Healthstone tracker ──────────────────────────────────────────────────────
 L["Enable Healthstone Tracker"] = "Activer le suivi des pierres de soin"
+
+-- ── Racial tracker ───────────────────────────────────────────────────────────
+L["Enable Racial Tracker"] = "Activer le suivi raciale"
+L["Tracked racial: |cffffd700%s|r"] = "Raciale suivie : |cffffd700%s|r"
+L["Spell ID override (0 = auto)"] = "Forcer l'ID du sort (0 = auto)"
+L["(none for your race)"] = "(aucune pour votre race)"
 
 -- ── BRez tracker ─────────────────────────────────────────────────────────────
 L["Enable BRez Tracker"] = "Activer le suivi BRez"

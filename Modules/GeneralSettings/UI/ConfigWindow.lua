@@ -27,6 +27,84 @@ local function CreateGeneralSettingsPanel(parent)
             end,
         },
 
+        -- ── Player speed display section ─────────────────────────────────────
+        -- On-screen movement-speed readout (engine in Modules/SpeedDisplay).
+        -- The text colour is driven by the speed tier, so no colour picker here.
+        {
+            type  = "group",
+            title = L["Player speed display"],
+            build = function()
+                local SD = ns.SpeedDisplay
+                return {
+                    {
+                        type   = "checkbox",
+                        label  = L["Show player movement speed on screen"],
+                        get    = function() return SD.CfgGet("enabled") == true end,
+                        set    = function(val)
+                            SD.CfgSet("enabled", val)
+                            SD.ApplyEnabled()
+                        end,
+                    },
+
+                    -- Greyed hint: the colour is speed-driven, not user-picked.
+                    {
+                        type = "label",
+                        text = L["|cffaaaaaaText colour changes with speed.|r"],
+                    },
+
+                    -- Font / size / outline (colour omitted — it follows the speed tier).
+                    {
+                        type        = "textEditor",
+                        LSM         = LSM,
+                        label       = L["Speed text appearance"],
+                        showText    = false,
+                        showColor   = false,
+                        showFont    = true,
+                        showSize    = true,
+                        showOutline = true,
+                        getFontKey  = function() return SD.CfgGet("fontKey") end,
+                        getFontPath = function() return SD.CfgGet("fontPath") end,
+                        getFontSize = function() return SD.CfgGet("fontSize") end,
+                        getOutline  = function() return SD.CfgGet("outline") end,
+                        onFontChange = function(key, path)
+                            SD.CfgSet("fontKey", key)
+                            SD.CfgSet("fontPath", path)
+                            SD.ApplyFont()
+                        end,
+                        onSizeChange = function(val)
+                            SD.CfgSet("fontSize", val)
+                            SD.ApplyFont()
+                        end,
+                        onOutlineChange = function(val)
+                            SD.CfgSet("outline", val)
+                            SD.ApplyFont()
+                        end,
+                    },
+
+                    -- Position editor (named ref for the drag self-refresh, like Death Anim).
+                    {
+                        type       = "position",
+                        ref        = "speedPE",
+                        onBuilt    = function(w) ns.SpeedDisplay.pe = w end,
+                        label      = L["Speed display position (offset from screen center)"],
+                        getX       = function() return SD.CfgGet("posX") end,
+                        getY       = function() return SD.CfgGet("posY") end,
+                        onApply    = function(x, yv)
+                            if x  then SD.CfgSet("posX", x)  end
+                            if yv then SD.CfgSet("posY", yv) end
+                            SD.ApplyPosition()
+                        end,
+                        onUnlock   = function() SD.SetUnlocked(true) end,
+                        onLock     = function()
+                            SD.SetUnlocked(false)
+                            if SD.pe then SD.pe.Refresh() end
+                        end,
+                        isUnlocked = function() return SD.IsUnlocked() end,
+                    },
+                }
+            end,
+        },
+
         -- ── Combo sounds section ─────────────────────────────────────────────
         {
             type  = "group",

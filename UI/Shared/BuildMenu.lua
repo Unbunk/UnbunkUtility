@@ -63,10 +63,11 @@ local function BuildChild(entry, host, defaultRel, refs, refreshers)
 
     if t == "checkbox" then
         widget = ns.ui.CreateCheckbox({
-            parent  = host,
-            label   = entry.label,
-            checked = entry.get and entry.get() or false,
-            onClick = entry.set,
+            parent   = host,
+            label    = entry.label,
+            checked  = entry.get and entry.get() or false,
+            onClick  = entry.set,
+            disabled = entry.disabled,
         })
         if entry.get then
             table.insert(refreshers, function() widget.SetChecked(entry.get()) end)
@@ -386,10 +387,11 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                 hostFrame = CreateFrame("Frame", nil, content)
                 spentHeight = entry.height or DEFAULT_HEIGHTS.checkbox
                 widget = ns.ui.CreateCheckbox({
-                    parent  = hostFrame,
-                    label   = entry.label,
-                    checked = entry.get and entry.get() or false,
-                    onClick = entry.set,
+                    parent   = hostFrame,
+                    label    = entry.label,
+                    checked  = entry.get and entry.get() or false,
+                    onClick  = entry.set,
+                    disabled = entry.disabled,
                 })
                 widget.frame:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", 0, 0)
                 if entry.get then
