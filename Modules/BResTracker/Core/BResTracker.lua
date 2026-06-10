@@ -104,6 +104,25 @@ local function IsActiveInCurrentInstance()
     return ns.IsActiveInInstance(BR.CfgGet("instanceFilter"))
 end
 
+-- True when a battle-res charge pool CAN exist: in a group, inside an instance
+-- whose type passes the filter. That's exactly the relevant content — raid boss
+-- encounters and Mythic+ runs. (Out in the open world, or solo, there is no pool.)
+-- Combat is intentionally NOT required: in M+ the pool is live the whole run, and
+-- in a raid the icon stays visible out of combat showing a dimmed "—" until a boss
+-- is pulled. Test mode forces it on for the preview.
+function BR.IsContextActive()
+    if BR.testMode then return true end
+    if not IsInGroup() then return false end
+    if not IsInInstance() then return false end
+    return IsActiveInCurrentInstance()
+end
+
+-- Whether the icon is on screen. The player list is gated on this too, so there is
+-- never a list without the icon.
+function BR.IconShouldShow()
+    return (BR.CfgGet("enabled") and BR.CfgGet("showIcon") and BR.IsContextActive()) and true or false
+end
+
 local function ResolveIcon()
     local info = C_Spell.GetSpellInfo(BRES_SPELL_ID)
     return (info and info.iconID) or BRES_ICON_ID
@@ -123,64 +142,68 @@ function BR.ApplyVisuals()
         BR.testCooldownEnds = {}
     end
 
-    if not BR.CfgGet("enabled") then
+    -- Show whenever we're in a relevant context (group + instance, per the filter)
+    -- — NOT only when a charge pool is currently active. Outside that, hide and
+    -- reset so the first later pool tick is adopted silently.
+    if not BR.CfgGet("enabled") or not BR.IsContextActive() then
         frame:Hide()
         lastCharges = nil
-        return
-    end
-    -- Test mode bypasses the instance filter so the preview always works.
-    if not BR.testMode and not IsActiveInCurrentInstance() then
-        frame:Hide()
-        lastCharges = nil
+        lastMax     = nil
         return
     end
 
-    -- Source of the data: real shared pool or fake test values.
-    local cur, maxC, cdStart, cdDur
+    -- Charge data: real shared pool or fake test values. havePool is false when no
+    -- pool exists yet (a raid out of combat) — the icon still shows, dimmed.
+    local cur, maxC, cdStart, cdDur, havePool
     if BR.testMode then
         cur, maxC = 2, 3
         cdStart   = BR.testCooldownStart
         cdDur     = 600
+        havePool  = true
     else
         local info = C_Spell.GetSpellCharges(BRES_SPELL_ID)
-        if not info or not info.maxCharges or info.maxCharges == 0 then
-            -- No BRes pool (solo / group too small).
-            frame:Hide()
-            lastCharges = nil
-            return
+        if info and info.maxCharges and info.maxCharges > 0 then
+            cur      = info.currentCharges or 0
+            maxC     = info.maxCharges
+            cdStart  = info.cooldownStartTime
+            cdDur    = info.cooldownDuration
+            havePool = true
+        else
+            havePool = false
         end
-        cur     = info.currentCharges or 0
-        maxC    = info.maxCharges
-        cdStart = info.cooldownStartTime
-        cdDur   = info.cooldownDuration
     end
 
-    -- Render the icon only when showIcon is on, but keep running the charge-
-    -- transition detection below regardless: the ready/used sounds are separate
-    -- toggles, and short-circuiting here used to also leave lastCharges stale
-    -- (a phantom sound when the icon was later re-enabled).
+    -- Draw the icon when showIcon is on. The charge-transition detection (sounds)
+    -- runs below regardless of showIcon, so the ready/used sounds stay independent.
     if BR.CfgGet("showIcon") then
         frame:Show()
         iconTex:SetTexture(ResolveIcon())
+        iconTex:SetDesaturated(not havePool)
 
-        -- Charge counter (green when at least one available, red otherwise).
-        countText:SetText(tostring(cur))
-        if cur > 0 then
-            countText:SetTextColor(0, 1, 0, 1)
-        else
-            countText:SetTextColor(1, 0, 0, 1)
-        end
-        countText:Show()
+        if havePool then
+            -- Charge counter (green when at least one available, red otherwise).
+            countText:SetText(tostring(cur))
+            if cur > 0 then
+                countText:SetTextColor(0, 1, 0, 1)
+            else
+                countText:SetTextColor(1, 0, 0, 1)
+            end
+            countText:Show()
 
-        -- Cooldown / timer for the next incoming charge.
-        if cur < maxC and cdStart and cdStart > 0 then
-            local remain = (cdStart + cdDur) - GetTime()
-            if remain > 0 then
-                timerText:SetText(ns.FormatMMSS(remain))
-                timerText:Show()
-                if lastCooldownStart ~= cdStart then
-                    cooldown:SetCooldown(cdStart, cdDur)
-                    lastCooldownStart = cdStart
+            -- Cooldown / timer for the next incoming charge.
+            if cur < maxC and cdStart and cdStart > 0 then
+                local remain = (cdStart + cdDur) - GetTime()
+                if remain > 0 then
+                    timerText:SetText(ns.FormatMMSS(remain))
+                    timerText:Show()
+                    if lastCooldownStart ~= cdStart then
+                        cooldown:SetCooldown(cdStart, cdDur)
+                        lastCooldownStart = cdStart
+                    end
+                else
+                    timerText:Hide()
+                    cooldown:Clear()
+                    lastCooldownStart = 0
                 end
             else
                 timerText:Hide()
@@ -188,6 +211,10 @@ function BR.ApplyVisuals()
                 lastCooldownStart = 0
             end
         else
+            -- No pool yet (raid out of combat): dimmed icon, greyed "-", no timer.
+            countText:SetText("-")
+            countText:SetTextColor(0.6, 0.6, 0.6, 1)
+            countText:Show()
             timerText:Hide()
             cooldown:Clear()
             lastCooldownStart = 0
@@ -196,22 +223,27 @@ function BR.ApplyVisuals()
         frame:Hide()
     end
 
-    -- Charge transitions. Suppressed during test mode, for a moment after a
-    -- loading screen where the count reads stale (ns.RecentlyZoned), and when the
-    -- pool size changed this tick: a shrinking raid lowers currentCharges with no
-    -- actual cast, which must not fire the "used" sound / false attribution.
-    if not BR.testMode and lastCharges ~= nil and lastMax == maxC and not ns.RecentlyZoned() then
-        if cur > lastCharges and BR.CfgGet("soundOnReady") then
-            BR.PlaySound()
-        elseif cur < lastCharges then
-            -- A charge was consumed: attribute the cast to the most recent
-            -- BRes-capable caster, and play the "used" sound if enabled.
-            if BR.AttributeBResCast then BR.AttributeBResCast() end
-            if BR.CfgGet("soundOnUsed") then BR.PlaySoundUsed() end
+    -- Charge transitions (ready/used sounds), run regardless of showIcon but only
+    -- while a pool exists. Suppressed during test mode, for a moment after a loading
+    -- screen (stale count), and when the pool size changed this tick (a shrinking
+    -- raid lowers currentCharges with no actual cast).
+    if havePool then
+        if not BR.testMode and lastCharges ~= nil and lastMax == maxC and not ns.RecentlyZoned() then
+            if cur > lastCharges and BR.CfgGet("soundOnReady") then
+                BR.PlaySound()
+            elseif cur < lastCharges then
+                if BR.AttributeBResCast then BR.AttributeBResCast() end
+                if BR.CfgGet("soundOnUsed") then BR.PlaySoundUsed() end
+            end
         end
+        lastCharges = cur
+        lastMax     = maxC
+    else
+        -- No pool: reset so a later pool start (boss pull -> 1 charge) doesn't fire
+        -- a phantom "ready".
+        lastCharges = nil
+        lastMax     = nil
     end
-    lastCharges = cur
-    lastMax     = maxC
 end
 
 -- ── Apply font / size / position ─────────────────────────────────────────────
@@ -351,6 +383,7 @@ function BR.SetUnlocked(val)
         -- Preview: show the icon and a fake count so the user sees what they
         -- are positioning even when out of group.
         iconTex:SetTexture(ResolveIcon())
+        iconTex:SetDesaturated(false)
         cooldown:Clear()
         timerText:Hide()
         countText:SetText("1")

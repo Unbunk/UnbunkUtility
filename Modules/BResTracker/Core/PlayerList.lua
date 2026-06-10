@@ -173,8 +173,9 @@ function BR.RefreshList()
         return
     end
 
-    local enabled = BR.CfgGet("listEnabled") and BR.CfgGet("enabled")
-    if not enabled then
+    -- Never a list without the icon: gate on the same icon-visibility decision
+    -- (enabled + showIcon + relevant group/instance context) plus listEnabled.
+    if not (BR.CfgGet("listEnabled") and BR.IconShouldShow()) then
         listFrame:Hide()
         return
     end
