@@ -119,10 +119,11 @@ local function CreatePlayerDeathPanel(parent)
                                 end,
                                 getCurrentKey = function()
                                     local idx = PD.CfgGet("animIndex") or 1
-                                    if UNBUNK_ANIMATIONS and UNBUNK_ANIMATIONS[idx] then
-                                        return UNBUNK_ANIMATIONS[idx].label
-                                    end
-                                    return ""
+                                    -- Fall back to index 1 for an out-of-range saved value (e.g. an
+                                    -- imported profile), matching GetCurrentAnim's runtime fallback so
+                                    -- the toggle label and the played animation agree.
+                                    if not (UNBUNK_ANIMATIONS and UNBUNK_ANIMATIONS[idx]) then idx = 1 end
+                                    return (UNBUNK_ANIMATIONS and UNBUNK_ANIMATIONS[idx] and UNBUNK_ANIMATIONS[idx].label) or ""
                                 end,
                                 onSelect      = function(label)
                                     if UNBUNK_ANIMATIONS then
@@ -141,6 +142,10 @@ local function CreatePlayerDeathPanel(parent)
                                 height  = 50,
                                 Refresh = function()
                                     local idx = PD.CfgGet("animIndex") or 1
+                                    if not (UNBUNK_ANIMATIONS and UNBUNK_ANIMATIONS[idx]) then
+                                        idx = 1
+                                        PD.CfgSet("animIndex", 1)  -- heal a stale out-of-range index
+                                    end
                                     if UNBUNK_ANIMATIONS and UNBUNK_ANIMATIONS[idx] then
                                         animDD.selectedText:SetText(UNBUNK_ANIMATIONS[idx].label)
                                     end
@@ -198,14 +203,16 @@ local function CreatePlayerDeathPanel(parent)
                             fpsSecLbl:SetText(L["fps"])
 
                             fpsMinusBtn.frame:SetScript("OnClick", function()
-                                local v = tonumber(fpsInput.GetText()) or 16
+                                -- Fall back to the SAVED value (not a hardcoded 16) if the box
+                                -- holds rejected/stale text, so the step is always relative.
+                                local v = tonumber(fpsInput.GetText()) or PD.CfgGet("animFPS") or 16
                                 v = math.max(1, v - 1)
                                 fpsInput.SetText(tostring(v))
                                 PD.CfgSet("animFPS", v)
                             end)
 
                             fpsPlusBtn.frame:SetScript("OnClick", function()
-                                local v = tonumber(fpsInput.GetText()) or 16
+                                local v = tonumber(fpsInput.GetText()) or PD.CfgGet("animFPS") or 16
                                 v = math.min(60, v + 1)
                                 fpsInput.SetText(tostring(v))
                                 PD.CfgSet("animFPS", v)
