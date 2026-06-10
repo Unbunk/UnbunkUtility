@@ -20,6 +20,12 @@
 local _, ns = ...
 ns.ui = ns.ui or {}
 
+-- Shared read-only "active buff" colour. Hoisted to a module constant so the
+-- 0.5s ApplyVisuals tick doesn't allocate a fresh table every pass while a green
+-- timer is shown (SetTimer only stores the reference and reads r/g/b, never
+-- mutates it — so a single shared table is safe across all tracker instances).
+local GREEN = { r = 0, g = 1, b = 0 }
+
 function ns.ui.CreateItemTracker(config)
     local frameName  = config.frameName
     local getCfg     = config.getCfg
@@ -32,6 +38,11 @@ function ns.ui.CreateItemTracker(config)
     local lastExpiry  = nil  -- GetTime() at which the tracked cooldown ends
     local lastUseAt   = nil  -- GetTime() of the last use (set by NotifyUsed), for
                              -- the in-combat heuristic green timer
+    -- Per-item cache of the (constant) icon id + usable-spell name. The 0.5s
+    -- ApplyVisuals tick would otherwise re-query C_Item every pass, and each call
+    -- allocates the returned strings (GetItemInfo also builds the item link/name).
+    -- Invalidated when the tracked itemId changes.
+    local cachedItemId, cachedIconId, cachedSpellName = nil, nil, nil
 
     local icon = ns.ui.CreateTimerIcon({
         name    = frameName,
@@ -59,21 +70,48 @@ function ns.ui.CreateItemTracker(config)
             return
         end
 
-        -- Skip items that have no spell (not usable).
-        local spellName = itemId and C_Item.GetItemSpell and select(1, C_Item.GetItemSpell(itemId))
-        if not spellName then
-            -- Spell data is async; request a load so the next refresh can resolve
-            -- it even if nothing else preloaded the item (mirrors the iconId branch).
-            C_Item.RequestLoadItemDataByID(itemId)
+        -- The usable-spell and the icon are constant per itemId: resolve each once
+        -- and cache, so the steady-state tick allocates nothing here. Reset on change.
+        if itemId ~= cachedItemId then
+            cachedItemId, cachedIconId, cachedSpellName = itemId, nil, nil
+        end
+
+        -- Resolve the item's on-use spell once and cache the verdict, because
+        -- GetItemSpell returns nil for TWO different reasons:
+        --   (a) the item data isn't loaded yet (transient — retry next tick), or
+        --   (b) the item genuinely has no on-use spell (a passive/stat trinket).
+        -- We must tell them apart: caching nil for (b) made the tick re-query AND
+        -- re-RequestLoadItemDataByID forever on a passive trinket, which spammed
+        -- GET_ITEM_INFO_RECEIVED → the native CooldownViewer relayouts → a ~250 KB/s
+        -- churn storm. cachedSpellName: nil = unresolved, false = loaded/no-use, string = spell.
+        if cachedSpellName == nil then
+            local nm = C_Item.GetItemSpell and select(1, C_Item.GetItemSpell(itemId))
+            if nm then
+                cachedSpellName = nm
+            elseif C_Item.IsItemDataCachedByID and C_Item.IsItemDataCachedByID(itemId) then
+                cachedSpellName = false        -- loaded, genuinely no on-use → stop retrying
+            else
+                C_Item.RequestLoadItemDataByID(itemId)  -- not loaded yet → retry next tick
+                icon.Hide()
+                return
+            end
+        end
+        if not cachedSpellName then             -- false sentinel: item isn't usable
             icon.Hide()
             return
         end
 
-        local _, _, _, _, _, _, _, _, _, iconId = C_Item.GetItemInfo(itemId)
+        -- GetItemInfoInstant resolves the icon synchronously from the static item
+        -- record (no async load, no allocated item link/name) — the same instant
+        -- call the potion / healthstone trackers already use for their icons.
+        local iconId = cachedIconId
         if not iconId then
-            C_Item.RequestLoadItemDataByID(itemId)
-            icon.Hide()
-            return
+            iconId = select(5, C_Item.GetItemInfoInstant(itemId))
+            if not iconId then
+                icon.Hide()
+                return
+            end
+            cachedIconId = iconId
         end
 
         icon.SetIcon(iconId)
@@ -96,7 +134,7 @@ function ns.ui.CreateItemTracker(config)
             if aura and ns.AuraTimerReadable(spellId) then
                 foundBuff = true
                 ns.LearnAuraDuration(spellId, aura.duration)
-                icon.SetTimer(aura.expirationTime, aura.duration, { r=0, g=1, b=0 })
+                icon.SetTimer(aura.expirationTime, aura.duration, GREEN)
                 icon.HideCheck()
             elseif lastUseAt and UnitAffectingCombat("player") then
                 -- Aura nil: only fall back to the heuristic IN COMBAT (where the
@@ -106,7 +144,7 @@ function ns.ui.CreateItemTracker(config)
                 local dur = ns.GetAuraDuration(spellId)
                 if dur and GetTime() < lastUseAt + dur then
                     foundBuff = true
-                    icon.SetTimer(lastUseAt + dur, dur, { r=0, g=1, b=0 })
+                    icon.SetTimer(lastUseAt + dur, dur, GREEN)
                     icon.HideCheck()
                 end
             end

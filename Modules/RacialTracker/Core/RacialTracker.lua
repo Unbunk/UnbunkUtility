@@ -11,6 +11,11 @@ local _, ns = ...
 ns.RacialTracker = ns.RacialTracker or {}
 local RT = ns.RacialTracker
 
+-- Shared read-only "active buff" colour, hoisted so the 0.5s visuals tick doesn't
+-- allocate a fresh table each pass while the green timer is shown (SetTimer only
+-- stores the reference and reads r/g/b, never mutates it).
+local GREEN = { r = 0, g = 1, b = 0 }
+
 local AceEvent = LibStub("AceEvent-3.0")
 local AceTimer = LibStub("AceTimer-3.0")
 AceEvent:Embed(RT)
@@ -231,13 +236,13 @@ function RT.ApplyVisuals()
         end
         if aura and ns.AuraTimerReadable(matchedId) then
             foundBuff = true
-            racialIcon.SetTimer(aura.expirationTime, aura.duration, { r = 0, g = 1, b = 0 })
+            racialIcon.SetTimer(aura.expirationTime, aura.duration, GREEN)
             racialIcon.HideCheck()
         elseif lastUseAt and UnitAffectingCombat("player") and GetTime() < lastUseAt + binfo.dur then
             -- In combat the aura is hidden/secret: estimate the window from the
             -- recorded cast time + its known length (the trinket-tracker heuristic).
             foundBuff = true
-            racialIcon.SetTimer(lastUseAt + binfo.dur, binfo.dur, { r = 0, g = 1, b = 0 })
+            racialIcon.SetTimer(lastUseAt + binfo.dur, binfo.dur, GREEN)
             racialIcon.HideCheck()
         end
     end

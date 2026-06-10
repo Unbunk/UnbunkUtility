@@ -408,7 +408,15 @@ end
 -- this module preloads dozens of favorite potions, so it bursts. Debounce it to a
 -- single invalidate+ApplyAll per 0.2s window instead of one per fire.
 local idlrPending = false
-local function OnItemDataLoaded()
+local function OnItemDataLoaded(event, itemID)
+    -- ITEM_DATA_LOAD_RESULT fires for EVERY item the client streams in — including
+    -- gear the player merely hovers (comparison tooltips load item data on the fly).
+    -- React only to potions we can actually track; otherwise a single equipment hover
+    -- triggers a storm of invalidate + full ApplyAll (~250 KB/s churn). Anything
+    -- filtered out here is still resolved by the 0.5s ticker within half a second.
+    if not (itemID and (FAVORITE_HEALTH_POTION_IDS[itemID] or FAVORITE_COMBAT_POTION_IDS[itemID])) then
+        return
+    end
     if idlrPending then return end
     idlrPending = true
     C_Timer.After(0.2, function()

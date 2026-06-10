@@ -4,6 +4,11 @@ local _, ns = ...
 ns.BLTracker = ns.BLTracker or {}
 local BL = ns.BLTracker
 
+-- Shared read-only "active buff" colour, hoisted so the 0.5s visuals tick doesn't
+-- allocate a fresh table each pass while the green timer is shown (SetTimer only
+-- stores the reference and reads r/g/b, never mutates it).
+local GREEN = { r = 0, g = 1, b = 0 }
+
 local AceEvent = LibStub("AceEvent-3.0")
 local AceTimer = LibStub("AceTimer-3.0")
 AceEvent:Embed(BL)
@@ -239,7 +244,7 @@ local function SyncDebuff()
         -- combat then show the cooldown after it.
         if buff and ns.AuraTimerReadable(buffId) then
             currentIcon = buff.icon
-            blIcon.SetTimer(buff.expirationTime, buff.duration, { r = 0, g = 1, b = 0 })
+            blIcon.SetTimer(buff.expirationTime, buff.duration, GREEN)
         elseif debuff then
             currentIcon = debuff.icon
             -- Heuristic green: the debuff's start (expirationTime - duration) is
@@ -251,7 +256,7 @@ local function SyncDebuff()
             local lustStart = (debuff.expirationTime or 0) - (debuff.duration or 0)
             local activeEnd = lustStart + BL_ACTIVE_DURATION
             if GetTime() < activeEnd and UnitAffectingCombat("player") then
-                blIcon.SetTimer(activeEnd, BL_ACTIVE_DURATION, { r = 0, g = 1, b = 0 })
+                blIcon.SetTimer(activeEnd, BL_ACTIVE_DURATION, GREEN)
             else
                 blIcon.SetTimer(debuff.expirationTime, debuff.duration)
             end

@@ -4,6 +4,11 @@ local _, ns = ...
 ns.PITracker = ns.PITracker or {}
 local PI = ns.PITracker
 
+-- Shared read-only "active buff" colour (PI yellow), hoisted so the 0.5s visuals
+-- tick doesn't allocate a fresh table each pass while the timer is shown (SetTimer
+-- only stores the reference and reads r/g/b, never mutates it).
+local PI_YELLOW = { r = 1, g = 1, b = 0 }
+
 local AceEvent = LibStub("AceEvent-3.0")
 local AceTimer = LibStub("AceTimer-3.0")
 AceEvent:Embed(PI)
@@ -119,7 +124,7 @@ local function SyncBuff(opts)
                 PI.PlaySound()
             end
         end
-        piIcon.SetTimer(aura.expirationTime, aura.duration, { r=1, g=1, b=0 })
+        piIcon.SetTimer(aura.expirationTime, aura.duration, PI_YELLOW)
         piIcon.HideCheck()
     elseif hasBuff then
         hasBuff = false
