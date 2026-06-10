@@ -512,7 +512,12 @@ HT:RegisterEvent("BAG_UPDATE", OnBagOrEnteringWorld)
 -- to a single refresh per 0.2s window because each preloaded healthstone fires this
 -- (mirrors PotionTracker's ITEM_DATA_LOAD_RESULT handling).
 local idlrPending = false
-HT:RegisterEvent("ITEM_DATA_LOAD_RESULT", function()
+HT:RegisterEvent("ITEM_DATA_LOAD_RESULT", function(event, itemID)
+    -- Only react to a healthstone's data loading, not every hovered/streamed item:
+    -- an equipment hover otherwise fires a storm of ITEM_DATA_LOAD_RESULT → a full
+    -- invalidate + ApplyAll each time (~250 KB/s churn). The 0.5s ticker still
+    -- resolves anything filtered out here.
+    if not (itemID and HEALTHSTONE_ITEM_IDS[itemID]) then return end
     if idlrPending then return end
     idlrPending = true
     C_Timer.After(0.2, function()

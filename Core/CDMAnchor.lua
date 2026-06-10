@@ -90,6 +90,27 @@ local function EnumNativeIcons(viewer)
     return out
 end
 
+-- Cheap, ALLOCATION-FREE structural signature of a viewer's native icons: how many
+-- are shown and a positional accumulator of where they sit. Used by the relayout
+-- hook to tell a genuine native CONTENT change (icon added / removed / moved → our
+-- grid shifts, re-pin needed) from the viewer's constant cosmetic RefreshLayout
+-- churn (cooldown-swipe frames — same icons in the same spots, nothing for us to do).
+-- Positions are floored to whole pixels so sub-pixel jitter can't spoof a change.
+local function NativeSig(viewer)
+    local n, acc = 0, 0
+    local pool = viewer.itemFramePool
+    if pool and pool.EnumerateActive then
+        for f in pool:EnumerateActive() do
+            if f and f.IsShown and f:IsShown() and (f.Icon or f.cooldownInfo) then
+                n = n + 1
+                acc = acc + math.floor((f:GetLeft() or 0) + 0.5) * 100000
+                          + math.floor((f:GetTop() or 0) + 0.5)
+            end
+        end
+    end
+    return n, acc
+end
+
 -- Group the viewer's native icons into visual rows (top→bottom), each sorted L→R.
 local function ComputeRows(viewer)
     local natives = EnumNativeIcons(viewer)
@@ -851,18 +872,28 @@ local function DoRefresh(force)
     if not rok then ns.Print("CDM refresh error: " .. tostring(rerr)) end
 end
 
--- Public entry point. Coalesces every caller in the same frame (the 0.5s trackers,
--- viewer Layout/RefreshLayout hooks, show/hide, config edits, fade) into ONE
--- next-frame layout pass instead of running the heavy re-pin/re-glue per call.
+-- Public entry point. Coalesces every caller within a short window (the 0.5s
+-- trackers, viewer Layout/RefreshLayout hooks, show/hide, config edits, fade) into
+-- ONE layout pass instead of running the heavy re-pin/re-glue per call.
 -- force=true (native relayout / combat-end / login / EditMode-exit) bypasses the
 -- no-change signature skip so a real re-pin always happens.
+--
+-- THROTTLE: a native viewer fires Layout/RefreshLayout every frame (cooldown swipe
+-- animation) while one of our icons is pinned to its row, and each fire forces a
+-- RefreshAll. Coalescing only to the next frame (After 0) therefore still ran a
+-- full forced DoRefresh at ~60 Hz — a 200-300 KB/s allocation storm from a single
+-- CDM-row icon (e.g. the trinket). Coalescing over REFRESH_THROTTLE instead caps
+-- that at ~10 Hz: a real native-row change is still re-pinned within 0.1s
+-- (imperceptible — our icons anchor RELATIVE to the native edge icon, so pure
+-- movement is followed for free between passes), but the per-frame storm is gone.
 local refreshScheduled = false
 local forceNext = false
+local REFRESH_THROTTLE = 0.1
 function ns.CDMAnchor.RefreshAll(force)
     if force then forceNext = true end
     if refreshScheduled then return end
     refreshScheduled = true
-    C_Timer.After(0, function()
+    C_Timer.After(REFRESH_THROTTLE, function()
         refreshScheduled = false
         local fn = forceNext
         forceNext = false
@@ -871,14 +902,29 @@ function ns.CDMAnchor.RefreshAll(force)
 end
 
 -- ── Follow the native viewers' relayout / move ───────────────────────────────
+-- The native viewers fire RefreshLayout/Layout CONSTANTLY (on every cooldown-swipe
+-- frame while anything is on cooldown), but our placement only needs to change when
+-- the native icon SET changes (one added / removed / moved → the grid shifts). Gate
+-- the forced re-pin on the cheap content signature so cosmetic ticks (same icons,
+-- same spots) cost nothing, instead of rebuilding the whole grid 10-60x/sec — that
+-- redundant rebuild was a 100-300 KB/s allocation storm whenever a CDM-row icon
+-- (e.g. a trinket pinned to the Essential row) was shown.
+local function OnNativeRelayout(viewer)
+    local n, acc = NativeSig(viewer)
+    if n ~= viewer._uuNatN or acc ~= viewer._uuNatAcc then
+        viewer._uuNatN, viewer._uuNatAcc = n, acc
+        ns.CDMAnchor.RefreshAll(true)
+    end
+end
+
 local hooked = {}
 local function HookViewers()
     for _, name in pairs(ns.CDM_VIEWER) do
         local v = _G[name]
         if v and not hooked[name] then
             hooked[name] = true
-            if v.RefreshLayout then hooksecurefunc(v, "RefreshLayout", function() ns.CDMAnchor.RefreshAll(true) end) end
-            if v.Layout       then hooksecurefunc(v, "Layout",       function() ns.CDMAnchor.RefreshAll(true) end) end
+            if v.RefreshLayout then hooksecurefunc(v, "RefreshLayout", OnNativeRelayout) end
+            if v.Layout       then hooksecurefunc(v, "Layout",       OnNativeRelayout) end
             -- Drop our pin when the pool recycles an item frame for new content, so
             -- a stale offset is never re-imposed before the next LayoutCDMRow.
             if v.OnAcquireItemFrame then
