@@ -7,22 +7,29 @@ local HR = ns.HealerRange
 
 local function CreateHealerRangePanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    local menu  -- forward declare so the enable set closure can reach menu.Refresh()
 
     local options = {
         -- ════════════ General: enable + probe status + test + where active ════════════
         {
             type  = "group",
             title = L["General"],
+            -- Disabling the module greys everything in General (probe status, test
+            -- button, duration, instance filter) except the enable checkbox itself,
+            -- which stays live to re-enable.
+            gate  = { enabled = function() return HR.CfgGet("enabled") ~= false end, master = "enable" },
             build = function()
                 return {
-                    -- ── Enable checkbox ───────────────────────────────────────────────────
+                    -- ── Enable checkbox (gate master — stays live) ────────────────────────
                     {
                         type   = "checkbox",
+                        ref    = "enable",
                         label  = L["Enable Healer Range"],
                         height = 24,
                         get    = function() return HR.CfgGet("enabled") ~= false end,
                         set    = function(val)
                             HR.CfgSet("enabled", val)
+                            if menu then menu.Refresh() end
                         end,
                     },
 
@@ -170,6 +177,7 @@ local function CreateHealerRangePanel(parent)
         {
             type  = "group",
             title = L["Sound"],
+            enabledBy = function() return HR.CfgGet("enabled") ~= false end,
             build = function()
                 return {
                     -- ── Sound picker ──────────────────────────────────────────────────────
@@ -190,6 +198,7 @@ local function CreateHealerRangePanel(parent)
         {
             type  = "group",
             title = L["Icon"],
+            enabledBy = function() return HR.CfgGet("enabled") ~= false end,
             build = function()
                 return {
                     -- ── Icon picker ───────────────────────────────────────────────────────
@@ -205,62 +214,81 @@ local function CreateHealerRangePanel(parent)
                         icons = UNBUNK_ICONS or {},
                     },
 
-                    -- ── Text editor ───────────────────────────────────────────────────────
+                    -- ── Alert text (sub-box) ──────────────────────────────────────────────
                     {
-                        type            = "textEditor",
-                        LSM             = LSM,
-                        label           = L["Alert text"],
-                        getText         = function() return HR.CfgGet("alertMessage") end,
-                        getFontKey      = function() return HR.CfgGet("fontKey") end,
-                        getFontPath     = function() return HR.CfgGet("fontPath") end,
-                        getFontSize     = function() return HR.CfgGet("fontSize") end,
-                        getColor        = function() return HR.CfgGet("color") end,
-                        getOutline      = function() return HR.CfgGet("outline") end,
-                        onTextChange    = function(txt)
-                            HR.CfgSet("alertMessage", txt)
-                            if HR.ApplyMessage then HR.ApplyMessage() end
-                        end,
-                        onFontChange    = function(key, path)
-                            HR.CfgSet("fontKey", key)
-                            HR.CfgSet("fontPath", path)
-                            if HR.ApplyFont then HR.ApplyFont() end
-                        end,
-                        onSizeChange    = function(size)
-                            HR.CfgSet("fontSize", size)
-                            if HR.ApplyFont then HR.ApplyFont() end
-                        end,
-                        onColorChange   = function(r, g, b, a)
-                            HR.CfgSet("color", { r=r, g=g, b=b, a=a })
-                            if HR.ApplyColor then HR.ApplyColor() end
-                        end,
-                        onOutlineChange = function(outline)
-                            HR.CfgSet("outline", outline)
-                            if HR.ApplyFont then HR.ApplyFont() end
+                        type  = "group",
+                        title = L["Alert text"],
+                        build = function()
+                            return {
+                                {
+                                    type            = "textEditor",
+                                    LSM             = LSM,
+                                    label           = L["Alert text"],
+                                    showLabel       = false,
+                                    getText         = function() return HR.CfgGet("alertMessage") end,
+                                    getFontKey      = function() return HR.CfgGet("fontKey") end,
+                                    getFontPath     = function() return HR.CfgGet("fontPath") end,
+                                    getFontSize     = function() return HR.CfgGet("fontSize") end,
+                                    getColor        = function() return HR.CfgGet("color") end,
+                                    getOutline      = function() return HR.CfgGet("outline") end,
+                                    onTextChange    = function(txt)
+                                        HR.CfgSet("alertMessage", txt)
+                                        if HR.ApplyMessage then HR.ApplyMessage() end
+                                    end,
+                                    onFontChange    = function(key, path)
+                                        HR.CfgSet("fontKey", key)
+                                        HR.CfgSet("fontPath", path)
+                                        if HR.ApplyFont then HR.ApplyFont() end
+                                    end,
+                                    onSizeChange    = function(size)
+                                        HR.CfgSet("fontSize", size)
+                                        if HR.ApplyFont then HR.ApplyFont() end
+                                    end,
+                                    onColorChange   = function(r, g, b, a)
+                                        HR.CfgSet("color", { r=r, g=g, b=b, a=a })
+                                        if HR.ApplyColor then HR.ApplyColor() end
+                                    end,
+                                    onOutlineChange = function(outline)
+                                        HR.CfgSet("outline", outline)
+                                        if HR.ApplyFont then HR.ApplyFont() end
+                                    end,
+                                },
+                            }
                         end,
                     },
 
-                    -- ── Position editor (named ref captured into HR.pe for drag callbacks) ─
+                    -- ── Alert position (sub-box) ──────────────────────────────────────────
                     {
-                        type        = "position",
-                        ref         = "pe",
-                        onBuilt     = function(w) HR.pe = w end,
-                        label       = L["Alert position (offset from screen center)"],
-                        getX        = function() return HR.CfgGet("posX") end,
-                        getY        = function() return HR.CfgGet("posY") end,
-                        onApply     = function(x, yv)
-                            if x  then HR.CfgSet("posX", x)  end
-                            if yv then HR.CfgSet("posY", yv) end
-                            if HR.ApplyPosition then HR.ApplyPosition() end
-                        end,
-                        onUnlock    = function()
-                            if HR.SetUnlocked then HR.SetUnlocked(true) end
-                            ns.Print(L["Alert unlocked — drag to reposition, then click Lock to save."])
-                        end,
-                        onLock      = function()
-                            if HR.SetUnlocked then HR.SetUnlocked(false) end
-                        end,
-                        isUnlocked  = function()
-                            return HR.IsUnlocked and HR.IsUnlocked() or false
+                        type  = "group",
+                        title = L["Alert position"],
+                        build = function()
+                            return {
+                                -- ── Position editor (named ref captured into HR.pe for drag callbacks) ─
+                                {
+                                    type        = "position",
+                                    ref         = "pe",
+                                    onBuilt     = function(w) HR.pe = w end,
+                                    label       = "",   -- the "Alert position" group title already names it
+
+                                    getX        = function() return HR.CfgGet("posX") end,
+                                    getY        = function() return HR.CfgGet("posY") end,
+                                    onApply     = function(x, yv)
+                                        if x  then HR.CfgSet("posX", x)  end
+                                        if yv then HR.CfgSet("posY", yv) end
+                                        if HR.ApplyPosition then HR.ApplyPosition() end
+                                    end,
+                                    onUnlock    = function()
+                                        if HR.SetUnlocked then HR.SetUnlocked(true) end
+                                        ns.Print(L["Alert unlocked — drag to reposition, then click Lock to save."])
+                                    end,
+                                    onLock      = function()
+                                        if HR.SetUnlocked then HR.SetUnlocked(false) end
+                                    end,
+                                    isUnlocked  = function()
+                                        return HR.IsUnlocked and HR.IsUnlocked() or false
+                                    end,
+                                },
+                            }
                         end,
                     },
                 }
@@ -271,7 +299,7 @@ local function CreateHealerRangePanel(parent)
     -- gap=12, width=518, autoHook=true -> the per-entry Refresh closures (enable
     -- checkbox, probe status, duration box, instance filter, icon picker, sound,
     -- text editor, position) are collected and re-run on OnShow automatically.
-    local menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
+    menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
     return menu
 end
 

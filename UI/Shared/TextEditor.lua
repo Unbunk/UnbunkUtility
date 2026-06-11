@@ -27,6 +27,9 @@ ns.ui = ns.ui or {}
 function ns.ui.CreateTextEditor(parent, config)
     local LSM             = config.LSM
     local label           = config.label or L["Text"]
+    -- showLabel=false suppresses the section label (and its 20px) — used when the
+    -- editor sits in a group box whose TITLE already names it, so it isn't shown twice.
+    local showLabel       = config.showLabel ~= false
     -- Width of the text input box. Default 340; callers in a narrow (nested) box
     -- pass a smaller value so the trailing color swatch + size input still fit.
     local textWidth       = config.textWidth or 340
@@ -66,10 +69,12 @@ function ns.ui.CreateTextEditor(parent, config)
 
     -- ── Section label ─────────────────────────────────────────────────────────
 
-    local sectionLabel = container:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    sectionLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
-    sectionLabel:SetText(label)
-    height = height + 20
+    if showLabel then
+        local sectionLabel = container:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        sectionLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
+        sectionLabel:SetText(label)
+        height = height + 20
+    end
 
     -- ── Text content ──────────────────────────────────────────────────────────
 

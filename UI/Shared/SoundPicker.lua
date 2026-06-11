@@ -39,13 +39,21 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
 
     local height = 0
 
-    -- ── Checkbox ──────────────────────────────────────────────────────────────
+    -- Greys + mouse-blocks the controls below when the sound is disabled (assigned
+    -- once they're built). `gateDimFrames` collects the frames to fade per branch.
+    local ApplySoundGate
+    local gateDimFrames = {}
+
+    -- ── Checkbox (master — stays interactive while the rest greys) ──────────────
 
     local soundCheckbox = ns.ui.CreateCheckbox({
         parent  = container,
         label   = config.label or L["Alert sound"],
         checked = getSoundEnable() ~= false,
-        onClick = function(val) onEnableToggle(val) end,
+        onClick = function(val)
+            onEnableToggle(val)
+            if ApplySoundGate then ApplySoundGate() end
+        end,
     })
     soundCheckbox.frame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
 
@@ -94,6 +102,7 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
         soundTest:SetHighlightTexture("Interface/Common/VoiceChat-On")
         soundTest:SetScript("OnClick", onTest)
 
+        gateDimFrames = { dd.toggleBtn, soundTest }   -- selectedText is a child of toggleBtn
         height = height + 30
     else
         local noLSM = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
@@ -127,10 +136,24 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
             if id then PlaySound(id) end
         end)
 
+        gateDimFrames = { noLSM, soundBox, soundTest }
         height = height + 30
     end
 
     container:SetHeight(height)
+
+    -- ── Disable gate: grey + block the controls while the sound is unchecked ─────
+    -- Only the controls BELOW the checkbox are gated, so the "Alert sound" checkbox
+    -- itself stays live to re-enable. The blocked region spans from just under the
+    -- checkbox to the bottom of the picker.
+    local gateRegion = CreateFrame("Frame", nil, container)
+    gateRegion:SetPoint("TOPLEFT",     soundCheckbox.frame, "BOTTOMLEFT", 0, -2)
+    gateRegion:SetPoint("BOTTOMRIGHT", container,            "BOTTOMRIGHT", 0, 0)
+    local applyGate = ns.ui.MakeDisableGate(gateRegion)
+    ApplySoundGate = function()
+        applyGate(getSoundEnable() ~= false, gateDimFrames)
+    end
+    ApplySoundGate()
 
     local result = {}
     result.frame = container
@@ -146,6 +169,7 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
         if soundEntry then
             soundEntry:SetText(NumericSoundText())
         end
+        ApplySoundGate()
     end
 
     return result

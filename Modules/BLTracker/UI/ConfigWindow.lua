@@ -14,15 +14,19 @@ local function CreateBLTrackerPanel(parent)
         {
             type  = "group",
             title = L["General"],
+            -- Disabling the module greys everything in General (instance filter, etc.)
+            -- except the enable checkbox itself, which stays live to re-enable.
+            gate  = { enabled = function() return BL.CfgGet("enabled") ~= false end, master = "enable" },
             build = function()
                 return {
-                    -- ── Enable checkbox ───────────────────────────────────────────────────
+                    -- ── Enable checkbox (gate master — stays live) ────────────────────────
                     {
                         type   = "checkbox",
+                        ref    = "enable",
                         label  = L["Enable BL Tracker"],
                         height = 24,
                         get    = function() return BL.CfgGet("enabled") ~= false end,
-                        set    = function(val) BL.CfgSet("enabled", val) end,
+                        set    = function(val) BL.CfgSet("enabled", val); if menu then menu.Refresh() end end,
                     },
 
                     -- ── Instance filter ───────────────────────────────────────────────────
@@ -43,6 +47,7 @@ local function CreateBLTrackerPanel(parent)
         {
             type  = "group",
             title = L["Sound"],
+            enabledBy = function() return BL.CfgGet("enabled") ~= false end,
             build = function()
                 return {
                     -- ── Sound on Bloodlust ────────────────────────────────────────────────
@@ -82,11 +87,16 @@ local function CreateBLTrackerPanel(parent)
         {
             type  = "group",
             title = L["Icon"],
+            enabledBy = function() return BL.CfgGet("enabled") ~= false end,
+            -- Unchecking "Show icon" greys the rest of the Icon box (placement / border /
+            -- timer text) since there is no icon to configure; the checkbox stays live.
+            gate      = { enabled = function() return BL.CfgGet("showIcon") ~= false end, master = "showicon" },
             build = function()
                 return {
                     -- ── Show icon checkbox + Always-show toggle (inline, to its right) ────
                     {
                         type   = "checkbox",
+                        ref    = "showicon",
                         label  = L["Show icon"],
                         height = 24,
                         get    = function() return BL.CfgGet("showIcon") ~= false end,
@@ -253,70 +263,89 @@ local function CreateBLTrackerPanel(parent)
                         end,
                     },
 
-                    -- ── Border ────────────────────────────────────────────────────────────
+                    -- ── Border (sub-box) ──────────────────────────────────────────────────
                     {
-                        type  = "checkbox",
-                        label = L["Show border"],
-                        get   = function() return BL.CfgGet("borderEnabled") == true end,
-                        set   = function(v) BL.CfgSet("borderEnabled", v); BL.ApplyBorder() end,
-                    },
-                    {
-                        type          = "textEditor",
-                        label         = L["Border color"],
-                        showText      = false,
-                        showFont      = false,
-                        showSize      = false,
-                        showOutline   = false,
-                        showColor     = true,
-                        getColor      = function() return BL.CfgGet("borderColor") end,
-                        onColorChange = function(r, g, b, a)
-                            BL.CfgSet("borderColor", { r = r, g = g, b = b, a = a })
-                            BL.ApplyBorder()
+                        type  = "group",
+                        title = L["Border"],
+                        build = function()
+                            return {
+                                {
+                                    type  = "checkbox",
+                                    label = L["Show border"],
+                                    get   = function() return BL.CfgGet("borderEnabled") == true end,
+                                    set   = function(v) BL.CfgSet("borderEnabled", v); BL.ApplyBorder(); if menu then menu.Refresh() end end,
+                                },
+                                {
+                                    type          = "textEditor",
+                                    label         = L["Border color"],
+                                    enabledBy     = function() return BL.CfgGet("borderEnabled") == true end,
+                                    showText      = false,
+                                    showFont      = false,
+                                    showSize      = false,
+                                    showOutline   = false,
+                                    showColor     = true,
+                                    getColor      = function() return BL.CfgGet("borderColor") end,
+                                    onColorChange = function(r, g, b, a)
+                                        BL.CfgSet("borderColor", { r = r, g = g, b = b, a = a })
+                                        BL.ApplyBorder()
+                                    end,
+                                },
+                                {
+                                    type       = "textinput",
+                                    label      = L["Border thickness"],
+                                    enabledBy  = function() return BL.CfgGet("borderEnabled") == true end,
+                                    width      = 46,
+                                    numeric    = true,
+                                    min        = 1,
+                                    max        = 16,
+                                    maxLetters = 2,
+                                    get        = function() return BL.CfgGet("borderSize") or 1 end,
+                                    set        = function(v) if v and v > 0 then BL.CfgSet("borderSize", v); BL.ApplyBorder() end end,
+                                },
+                            }
                         end,
-                    },
-                    {
-                        type       = "textinput",
-                        label      = L["Border thickness"],
-                        width      = 46,
-                        numeric    = true,
-                        min        = 1,
-                        max        = 16,
-                        maxLetters = 2,
-                        get        = function() return BL.CfgGet("borderSize") or 1 end,
-                        set        = function(v) if v and v > 0 then BL.CfgSet("borderSize", v); BL.ApplyBorder() end end,
                     },
 
-                    -- ── Timer text ────────────────────────────────────────────────────────
+                    -- ── Timer text (sub-box) ──────────────────────────────────────────────
                     {
-                        type            = "textEditor",
-                        LSM             = LSM,
-                        label           = L["Timer text"],
-                        showText        = false,
-                        showFont        = true,
-                        showSize        = true,
-                        showColor       = true,
-                        showOutline     = true,
-                        getFontKey      = function() return BL.CfgGet("timerFontKey") end,
-                        getFontPath     = function() return BL.CfgGet("timerFontPath") end,
-                        getFontSize     = function() return BL.CfgGet("timerFontSize") end,
-                        getColor        = function() return BL.CfgGet("timerColor") end,
-                        getOutline      = function() return BL.CfgGet("timerOutline") end,
-                        onFontChange    = function(key, path)
-                            BL.CfgSet("timerFontKey", key)
-                            BL.CfgSet("timerFontPath", path)
-                            BL.ApplyFont()
-                        end,
-                        onSizeChange    = function(size)
-                            BL.CfgSet("timerFontSize", size)
-                            BL.ApplyFont()
-                        end,
-                        onColorChange   = function(r, g, b, a)
-                            BL.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
-                            BL.ApplyFont()
-                        end,
-                        onOutlineChange = function(outline)
-                            BL.CfgSet("timerOutline", outline)
-                            BL.ApplyFont()
+                        type  = "group",
+                        title = L["Timer text"],
+                        build = function()
+                            return {
+                                {
+                                    type            = "textEditor",
+                                    LSM             = LSM,
+                                    label           = L["Timer text"],
+                                    showLabel       = false,
+                                    showText        = false,
+                                    showFont        = true,
+                                    showSize        = true,
+                                    showColor       = true,
+                                    showOutline     = true,
+                                    getFontKey      = function() return BL.CfgGet("timerFontKey") end,
+                                    getFontPath     = function() return BL.CfgGet("timerFontPath") end,
+                                    getFontSize     = function() return BL.CfgGet("timerFontSize") end,
+                                    getColor        = function() return BL.CfgGet("timerColor") end,
+                                    getOutline      = function() return BL.CfgGet("timerOutline") end,
+                                    onFontChange    = function(key, path)
+                                        BL.CfgSet("timerFontKey", key)
+                                        BL.CfgSet("timerFontPath", path)
+                                        BL.ApplyFont()
+                                    end,
+                                    onSizeChange    = function(size)
+                                        BL.CfgSet("timerFontSize", size)
+                                        BL.ApplyFont()
+                                    end,
+                                    onColorChange   = function(r, g, b, a)
+                                        BL.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
+                                        BL.ApplyFont()
+                                    end,
+                                    onOutlineChange = function(outline)
+                                        BL.CfgSet("timerOutline", outline)
+                                        BL.ApplyFont()
+                                    end,
+                                },
+                            }
                         end,
                     },
                 }

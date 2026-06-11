@@ -19,6 +19,51 @@ local _, ns = ...
 local L = ns.L
 ns.ui = ns.ui or {}
 
+-- ── Disable gate ─────────────────────────────────────────────────────────────
+-- Shared helper to "grey out" a set of controls when the option that drives them is
+-- unchecked: the controls are no longer functional, so fade them and swallow CLICKS
+-- over their region so they can't reach the now-inert widgets. The mouse WHEEL is
+-- forwarded up to the nearest scrollable ancestor so the config window still scrolls
+-- when the cursor is over a greyed region (swallowing it froze the scrollbar).
+--
+-- MakeDisableGate(blockerHost) returns Apply(enabled, dimFrames, master):
+--   * dimFrames : frames faded to 0.4 when disabled (their children fade too), 1 when enabled.
+--   * blockerHost : a transparent click-eating overlay is laid over this frame while disabled.
+--   * master    : optional frame (the CONTROLLING checkbox, when it sits inside the
+--                 blocked region) raised above the overlay so it stays clickable.
+function ns.ui.MakeDisableGate(blockerHost)
+    local blocker
+    return function(enabled, dimFrames, master)
+        if dimFrames then
+            for _, f in ipairs(dimFrames) do f:SetAlpha(enabled and 1 or 0.4) end
+        end
+        if enabled then
+            if blocker then blocker:Hide() end
+            return
+        end
+        if not blocker then
+            blocker = CreateFrame("Frame", nil, blockerHost)
+            blocker:SetAllPoints(blockerHost)
+            blocker:SetFrameLevel((blockerHost:GetFrameLevel() or 0) + 500)
+            blocker:EnableMouse(true)          -- eat clicks on the inert controls
+            blocker:EnableMouseWheel(true)     -- but forward the wheel so scrolling still works
+            blocker:SetScript("OnMouseWheel", function(self, delta)
+                local p = self:GetParent()
+                while p do
+                    if p:IsMouseWheelEnabled() then
+                        local h = p:GetScript("OnMouseWheel")
+                        if h then h(p, delta) end
+                        return
+                    end
+                    p = p:GetParent()
+                end
+            end)
+        end
+        blocker:Show()
+        if master then master:SetFrameLevel(blocker:GetFrameLevel() + 10) end
+    end
+end
+
 -- Horizontal inset of a group box's content from its border (also the visual
 -- indent of a nested sub-box from its parent box).
 local GROUP_SIDEPAD = 10
@@ -190,6 +235,16 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
     local totalHeight = 0
     local built      = {}   -- every host frame stacked this pass (for Rebuild teardown)
 
+    -- Optional disable gate: greys + mouse-blocks every stacked control EXCEPT the
+    -- `master` checkbox while `enabled()` is false — for a group/module whose leading
+    -- checkbox turns its dependent controls on/off (the checkbox stays live; the rest
+    -- grey out and stop responding). panelOpts.gate = { enabled = fn, master = "ref" }.
+    -- `master` is matched against entry.ref; if no entry matches, the whole stack is
+    -- gated (e.g. a module disabled from elsewhere with no in-panel toggle).
+    local disableGate = panelOpts.gate
+    local masterHost            -- host frame of the master checkbox (kept interactive)
+    local ApplyDisableGate      -- assigned after the first build pass
+
     -- Stack one resolved frame `f` below the previous one. `spentHeight` is the
     -- height this entry contributes to the running total (and is applied to the
     -- host frame via SetHeight when `setHostHeight` is true).
@@ -272,6 +327,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                 widget = ns.ui.CreateTextEditor(content, {
                     LSM             = entry.LSM or LSM,
                     label           = entry.label,
+                    showLabel       = entry.showLabel,   -- false suppresses the inner label (group title already names it)
                     textWidth       = entry.textWidth,
                     showText        = entry.showText,
                     showFont        = entry.showFont,
@@ -368,6 +424,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                             originY  = 0,
                             autoHook = false,
                             LSM      = entry.LSM or LSM,
+                            gate     = entry.gate,   -- grey the box's controls when its lead checkbox is off
                         })
                         return groupSub.height
                     end,
@@ -386,11 +443,20 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
             elseif t == "checkbox" then
                 hostFrame = CreateFrame("Frame", nil, content)
                 spentHeight = entry.height or DEFAULT_HEIGHTS.checkbox
+                -- The gate's master checkbox stays live and re-applies the gate on toggle.
+                local onClick = entry.set
+                if disableGate and entry.ref and entry.ref == disableGate.master then
+                    masterHost = hostFrame
+                    onClick = function(v)
+                        if entry.set then entry.set(v) end
+                        if ApplyDisableGate then ApplyDisableGate() end
+                    end
+                end
                 widget = ns.ui.CreateCheckbox({
                     parent   = hostFrame,
                     label    = entry.label,
                     checked  = entry.get and entry.get() or false,
-                    onClick  = entry.set,
+                    onClick  = onClick,
                     disabled = entry.disabled,
                 })
                 widget.frame:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", 0, 0)
@@ -584,6 +650,21 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
             if addRefresh then
                 table.insert(refreshers, addRefresh)
             end
+
+            -- Per-entry disable gate: grey + mouse-block THIS entry's host while
+            -- `enabledBy()` is false (the controls it depends on are off). Used for a
+            -- checkbox that gates a few sibling controls — e.g. "Show border" greying
+            -- the border colour + thickness. The controlling checkbox's `set` must call
+            -- menu.Refresh() so toggling it re-applies the gate.
+            if entry.enabledBy and hostFrame then
+                local applyEntryGate = ns.ui.MakeDisableGate(hostFrame)
+                local thisHost = hostFrame
+                local function applyEnabledBy()
+                    applyEntryGate(entry.enabledBy() and true or false, { thisHost })
+                end
+                applyEnabledBy()
+                table.insert(refreshers, applyEnabledBy)
+            end
         end
     end
     end  -- buildAll
@@ -592,10 +673,25 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
     buildAll()
     result.height = totalHeight
 
+    -- Wire the disable gate (if any) now that every host frame exists. Greys + blocks
+    -- all stacked controls except the master checkbox while the feature is off.
+    if disableGate and disableGate.enabled then
+        local applyGate = ns.ui.MakeDisableGate(content)
+        ApplyDisableGate = function()
+            local dim = {}
+            for _, f in ipairs(built) do
+                if f ~= masterHost then dim[#dim + 1] = f end
+            end
+            applyGate(disableGate.enabled() and true or false, dim, masterHost)
+        end
+        ApplyDisableGate()
+    end
+
     function result.Refresh()
         for _, fn in ipairs(refreshers) do
             fn()
         end
+        if ApplyDisableGate then ApplyDisableGate() end
     end
 
     -- Tear down everything built and rebuild from the (static) options list,
@@ -623,6 +719,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
         wipe(result.frames)
         wipe(refs)
         wipe(refreshers)
+        masterHost  = nil   -- re-captured by buildAll when the master checkbox is rebuilt
         lastFrame   = nil
         totalHeight = 0
         buildAll()

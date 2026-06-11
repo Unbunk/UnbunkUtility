@@ -14,15 +14,19 @@ local function CreatePlayerDeathPanel(parent)
         {
             type  = "group",
             title = L["General"],
+            -- Disabling the module greys everything in General (the Test button, etc.)
+            -- except the enable checkbox itself, which stays live to re-enable.
+            gate  = { enabled = function() return PD.CfgGet("enabled") ~= false end, master = "enable" },
             build = function()
                 return {
-                    -- ── Enable checkbox ───────────────────────────────────────────────────
+                    -- ── Enable checkbox (gate master — stays live) ────────────────────────
                     {
                         type   = "checkbox",
+                        ref    = "enable",
                         label  = L["Enable Player Death Animation"],
                         height = 24,
                         get    = function() return PD.CfgGet("enabled") ~= false end,
-                        set    = function(val) PD.CfgSet("enabled", val) end,
+                        set    = function(val) PD.CfgSet("enabled", val); if menu then menu.Refresh() end end,
                     },
 
                     -- ── Test button ───────────────────────────────────────────────────────
@@ -49,8 +53,9 @@ local function CreatePlayerDeathPanel(parent)
 
         -- ════════════ Sound ════════════
         {
-            type  = "group",
-            title = L["Sound"],
+            type      = "group",
+            title     = L["Sound"],
+            enabledBy = function() return PD.CfgGet("enabled") ~= false end,
             build = function()
                 return {
                     -- ── Sound ─────────────────────────────────────────────────────────────
@@ -73,8 +78,9 @@ local function CreatePlayerDeathPanel(parent)
 
         -- ════════════ Animation ════════════
         {
-            type  = "group",
-            title = L["Animation"],
+            type      = "group",
+            title     = L["Animation"],
+            enabledBy = function() return PD.CfgGet("enabled") ~= false end,
             build = function()
                 return {
                     -- ── Animation checkbox ────────────────────────────────────────────────
