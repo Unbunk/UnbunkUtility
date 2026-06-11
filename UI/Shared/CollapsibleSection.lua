@@ -35,6 +35,10 @@ function ns.ui.CreateCollapsibleSection(config)
 
     local result = {}
 
+    -- Assigned once contentFrame exists (below). Greys + mouse-blocks the body when
+    -- the header checkbox is unchecked; the checkbox's onClick (built first) calls it.
+    local ApplyEnabledVisual
+
     local HEADER_HEIGHT = 28
 
     local container = CreateFrame("Frame", nil, parent)
@@ -79,7 +83,10 @@ function ns.ui.CreateCollapsibleSection(config)
             parent  = headerBtn,
             label   = "",
             checked = isChecked and isChecked() or false,
-            onClick = function(val) if onCheck then onCheck(val) end end,
+            onClick = function(val)
+                if onCheck then onCheck(val) end
+                if ApplyEnabledVisual then ApplyEnabledVisual() end
+            end,
         })
         checkbox.frame:SetPoint("LEFT", arrow, "RIGHT", 6, 0)
         checkbox.frame:SetHeight(20)
@@ -129,6 +136,20 @@ function ns.ui.CreateCollapsibleSection(config)
     local boxedHeight = contentHeight + 16
     contentFrame:SetHeight(boxedHeight)
 
+    -- ── Disable (grey + mouse-block) the body while the header checkbox is off ──
+    -- The options inside are non-functional when the feature is unchecked, so dim the
+    -- body and swallow mouse + wheel input so clicks/scroll can't reach the now-inert
+    -- controls. The header checkbox lives in the header bar (outside contentFrame), so
+    -- it stays fully interactive to re-enable the section. No-op for sections without
+    -- a header checkbox.
+    -- The header checkbox lives OUTSIDE contentFrame, so fading the whole body and
+    -- blocking it is enough — no `master` exception needed.
+    local applyGate = ns.ui.MakeDisableGate(contentFrame)
+    ApplyEnabledVisual = function()
+        if not (showCheckbox and isChecked) then return end
+        applyGate(isChecked() and true or false, { contentFrame })
+    end
+
     -- ── Collapse logic ────────────────────────────────────────────────────────
 
     local collapsed = getCollapsed and getCollapsed() or false
@@ -162,6 +183,7 @@ function ns.ui.CreateCollapsibleSection(config)
 
     ApplyCollapsedVisual()
     UpdateHeight()
+    ApplyEnabledVisual()
 
     -- ── Refresh ───────────────────────────────────────────────────────────────
 
@@ -169,6 +191,7 @@ function ns.ui.CreateCollapsibleSection(config)
         if checkbox and isChecked then
             checkbox.SetChecked(isChecked())
         end
+        ApplyEnabledVisual()
     end
 
     result.frame         = container

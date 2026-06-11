@@ -14,30 +14,32 @@ local function CreatePITrackerPanel(parent)
         {
             type  = "group",
             title = L["General"],
+            -- Disabling the module greys everything in General (Test button, instance
+            -- filter) except the enable checkbox itself, which stays live to re-enable.
+            gate  = { enabled = function() return PI.CfgGet("enabled") ~= false end, master = "enable" },
             build = function()
                 return {
-                    -- Enable checkbox + Test button (inline)
+                    -- ── Enable checkbox (gate master — stays live) ────────────────────────
                     {
                         type   = "checkbox",
+                        ref    = "enable",
                         label  = L["Enable PI Tracker"],
                         height = 28,
                         get    = function() return PI.CfgGet("enabled") ~= false end,
                         set    = function(val)
                             PI.CfgSet("enabled", val)
                             PI.ApplyVisuals()
+                            if menu then menu.Refresh() end
                         end,
-                        inline = {
-                            {
-                                type    = "button",
-                                label   = L["Test"],
-                                width   = 80,
-                                height  = 22,
-                                onClick = function() PI.RunTest(20) end,
-                                -- Anchored to the checkbox container's RIGHT (300px); keep the
-                                -- 80px button inside the bordered group (content ~498px).
-                                point   = { "LEFT", "RIGHT", 110, 0 },
-                            },
-                        },
+                    },
+
+                    -- ── Test button (greys with the module — not the gate master) ─────────
+                    {
+                        type    = "button",
+                        label   = L["Test"],
+                        width   = 80,
+                        height  = 22,
+                        onClick = function() PI.RunTest(20) end,
                     },
 
                     -- Instance filter
@@ -58,6 +60,7 @@ local function CreatePITrackerPanel(parent)
         {
             type  = "group",
             title = L["Sound"],
+            enabledBy = function() return PI.CfgGet("enabled") ~= false end,
             build = function()
                 return {
                     {
@@ -81,11 +84,16 @@ local function CreatePITrackerPanel(parent)
         {
             type  = "group",
             title = L["Icon"],
+            enabledBy = function() return PI.CfgGet("enabled") ~= false end,
+            -- Unchecking "Show icon" greys the rest of the Icon box (placement / border /
+            -- timer text) since there is no icon to configure; the checkbox stays live.
+            gate      = { enabled = function() return PI.CfgGet("showIcon") ~= false end, master = "showicon" },
             build = function()
                 return {
-                    -- Show icon checkbox
+                    -- Show icon checkbox (gate master — stays live)
                     {
                         type   = "checkbox",
+                        ref    = "showicon",
                         label  = L["Show icon"],
                         height = 24,
                         get    = function() return PI.CfgGet("showIcon") ~= false end,
@@ -239,70 +247,89 @@ local function CreatePITrackerPanel(parent)
                         end,
                     },
 
-                    -- Border
+                    -- ── Border (sub-box) ──────────────────────────────────────────────────
                     {
-                        type  = "checkbox",
-                        label = L["Show border"],
-                        get   = function() return PI.CfgGet("borderEnabled") == true end,
-                        set   = function(v) PI.CfgSet("borderEnabled", v); PI.ApplyBorder() end,
-                    },
-                    {
-                        type          = "textEditor",
-                        label         = L["Border color"],
-                        showText      = false,
-                        showFont      = false,
-                        showSize      = false,
-                        showOutline   = false,
-                        showColor     = true,
-                        getColor      = function() return PI.CfgGet("borderColor") end,
-                        onColorChange = function(r, g, b, a)
-                            PI.CfgSet("borderColor", { r = r, g = g, b = b, a = a })
-                            PI.ApplyBorder()
+                        type  = "group",
+                        title = L["Border"],
+                        build = function()
+                            return {
+                                {
+                                    type  = "checkbox",
+                                    label = L["Show border"],
+                                    get   = function() return PI.CfgGet("borderEnabled") == true end,
+                                    set   = function(v) PI.CfgSet("borderEnabled", v); PI.ApplyBorder(); if menu then menu.Refresh() end end,
+                                },
+                                {
+                                    type          = "textEditor",
+                                    label         = L["Border color"],
+                                    enabledBy     = function() return PI.CfgGet("borderEnabled") == true end,
+                                    showText      = false,
+                                    showFont      = false,
+                                    showSize      = false,
+                                    showOutline   = false,
+                                    showColor     = true,
+                                    getColor      = function() return PI.CfgGet("borderColor") end,
+                                    onColorChange = function(r, g, b, a)
+                                        PI.CfgSet("borderColor", { r = r, g = g, b = b, a = a })
+                                        PI.ApplyBorder()
+                                    end,
+                                },
+                                {
+                                    type       = "textinput",
+                                    label      = L["Border thickness"],
+                                    enabledBy  = function() return PI.CfgGet("borderEnabled") == true end,
+                                    width      = 46,
+                                    numeric    = true,
+                                    min        = 1,
+                                    max        = 16,
+                                    maxLetters = 2,
+                                    get        = function() return PI.CfgGet("borderSize") or 1 end,
+                                    set        = function(v) if v and v > 0 then PI.CfgSet("borderSize", v); PI.ApplyBorder() end end,
+                                },
+                            }
                         end,
-                    },
-                    {
-                        type       = "textinput",
-                        label      = L["Border thickness"],
-                        width      = 46,
-                        numeric    = true,
-                        min        = 1,
-                        max        = 16,
-                        maxLetters = 2,
-                        get        = function() return PI.CfgGet("borderSize") or 1 end,
-                        set        = function(v) if v and v > 0 then PI.CfgSet("borderSize", v); PI.ApplyBorder() end end,
                     },
 
-                    -- Timer text
+                    -- ── Timer text (sub-box) ──────────────────────────────────────────────
                     {
-                        type            = "textEditor",
-                        LSM             = LSM,
-                        label           = L["Timer text"],
-                        showText        = false,
-                        showFont        = true,
-                        showSize        = true,
-                        showColor       = true,
-                        showOutline     = true,
-                        getFontKey      = function() return PI.CfgGet("timerFontKey") end,
-                        getFontPath     = function() return PI.CfgGet("timerFontPath") end,
-                        getFontSize     = function() return PI.CfgGet("timerFontSize") end,
-                        getColor        = function() return PI.CfgGet("timerColor") end,
-                        getOutline      = function() return PI.CfgGet("timerOutline") end,
-                        onFontChange    = function(key, path)
-                            PI.CfgSet("timerFontKey", key)
-                            PI.CfgSet("timerFontPath", path)
-                            PI.ApplyFont()
-                        end,
-                        onSizeChange    = function(size)
-                            PI.CfgSet("timerFontSize", size)
-                            PI.ApplyFont()
-                        end,
-                        onColorChange   = function(r, g, b, a)
-                            PI.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
-                            PI.ApplyFont()
-                        end,
-                        onOutlineChange = function(outline)
-                            PI.CfgSet("timerOutline", outline)
-                            PI.ApplyFont()
+                        type  = "group",
+                        title = L["Timer text"],
+                        build = function()
+                            return {
+                                {
+                                    type            = "textEditor",
+                                    LSM             = LSM,
+                                    label           = L["Timer text"],
+                                    showLabel       = false,
+                                    showText        = false,
+                                    showFont        = true,
+                                    showSize        = true,
+                                    showColor       = true,
+                                    showOutline     = true,
+                                    getFontKey      = function() return PI.CfgGet("timerFontKey") end,
+                                    getFontPath     = function() return PI.CfgGet("timerFontPath") end,
+                                    getFontSize     = function() return PI.CfgGet("timerFontSize") end,
+                                    getColor        = function() return PI.CfgGet("timerColor") end,
+                                    getOutline      = function() return PI.CfgGet("timerOutline") end,
+                                    onFontChange    = function(key, path)
+                                        PI.CfgSet("timerFontKey", key)
+                                        PI.CfgSet("timerFontPath", path)
+                                        PI.ApplyFont()
+                                    end,
+                                    onSizeChange    = function(size)
+                                        PI.CfgSet("timerFontSize", size)
+                                        PI.ApplyFont()
+                                    end,
+                                    onColorChange   = function(r, g, b, a)
+                                        PI.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
+                                        PI.ApplyFont()
+                                    end,
+                                    onOutlineChange = function(outline)
+                                        PI.CfgSet("timerOutline", outline)
+                                        PI.ApplyFont()
+                                    end,
+                                },
+                            }
                         end,
                     },
                 }

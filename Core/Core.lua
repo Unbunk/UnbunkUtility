@@ -83,9 +83,29 @@ local function ResizeContentArea(modFrame)
     end
     local viewport = scrollFrame:GetHeight() or 0
     local needed   = ComputeModuleHeight(modFrame) or 0
-    -- Always leave at least the viewport so the scroll range is sane.
-    contentArea:SetHeight(math.max(viewport, needed + 8))
-    if scrollBar and scrollBar.Update then scrollBar.Update() end
+    -- Only make the content scrollable when it GENUINELY overflows the viewport (the +8
+    -- is bottom padding, applied only when actually scrolling — adding it unconditionally
+    -- used to push tabs that fit within ~8px of the viewport just over the edge).
+    -- When it FITS, size contentArea to the content (NOT the viewport): a content frame
+    -- exactly == the viewport can read back a sub-pixel scroll range, which the mouse-wheel
+    -- handler's sb_Update would treat as "scrollable" and re-show the track. Sizing it to
+    -- `needed` (strictly < viewport) keeps GetVerticalScrollRange a hard 0, so the wheel
+    -- can never bring the track back on a tab that fits.
+    local overflow = needed > viewport
+    contentArea:SetHeight(overflow and (needed + 8) or needed)
+    -- Drive the track's VISIBILITY from the overflow we just measured, NOT from
+    -- scrollFrame:GetVerticalScrollRange(): that range only refreshes a frame (or more)
+    -- after SetHeight, so reading it here (even deferred) shows/hides the track based on
+    -- the previous tab. The show/hide decision is immediate and correct; we still defer
+    -- sb.Update to size + place the thumb once the range catches up.
+    if scrollBar and scrollBar.track then
+        if overflow then
+            scrollBar.track:Show()
+            if scrollBar.Update then C_Timer.After(0, scrollBar.Update) end
+        else
+            scrollBar.track:Hide()
+        end
+    end
 end
 
 local function ShowModule(index)

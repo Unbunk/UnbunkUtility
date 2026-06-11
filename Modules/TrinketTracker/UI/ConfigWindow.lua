@@ -26,256 +26,297 @@ local function BuildTrinketOptions(prefix, LSM)
     local tracker = prefix == "trinket1" and TT.GetTracker1() or TT.GetTracker2()
 
     return {
-        -- ── Sound use ─────────────────────────────────────────────────────────
-        {
-            type      = "sound",
-            LSM       = LSM,
-            label     = L["Sound on use"],
-            getKey    = function() return GetCfg("soundKeyUse") end,
-            getEnable = function() return GetCfg("soundOnUse") end,
-            onSelect  = function(key, path)
-                SetCfg("soundKeyUse", key)
-                SetCfg("soundPathUse", path)
-            end,
-            onToggle  = function(val) SetCfg("soundOnUse", val) end,
-            onTest    = function() TT.PlaySound(prefix, "soundUse") end,
-        },
-
-        -- ── Sound ready ───────────────────────────────────────────────────────
-        {
-            type      = "sound",
-            LSM       = LSM,
-            label     = L["Sound when ready"],
-            getKey    = function() return GetCfg("soundKeyReady") end,
-            getEnable = function() return GetCfg("soundOnReady") end,
-            onSelect  = function(key, path)
-                SetCfg("soundKeyReady", key)
-                SetCfg("soundPathReady", path)
-            end,
-            onToggle  = function(val) SetCfg("soundOnReady", val) end,
-            onTest    = function() TT.PlaySound(prefix, "soundReady") end,
-        },
-
-        -- ── Show icon checkbox ────────────────────────────────────────────────
-        {
-            type   = "checkbox",
-            label  = L["Show icon"],
-            height = 24,
-            get    = function() return GetCfg("showIcon") ~= false end,
-            set    = function(val)
-                SetCfg("showIcon", val)
-                TT.ApplyAll()
-            end,
-        },
-
-        -- ── Placement sub-box: Cooldown Manager slot OR free position. ────────
-        -- "Include in cdm" toggles which controls show; its set calls
-        -- TT.configMenu.Rebuild() so the CDM options swap with the position editor.
+        -- ════════════ Sound ════════════
         {
             type  = "group",
-            title = L["Placement"],
+            title = L["Sound"],
             build = function()
                 return {
+                    -- ── Sound use ─────────────────────────────────────────────────────────
                     {
-                        type = "checkbox", label = L["Include in cdm"],
-                        disabled = function() return not ns.IsCDMEnabled() end,
-                        get = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                        set = function(v)
-                            SetCfg("includeInCdm", v)
-                            if tracker then tracker.ApplySize() end
-                            if tracker then tracker.ApplyPosition() end
-                            if TT.configMenu then TT.configMenu.Rebuild() end
+                        type      = "sound",
+                        LSM       = LSM,
+                        label     = L["Sound on use"],
+                        getKey    = function() return GetCfg("soundKeyUse") end,
+                        getEnable = function() return GetCfg("soundOnUse") end,
+                        onSelect  = function(key, path)
+                            SetCfg("soundKeyUse", key)
+                            SetCfg("soundPathUse", path)
                         end,
-                    },
-                    {
-                        type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
-                        when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                        getList = function() return ns.CDMDestList() end,
-                        getCurrentKey = function() return ns.CDMDestLabel(GetCfg("cdmDest") or "essential") end,
-                        onSelect = function(label)
-                            SetCfg("cdmDest", ns.CDMDestKeyFromLabel(label))
-                            if tracker then tracker.ApplySize() end
-                            if tracker then tracker.ApplyPosition() end
-                            if TT.configMenu then TT.configMenu.Refresh() end
-                        end,
-                    },
-                    {
-                        type = "checkbox", label = L["Icon at the end of the row"],
-                        when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                        get = function() return GetCfg("cdmAtEnd") ~= false end,
-                        set = function(v)
-                            SetCfg("cdmAtEnd", v)
-                            if tracker then tracker.ApplyPosition() end
-                            if TT.configMenu then TT.configMenu.Refresh() end
-                        end,
-                    },
-                    {
-                        type = "dropdown", label = L["Row"], width = 120, height = 50,
-                        when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                        getList = function() return ns.CDMRowList(GetCfg("cdmDest") or "essential") end,
-                        getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(GetCfg("cdmDest") or "essential", GetCfg("cdmRow"))) end,
-                        onSelect = function(label)
-                            SetCfg("cdmRow", ns.CDMRowFromLabel(label))
-                            if tracker then tracker.ApplyPosition() end
-                            if TT.configMenu then TT.configMenu.Refresh() end
-                        end,
-                    },
-                    {
-                        type = "reorder", label = L["Move in row"],
-                        when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                        getState = function() return ns.CDMAnchor.GetMoveState(tracker and tracker.GetFrame()) end,
-                        onMove = function(dir) ns.CDMAnchor.Move(tracker and tracker.GetFrame(), dir) end,
+                        onToggle  = function(val) SetCfg("soundOnUse", val) end,
+                        onTest    = function() TT.PlaySound(prefix, "soundUse") end,
                     },
 
-                    -- ── Position editor (ref captured into tracker.pe for onLock refresh) ─
-                    -- Free icon position (only when NOT in the CDM)
+                    -- ── Sound ready ───────────────────────────────────────────────────────
                     {
-                        type       = "position",
-                        ref        = "pe",
-                        when       = function() return not ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                        onBuilt    = function(w) if tracker then tracker.pe = w end end,
-                        label      = L["Icon position (offset from screen center)"],
-                        getX       = function() return GetCfg("posX") end,
-                        getY       = function() return GetCfg("posY") end,
-                        onApply    = function(x, yv)
-                            if x  then SetCfg("posX", x)  end
-                            if yv then SetCfg("posY", yv) end
-                            TT.ApplyAll()
+                        type      = "sound",
+                        LSM       = LSM,
+                        label     = L["Sound when ready"],
+                        getKey    = function() return GetCfg("soundKeyReady") end,
+                        getEnable = function() return GetCfg("soundOnReady") end,
+                        onSelect  = function(key, path)
+                            SetCfg("soundKeyReady", key)
+                            SetCfg("soundPathReady", path)
                         end,
-                        onUnlock   = function() if tracker then tracker.SetUnlocked(true) end end,
-                        onLock     = function()
-                            if tracker then tracker.SetUnlocked(false) end
-                            if tracker and tracker.pe then tracker.pe.Refresh() end
-                        end,
-                        isUnlocked = function() return tracker and tracker.IsUnlocked() end,
-                    },
-
-                    -- ── Icon size  W / H  (composite -> custom escape hatch) ──────────────
-                    -- Free mode only. In the CDM the size is automatic.
-                    {
-                        type   = "custom",
-                        height = 46,
-                        when   = function() return not ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                        build  = function(host)
-                            local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-                            sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                            sizeLbl:SetText(L["Icon size"])
-
-                            local wLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                            wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
-                            wLbl:SetText(L["W"])
-
-                            local wInput = ns.ui.CreateTextInput({
-                                parent     = host,
-                                width      = 46,
-                                height     = 22,
-                                numeric    = true,
-                                min        = 8,
-                                max        = 512,
-                                maxLetters = 3,
-                                text       = tostring(GetCfg("iconWidth") or 40),
-                                onEnter    = function(val)
-                                    if val and val > 0 then
-                                        SetCfg("iconWidth", val)
-                                        if tracker then tracker.ApplySize() end
-                                    end
-                                end,
-                            })
-                            wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-
-                            local hLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                            hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
-                            hLbl:SetText(L["H"])
-
-                            local hInput = ns.ui.CreateTextInput({
-                                parent     = host,
-                                width      = 46,
-                                height     = 22,
-                                numeric    = true,
-                                min        = 8,
-                                max        = 512,
-                                maxLetters = 3,
-                                text       = tostring(GetCfg("iconHeight") or 40),
-                                onEnter    = function(val)
-                                    if val and val > 0 then
-                                        SetCfg("iconHeight", val)
-                                        if tracker then tracker.ApplySize() end
-                                    end
-                                end,
-                            })
-                            hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-
-                            return {
-                                frame   = host,
-                                height  = 46,
-                                Refresh = function()
-                                    wInput.SetText(tostring(GetCfg("iconWidth")  or 40))
-                                    hInput.SetText(tostring(GetCfg("iconHeight") or 40))
-                                end,
-                            }
-                        end,
+                        onToggle  = function(val) SetCfg("soundOnReady", val) end,
+                        onTest    = function() TT.PlaySound(prefix, "soundReady") end,
                     },
                 }
             end,
         },
 
-        -- ── Border ────────────────────────────────────────────────────────────
+        -- ════════════ Icon ════════════
         {
-            type = "checkbox", label = L["Show border"],
-            get = function() return GetCfg("borderEnabled") == true end,
-            set = function(v) SetCfg("borderEnabled", v); if tracker then tracker.ApplyBorder() end end,
-        },
-        {
-            type = "textEditor", label = L["Border color"],
-            showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-            getColor = function() return GetCfg("borderColor") end,
-            onColorChange = function(r, g, b, a)
-                SetCfg("borderColor", { r = r, g = g, b = b, a = a })
-                if tracker then tracker.ApplyBorder() end
-            end,
-        },
-        {
-            type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-            get = function() return GetCfg("borderSize") or 1 end,
-            set = function(v)
-                if v and v > 0 then
-                    SetCfg("borderSize", v)
-                    if tracker then tracker.ApplyBorder() end
-                end
-            end,
-        },
+            type  = "group",
+            title = L["Icon"],
+            -- Unchecking "Show icon" greys the rest of the Icon box (placement / border /
+            -- timer text) since there is no icon to configure; the checkbox stays live.
+            gate  = { enabled = function() return GetCfg("showIcon") ~= false end, master = "showicon" },
+            build = function()
+                return {
+                    -- ── Show icon checkbox (gate master — stays live) ─────────────────────
+                    {
+                        type   = "checkbox",
+                        ref    = "showicon",
+                        label  = L["Show icon"],
+                        height = 24,
+                        get    = function() return GetCfg("showIcon") ~= false end,
+                        set    = function(val)
+                            SetCfg("showIcon", val)
+                            TT.ApplyAll()
+                        end,
+                    },
 
-        -- ── Timer text ────────────────────────────────────────────────────────
-        {
-            type            = "textEditor",
-            LSM             = LSM,
-            label           = L["Timer text"],
-            showText        = false,
-            showFont        = true,
-            showSize        = true,
-            showColor       = true,
-            showOutline     = true,
-            getFontKey      = function() return GetCfg("timerFontKey") end,
-            getFontPath     = function() return GetCfg("timerFontPath") end,
-            getFontSize     = function() return GetCfg("timerFontSize") end,
-            getColor        = function() return GetCfg("timerColor") end,
-            getOutline      = function() return GetCfg("timerOutline") end,
-            onFontChange    = function(key, path)
-                SetCfg("timerFontKey", key)
-                SetCfg("timerFontPath", path)
-                if tracker then tracker.ApplyFont() end
-            end,
-            onSizeChange    = function(size)
-                SetCfg("timerFontSize", size)
-                if tracker then tracker.ApplyFont() end
-            end,
-            onColorChange   = function(r, g, b, a)
-                SetCfg("timerColor", { r = r, g = g, b = b, a = a })
-                if tracker then tracker.ApplyFont() end
-            end,
-            onOutlineChange = function(outline)
-                SetCfg("timerOutline", outline)
-                if tracker then tracker.ApplyFont() end
+                    -- ── Placement sub-box: Cooldown Manager slot OR free position. ────────
+                    -- "Include in cdm" toggles which controls show; its set calls
+                    -- TT.configMenu.Rebuild() so the CDM options swap with the position editor.
+                    {
+                        type  = "group",
+                        title = L["Placement"],
+                        build = function()
+                            return {
+                                {
+                                    type = "checkbox", label = L["Include in cdm"],
+                                    disabled = function() return not ns.IsCDMEnabled() end,
+                                    get = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
+                                    set = function(v)
+                                        SetCfg("includeInCdm", v)
+                                        if tracker then tracker.ApplySize() end
+                                        if tracker then tracker.ApplyPosition() end
+                                        if TT.configMenu then TT.configMenu.Rebuild() end
+                                    end,
+                                },
+                                {
+                                    type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
+                                    when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
+                                    getList = function() return ns.CDMDestList() end,
+                                    getCurrentKey = function() return ns.CDMDestLabel(GetCfg("cdmDest") or "essential") end,
+                                    onSelect = function(label)
+                                        SetCfg("cdmDest", ns.CDMDestKeyFromLabel(label))
+                                        if tracker then tracker.ApplySize() end
+                                        if tracker then tracker.ApplyPosition() end
+                                        if TT.configMenu then TT.configMenu.Refresh() end
+                                    end,
+                                },
+                                {
+                                    type = "checkbox", label = L["Icon at the end of the row"],
+                                    when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
+                                    get = function() return GetCfg("cdmAtEnd") ~= false end,
+                                    set = function(v)
+                                        SetCfg("cdmAtEnd", v)
+                                        if tracker then tracker.ApplyPosition() end
+                                        if TT.configMenu then TT.configMenu.Refresh() end
+                                    end,
+                                },
+                                {
+                                    type = "dropdown", label = L["Row"], width = 120, height = 50,
+                                    when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
+                                    getList = function() return ns.CDMRowList(GetCfg("cdmDest") or "essential") end,
+                                    getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(GetCfg("cdmDest") or "essential", GetCfg("cdmRow"))) end,
+                                    onSelect = function(label)
+                                        SetCfg("cdmRow", ns.CDMRowFromLabel(label))
+                                        if tracker then tracker.ApplyPosition() end
+                                        if TT.configMenu then TT.configMenu.Refresh() end
+                                    end,
+                                },
+                                {
+                                    type = "reorder", label = L["Move in row"],
+                                    when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
+                                    getState = function() return ns.CDMAnchor.GetMoveState(tracker and tracker.GetFrame()) end,
+                                    onMove = function(dir) ns.CDMAnchor.Move(tracker and tracker.GetFrame(), dir) end,
+                                },
+
+                                -- ── Position editor (ref captured into tracker.pe for onLock refresh) ─
+                                -- Free icon position (only when NOT in the CDM)
+                                {
+                                    type       = "position",
+                                    ref        = "pe",
+                                    when       = function() return not ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
+                                    onBuilt    = function(w) if tracker then tracker.pe = w end end,
+                                    label      = L["Icon position (offset from screen center)"],
+                                    getX       = function() return GetCfg("posX") end,
+                                    getY       = function() return GetCfg("posY") end,
+                                    onApply    = function(x, yv)
+                                        if x  then SetCfg("posX", x)  end
+                                        if yv then SetCfg("posY", yv) end
+                                        TT.ApplyAll()
+                                    end,
+                                    onUnlock   = function() if tracker then tracker.SetUnlocked(true) end end,
+                                    onLock     = function()
+                                        if tracker then tracker.SetUnlocked(false) end
+                                        if tracker and tracker.pe then tracker.pe.Refresh() end
+                                    end,
+                                    isUnlocked = function() return tracker and tracker.IsUnlocked() end,
+                                },
+
+                                -- ── Icon size  W / H  (composite -> custom escape hatch) ──────────────
+                                -- Free mode only. In the CDM the size is automatic.
+                                {
+                                    type   = "custom",
+                                    height = 46,
+                                    when   = function() return not ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
+                                    build  = function(host)
+                                        local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                                        sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                                        sizeLbl:SetText(L["Icon size"])
+
+                                        local wLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                                        wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
+                                        wLbl:SetText(L["W"])
+
+                                        local wInput = ns.ui.CreateTextInput({
+                                            parent     = host,
+                                            width      = 46,
+                                            height     = 22,
+                                            numeric    = true,
+                                            min        = 8,
+                                            max        = 512,
+                                            maxLetters = 3,
+                                            text       = tostring(GetCfg("iconWidth") or 40),
+                                            onEnter    = function(val)
+                                                if val and val > 0 then
+                                                    SetCfg("iconWidth", val)
+                                                    if tracker then tracker.ApplySize() end
+                                                end
+                                            end,
+                                        })
+                                        wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+
+                                        local hLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                                        hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
+                                        hLbl:SetText(L["H"])
+
+                                        local hInput = ns.ui.CreateTextInput({
+                                            parent     = host,
+                                            width      = 46,
+                                            height     = 22,
+                                            numeric    = true,
+                                            min        = 8,
+                                            max        = 512,
+                                            maxLetters = 3,
+                                            text       = tostring(GetCfg("iconHeight") or 40),
+                                            onEnter    = function(val)
+                                                if val and val > 0 then
+                                                    SetCfg("iconHeight", val)
+                                                    if tracker then tracker.ApplySize() end
+                                                end
+                                            end,
+                                        })
+                                        hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+
+                                        return {
+                                            frame   = host,
+                                            height  = 46,
+                                            Refresh = function()
+                                                wInput.SetText(tostring(GetCfg("iconWidth")  or 40))
+                                                hInput.SetText(tostring(GetCfg("iconHeight") or 40))
+                                            end,
+                                        }
+                                    end,
+                                },
+                            }
+                        end,
+                    },
+
+                    -- ── Border (sub-box) ──────────────────────────────────────────────────
+                    {
+                        type  = "group",
+                        title = L["Border"],
+                        build = function()
+                            return {
+                                {
+                                    type = "checkbox", label = L["Show border"],
+                                    get = function() return GetCfg("borderEnabled") == true end,
+                                    set = function(v) SetCfg("borderEnabled", v); if tracker then tracker.ApplyBorder() end; if TT.configMenu then TT.configMenu.Refresh() end end,
+                                },
+                                {
+                                    type = "textEditor", label = L["Border color"],
+                                    enabledBy = function() return GetCfg("borderEnabled") == true end,
+                                    showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                                    getColor = function() return GetCfg("borderColor") end,
+                                    onColorChange = function(r, g, b, a)
+                                        SetCfg("borderColor", { r = r, g = g, b = b, a = a })
+                                        if tracker then tracker.ApplyBorder() end
+                                    end,
+                                },
+                                {
+                                    type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+                                    enabledBy = function() return GetCfg("borderEnabled") == true end,
+                                    get = function() return GetCfg("borderSize") or 1 end,
+                                    set = function(v)
+                                        if v and v > 0 then
+                                            SetCfg("borderSize", v)
+                                            if tracker then tracker.ApplyBorder() end
+                                        end
+                                    end,
+                                },
+                            }
+                        end,
+                    },
+
+                    -- ── Timer text (sub-box) ──────────────────────────────────────────────
+                    {
+                        type  = "group",
+                        title = L["Timer text"],
+                        build = function()
+                            return {
+                                {
+                                    type            = "textEditor",
+                                    LSM             = LSM,
+                                    label           = L["Timer text"],
+                                    showLabel       = false,
+                                    showText        = false,
+                                    showFont        = true,
+                                    showSize        = true,
+                                    showColor       = true,
+                                    showOutline     = true,
+                                    getFontKey      = function() return GetCfg("timerFontKey") end,
+                                    getFontPath     = function() return GetCfg("timerFontPath") end,
+                                    getFontSize     = function() return GetCfg("timerFontSize") end,
+                                    getColor        = function() return GetCfg("timerColor") end,
+                                    getOutline      = function() return GetCfg("timerOutline") end,
+                                    onFontChange    = function(key, path)
+                                        SetCfg("timerFontKey", key)
+                                        SetCfg("timerFontPath", path)
+                                        if tracker then tracker.ApplyFont() end
+                                    end,
+                                    onSizeChange    = function(size)
+                                        SetCfg("timerFontSize", size)
+                                        if tracker then tracker.ApplyFont() end
+                                    end,
+                                    onColorChange   = function(r, g, b, a)
+                                        SetCfg("timerColor", { r = r, g = g, b = b, a = a })
+                                        if tracker then tracker.ApplyFont() end
+                                    end,
+                                    onOutlineChange = function(outline)
+                                        SetCfg("timerOutline", outline)
+                                        if tracker then tracker.ApplyFont() end
+                                    end,
+                                },
+                            }
+                        end,
+                    },
+                }
             end,
         },
 
@@ -298,17 +339,22 @@ local function CreateTrinketTrackerPanel(parent)
         {
             type  = "group",
             title = L["General"],
+            -- Disabling the module greys the instance filter ("active in") while the
+            -- enable checkbox stays live to re-enable.
+            gate  = { enabled = function() return TT.CfgGet("enabled") ~= false end, master = "enable" },
             build = function()
                 return {
-                    -- ── Enable checkbox ───────────────────────────────────────────────────
+                    -- ── Enable checkbox (gate master — stays live) ────────────────────────
                     {
                         type   = "checkbox",
+                        ref    = "enable",
                         label  = L["Enable Trinket Tracker"],
                         height = 24,
                         get    = function() return TT.CfgGet("enabled") ~= false end,
                         set    = function(val)
                             TT.CfgSet("enabled", val)
                             TT.ApplyAll()
+                            if TT.configMenu then TT.configMenu.Refresh() end
                         end,
                     },
 
@@ -330,6 +376,7 @@ local function CreateTrinketTrackerPanel(parent)
         {
             type      = "section",
             label     = L["Trinket 1 (slot 1)"],
+            enabledBy = function() return TT.CfgGet("enabled") ~= false end,
             isChecked = function() return TT.CfgGet("trinket1") and TT.CfgGet("trinket1").enabled end,
             onCheck   = function(val)
                 local cfg = TT.CfgGet("trinket1")
@@ -346,6 +393,7 @@ local function CreateTrinketTrackerPanel(parent)
         {
             type      = "section",
             label     = L["Trinket 2 (slot 2)"],
+            enabledBy = function() return TT.CfgGet("enabled") ~= false end,
             isChecked = function() return TT.CfgGet("trinket2") and TT.CfgGet("trinket2").enabled end,
             onCheck   = function(val)
                 local cfg = TT.CfgGet("trinket2")

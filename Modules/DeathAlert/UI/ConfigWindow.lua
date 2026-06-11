@@ -122,6 +122,12 @@ local function BuildSectionOptions(prefix)
                                 -- ── Icon picker ───────────────────────────────────────────────────────
                                 {
                                     type      = "iconPicker",
+                                    -- The section header checkbox greys the section body, but the
+                                    -- IconPicker's "custom icon ID" checkbox + input escape that fade
+                                    -- (they live inside the composite widget's own container). Gate the
+                                    -- whole IconPicker host on the per-role enabled key so it greys with
+                                    -- its section. Uses the same key as the section's isChecked predicate.
+                                    enabledBy = function() return DA.CfgGet(prefix .. "Enabled") end,
                                     getConfig = function() return DA.CfgGet(prefix .. "Icon") end,
                                     setConfig = function(key, val)
                                         local cfg = DA.CfgGet(prefix .. "Icon")
