@@ -56,77 +56,100 @@ end
 local function CreatePlayerSpeedPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local SD  = ns.SpeedDisplay
+    local menu  -- forward declare so the enable checkbox can re-evaluate the gate
     local options = {
         H2(L["Player speed display"]),
 
-        { type = "group", title = L["Speed display"], build = function() return {
-
         {
-            type   = "checkbox",
-            label  = L["Show player movement speed on screen"],
-            height = 24,
-            get    = function() return SD.CfgGet("enabled") == true end,
-            set    = function(val)
-                SD.CfgSet("enabled", val)
-                SD.ApplyEnabled()
-            end,
+            type  = "group",
+            title = L["Speed display"],
+            -- Unchecking "Show movement speed" greys the appearance / position
+            -- sub-cadres; the enable checkbox itself stays live to re-enable.
+            gate  = { enabled = function() return SD.CfgGet("enabled") == true end, master = "enable" },
+            build = function() return {
+
+                {
+                    type   = "checkbox",
+                    ref    = "enable",
+                    label  = L["Show player movement speed on screen"],
+                    height = 24,
+                    get    = function() return SD.CfgGet("enabled") == true end,
+                    set    = function(val)
+                        SD.CfgSet("enabled", val)
+                        SD.ApplyEnabled()
+                        if menu then menu.Refresh() end
+                    end,
+                },
+
+                -- ── Text appearance sub-cadre ─────────────────────────────────
+                {
+                    type  = "group",
+                    title = L["Speed text appearance"],
+                    build = function() return {
+                        -- The colour is speed-driven, not user-picked.
+                        { type = "label", text = L["|cffaaaaaaText colour changes with speed.|r"] },
+                        {
+                            type        = "textEditor",
+                            LSM         = LSM,
+                            label       = "",
+                            showText    = false,
+                            showColor   = false,
+                            showFont    = true,
+                            showSize    = true,
+                            showOutline = true,
+                            getFontKey  = function() return SD.CfgGet("fontKey") end,
+                            getFontPath = function() return SD.CfgGet("fontPath") end,
+                            getFontSize = function() return SD.CfgGet("fontSize") end,
+                            getOutline  = function() return SD.CfgGet("outline") end,
+                            onFontChange = function(key, path)
+                                SD.CfgSet("fontKey", key)
+                                SD.CfgSet("fontPath", path)
+                                SD.ApplyFont()
+                            end,
+                            onSizeChange = function(val)
+                                SD.CfgSet("fontSize", val)
+                                SD.ApplyFont()
+                            end,
+                            onOutlineChange = function(val)
+                                SD.CfgSet("outline", val)
+                                SD.ApplyFont()
+                            end,
+                        },
+                    } end,
+                },
+
+                -- ── Position sub-cadre ────────────────────────────────────────
+                {
+                    type  = "group",
+                    title = L["Speed display position"],
+                    build = function() return {
+                        {
+                            type       = "position",
+                            ref        = "speedPE",
+                            onBuilt    = function(w) ns.SpeedDisplay.pe = w end,
+                            label      = "",
+                            getX       = function() return SD.CfgGet("posX") end,
+                            getY       = function() return SD.CfgGet("posY") end,
+                            onApply    = function(x, yv)
+                                if x  then SD.CfgSet("posX", x)  end
+                                if yv then SD.CfgSet("posY", yv) end
+                                SD.ApplyPosition()
+                            end,
+                            onUnlock   = function() SD.SetUnlocked(true) end,
+                            onLock     = function()
+                                SD.SetUnlocked(false)
+                                if SD.pe then SD.pe.Refresh() end
+                            end,
+                            isUnlocked = function() return SD.IsUnlocked() end,
+                        },
+                    } end,
+                },
+
+            } end,
         },
-
-        -- Greyed hint: the colour is speed-driven, not user-picked.
-        { type = "label", text = L["|cffaaaaaaText colour changes with speed.|r"] },
-
-        -- Font / size / outline (colour omitted — it follows the speed tier).
-        {
-            type        = "textEditor",
-            LSM         = LSM,
-            label       = L["Speed text appearance"],
-            showText    = false,
-            showColor   = false,
-            showFont    = true,
-            showSize    = true,
-            showOutline = true,
-            getFontKey  = function() return SD.CfgGet("fontKey") end,
-            getFontPath = function() return SD.CfgGet("fontPath") end,
-            getFontSize = function() return SD.CfgGet("fontSize") end,
-            getOutline  = function() return SD.CfgGet("outline") end,
-            onFontChange = function(key, path)
-                SD.CfgSet("fontKey", key)
-                SD.CfgSet("fontPath", path)
-                SD.ApplyFont()
-            end,
-            onSizeChange = function(val)
-                SD.CfgSet("fontSize", val)
-                SD.ApplyFont()
-            end,
-            onOutlineChange = function(val)
-                SD.CfgSet("outline", val)
-                SD.ApplyFont()
-            end,
-        },
-
-        {
-            type       = "position",
-            ref        = "speedPE",
-            onBuilt    = function(w) ns.SpeedDisplay.pe = w end,
-            label      = L["Speed display position (offset from screen center)"],
-            getX       = function() return SD.CfgGet("posX") end,
-            getY       = function() return SD.CfgGet("posY") end,
-            onApply    = function(x, yv)
-                if x  then SD.CfgSet("posX", x)  end
-                if yv then SD.CfgSet("posY", yv) end
-                SD.ApplyPosition()
-            end,
-            onUnlock   = function() SD.SetUnlocked(true) end,
-            onLock     = function()
-                SD.SetUnlocked(false)
-                if SD.pe then SD.pe.Refresh() end
-            end,
-            isUnlocked = function() return SD.IsUnlocked() end,
-        },
-
-        } end },
     }
-    return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
+    menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
+    return menu
 end
 
 -- ── Multi-alert / anti-spam ───────────────────────────────────────────────────
