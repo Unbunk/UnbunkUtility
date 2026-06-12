@@ -40,7 +40,7 @@ local DPS_KEY_MAP = {
     icon         = "dpsIcon",
 }
 
-local tankAlert = ns.ui.CreateAlertFrame({
+local tankAlert = Unbunk_CreateAlertFrame({
     name   = "DeathAlertTankFrame",
     getCfg = function(key) return DA.CfgGet(TANK_KEY_MAP[key] or key) end,
     onDragStop = function(x, y)
@@ -50,7 +50,7 @@ local tankAlert = ns.ui.CreateAlertFrame({
     end,
 })
 
-local healerAlert = ns.ui.CreateAlertFrame({
+local healerAlert = Unbunk_CreateAlertFrame({
     name   = "DeathAlertHealerFrame",
     getCfg = function(key) return DA.CfgGet(HEALER_KEY_MAP[key] or key) end,
     onDragStop = function(x, y)
@@ -60,7 +60,7 @@ local healerAlert = ns.ui.CreateAlertFrame({
     end,
 })
 
-local dpsAlert = ns.ui.CreateAlertFrame({
+local dpsAlert = Unbunk_CreateAlertFrame({
     name   = "DeathAlertDpsFrame",
     getCfg = function(key) return DA.CfgGet(DPS_KEY_MAP[key] or key) end,
     onDragStop = function(x, y)

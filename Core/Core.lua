@@ -1,35 +1,105 @@
 -- Core/Core.lua
--- Main UnbunkUtility window with navigation bar.
+-- Main UnbunkUtility window: a top row of MAIN tabs + a collapsible LEFT sub-tab
+-- menu + a scrollable content area. Each config panel registers a builder under
+-- its (localised) name; the NAV_TREE below places those panels into main tabs,
+-- categories and sub-tabs. Clicking a main tab opens its default (first) sub-tab.
 
-local _, ns = ...
+local ADDON, ns = ...
 
--- Use `or {}` so any module that loaded before Core (and stashed callbacks
--- on the table) keeps its data; previously we overwrote the table outright.
 UnbunkUtility = UnbunkUtility or {}
-local registeredModules = {}
-UnbunkUtility.registeredModules = registeredModules
-local window
-local navbar
-local contentArea
-local scrollFrame
-local activeTab = nil
-local tabButtons = {}
+
+-- Panel registry: name -> { name, icon, createFn, frame, menu }. Modules call
+-- RegisterModule with the SAME localised name the NAV_TREE references.
+local panels = {}
+UnbunkUtility.panels = panels
 
 function UnbunkUtility.RegisterModule(name, icon, createFn)
-    table.insert(registeredModules, {
-        name     = name,
-        icon     = icon,
-        createFn = createFn,
-        frame    = nil,
-    })
+    panels[name] = { name = name, icon = icon, createFn = createFn }
 end
 
--- Compute the actual vertical extent of a module's content by looking at
--- the bottom edge of its deepest element. Lets us size contentArea to fit
--- the active module instead of leaving it at a fixed 1000px ceiling.
--- We walk both child frames (recursing one level so content nested inside a
--- child frame is measured) and the frame's own regions (FontStrings/Textures
--- created directly on it are regions, not children, and were being missed).
+local window, mainBar, leftMenu, contentArea, scrollFrame, scrollBar
+local activeMain          -- index into navTree
+local activeSub           -- active panel name
+local mainButtons = {}
+local menuRows = {}       -- left-menu row frames (rebuilt per main tab)
+local collapsed = {}      -- category name -> true when folded (session-persistent)
+
+local BR, BG, BB = 0.20, 0.55, 1.0   -- brand blue
+
+-- ── Footer links ───────────────────────────────────────────────────────────────
+-- TODO: confirm the real project URLs.
+local GITHUB_URL     = "https://github.com/Unbunk/UnbunkUtility"
+local CURSEFORGE_URL = "https://www.curseforge.com/wow/addons/unbunkutility"
+
+-- WoW can't open a browser, so a clicked link shows a tiny popup with the URL in a
+-- selected EditBox the user copies with Ctrl+C.
+StaticPopupDialogs["UNBUNKUTILITY_URL"] = {
+    text = "Copy the link (Ctrl+C):",
+    button1 = CLOSE,
+    hasEditBox = true,
+    editBoxWidth = 360,
+    timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+    OnShow = function(self)
+        if self.editBox then
+            self.editBox:SetText(self.data or "")
+            self.editBox:HighlightText()
+            self.editBox:SetFocus()
+        end
+    end,
+    EditBoxOnEnterPressed  = function(self) self:GetParent():Hide() end,
+    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+}
+
+local function ShowURL(url)
+    StaticPopup_Show("UNBUNKUTILITY_URL", nil, nil, url)
+end
+
+-- ── Nav tree ──────────────────────────────────────────────────────────────────
+-- Built lazily (needs ns.L at runtime). A `panel` entry references a registered
+-- panel by name; a `cat` entry is a collapsible grouping (its `subs` are panels).
+local function BuildNavTree()
+    local L = ns.L
+    return {
+        { name = L["General Settings"], subs = {
+            { panel = L["Addon settings"] },
+            { panel = L["Player speed display"] },
+            { panel = L["Multi-alert / anti-spam"] },
+            { cat = L["Cooldown Manager"], subs = {
+                { panel = L["Below player frame"] },
+            } },
+            { panel = L["Profiles"] },
+        } },
+        { name = L["Combat Utilities"], subs = {
+            { panel = L["Combat settings"] },
+            { panel = L["Healer Range"] },
+            { cat = L["Death Alert"], subs = {
+                { panel = L["Tank Death Alert"] },
+                { panel = L["Healer Death Alert"] },
+                { panel = L["DPS Death Alert"] },
+            } },
+            { cat = L["Item/Spell Trackers"], subs = {
+                { panel = L["Trinket Tracker"] },
+                { panel = L["Potion Tracker"] },
+                { panel = L["Healthstone Tracker"] },
+                { panel = L["Racial Tracker"] },
+            } },
+            { cat = L["Aura Tracker"], subs = {
+                { panel = L["BL Tracker"] },
+                { panel = L["PI Tracker"] },
+            } },
+            { panel = L["BRez Tracker"] },
+        } },
+        { name = L["Extra Utilities"], subs = {
+            { panel = L["Death Anim"] },
+        } },
+        { name = L["Debug Utilities"], subs = {
+            { panel = L["Debug"] },
+        } },
+    }
+end
+local navTree
+
+-- ── Content height measurement ─────────────────────────────────────────────────
 local function ComputeModuleHeight(modFrame)
     local pTop = modFrame:GetTop()
     if not pTop then return nil end
@@ -44,19 +114,11 @@ local function ComputeModuleHeight(modFrame)
         end
     end
 
-    -- Walk the whole subtree (every child frame + every frame's own regions) so
-    -- deeply-nested content — e.g. controls inside a CollapsibleSection's
-    -- content frame — is measured too, not just the first two levels. Depth-
-    -- capped as a cheap guard against a pathological frame tree.
     local function walk(frame, depth)
         if depth > 8 then return end
         for i = 1, frame:GetNumChildren() do
             local child = select(i, frame:GetChildren())
             if child then
-                -- Skip BuildMenu's full-bleed content wrapper (it SetAllPoints its
-                -- parent, so its bottom is the stale contentArea bottom and would
-                -- peg every tab to the tallest tab's height). Still recurse so the
-                -- real stacked widgets inside it ARE measured.
                 if not child._uuMenuContent then consider(child) end
                 walk(child, depth + 1)
             end
@@ -70,34 +132,16 @@ local function ComputeModuleHeight(modFrame)
     return maxDepth
 end
 
-local scrollBar  -- forward declaration; set in CreateMainWindow.
-
 local function ResizeContentArea(modFrame)
     if not contentArea or not scrollFrame then return end
-    -- Re-sync width to the real viewport: CreateMainWindow ran while the window was
-    -- hidden (scrollFrame:GetWidth()==0) and fell back to 550; once laid out the
-    -- viewport is a few px wider, so track it here (this runs deferred, post-layout).
     local vw = scrollFrame:GetWidth() or 0
     if vw > 0 and math.abs((contentArea:GetWidth() or 0) - vw) > 0.5 then
         contentArea:SetWidth(vw)
     end
     local viewport = scrollFrame:GetHeight() or 0
     local needed   = ComputeModuleHeight(modFrame) or 0
-    -- Only make the content scrollable when it GENUINELY overflows the viewport (the +8
-    -- is bottom padding, applied only when actually scrolling — adding it unconditionally
-    -- used to push tabs that fit within ~8px of the viewport just over the edge).
-    -- When it FITS, size contentArea to the content (NOT the viewport): a content frame
-    -- exactly == the viewport can read back a sub-pixel scroll range, which the mouse-wheel
-    -- handler's sb_Update would treat as "scrollable" and re-show the track. Sizing it to
-    -- `needed` (strictly < viewport) keeps GetVerticalScrollRange a hard 0, so the wheel
-    -- can never bring the track back on a tab that fits.
     local overflow = needed > viewport
     contentArea:SetHeight(overflow and (needed + 8) or needed)
-    -- Drive the track's VISIBILITY from the overflow we just measured, NOT from
-    -- scrollFrame:GetVerticalScrollRange(): that range only refreshes a frame (or more)
-    -- after SetHeight, so reading it here (even deferred) shows/hides the track based on
-    -- the previous tab. The show/hide decision is immediate and correct; we still defer
-    -- sb.Update to size + place the thumb once the range catches up.
     if scrollBar and scrollBar.track then
         if overflow then
             scrollBar.track:Show()
@@ -108,147 +152,269 @@ local function ResizeContentArea(modFrame)
     end
 end
 
-local function ShowModule(index)
-    local mod = registeredModules[index]
-    if not mod then return end
+-- ── Sub-tab content ─────────────────────────────────────────────────────────
+local function HighlightMenu()
+    for _, row in ipairs(menuRows) do
+        if row.panelName then
+            local on = (row.panelName == activeSub)
+            if row.label then row.label:SetTextColor(on and BR or 1, on and BG or 1, on and BB or 1) end
+            if row.accent then
+                if on then row.accent:Show() else row.accent:Hide() end
+            end
+        end
+    end
+end
 
-    for _, m in ipairs(registeredModules) do
-        if m.frame then m.frame:Hide() end
+local function ShowSubTab(name)
+    if not name then return end
+    for _, p in pairs(panels) do
+        if p.frame then p.frame:Hide() end
     end
 
-    if not mod.frame then
-        mod.frame = CreateFrame("Frame", nil, contentArea)
-        mod.frame:SetAllPoints(contentArea)
-        -- Capture the BuildMenu result so ns.profiles.ReloadAll can reclaim its
-        -- UIParent-parented dropdown drop-frames (auxFrames) on a profile switch.
-        mod.menu = mod.createFn(mod.frame)
+    local p = panels[name]
+    if not p then
+        -- Registered panel missing (placeholder sub-tabs like Combat settings / Debug):
+        -- show a tidy "empty" page so the sub-tab is still selectable.
+        p = { name = name }
+        panels[name] = p
+        p.createFn = function(parent)
+            local h = parent:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
+            h:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, -16)
+            h:SetText(name)
+            local fs = parent:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH5")
+            fs:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, -50)
+            fs:SetText(ns.L["(nothing here yet)"])
+            return nil
+        end
     end
 
-    mod.frame:Show()
-    activeTab = index
+    if not p.frame then
+        p.frame = CreateFrame("Frame", nil, contentArea)
+        p.frame:SetAllPoints(contentArea)
+        p.menu = p.createFn(p.frame)
+    end
+    p.frame:Show()
+    activeSub = name
 
-    -- Reset scroll to the top whenever the user switches tabs.
     if scrollFrame then scrollFrame:SetVerticalScroll(0) end
-
-    -- Resize contentArea to fit the new module. Deferred a frame so child
-    -- positions are realized before we measure them.
     C_Timer.After(0, function()
-        if activeTab == index and mod.frame:IsShown() then
-            ResizeContentArea(mod.frame)
-        end
+        if activeSub == name and p.frame:IsShown() then ResizeContentArea(p.frame) end
     end)
 
-    for i, btn in ipairs(tabButtons) do
-        if i == index then
-            btn:SetBackdropColor(0.2, 0.2, 0.2, 1)
-            btn:SetBackdropBorderColor(0.8, 0.8, 0.8, 1)
+    HighlightMenu()
+end
+
+-- First (default) panel of a main tab — the one shown when its main tab is clicked.
+local function FirstPanelOf(tab)
+    if not tab then return nil end
+    for _, item in ipairs(tab.subs) do
+        if item.panel then return item.panel end
+        if item.subs then
+            for _, s in ipairs(item.subs) do
+                if s.panel then return s.panel end
+            end
+        end
+    end
+end
+
+-- ── Left sub-tab menu ──────────────────────────────────────────────────────────
+local MENU_W  = 150
+local ROW_H   = 24
+local ROW_GAP = 2
+
+local function LayoutLeftMenu()
+    local y = 0
+    for _, row in ipairs(menuRows) do
+        local hide = row.catName and collapsed[row.catName]   -- sub under a folded category
+        if hide then
+            row:Hide()
         else
-            btn:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
-            btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+            row:Show()
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT",  leftMenu, "TOPLEFT",  0, -y)
+            row:SetPoint("TOPRIGHT", leftMenu, "TOPRIGHT", 0, -y)
+            y = y + ROW_H + ROW_GAP
         end
     end
 end
 
--- Re-measure the active module's content height and resize the scroll area.
--- Called by BuildMenu.Rebuild after a reactive panel relayout (e.g. toggling the
--- "Include in cdm" checkbox swaps the CDM controls for the position editor, which
--- changes the panel height). Deferred a frame so the rebuilt frames have realized
--- positions before we measure them.
-function ns.ResizeActiveModule()
-    local idx = activeTab
-    if not idx then return end
-    C_Timer.After(0, function()
-        if activeTab ~= idx then return end
-        local mod = registeredModules[idx]
-        if mod and mod.frame and mod.frame:IsShown() then
-            ResizeContentArea(mod.frame)
+local function MakeRow()
+    -- Fully transparent (no border, no background): selection + hover are shown by
+    -- the label colour alone (active rows also get a left accent bar).
+    local btn = CreateFrame("Button", nil, leftMenu)
+    btn:SetHeight(ROW_H)
+    return btn
+end
+
+local function MakeSubRow(panelName, catName)
+    local btn = MakeRow()
+    btn.panelName = panelName
+    btn.catName   = catName
+
+    -- Left accent bar: shown ONLY on the active sub-tab, so the selection stays
+    -- distinct from a mere hover (which only recolours the label).
+    local accent = btn:CreateTexture(nil, "OVERLAY")
+    accent:SetColorTexture(BR, BG, BB, 1)
+    accent:SetWidth(3)
+    accent:SetPoint("TOPLEFT",    btn, "TOPLEFT",    0, 0)
+    accent:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
+    accent:Hide()
+    btn.accent = accent
+
+    local lbl = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    lbl:SetPoint("LEFT", btn, "LEFT", catName and 34 or 20, 0)   -- deeper indent under a category
+    lbl:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
+    lbl:SetJustifyH("LEFT")
+    lbl:SetText(panelName)
+    btn.label = lbl
+
+    btn:SetScript("OnEnter", function() lbl:SetTextColor(BR, BG, BB) end)
+    btn:SetScript("OnLeave", function()
+        if activeSub == panelName then
+            lbl:SetTextColor(BR, BG, BB)
+        else
+            lbl:SetTextColor(1, 1, 1)
         end
     end)
+    btn:SetScript("OnClick", function() ShowSubTab(panelName) end)
+    return btn
 end
 
-function UnbunkUtility.ShowActiveModule()
-    if activeTab then
-        ShowModule(activeTab)
+local function MakeCatRow(catName)
+    local btn = MakeRow()
+    btn.catName = nil    -- a category header is never hidden by collapse
+
+    local arrow = btn:CreateTexture(nil, "OVERLAY")
+    arrow:SetSize(8, 8)
+    arrow:SetPoint("LEFT", btn, "LEFT", 6, 0)
+    if UNBUNK_ICON_DROPDOWN_ARROW then arrow:SetTexture(UNBUNK_ICON_DROPDOWN_ARROW) end
+
+    local lbl = btn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH4")
+    lbl:SetPoint("LEFT", arrow, "RIGHT", 6, 0)
+    lbl:SetText(catName)
+
+    local function ApplyArrow()
+        arrow:SetRotation(collapsed[catName] and math.rad(-90) or 0)
+    end
+    ApplyArrow()
+
+    btn:SetScript("OnClick", function()
+        collapsed[catName] = not collapsed[catName]
+        ApplyArrow()
+        LayoutLeftMenu()
+    end)
+    btn:SetScript("OnEnter", function() lbl:SetTextColor(0.5, 0.75, 1.0) end)
+    btn:SetScript("OnLeave", function() lbl:SetTextColor(BR, BG, BB) end)
+    return btn
+end
+
+local menuCache = {}   -- mainIndex -> { row frames }, built once per main tab
+
+local function BuildLeftMenu(mainIndex)
+    for _, r in ipairs(menuRows) do r:Hide() end
+
+    if menuCache[mainIndex] then
+        menuRows = menuCache[mainIndex]
+        for _, r in ipairs(menuRows) do r:Show() end
+    else
+        menuRows = {}
+        local tab = navTree[mainIndex]
+        if tab then
+            for _, item in ipairs(tab.subs) do
+                if item.cat then
+                    table.insert(menuRows, MakeCatRow(item.cat))
+                    for _, sub in ipairs(item.subs) do
+                        table.insert(menuRows, MakeSubRow(sub.panel, item.cat))
+                    end
+                else
+                    table.insert(menuRows, MakeSubRow(item.panel, nil))
+                end
+            end
+        end
+        menuCache[mainIndex] = menuRows
+    end
+    LayoutLeftMenu()
+end
+
+-- ── Main tabs ──────────────────────────────────────────────────────────────────
+local function ShowMainTab(index)
+    activeMain = index
+    BuildLeftMenu(index)
+    ShowSubTab(FirstPanelOf(navTree[index]))
+
+    for i, btn in ipairs(mainButtons) do
+        local on = (i == index)
+        btn:SetBackdropColor(on and 0.12 or 0.1, on and 0.15 or 0.1, on and 0.22 or 0.1, on and 1 or 0.8)
+        btn:SetBackdropBorderColor(on and BR or 0.4, on and BG or 0.4, on and BB or 0.4, 1)
+        if btn.label then btn.label:SetTextColor(on and BR or 1, on and BG or 1, on and BB or 1) end
     end
 end
 
--- Rebuild the active module's config menu, re-evaluating every `when`/`shown`
--- predicate (Refresh alone only re-syncs widget values). Used when an external
--- state change must swap which controls a panel shows while it is already open —
--- e.g. toggling the game's Cooldown Manager greys the "Include in cdm" checkbox
--- and swaps the CDM controls for the free position editor. No-op if nothing is
--- open or the active module has no rebuildable menu.
-function ns.RebuildActiveModule()
-    if not activeTab then return end
-    local mod = registeredModules[activeTab]
-    if mod and mod.frame and mod.frame:IsShown() and mod.menu and mod.menu.Rebuild then
-        mod.menu.Rebuild()
-    end
-end
-
-local function BuildNavbar()
-    for _, btn in ipairs(tabButtons) do btn:Hide() end
-    tabButtons = {}
-
-    local TAB_WIDTH   = 130
-    local TAB_HEIGHT  = 28
-    local TAB_GAP     = 4
-    local TABS_PER_ROW = 4
-    local navbarHeight = 0
-
-    for i, mod in ipairs(registeredModules) do
-        local row = math.floor((i - 1) / TABS_PER_ROW)
-        local col = (i - 1) % TABS_PER_ROW
-        local x   = col * (TAB_WIDTH + TAB_GAP)
-        local y   = -(row * (TAB_HEIGHT + TAB_GAP))
-
-        local btn = CreateFrame("Button", nil, navbar, "BackdropTemplate")
-        btn:SetSize(TAB_WIDTH, TAB_HEIGHT)
-        btn:SetPoint("TOPLEFT", navbar, "TOPLEFT", x, y)
+local function BuildMainTabs()
+    local TAB_W, TAB_H, GAP = 150, 28, 4
+    for i, tab in ipairs(navTree) do
+        local btn = CreateFrame("Button", nil, mainBar, "BackdropTemplate")
+        btn:SetSize(TAB_W, TAB_H)
+        btn:SetPoint("TOPLEFT", mainBar, "TOPLEFT", (i - 1) * (TAB_W + GAP), 0)
         btn:SetBackdrop({
             bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-            edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-            edgeSize = 8,
-            insets   = { left = 2, right = 2, top = 2, bottom = 2 },
+            edgeFile = "Interface/Buttons/WHITE8X8",
+            edgeSize = 1,
+            insets   = { left = 1, right = 1, top = 1, bottom = 1 },
         })
         btn:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
         btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 
-        btn:SetScript("OnEnter", function(self)
-            if activeTab ~= i then
-                self:SetBackdropBorderColor(0.7, 0.7, 0.7, 1)
-            end
-        end)
-        btn:SetScript("OnLeave", function(self)
-            if activeTab ~= i then
-                self:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
-            end
-        end)
-
         local lbl = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         lbl:SetPoint("CENTER")
-        if mod.icon then
-            lbl:SetText("|T" .. mod.icon .. ":14:14:0:0|t " .. mod.name)
-        else
-            lbl:SetText(mod.name)
-        end
+        lbl:SetText(tab.name)
+        btn.label = lbl
 
-        btn:SetScript("OnClick", function() ShowModule(i) end)
-        tabButtons[i] = btn
+        btn:SetScript("OnEnter", function(self)
+            self:SetBackdropBorderColor(BR, BG, BB, 1)
+            lbl:SetTextColor(BR, BG, BB)
+        end)
+        btn:SetScript("OnLeave", function(self)
+            if activeMain == i then
+                self:SetBackdropBorderColor(BR, BG, BB, 1)
+                lbl:SetTextColor(BR, BG, BB)
+            else
+                self:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+                lbl:SetTextColor(1, 1, 1)
+            end
+        end)
+        btn:SetScript("OnClick", function() ShowMainTab(i) end)
+        mainButtons[i] = btn
     end
-
-    -- Computed once after the loop (was recomputed every iteration).
-    local rows = math.ceil(#registeredModules / TABS_PER_ROW)
-    navbarHeight = rows * (TAB_HEIGHT + TAB_GAP)
-    navbar:SetHeight(navbarHeight)
 end
 
+-- ── Public hooks (used by BuildMenu / profile reload) ──────────────────────────
+function ns.ResizeActiveModule()
+    local name = activeSub
+    if not name then return end
+    C_Timer.After(0, function()
+        if activeSub ~= name then return end
+        local p = panels[name]
+        if p and p.frame and p.frame:IsShown() then ResizeContentArea(p.frame) end
+    end)
+end
+
+function UnbunkUtility.ShowActiveModule()
+    if activeSub then ShowSubTab(activeSub) end
+end
+
+function ns.RebuildActiveModule()
+    local p = activeSub and panels[activeSub]
+    if p and p.frame and p.frame:IsShown() and p.menu and p.menu.Rebuild then
+        p.menu.Rebuild()
+    end
+end
+
+-- ── Window ─────────────────────────────────────────────────────────────────────
 local function CreateMainWindow()
     window = CreateFrame("Frame", "UnbunkUtilityWindow", UIParent, "BackdropTemplate")
-    window:SetSize(600, 800)
+    window:SetSize(760, 800)
     window:SetPoint("CENTER")
-    -- DIALOG sits above HIGH (where our tracker icons are) so the config
-    -- window is always on top of them when opened.
     window:SetFrameStrata("DIALOG")
     window:SetMovable(true)
     window:EnableMouse(true)
@@ -257,57 +423,99 @@ local function CreateMainWindow()
     window:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
     window:SetBackdrop({
         bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        edgeSize = 12,
-        insets   = { left = 3, right = 3, top = 3, bottom = 3 },
+        edgeFile = "Interface/Buttons/WHITE8X8",
+        edgeSize = 1,
+        insets   = { left = 1, right = 1, top = 1, bottom = 1 },
     })
     window:SetBackdropColor(0.08, 0.08, 0.08, 0.95)
     window:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
     window:Hide()
 
-    local titleBar = window:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    local titleBar = window:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH1")
     titleBar:SetPoint("TOP", 0, -14)
     titleBar:SetText("UnbunkUtility")
 
-    local closeBtn = CreateFrame("Button", nil, window, "UIPanelCloseButton")
-    closeBtn:SetPoint("TOPRIGHT", -4, -4)
+    -- Close button: grey square, sharp 1px border -> blue on hover, white cross ->
+    -- blue on hover (both crosses preloaded so the swap is instant).
+    local closeBtn = CreateFrame("Button", nil, window)
+    closeBtn:SetSize(24, 24)
+    closeBtn:SetPoint("TOPRIGHT", -6, -6)
+
+    local closeBorder = closeBtn:CreateTexture(nil, "BACKGROUND")
+    closeBorder:SetAllPoints(closeBtn)
+    closeBorder:SetColorTexture(0.4, 0.4, 0.4, 1)
+
+    local closeFill = closeBtn:CreateTexture(nil, "BACKGROUND", nil, 1)
+    closeFill:SetPoint("TOPLEFT",     closeBtn, "TOPLEFT",      1, -1)
+    closeFill:SetPoint("BOTTOMRIGHT", closeBtn, "BOTTOMRIGHT", -1,  1)
+    closeFill:SetColorTexture(0.15, 0.15, 0.15, 0.9)
+
+    local crossWhite = closeBtn:CreateTexture(nil, "OVERLAY")
+    crossWhite:SetSize(12, 12)
+    crossWhite:SetPoint("CENTER")
+    crossWhite:SetTexture(UNBUNK_ICON_CROSS_WHITE)
+
+    local crossBlue = closeBtn:CreateTexture(nil, "OVERLAY")
+    crossBlue:SetSize(12, 12)
+    crossBlue:SetPoint("CENTER")
+    crossBlue:SetTexture(UNBUNK_ICON_CROSS_BLUE)
+    crossBlue:Hide()
+
+    closeBtn:SetScript("OnEnter", function()
+        closeBorder:SetColorTexture(BR, BG, BB, 1)
+        closeFill:SetColorTexture(0.22, 0.22, 0.22, 0.9)
+        crossWhite:Hide()
+        crossBlue:Show()
+    end)
+    closeBtn:SetScript("OnLeave", function()
+        closeBorder:SetColorTexture(0.4, 0.4, 0.4, 1)
+        closeFill:SetColorTexture(0.15, 0.15, 0.15, 0.9)
+        crossBlue:Hide()
+        crossWhite:Show()
+    end)
     closeBtn:SetScript("OnClick", function() window:Hide() end)
 
-    table.insert(UISpecialFrames, "UnbunkUtilityWindow")    
+    table.insert(UISpecialFrames, "UnbunkUtilityWindow")
 
-    navbar = CreateFrame("Frame", nil, window)
-    navbar:SetPoint("TOPLEFT", window, "TOPLEFT", 16, -40)
-    navbar:SetPoint("TOPRIGHT", window, "TOPRIGHT", -16, -40)
-    navbar:SetHeight(64) -- updated by BuildNavbar once modules are known
+    -- Main tab bar (top row).
+    mainBar = CreateFrame("Frame", nil, window)
+    mainBar:SetPoint("TOPLEFT", window, "TOPLEFT", 16, -40)
+    mainBar:SetPoint("TOPRIGHT", window, "TOPRIGHT", -16, -40)
+    mainBar:SetHeight(28)
 
     local sep = window:CreateTexture(nil, "ARTWORK")
     sep:SetColorTexture(0.4, 0.4, 0.4, 0.8)
-    sep:SetPoint("TOPLEFT", navbar, "BOTTOMLEFT", 0, -4)
-    sep:SetPoint("TOPRIGHT", navbar, "BOTTOMRIGHT", 0, -4)
+    sep:SetPoint("TOPLEFT", mainBar, "BOTTOMLEFT", 0, -4)
+    sep:SetPoint("TOPRIGHT", mainBar, "BOTTOMRIGHT", 0, -4)
     sep:SetHeight(1)
 
+    -- Left sub-tab menu.
+    leftMenu = CreateFrame("Frame", nil, window)
+    leftMenu:SetPoint("TOPLEFT", sep, "BOTTOMLEFT", 0, -8)
+    leftMenu:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 16, 30)
+    leftMenu:SetWidth(MENU_W)
+
+    -- Vertical separator between the menu and the content.
+    local vsep = window:CreateTexture(nil, "ARTWORK")
+    vsep:SetColorTexture(0.4, 0.4, 0.4, 0.6)
+    vsep:SetPoint("TOPLEFT", leftMenu, "TOPRIGHT", 8, 0)
+    vsep:SetPoint("BOTTOMLEFT", leftMenu, "BOTTOMRIGHT", 8, 0)
+    vsep:SetWidth(1)
+
+    -- Content (scrollable) to the right of the menu.
     scrollFrame = CreateFrame("ScrollFrame", nil, window)
-    scrollFrame:SetPoint("TOPLEFT", sep, "BOTTOMLEFT", 0, -8)
-    scrollFrame:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -28, 16)
+    scrollFrame:SetPoint("TOPLEFT", vsep, "TOPRIGHT", 8, 0)
+    scrollFrame:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -28, 30)
 
     contentArea = CreateFrame("Frame", nil, scrollFrame)
-    -- A both-sides-anchored ScrollFrame has not had a layout pass yet at
-    -- PLAYER_LOGIN (the window is still Hide()), so GetWidth() returns 0 — which
-    -- is truthy, so a plain `or 550` fallback never triggers. Guard explicitly.
     local w = scrollFrame:GetWidth()
-    if not w or w <= 0 then w = 550 end
+    if not w or w <= 0 then w = 540 end
     contentArea:SetWidth(w)
     contentArea:SetHeight(1000)
     scrollFrame:SetScrollChild(contentArea)
 
     scrollFrame:EnableMouseWheel(true)
-    -- NOTE: the OnMouseWheel handler + OnVerticalScroll are installed by
-    -- ns.ui.CreateScrollBar below (it owns the scroll step); don't set one here or
-    -- it would just be overwritten (last-write-wins).
 
-    -- Scrollbar — the thumb size is proportional to visibleItems / listSize.
-    -- We want it to match (viewport / contentArea), so derive listSize from
-    -- the actual content height instead of hard-coding 20.
     local SB_ITEM_HEIGHT = 30
     local SB_VISIBLE     = 10
     local sb = ns.ui.CreateScrollBar({
@@ -321,36 +529,63 @@ local function CreateMainWindow()
         end,
     })
     scrollBar = sb
-    sb.track:SetPoint("TOPRIGHT", window, "TOPRIGHT", -6, -110)
-    sb.track:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -6, 16)
+    sb.track:SetPoint("TOPRIGHT", scrollFrame, "TOPRIGHT", 22, 0)
+    sb.track:SetPoint("BOTTOMRIGHT", scrollFrame, "BOTTOMRIGHT", 22, 0)
     sb.track:Show()
 
     window:HookScript("OnShow", function()
-        C_Timer.After(0.1, function()
-            sb.Update()
-        end)
+        -- Re-measure the active panel now the window is actually laid out (it was
+        -- first built while hidden, where widths/positions can read back as 0).
+        ns.ResizeActiveModule()
+        C_Timer.After(0.1, function() sb.Update() end)
     end)
+
+    -- ── Footer: links (left) + version (right) ────────────────────────────────
+    local footerSep = window:CreateTexture(nil, "ARTWORK")
+    footerSep:SetColorTexture(0.4, 0.4, 0.4, 0.5)
+    footerSep:SetPoint("BOTTOMLEFT",  window, "BOTTOMLEFT",  16, 26)
+    footerSep:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -16, 26)
+    footerSep:SetHeight(1)
+
+    local meta    = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+    local version = (meta and meta(ADDON, "Version")) or "?"
+    local verFS = window:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    verFS:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -16, 8)
+    verFS:SetText("v" .. version)
+
+    local function MakeLink(label, url)
+        local btn = CreateFrame("Button", nil, window)
+        local fs  = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        fs:SetAllPoints(btn)
+        fs:SetJustifyH("LEFT")
+        fs:SetText(label)
+        fs:SetTextColor(BR, BG, BB)
+        btn:SetSize(math.max(24, fs:GetStringWidth() + 2), 14)
+        btn:SetScript("OnEnter", function() fs:SetTextColor(0.5, 0.75, 1.0) end)
+        btn:SetScript("OnLeave", function() fs:SetTextColor(BR, BG, BB) end)
+        btn:SetScript("OnClick", function() ShowURL(url) end)
+        return btn
+    end
+    local ghBtn = MakeLink("GitHub", GITHUB_URL)
+    ghBtn:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 16, 8)
+    local cfBtn = MakeLink("CurseForge", CURSEFORGE_URL)
+    cfBtn:SetPoint("LEFT", ghBtn, "RIGHT", 14, 0)
 end
 
 function UnbunkUtility.OpenWindow()
     if not window then return end
-    if window:IsShown() then
-        window:Hide()
-    else
-        window:Show()
-    end
+    if window:IsShown() then window:Hide() else window:Show() end
 end
 
 local initCore = CreateFrame("Frame")
 initCore:RegisterEvent("PLAYER_LOGIN")
 initCore:SetScript("OnEvent", function(self)
     CreateMainWindow()
-    -- Rebuild navbar after all modules have registered themselves.
+    -- Built after all modules have registered their panels.
     C_Timer.After(0, function()
-        BuildNavbar()
-        if #registeredModules > 0 then
-            ShowModule(1)
-        end
+        navTree = BuildNavTree()
+        BuildMainTabs()
+        ShowMainTab(1)
     end)
     self:UnregisterEvent("PLAYER_LOGIN")
 end)

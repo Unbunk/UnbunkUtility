@@ -26,16 +26,25 @@ function ns.ui.CreateButton(config)
 
     local result = {}
 
-    local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    local BLUE_R, BLUE_G, BLUE_B = 0.20, 0.55, 1.0   -- brand blue (#338CFF)
+
+    local btn = CreateFrame("Button", nil, parent)
     btn:SetSize(width, height)
-    btn:SetBackdrop({
-        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        edgeSize = 8,
-        insets   = { left = 2, right = 2, top = 2, bottom = 2 },
-    })
-    btn:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
-    btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+
+    -- Sharp-cornered button: a border-coloured texture fills the frame, with a darker
+    -- fill laid 1px inside it — so exactly 1px of the border shows as a crisp edge.
+    -- The border (and the label) turn brand blue on hover.
+    local border = btn:CreateTexture(nil, "BACKGROUND")
+    border:SetAllPoints(btn)
+    border:SetColorTexture(0.4, 0.4, 0.4, 1)
+
+    local fill = btn:CreateTexture(nil, "BACKGROUND", nil, 1)
+    fill:SetPoint("TOPLEFT",     btn, "TOPLEFT",      1, -1)
+    fill:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1,  1)
+    fill:SetColorTexture(0.15, 0.15, 0.15, 0.9)
+
+    local function SetBorder(r, g, b) border:SetColorTexture(r, g, b, 1) end
+    local function SetFill(v)         fill:SetColorTexture(v, v, v, 0.9) end
 
     local lbl = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     lbl:SetPoint("CENTER")
@@ -43,24 +52,26 @@ function ns.ui.CreateButton(config)
 
     btn:SetScript("OnEnter", function(self)
         if not self:IsEnabled() then return end
-        self:SetBackdropBorderColor(0.8, 0.8, 0.8, 1)
-        self:SetBackdropColor(0.25, 0.25, 0.25, 0.9)
+        SetBorder(BLUE_R, BLUE_G, BLUE_B)            -- blue border on hover
+        SetFill(0.22)
+        lbl:SetTextColor(BLUE_R, BLUE_G, BLUE_B, 1)  -- blue text on hover
     end)
 
     btn:SetScript("OnLeave", function(self)
         if not self:IsEnabled() then return end
-        self:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
-        self:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
+        SetBorder(0.4, 0.4, 0.4)
+        SetFill(0.15)
+        lbl:SetTextColor(1, 1, 1, 1)
     end)
 
     btn:SetScript("OnMouseDown", function(self)
         if not self:IsEnabled() then return end
-        self:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
+        SetFill(0.1)
     end)
 
     btn:SetScript("OnMouseUp", function(self)
         if not self:IsEnabled() then return end
-        self:SetBackdropColor(0.25, 0.25, 0.25, 0.9)
+        SetFill(0.22)
     end)
 
     if onClick then
@@ -77,13 +88,13 @@ function ns.ui.CreateButton(config)
         if enabled then
             btn:Enable()
             lbl:SetTextColor(1, 1, 1, 1)
-            btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
-            btn:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
+            SetBorder(0.4, 0.4, 0.4)
+            SetFill(0.15)
         else
             btn:Disable()
             lbl:SetTextColor(0.5, 0.5, 0.5, 1)
-            btn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
-            btn:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
+            SetBorder(0.3, 0.3, 0.3)
+            SetFill(0.1)
         end
     end
 

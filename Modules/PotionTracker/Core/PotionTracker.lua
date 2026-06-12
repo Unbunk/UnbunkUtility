@@ -4,11 +4,6 @@ local _, ns = ...
 ns.PotionTracker = ns.PotionTracker or {}
 local PT = ns.PotionTracker
 
-local AceEvent = LibStub("AceEvent-3.0")
-local AceTimer = LibStub("AceTimer-3.0")
-AceEvent:Embed(PT)
-AceTimer:Embed(PT)
-
 local function IsActiveInCurrentInstance()
     return ns.IsActiveInInstance(PT.CfgGet("instanceFilter"))
 end
@@ -78,10 +73,9 @@ end)
 
 local function ApplyLayout()
     if not healthTracker or not combatTracker then return end
-    -- Delegate to each sub-icon's new-model-aware ApplyPosition: when the Cooldown
-    -- Manager integration is active (includeInCdm) ns.CDMAnchor owns position+size;
-    -- otherwise the icon is free and positioned on screen by posX/posY. This runs on
-    -- the 0.5s ticker too, so the chosen placement is kept, not clobbered.
+    -- Delegate to each sub-icon's anchor-aware ApplyPosition (honours anchorMode +
+    -- the Cooldown Manager anchoring, falling back to the screen when "free").
+    -- This runs on the 0.5s ticker too, so the chosen anchor is kept, not clobbered.
     healthTracker.ApplyPosition()
     combatTracker.ApplyPosition()
 end
@@ -122,14 +116,6 @@ function PT.ApplyAll()
     combatTracker.ApplyVisuals()
     PT.ApplyStackVisuals("health", healthTracker)
     PT.ApplyStackVisuals("combat", combatTracker)
-end
-
--- Passthrough to refresh the configurable icon border on both sub-icons (health
--- + combat), mirroring how ApplyAll fans out ApplyVisuals. Each sub-tracker reads
--- its own sub-config's borderEnabled/Color/Size.
-function PT.ApplyBorder()
-    if healthTracker then healthTracker.ApplyBorder() end
-    if combatTracker then combatTracker.ApplyBorder() end
 end
 
 function PT.GetHealthTracker() return healthTracker end
@@ -395,78 +381,60 @@ function PT.GetActiveSpellId(prefix)
     return entry.spellId
 end
 
--- BAG_UPDATE / PLAYER_ENTERING_WORLD / ITEM_DATA_LOAD_RESULT all invalidate the
--- resolver cache then relayout. ITEM_DATA_LOAD_RESULT refreshes the cache once
--- the server delivers item data, so a freshly resolved potion whose item/spell
--- data loaded late gets its spellId filled in (otherwise a cached nil spellId
--- would persist until the next bag event).
-local function OnCacheInvalidatingEvent(event)
-    InvalidateActiveCache()
-    PT.ApplyAll()
-end
--- ITEM_DATA_LOAD_RESULT fires once PER item as the server streams data — at login
--- this module preloads dozens of favorite potions, so it bursts. Debounce it to a
--- single invalidate+ApplyAll per 0.2s window instead of one per fire.
-local idlrPending = false
-local function OnItemDataLoaded(event, itemID)
-    -- ITEM_DATA_LOAD_RESULT fires for EVERY item the client streams in — including
-    -- gear the player merely hovers (comparison tooltips load item data on the fly).
-    -- React only to potions we can actually track; otherwise a single equipment hover
-    -- triggers a storm of invalidate + full ApplyAll (~250 KB/s churn). Anything
-    -- filtered out here is still resolved by the 0.5s ticker within half a second.
-    if not (itemID and (FAVORITE_HEALTH_POTION_IDS[itemID] or FAVORITE_COMBAT_POTION_IDS[itemID])) then
-        return
-    end
-    if idlrPending then return end
-    idlrPending = true
-    C_Timer.After(0.2, function()
-        idlrPending = false
-        OnCacheInvalidatingEvent("ITEM_DATA_LOAD_RESULT")
-    end)
-end
-PT:RegisterEvent("BAG_UPDATE", OnCacheInvalidatingEvent)
-PT:RegisterEvent("PLAYER_ENTERING_WORLD", OnCacheInvalidatingEvent)
-PT:RegisterEvent("ITEM_DATA_LOAD_RESULT", OnItemDataLoaded)
+local eventFrame = CreateFrame("Frame")
+eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+eventFrame:RegisterEvent("BAG_UPDATE")
+eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+-- Refresh the resolver cache once the server delivers item data, so a freshly
+-- resolved potion whose item/spell data loaded late gets its spellId filled in
+-- (otherwise a cached nil spellId would persist until the next bag event).
+eventFrame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
 -- BAG_UPDATE_COOLDOWN is intentionally NOT registered: it fires on essentially
 -- every cooldown tick in combat, and invalidating + full ApplyAll there is
 -- redundant — the 0.5s ticker already keeps cooldown visuals in sync and
 -- ApplyVisuals reads cooldown state fresh each pass.
 
--- AceEvent callbacks receive (event, ...), not (self, event, ...).
-PT:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit, _, spellId)
-    if unit ~= "player" then return end
-    local healthSpellId = PT.GetActiveSpellId("health")
-    local combatSpellId = PT.GetActiveSpellId("combat")
-    if healthSpellId and spellId == healthSpellId then
-        -- Start the icon's in-combat heuristic green timer now (independent of
-        -- the sound toggle); the live buff aura is unreadable in combat.
-        if healthTracker then healthTracker.NotifyUsed() end
-        local hc = PT.CfgGet("health")
-        if hc and hc.soundOnUse then
-            ns.combo.Notify("potion", function() PT.PlaySound("health", "soundUse") end)
-        end
-    elseif combatSpellId and spellId == combatSpellId then
-        if combatTracker then combatTracker.NotifyUsed() end
-        local cc = PT.CfgGet("combat")
-        if cc and cc.soundOnUse then
-            ns.combo.Notify("potion", function() PT.PlaySound("combat", "soundUse") end)
-        end
+eventFrame:SetScript("OnEvent", function(self, event, ...)
+    if event == "BAG_UPDATE" or event == "PLAYER_ENTERING_WORLD" or event == "ITEM_DATA_LOAD_RESULT" then
+        InvalidateActiveCache()
     end
-    -- The 0.5s ticker already keeps visuals in sync; no need to relayout
-    -- on every player cast (fires many times per second in combat).
+    if event == "UNIT_SPELLCAST_SUCCEEDED" then
+        local unit, _, spellId = ...
+        if unit ~= "player" then return end
+        local healthSpellId = PT.GetActiveSpellId("health")
+        local combatSpellId = PT.GetActiveSpellId("combat")
+        if healthSpellId and spellId == healthSpellId then
+            -- Start the icon's in-combat heuristic green timer now (independent of
+            -- the sound toggle); the live buff aura is unreadable in combat.
+            if healthTracker then healthTracker.NotifyUsed() end
+            local hc = PT.CfgGet("health")
+            if hc and hc.soundOnUse then
+                ns.combo.Notify("potion", function() PT.PlaySound("health", "soundUse") end)
+            end
+        elseif combatSpellId and spellId == combatSpellId then
+            if combatTracker then combatTracker.NotifyUsed() end
+            local cc = PT.CfgGet("combat")
+            if cc and cc.soundOnUse then
+                ns.combo.Notify("potion", function() PT.PlaySound("combat", "soundUse") end)
+            end
+        end
+        -- The 0.5s ticker already keeps visuals in sync; no need to relayout
+        -- on every player cast (fires many times per second in combat).
+        return
+    end
+    PT.ApplyAll()
 end)
 
-PT:ScheduleRepeatingTimer(function()
+C_Timer.NewTicker(0.5, function()
     -- Steady state: when the module is disabled the frames are already
     -- hidden, no need to redo the work every tick.
     if not PT.CfgGet("enabled") then return end
     PT.ApplyAll()
-end, 0.5)
+end)
 
 ns.RegisterReloadHook(function()
     InvalidateActiveCache()
     PT.ApplyAll()
-    PT.ApplyBorder()
 end)
 
 local initPT = CreateFrame("Frame")

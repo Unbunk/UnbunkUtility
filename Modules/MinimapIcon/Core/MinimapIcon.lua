@@ -6,11 +6,9 @@
 local _, ns = ...
 local L = ns.L
 
--- TODO: re-export Media/Icons/UnbunkUtility.tga as an uncompressed (TGA type 2)
--- or BLP file at power-of-two dimensions (e.g. 64x64). The current asset is a
--- 1000x1000 RLE-compressed TGA, which many clients fail to render (blank icon)
--- and which is wasteful to keep resident. Same file backs ## IconTexture in the .toc.
-local ICON_TEXTURE = "Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\UnbunkUtility.tga"
+-- Dedicated minimap-button artwork (distinct from the larger ## IconTexture asset
+-- in the .toc, which uses Media/Icons/UnbunkUtility.tga).
+local ICON_TEXTURE = "Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\UnbunkUtilityMinimapButton.tga"
 
 local DEFAULTS = {
     hide   = false,
@@ -70,7 +68,7 @@ local function CreateButton()
     -- Addon icon.
     local icon = button:CreateTexture(nil, "ARTWORK")
     icon:SetTexture(ICON_TEXTURE)
-    icon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
+    icon:SetTexCoord(0, 1, 0, 1)
     icon:SetSize(20, 20)
     icon:SetPoint("CENTER")
 

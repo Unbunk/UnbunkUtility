@@ -5,7 +5,7 @@ ns.PITracker = ns.PITracker or {}
 local PI = ns.PITracker
 
 local DEFAULTS = {
-    enabled        = true,
+    enabled        = false,   -- unavailable since Midnight; forced off + locked in the UI
     showIcon       = true,
     iconWidth      = 40,
     iconHeight     = 40,
@@ -38,6 +38,10 @@ function PI.CfgInit()
     ns.db.profile.PITracker = ns.db.profile.PITracker or {}
     ns.MigrateSoundKeys(ns.db.profile.PITracker)
     ns.MergeDefaults(ns.db.profile.PITracker, DEFAULTS)
+    -- Hard-off: PI Tracker is unavailable since the Midnight changes, so force it
+    -- disabled for everyone (including users who had it on) until it is fixed. The
+    -- config UI locks the enable checkbox to match.
+    ns.db.profile.PITracker.enabled = false
 end
 ns.RegisterCfgInitHook(PI.CfgInit)
 

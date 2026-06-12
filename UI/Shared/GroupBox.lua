@@ -36,6 +36,7 @@ ns.ui = ns.ui or {}
 function ns.ui.CreateGroupBox(config)
     local parent  = config.parent
     local title   = config.title
+    local heading = config.heading or "UnbunkUtilityH2"   -- title tier (H2 root / H3 nested)
     local width   = config.width                 -- outer/container width
     local sidePad = config.sidePad or 10
     local titleH  = title and 18 or 0
@@ -51,16 +52,16 @@ function ns.ui.CreateGroupBox(config)
     box:SetAllPoints(container)
     box:SetBackdrop({
         bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        edgeSize = 12,
-        insets   = { left = 3, right = 3, top = 3, bottom = 3 },
+        edgeFile = "Interface/Buttons/WHITE8X8",
+        edgeSize = 1,
+        insets   = { left = 1, right = 1, top = 1, bottom = 1 },
     })
     box:SetBackdropColor(0.10, 0.10, 0.10, 0.5)
     box:SetBackdropBorderColor(0.45, 0.45, 0.45, 1)
     result.box = box
 
     if title then
-        local fs = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        local fs = box:CreateFontString(nil, "OVERLAY", heading)
         fs:SetPoint("TOPLEFT", box, "TOPLEFT", sidePad, -6)
         fs:SetText(title)
         result.title = fs

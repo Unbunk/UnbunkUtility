@@ -24,6 +24,9 @@ function ns.ui.CreateTextInput(config)
     local width      = config.width      or 200
     local height     = config.height     or 22
     local numeric    = config.numeric    or false
+    -- Only meaningful with numeric=true: permits a single leading minus sign (used by
+    -- the x/y offset fields). Every other numeric field stays digits-only.
+    local allowNegative = config.allowNegative or false
     local maxLetters = config.maxLetters or 100
     local text       = config.text       or ""
     local onEnter    = config.onEnter
@@ -34,16 +37,13 @@ function ns.ui.CreateTextInput(config)
 
     local result = {}
 
-    local container = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    local container = CreateFrame("Frame", nil, parent)
     container:SetSize(width, height)
-    container:SetBackdrop({
-        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        edgeSize = 8,
-        insets   = { left = 2, right = 2, top = 2, bottom = 2 },
-    })
-    container:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
-    container:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+
+    -- Borderless dark fill with sharp corners, matching the checkbox style.
+    local fill = container:CreateTexture(nil, "BACKGROUND")
+    fill:SetAllPoints(container)
+    fill:SetColorTexture(0.12, 0.12, 0.12, 0.95)
 
     local editBox = CreateFrame("EditBox", nil, container)
     editBox:SetPoint("TOPLEFT", container, "TOPLEFT", 6, -3)
@@ -55,10 +55,19 @@ function ns.ui.CreateTextInput(config)
 
     editBox:SetScript("OnChar", function(self, char)
         if not numeric then return end
+        -- Reject anything that isn't a digit the instant it's typed; keep a single
+        -- leading minus only when negatives are allowed (x/y offsets). %D strips the
+        -- minus too, so re-prepend it from the captured sign.
         local cur = self:GetText()
-        -- Allow the minus sign only in the first position.
-        if char == "-" and #cur > 1 then
-            self:SetText(cur:gsub("-", ""))
+        local cleaned
+        if allowNegative then
+            local sign = cur:sub(1, 1) == "-" and "-" or ""
+            cleaned = sign .. cur:gsub("%D", "")
+        else
+            cleaned = cur:gsub("%D", "")
+        end
+        if cleaned ~= cur then
+            self:SetText(cleaned)
         end
     end)
 
@@ -81,11 +90,11 @@ function ns.ui.CreateTextInput(config)
     end
 
     editBox:SetScript("OnEditFocusGained", function(self)
-        container:SetBackdropBorderColor(0.8, 0.8, 0.8, 1)
+        fill:SetColorTexture(0.20, 0.20, 0.20, 0.95)   -- lighten on focus (no border to highlight)
     end)
 
     editBox:SetScript("OnEditFocusLost", function(self)
-        container:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+        fill:SetColorTexture(0.12, 0.12, 0.12, 0.95)
     end)
 
     editBox:SetScript("OnEscapePressed", function(self)

@@ -133,6 +133,7 @@ local function BuildChild(entry, host, defaultRel, refs, refreshers)
             width      = entry.width,
             height     = entry.height,
             numeric    = entry.numeric,
+            allowNegative = entry.allowNegative,
             min        = entry.min,
             max        = entry.max,
             maxLetters = entry.maxLetters,
@@ -203,6 +204,12 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
     -- explicitly, so this default only affects the outer module call.
     local originX  = panelOpts.originX or 16
     local originY  = panelOpts.originY or 0
+    -- Heading depth: groups deepen the hierarchy (root cadre = H3, nested = H4);
+    -- sections do NOT (a section's own cadres stay at the parent's level). Exactly ONE
+    -- H2 per tab (the "General" cadre / a standalone tab title) is set via an explicit
+    -- heading override on that entry.
+    local depth        = panelOpts.depth or 0
+    local groupHeading = (depth == 0) and "UnbunkUtilityH3" or "UnbunkUtilityH4"
     local autoHook = panelOpts.autoHook
     if autoHook == nil then autoHook = true end
     local LSM      = panelOpts.LSM
@@ -364,6 +371,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                 local sectionSub
                 widget = ns.ui.CreateCollapsibleSection({
                     parent        = content,
+                    heading       = entry.heading or "UnbunkUtilityH3",
                     label         = entry.label,
                     showCheckbox  = entry.showCheckbox,
                     isChecked     = entry.isChecked,
@@ -384,6 +392,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                             originY  = panelOpts.innerOriginY or -8,
                             autoHook = false,
                             LSM      = entry.LSM or LSM,
+                            depth    = depth,   -- a section does NOT deepen the heading level
                         })
                         return sectionSub.height
                     end,
@@ -410,6 +419,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                 local innerW = boxW - 2 * GROUP_SIDEPAD
                 widget = ns.ui.CreateGroupBox({
                     parent  = content,
+                    heading = entry.heading or groupHeading,
                     title   = entry.title or entry.label,
                     width   = boxW,
                     sidePad = GROUP_SIDEPAD,
@@ -425,6 +435,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                             autoHook = false,
                             LSM      = entry.LSM or LSM,
                             gate     = entry.gate,   -- grey the box's controls when its lead checkbox is off
+                            depth    = depth + 1,    -- a nested group is one level deeper (H3)
                         })
                         return groupSub.height
                     end,
@@ -496,6 +507,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                     width      = entry.width,
                     height     = inputH,
                     numeric    = entry.numeric,
+                    allowNegative = entry.allowNegative,
                     min        = entry.min,
                     max        = entry.max,
                     maxLetters = entry.maxLetters,

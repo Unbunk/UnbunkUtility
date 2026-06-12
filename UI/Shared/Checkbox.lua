@@ -37,33 +37,36 @@ function ns.ui.CreateCheckbox(config)
 
     -- ── Box ───────────────────────────────────────────────────────────────────
 
-    local box = CreateFrame("Button", nil, container, "BackdropTemplate")
+    local box = CreateFrame("Button", nil, container)
     box:SetSize(22, 22)
     box:SetPoint("LEFT", container, "LEFT", 0, 0)
-    box:SetBackdrop({
-        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        edgeSize = 8,
-        insets   = { left = 2, right = 2, top = 2, bottom = 2 },
-    })
-    box:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
-    box:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 
-    box:SetScript("OnEnter", function(self)
+    -- Borderless dark square (no edge); the blue/grey indicator square sits on top of it.
+    local boxFill = box:CreateTexture(nil, "BACKGROUND")
+    boxFill:SetAllPoints(box)
+    boxFill:SetColorTexture(0.12, 0.12, 0.12, 0.95)
+
+    local function SetBoxShade(v)
+        boxFill:SetColorTexture(v, v, v, 0.95)
+    end
+
+    box:SetScript("OnEnter", function()
         if IsDisabled() then return end
-        self:SetBackdropBorderColor(0.8, 0.8, 0.8, 1)
+        SetBoxShade(0.22)   -- subtle lighten on hover (no border left to highlight)
     end)
-    box:SetScript("OnLeave", function(self)
+    box:SetScript("OnLeave", function()
         if IsDisabled() then return end
-        self:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+        SetBoxShade(0.12)
     end)
 
     -- ── Check mark ────────────────────────────────────────────────────────────
 
+    -- A small filled square (blue when active, grey when disabled) instead of the old
+    -- yellow check texture. The colour is set per-state in UpdateVisual.
     local checkTex = box:CreateTexture(nil, "OVERLAY")
-    checkTex:SetSize(20, 20)
+    checkTex:SetSize(10, 10)
     checkTex:SetPoint("CENTER", box, "CENTER", 0, 0)
-    checkTex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    checkTex:SetColorTexture(0.20, 0.55, 1.0, 1)
     checkTex:Hide()
 
     -- ── Label ─────────────────────────────────────────────────────────────────
@@ -78,21 +81,24 @@ function ns.ui.CreateCheckbox(config)
 
     local function UpdateVisual()
         local disabled = IsDisabled()
-        -- Disabled always reads as unchecked + greyed (regardless of isChecked) so a
-        -- stored includeInCdm=true never shows ticked while the Cooldown Manager is off.
-        if isChecked and not disabled then
+        -- The square reflects the checked state; blue when active, grey when disabled
+        -- (so a stored includeInCdm=true reads as a greyed square while the Cooldown
+        -- Manager is off, instead of vanishing).
+        if isChecked then
+            if disabled then
+                checkTex:SetColorTexture(0.5, 0.5, 0.5, 1)    -- grey
+            else
+                checkTex:SetColorTexture(0.20, 0.55, 1.0, 1)  -- blue
+            end
             checkTex:Show()
         else
             checkTex:Hide()
         end
         if disabled then
-            box:SetBackdropColor(0.06, 0.06, 0.06, 0.7)
-            box:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.6)
+            SetBoxShade(0.08)
             lbl:SetTextColor(0.5, 0.5, 0.5)
         else
-            local shade = isChecked and 0.2 or 0.1
-            box:SetBackdropColor(shade, shade, shade, 0.9)
-            box:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+            SetBoxShade(0.12)
             lbl:SetTextColor(1, 1, 1)
         end
     end
