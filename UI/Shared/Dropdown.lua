@@ -190,13 +190,14 @@ function ns.ui.CreateDropdown(config)
         if dropFrame:IsShown() then
             dropFrame:Hide()
         else
-            local left   = toggleBtn:GetLeft()
-            local bottom = toggleBtn:GetBottom()
+            -- Anchor the list to the toggle button itself (not a one-shot snapshot of
+            -- its screen position) so it stays glued just below the button. The drop
+            -- frame is still a UIParent child on the TOOLTIP strata, so it renders on
+            -- top and is never clipped by the scroll frame — but because it now tracks
+            -- the button, scrolling the content moves the open list with it instead of
+            -- leaving it stranded where it first opened.
             dropFrame:ClearAllPoints()
-            dropFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT",
-                left,
-                bottom - 2 - UIParent:GetBottom()
-            )
+            dropFrame:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -2)
             dropFrame:SetFrameLevel(1)
             scrollTrack:SetFrameLevel(2)
             scrollThumb:SetFrameLevel(3)
