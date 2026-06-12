@@ -1,6 +1,7 @@
 -- Modules/BResTracker/UI/ConfigWindow.lua
 
 local _, ns = ...
+local L = ns.L
 ns.BResTracker = ns.BResTracker or {}
 local BR = ns.BResTracker
 
@@ -22,332 +23,480 @@ end
 
 local function CreateBResTrackerPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    local menu  -- forward declare so closures can reach menu.refs.pe
 
-    local content = CreateFrame("Frame", nil, parent)
-    content:SetAllPoints(parent)
+    local options = {
+        -- ════════════ General: enable + where it is active ════════════
+        {
+            type  = "group",
+            title = L["General"],
+            -- Disabling the module greys everything in General (instance filter, etc.)
+            -- except the enable checkbox itself, which stays live to re-enable.
+            gate  = { enabled = function() return BR.CfgGet("enabled") ~= false end, master = "enable" },
+            build = function()
+                return {
+                    -- ── Enable checkbox (gate master — stays live) ────────────────────────
+                    {
+                        type   = "checkbox",
+                        ref    = "enable",
+                        label  = L["Enable BRez Tracker"],
+                        height = 28,
+                        get    = function() return BR.CfgGet("enabled") ~= false end,
+                        set    = function(val)
+                            BR.CfgSet("enabled", val)
+                            BR.ApplyVisuals()
+                            if BR.RefreshList then BR.RefreshList() end
+                            if menu then menu.Refresh() end
+                        end,
+                    },
 
-    local GAP = 12
-    local lastFrame = nil
+                    -- ── Test button (below enable; greys with the module when disabled) ───
+                    {
+                        type    = "button",
+                        label   = L["Test"],
+                        width   = 80,
+                        height  = 22,
+                        onClick = function() BR.RunTest(15) end,
+                    },
 
-    local function AddModule(moduleFrame, moduleHeight)
-        moduleFrame:SetWidth(518)
-        if lastFrame then
-            moduleFrame:SetPoint("TOPLEFT", lastFrame, "BOTTOMLEFT", 0, -GAP)
-        else
-            moduleFrame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
-        end
-        lastFrame = moduleFrame
-    end
+                    -- ── Instance filter ───────────────────────────────────────────────────
+                    {
+                        type      = "instanceFilter",
+                        getConfig = function() return BR.CfgGet("instanceFilter") end,
+                        setConfig = function(key, val)
+                            local filter = BR.CfgGet("instanceFilter")
+                            filter[key] = val
+                            BR.CfgSet("instanceFilter", filter)
+                        end,
+                    },
+                }
+            end,
+        },
 
-    -- ── Enable checkbox + Test button ─────────────────────────────────────────
+        -- ════════════ Sound ════════════
+        {
+            type  = "group",
+            title = L["Sound"],
+            enabledBy = function() return BR.CfgGet("enabled") ~= false end,
+            build = function()
+                return {
+                    -- ── Sound on charge regained ──────────────────────────────────────────
+                    {
+                        type      = "sound",
+                        LSM       = LSM,
+                        label     = L["Sound on charge regained"],
+                        getKey    = function() return BR.CfgGet("soundKeyReady") end,
+                        getEnable = function() return BR.CfgGet("soundOnReady") end,
+                        onSelect  = function(key, path)
+                            BR.CfgSet("soundKeyReady", key)
+                            BR.CfgSet("soundPathReady", path)
+                        end,
+                        onToggle  = function(val) BR.CfgSet("soundOnReady", val) end,
+                        onTest    = function() BR.PlaySound() end,
+                    },
 
-    local enableFrame = CreateFrame("Frame", nil, content)
-    enableFrame:SetHeight(28)
-    local enableCb = ns.ui.CreateCheckbox({
-        parent  = enableFrame,
-        label   = "Enable BRez Tracker",
-        checked = BR.CfgGet("enabled") ~= false,
-        onClick = function(val)
-            BR.CfgSet("enabled", val)
-            BR.ApplyVisuals()
-            if BR.RefreshList then BR.RefreshList() end
-        end,
-    })
-    enableCb.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
+                    -- ── Sound on BRes used ────────────────────────────────────────────────
+                    {
+                        type      = "sound",
+                        LSM       = LSM,
+                        label     = L["Sound on BRes used"],
+                        getKey    = function() return BR.CfgGet("soundKeyUsed") end,
+                        getEnable = function() return BR.CfgGet("soundOnUsed") end,
+                        onSelect  = function(key, path)
+                            BR.CfgSet("soundKeyUsed", key)
+                            BR.CfgSet("soundPathUsed", path)
+                        end,
+                        onToggle  = function(val) BR.CfgSet("soundOnUsed", val) end,
+                        onTest    = function() BR.PlaySoundUsed() end,
+                    },
+                }
+            end,
+        },
 
-    local testBtn = ns.ui.CreateButton({
-        parent  = enableFrame,
-        label   = "Test",
-        width   = 80,
-        height  = 22,
-        onClick = function() BR.RunTest(15) end,
-    })
-    testBtn.frame:SetPoint("LEFT", enableCb.frame, "RIGHT", 180, 0)
-    AddModule(enableFrame, 28)
+        -- ════════════ Icon ════════════
+        {
+            type  = "group",
+            title = L["Icon"],
+            enabledBy = function() return BR.CfgGet("enabled") ~= false end,
+            -- Unchecking "Show icon" greys the rest of the Icon box (placement / border /
+            -- timer text) since there is no icon to configure; the checkbox stays live.
+            gate      = { enabled = function() return BR.CfgGet("showIcon") ~= false end, master = "showicon" },
+            build = function()
+                return {
+                    -- ── Show icon checkbox ────────────────────────────────────────────────
+                    {
+                        type   = "checkbox",
+                        ref    = "showicon",
+                        label  = L["Show icon"],
+                        height = 24,
+                        get    = function() return BR.CfgGet("showIcon") ~= false end,
+                        set    = function(val)
+                            BR.CfgSet("showIcon", val)
+                            BR.ApplyVisuals()
+                        end,
+                    },
 
-    -- ── Instance filter ───────────────────────────────────────────────────────
+                    -- ── Placement sub-box: Cooldown Manager slot OR free position. ────────
+                    -- "Include in cdm" toggles which controls show; its set calls
+                    -- menu.Rebuild() so the CDM options swap with the position editor.
+                    {
+                        type  = "group",
+                        title = L["Placement"],
+                        build = function()
+                            return {
+                                -- ── Cooldown Manager integration ──────────────────────────────
+                                { type = "checkbox", label = L["Include in cdm"],
+                                  disabled = function() return not ns.IsCDMEnabled() end,
+                                  get = function() return ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
+                                  set = function(v) BR.CfgSet("includeInCdm", v); BR.ApplySize(); BR.ApplyPosition(); if menu then menu.Rebuild() end end },
+                                { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
+                                  when = function() return ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
+                                  getList = function() return ns.CDMDestList() end,
+                                  getCurrentKey = function() return ns.CDMDestLabel(BR.CfgGet("cdmDest") or "essential") end,
+                                  onSelect = function(label) BR.CfgSet("cdmDest", ns.CDMDestKeyFromLabel(label)); BR.ApplySize(); BR.ApplyPosition(); if menu then menu.Refresh() end end },
+                                { type = "checkbox", label = L["Icon at the end of the row"],
+                                  when = function() return ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
+                                  get = function() return BR.CfgGet("cdmAtEnd") ~= false end,
+                                  set = function(v) BR.CfgSet("cdmAtEnd", v); BR.ApplyPosition(); if menu then menu.Refresh() end end },
+                                { type = "dropdown", label = L["Row"], width = 120, height = 50,
+                                  when = function() return ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
+                                  getList = function() return ns.CDMRowList(BR.CfgGet("cdmDest") or "essential") end,
+                                  getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(BR.CfgGet("cdmDest") or "essential", BR.CfgGet("cdmRow"))) end,
+                                  onSelect = function(label) BR.CfgSet("cdmRow", ns.CDMRowFromLabel(label)); BR.ApplyPosition(); if menu then menu.Refresh() end end },
+                                { type = "reorder", label = L["Move in row"],
+                                  when = function() return ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
+                                  getState = function() return ns.CDMAnchor.GetMoveState(BR.GetFrame()) end,
+                                  onMove = function(dir) ns.CDMAnchor.Move(BR.GetFrame(), dir) end },
 
-    local iF = ns.ui.CreateInstanceFilter({
-        parent    = content,
-        getConfig = function() return BR.CfgGet("instanceFilter") end,
-        setConfig = function(key, val)
-            local filter = BR.CfgGet("instanceFilter")
-            filter[key] = val
-            BR.CfgSet("instanceFilter", filter)
-        end,
-    })
-    AddModule(iF.frame, iF.height)
+                                -- ── Position editor (named ref for the onLock self-refresh) ───────────
+                                {
+                                    type       = "position",
+                                    ref        = "pe",
+                                    when       = function() return not ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
+                                    onBuilt    = function(w) BR.pe = w end,
+                                    label      = L["Icon position (offset from screen center)"],
+                                    getX       = function() return BR.CfgGet("posX") end,
+                                    getY       = function() return BR.CfgGet("posY") end,
+                                    onApply    = function(x, yv)
+                                        if x  then BR.CfgSet("posX", x)  end
+                                        if yv then BR.CfgSet("posY", yv) end
+                                        BR.ApplyPosition()
+                                    end,
+                                    onUnlock   = function() BR.SetUnlocked(true) end,
+                                    onLock     = function()
+                                        BR.SetUnlocked(false)
+                                        if BR.pe then BR.pe.Refresh() end
+                                    end,
+                                    isUnlocked = function() return BR.IsUnlocked() end,
+                                },
+                                -- ── Icon size  W / H  (composite -> custom escape hatch) ──────────────
+                                -- Free mode only. In the CDM the size is automatic.
+                                {
+                                    type   = "custom",
+                                    height = 46,
+                                    when   = function() return not ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
+                                    build  = function(host)
+                                        local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                                        sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                                        sizeLbl:SetText(L["Icon size"])
 
-    -- ── Sound on charge regained ──────────────────────────────────────────────
+                                        local wLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                                        wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
+                                        wLbl:SetText(L["W"])
 
-    local soundResult = ns.ui.CreateSoundPicker(content, LSM, {
-        label          = "Sound on charge regained",
-        getSoundKey    = function() return BR.CfgGet("soundKeyReady") end,
-        getSoundEnable = function() return BR.CfgGet("soundOnReady") end,
-        onSoundSelect  = function(key, path)
-            BR.CfgSet("soundKeyReady", key)
-            BR.CfgSet("soundPathReady", path)
-        end,
-        onEnableToggle = function(val) BR.CfgSet("soundOnReady", val) end,
-        onTest         = function() BR.PlaySound() end,
-    })
-    AddModule(soundResult.frame, soundResult.height)
+                                        local wInput = ns.ui.CreateTextInput({
+                                            parent     = host,
+                                            width      = 46,
+                                            height     = 22,
+                                            numeric    = true,
+                                            min        = 8,
+                                            max        = 512,
+                                            maxLetters = 3,
+                                            text       = tostring(BR.CfgGet("iconWidth") or 45),
+                                            onEnter    = function(val)
+                                                if val and val > 0 then
+                                                    BR.CfgSet("iconWidth", val)
+                                                    BR.ApplySize()
+                                                end
+                                            end,
+                                        })
+                                        wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
 
-    -- ── Sound on BRes used ────────────────────────────────────────────────────
+                                        local hLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                                        hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
+                                        hLbl:SetText(L["H"])
 
-    local soundUsedResult = ns.ui.CreateSoundPicker(content, LSM, {
-        label          = "Sound on BRes used",
-        getSoundKey    = function() return BR.CfgGet("soundKeyUsed") end,
-        getSoundEnable = function() return BR.CfgGet("soundOnUsed") end,
-        onSoundSelect  = function(key, path)
-            BR.CfgSet("soundKeyUsed", key)
-            BR.CfgSet("soundPathUsed", path)
-        end,
-        onEnableToggle = function(val) BR.CfgSet("soundOnUsed", val) end,
-        onTest         = function() BR.PlaySoundUsed() end,
-    })
-    AddModule(soundUsedResult.frame, soundUsedResult.height)
+                                        local hInput = ns.ui.CreateTextInput({
+                                            parent     = host,
+                                            width      = 46,
+                                            height     = 22,
+                                            numeric    = true,
+                                            min        = 8,
+                                            max        = 512,
+                                            maxLetters = 3,
+                                            text       = tostring(BR.CfgGet("iconHeight") or 45),
+                                            onEnter    = function(val)
+                                                if val and val > 0 then
+                                                    BR.CfgSet("iconHeight", val)
+                                                    BR.ApplySize()
+                                                end
+                                            end,
+                                        })
+                                        hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
 
-    -- ── Show icon checkbox ────────────────────────────────────────────────────
+                                        return {
+                                            frame   = host,
+                                            height  = 46,
+                                            Refresh = function()
+                                                wInput.SetText(tostring(BR.CfgGet("iconWidth")  or 45))
+                                                hInput.SetText(tostring(BR.CfgGet("iconHeight") or 45))
+                                            end,
+                                        }
+                                    end,
+                                },
+                            }
+                        end,
+                    },
 
-    local showIconFrame = CreateFrame("Frame", nil, content)
-    showIconFrame:SetHeight(24)
-    local showIconCb = ns.ui.CreateCheckbox({
-        parent  = showIconFrame,
-        label   = "Show icon",
-        checked = BR.CfgGet("showIcon") ~= false,
-        onClick = function(val)
-            BR.CfgSet("showIcon", val)
-            BR.ApplyVisuals()
-        end,
-    })
-    showIconCb.frame:SetPoint("TOPLEFT", showIconFrame, "TOPLEFT", 0, 0)
-    AddModule(showIconFrame, 24)
+                    -- ── Border (sub-box) ──────────────────────────────────────────────────
+                    {
+                        type  = "group",
+                        title = L["Border"],
+                        build = function()
+                            return {
+                                {
+                                    type = "checkbox", label = L["Show border"],
+                                    get = function() return BR.CfgGet("borderEnabled") == true end,
+                                    set = function(v) BR.CfgSet("borderEnabled", v); BR.ApplyBorder(); if menu then menu.Refresh() end end,
+                                },
+                                {
+                                    type = "textEditor", label = L["Border color"],
+                                    enabledBy = function() return BR.CfgGet("borderEnabled") == true end,
+                                    showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                                    getColor = function() return BR.CfgGet("borderColor") end,
+                                    onColorChange = function(r, g, b, a) BR.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); BR.ApplyBorder() end,
+                                },
+                                {
+                                    type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+                                    enabledBy = function() return BR.CfgGet("borderEnabled") == true end,
+                                    get = function() return BR.CfgGet("borderSize") or 1 end,
+                                    set = function(v) if v and v > 0 then BR.CfgSet("borderSize", v); BR.ApplyBorder() end end,
+                                },
+                            }
+                        end,
+                    },
 
-    -- ── Icon size ─────────────────────────────────────────────────────────────
+                    -- ── Timer text (sub-box) ──────────────────────────────────────────────
+                    {
+                        type  = "group",
+                        title = L["Timer text"],
+                        build = function()
+                            return {
+                                {
+                                    type            = "textEditor",
+                                    LSM             = LSM,
+                                    label           = L["Timer text"],
+                                    showLabel       = false,
+                                    showText        = false,
+                                    showFont        = true,
+                                    showSize        = true,
+                                    showColor       = true,
+                                    showOutline     = true,
+                                    getFontKey      = function() return BR.CfgGet("timerFontKey") end,
+                                    getFontPath     = function() return BR.CfgGet("timerFontPath") end,
+                                    getFontSize     = function() return BR.CfgGet("timerFontSize") end,
+                                    getColor        = function() return BR.CfgGet("timerColor") end,
+                                    getOutline      = function() return BR.CfgGet("timerOutline") end,
+                                    onFontChange    = function(key, path)
+                                        BR.CfgSet("timerFontKey", key)
+                                        BR.CfgSet("timerFontPath", path)
+                                        BR.ApplyFont()
+                                    end,
+                                    onSizeChange    = function(size)
+                                        BR.CfgSet("timerFontSize", size)
+                                        BR.ApplyFont()
+                                    end,
+                                    onColorChange   = function(r, g, b, a)
+                                        BR.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
+                                        BR.ApplyFont()
+                                    end,
+                                    onOutlineChange = function(outline)
+                                        BR.CfgSet("timerOutline", outline)
+                                        BR.ApplyFont()
+                                    end,
+                                },
+                            }
+                        end,
+                    },
+                }
+            end,
+        },
 
-    local sizeFrame = CreateFrame("Frame", nil, content)
-    sizeFrame:SetHeight(46)
+        -- ════════════ Player list ════════════
+        -- Top-level group (sibling of Icon): greys when the MODULE is disabled, but is
+        -- intentionally NOT inside the Icon group's "Show icon" gate — the player list is
+        -- unrelated to the icon and must stay configurable while the icon is hidden.
+        {
+            type  = "group",
+            title = L["Player list"],
+            enabledBy = function() return BR.CfgGet("enabled") ~= false end,
+            build = function()
+                return {
+                    {
+                        type   = "checkbox",
+                        label  = L["Enable player list"],
+                        height = 24,
+                        get    = function() return BR.CfgGet("listEnabled") == true end,
+                        set    = function(val)
+                            BR.CfgSet("listEnabled", val)
+                            if BR.RefreshList then BR.RefreshList() end
+                        end,
+                    },
 
-    local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
-    sizeLbl:SetText("Icon size")
+                                -- List side dropdown (Left / Right / Above / Below)
+                                {
+                                    type   = "custom",
+                                    height = 46,
+                                    build  = function(host)
+                                        local listSideLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                                        listSideLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                                        listSideLbl:SetText(L["List position relative to icon"])
+                                        local listSideAnchor = host:CreateFontString(nil, "ARTWORK")
+                                        listSideAnchor:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
+                                        local listSideDD = ns.ui.CreateDropdown({
+                                            parent        = host,
+                                            anchorFrame   = listSideAnchor,
+                                            width         = 120,
+                                            itemHeight    = 20,
+                                            visibleItems  = 4,
+                                            getList       = SideLabels,
+                                            getCurrentKey = function() return SideLabel(BR.CfgGet("listSide")) end,
+                                            onSelect      = function(label)
+                                                BR.CfgSet("listSide", SideKeyFromLabel(label))
+                                                if BR.ApplyListPosition then BR.ApplyListPosition() end
+                                                if BR.RefreshList       then BR.RefreshList()       end
+                                            end,
+                                        })
+                                        listSideDD.selectedText:SetText(SideLabel(BR.CfgGet("listSide")))
+                                        return {
+                                            frame   = host,
+                                            height  = 46,
+                                            Refresh = function()
+                                                listSideDD.selectedText:SetText(SideLabel(BR.CfgGet("listSide")))
+                                            end,
+                                        }
+                                    end,
+                                },
 
-    local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
-    wLbl:SetText("W")
+                                -- Status side dropdown (Left / Right / Above / Below)
+                                {
+                                    type   = "custom",
+                                    height = 46,
+                                    build  = function(host)
+                                        local statusSideLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                                        statusSideLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                                        statusSideLbl:SetText(L["Status icon / timer position relative to name"])
+                                        local statusSideAnchor = host:CreateFontString(nil, "ARTWORK")
+                                        statusSideAnchor:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
+                                        local statusSideDD = ns.ui.CreateDropdown({
+                                            parent        = host,
+                                            anchorFrame   = statusSideAnchor,
+                                            width         = 120,
+                                            itemHeight    = 20,
+                                            visibleItems  = 4,
+                                            getList       = SideLabels,
+                                            getCurrentKey = function() return SideLabel(BR.CfgGet("rowStatusSide")) end,
+                                            onSelect      = function(label)
+                                                BR.CfgSet("rowStatusSide", SideKeyFromLabel(label))
+                                                if BR.RefreshList then BR.RefreshList() end
+                                            end,
+                                        })
+                                        statusSideDD.selectedText:SetText(SideLabel(BR.CfgGet("rowStatusSide")))
+                                        return {
+                                            frame   = host,
+                                            height  = 46,
+                                            Refresh = function()
+                                                statusSideDD.selectedText:SetText(SideLabel(BR.CfgGet("rowStatusSide")))
+                                            end,
+                                        }
+                                    end,
+                                },
 
-    local wInput = ns.ui.CreateTextInput({
-        parent     = sizeFrame,
-        width      = 46,
-        height     = 22,
-        numeric    = true,
-        maxLetters = 3,
-        text       = tostring(BR.CfgGet("iconWidth") or 45),
-        onEnter    = function(val)
-            if val and val > 0 then
-                BR.CfgSet("iconWidth", val)
-                BR.ApplySize()
-            end
-        end,
-    })
-    wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+                                -- Estimated per-player cooldown (seconds) for the list timers. See the
+                                -- listCooldownEstimate note in Config.lua / PlayerList.lua. Kept as a
+                                -- custom block to preserve the exact label(0,0) + input(0,-20) layout
+                                -- (BuildMenu's textinput anchors the box via BOTTOMLEFT,-2 instead).
+                                {
+                                    type   = "custom",
+                                    height = 46,
+                                    build  = function(host)
+                                        local cdLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                                        cdLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                                        cdLbl:SetText(L["Estimated BRes cooldown (seconds)"])
+                                        local cdInput = ns.ui.CreateTextInput({
+                                            parent     = host,
+                                            width      = 60,
+                                            height     = 22,
+                                            numeric    = true,
+                                            min        = 1,
+                                            max        = 3600,
+                                            maxLetters = 4,
+                                            text       = tostring(BR.CfgGet("listCooldownEstimate") or 600),
+                                            onEnter    = function(val)
+                                                if val and val > 0 then
+                                                    BR.CfgSet("listCooldownEstimate", val)
+                                                    if BR.RefreshList then BR.RefreshList() end
+                                                end
+                                            end,
+                                        })
+                                        cdInput.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
+                                        return {
+                                            frame   = host,
+                                            height  = 46,
+                                            Refresh = function()
+                                                cdInput.SetText(tostring(BR.CfgGet("listCooldownEstimate") or 600))
+                                            end,
+                                        }
+                                    end,
+                                },
 
-    local hLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
-    hLbl:SetText("H")
+                                -- Name text editor (font / size / outline; color is class-based)
+                                {
+                                    type            = "textEditor",
+                                    LSM             = LSM,
+                                    label           = L["Player name text"],
+                                    showText        = false,
+                                    showFont        = true,
+                                    showSize        = true,
+                                    showColor       = false,
+                                    showOutline     = true,
+                                    getFontKey      = function() return BR.CfgGet("listFontKey") end,
+                                    getFontPath     = function() return BR.CfgGet("listFontPath") end,
+                                    getFontSize     = function() return BR.CfgGet("listFontSize") end,
+                                    getOutline      = function() return BR.CfgGet("listOutline") end,
+                                    onFontChange    = function(key, path)
+                                        BR.CfgSet("listFontKey", key)
+                                        BR.CfgSet("listFontPath", path)
+                                        if BR.RefreshList then BR.RefreshList() end
+                                    end,
+                                    onSizeChange    = function(size)
+                                        BR.CfgSet("listFontSize", size)
+                                        if BR.RefreshList then BR.RefreshList() end
+                                    end,
+                                    onOutlineChange = function(outline)
+                                        BR.CfgSet("listOutline", outline)
+                                        if BR.RefreshList then BR.RefreshList() end
+                                    end,
+                                },
+                }
+            end,
+        },
+    }
 
-    local hInput = ns.ui.CreateTextInput({
-        parent     = sizeFrame,
-        width      = 46,
-        height     = 22,
-        numeric    = true,
-        maxLetters = 3,
-        text       = tostring(BR.CfgGet("iconHeight") or 45),
-        onEnter    = function(val)
-            if val and val > 0 then
-                BR.CfgSet("iconHeight", val)
-                BR.ApplySize()
-            end
-        end,
-    })
-    hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-
-    AddModule(sizeFrame, 46)
-
-    -- ── Position editor ───────────────────────────────────────────────────────
-
-    BR.pe = ns.ui.CreatePositionEditor(content, {
-        label      = "Icon position (offset from screen center)",
-        getX       = function() return BR.CfgGet("posX") end,
-        getY       = function() return BR.CfgGet("posY") end,
-        onApply    = function(x, yv)
-            if x  then BR.CfgSet("posX", x)  end
-            if yv then BR.CfgSet("posY", yv) end
-            BR.ApplyPosition()
-        end,
-        onUnlock   = function() BR.SetUnlocked(true) end,
-        onLock     = function()
-            BR.SetUnlocked(false)
-            if BR.pe then BR.pe.Refresh() end
-        end,
-        isUnlocked = function() return BR.IsUnlocked() end,
-    })
-    AddModule(BR.pe.frame, BR.pe.height)
-
-    -- ── Player list (optional submodule) ──────────────────────────────────────
-
-    local listHeaderFrame = CreateFrame("Frame", nil, content)
-    listHeaderFrame:SetHeight(20)
-    local listHeaderLbl = listHeaderFrame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    listHeaderLbl:SetPoint("TOPLEFT", listHeaderFrame, "TOPLEFT", 0, 0)
-    listHeaderLbl:SetText("Player list")
-    AddModule(listHeaderFrame, 20)
-
-    local listEnableFrame = CreateFrame("Frame", nil, content)
-    listEnableFrame:SetHeight(24)
-    local listEnableCb = ns.ui.CreateCheckbox({
-        parent  = listEnableFrame,
-        label   = "Enable player list",
-        checked = BR.CfgGet("listEnabled") == true,
-        onClick = function(val)
-            BR.CfgSet("listEnabled", val)
-            if BR.RefreshList then BR.RefreshList() end
-        end,
-    })
-    listEnableCb.frame:SetPoint("TOPLEFT", listEnableFrame, "TOPLEFT", 0, 0)
-    AddModule(listEnableFrame, 24)
-
-    -- List side dropdown (Left / Right / Above / Below)
-    local listSideFrame = CreateFrame("Frame", nil, content)
-    listSideFrame:SetHeight(46)
-    local listSideLbl = listSideFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    listSideLbl:SetPoint("TOPLEFT", listSideFrame, "TOPLEFT", 0, 0)
-    listSideLbl:SetText("List position relative to icon")
-    local listSideAnchor = listSideFrame:CreateFontString(nil, "ARTWORK")
-    listSideAnchor:SetPoint("TOPLEFT", listSideFrame, "TOPLEFT", 0, -20)
-    local listSideDD = ns.ui.CreateDropdown({
-        parent        = listSideFrame,
-        anchorFrame   = listSideAnchor,
-        width         = 120,
-        itemHeight    = 20,
-        visibleItems  = 4,
-        getList       = function() return SIDES end,
-        getCurrentKey = function() return BR.CfgGet("listSide") or "Left" end,
-        onSelect      = function(name)
-            BR.CfgSet("listSide", name)
-            if BR.ApplyListPosition then BR.ApplyListPosition() end
-            if BR.RefreshList       then BR.RefreshList()       end
-        end,
-    })
-    listSideDD.selectedText:SetText(BR.CfgGet("listSide") or "Left")
-    AddModule(listSideFrame, 46)
-
-    -- Status side dropdown (Left / Right / Above / Below)
-    local statusSideFrame = CreateFrame("Frame", nil, content)
-    statusSideFrame:SetHeight(46)
-    local statusSideLbl = statusSideFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    statusSideLbl:SetPoint("TOPLEFT", statusSideFrame, "TOPLEFT", 0, 0)
-    statusSideLbl:SetText("Status icon / timer position relative to name")
-    local statusSideAnchor = statusSideFrame:CreateFontString(nil, "ARTWORK")
-    statusSideAnchor:SetPoint("TOPLEFT", statusSideFrame, "TOPLEFT", 0, -20)
-    local statusSideDD = ns.ui.CreateDropdown({
-        parent        = statusSideFrame,
-        anchorFrame   = statusSideAnchor,
-        width         = 120,
-        itemHeight    = 20,
-        visibleItems  = 4,
-        getList       = function() return SIDES end,
-        getCurrentKey = function() return BR.CfgGet("rowStatusSide") or "Left" end,
-        onSelect      = function(name)
-            BR.CfgSet("rowStatusSide", name)
-            if BR.RefreshList then BR.RefreshList() end
-        end,
-    })
-    statusSideDD.selectedText:SetText(BR.CfgGet("rowStatusSide") or "Left")
-    AddModule(statusSideFrame, 46)
-
-    -- Name text editor (font / size / outline; color is class-based)
-    local nameTextEditor = ns.ui.CreateTextEditor(content, {
-        LSM             = LSM,
-        label           = "Player name text",
-        showText        = false,
-        showFont        = true,
-        showSize        = true,
-        showColor       = false,
-        showOutline     = true,
-        getFontKey      = function() return BR.CfgGet("listFontKey") end,
-        getFontPath     = function() return BR.CfgGet("listFontPath") end,
-        getFontSize     = function() return BR.CfgGet("listFontSize") end,
-        getOutline      = function() return BR.CfgGet("listOutline") end,
-        onFontChange    = function(key, path)
-            BR.CfgSet("listFontKey", key)
-            BR.CfgSet("listFontPath", path)
-            if BR.RefreshList then BR.RefreshList() end
-        end,
-        onSizeChange    = function(size)
-            BR.CfgSet("listFontSize", size)
-            if BR.RefreshList then BR.RefreshList() end
-        end,
-        onOutlineChange = function(outline)
-            BR.CfgSet("listOutline", outline)
-            if BR.RefreshList then BR.RefreshList() end
-        end,
-    })
-    AddModule(nameTextEditor.frame, nameTextEditor.height)
-
-    -- ── Timer text editor ─────────────────────────────────────────────────────
-
-    local te = ns.ui.CreateTextEditor(content, {
-        LSM          = LSM,
-        label        = "Timer text",
-        showText     = false,
-        showFont     = true,
-        showSize     = true,
-        showColor    = true,
-        showOutline  = true,
-        getFontKey   = function() return BR.CfgGet("timerFontKey") end,
-        getFontPath  = function() return BR.CfgGet("timerFontPath") end,
-        getFontSize  = function() return BR.CfgGet("timerFontSize") end,
-        getColor     = function() return BR.CfgGet("timerColor") end,
-        getOutline   = function() return BR.CfgGet("timerOutline") end,
-        onFontChange = function(key, path)
-            BR.CfgSet("timerFontKey", key)
-            BR.CfgSet("timerFontPath", path)
-            BR.ApplyFont()
-        end,
-        onSizeChange = function(size)
-            BR.CfgSet("timerFontSize", size)
-            BR.ApplyFont()
-        end,
-        onColorChange = function(r, g, b, a)
-            BR.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
-            BR.ApplyFont()
-        end,
-        onOutlineChange = function(outline)
-            BR.CfgSet("timerOutline", outline)
-            BR.ApplyFont()
-        end,
-    })
-    AddModule(te.frame, te.height)
-
-    -- ── OnShow refresh ────────────────────────────────────────────────────────
-
-    parent:HookScript("OnShow", function()
-        enableCb.SetChecked(BR.CfgGet("enabled") ~= false)
-        showIconCb.SetChecked(BR.CfgGet("showIcon") ~= false)
-        iF.Refresh()
-        soundResult.Refresh()
-        soundUsedResult.Refresh()
-        wInput.SetText(tostring(BR.CfgGet("iconWidth") or 45))
-        hInput.SetText(tostring(BR.CfgGet("iconHeight") or 45))
-        BR.pe.Refresh()
-        te.Refresh()
-        listEnableCb.SetChecked(BR.CfgGet("listEnabled") == true)
-        listSideDD.selectedText:SetText(BR.CfgGet("listSide") or "Left")
-        statusSideDD.selectedText:SetText(BR.CfgGet("rowStatusSide") or "Left")
-        nameTextEditor.Refresh()
-    end)
+    -- gap=12, width=518, autoHook=true -> OnShow re-sync is generated automatically.
+    menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
+    -- NOTE: no parent:HookScript("OnShow", ...) here anymore — BuildMenu did it.
+    return menu
 end
 
 -- ── Registration ──────────────────────────────────────────────────────────────
@@ -356,6 +505,6 @@ local initBRUI = CreateFrame("Frame")
 initBRUI:RegisterEvent("ADDON_LOADED")
 initBRUI:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    UnbunkUtility.RegisterModule("BRez Tracker", nil, CreateBResTrackerPanel)
+    UnbunkUtility.RegisterModule(L["BRez Tracker"], nil, CreateBResTrackerPanel)
     self:UnregisterEvent("ADDON_LOADED")
 end)

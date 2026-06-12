@@ -21,8 +21,24 @@ local function CreateRacialTrackerPanel(parent)
         {
             type  = "group",
             title = L["General"],
+            -- Disabling the module greys everything in General (instance filter, tracked
+            -- racial display, etc.) except the enable checkbox itself, which stays live.
+            gate  = { enabled = function() return RT.CfgGet("enabled") ~= false end, master = "enable" },
             build = function()
                 return {
+                    -- ── Enable checkbox (gate master — stays live) ────────────────────────
+                    {
+                        type   = "checkbox",
+                        ref    = "enable",
+                        label  = L["Enable Racial Tracker"],
+                        get    = function() return RT.CfgGet("enabled") ~= false end,
+                        set    = function(val)
+                            RT.CfgSet("enabled", val)
+                            RT.ApplyAll()
+                            if menu then menu.Refresh() end
+                        end,
+                    },
+
                     -- ── Test button (toggles Test / Stop Test) ────────────────────────────
                     {
                         type   = "custom",
@@ -44,17 +60,6 @@ local function CreateRacialTrackerPanel(parent)
                             })
                             testBtn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -4)
                             return { frame = host, height = 30, Refresh = RefreshTestBtn }
-                        end,
-                    },
-
-                    -- ── Enable checkbox ───────────────────────────────────────────────────
-                    {
-                        type   = "checkbox",
-                        label  = L["Enable Racial Tracker"],
-                        get    = function() return RT.CfgGet("enabled") ~= false end,
-                        set    = function(val)
-                            RT.CfgSet("enabled", val)
-                            RT.ApplyAll()
                         end,
                     },
 
@@ -115,6 +120,7 @@ local function CreateRacialTrackerPanel(parent)
         {
             type  = "group",
             title = L["Sound"],
+            enabledBy = function() return RT.CfgGet("enabled") ~= false end,
             build = function()
                 return {
                     -- ── Sound on use ──────────────────────────────────────────────────────
@@ -154,16 +160,22 @@ local function CreateRacialTrackerPanel(parent)
         {
             type  = "group",
             title = L["Icon"],
+            enabledBy = function() return RT.CfgGet("enabled") ~= false end,
+            -- Unchecking "Show icon" greys the rest of the Icon box (placement / border /
+            -- timer text) since there is no icon to configure; the checkbox stays live.
+            gate      = { enabled = function() return RT.CfgGet("showIcon") ~= false end, master = "showicon" },
             build = function()
                 return {
-                    -- ── Show icon ─────────────────────────────────────────────────────────
+                    -- ── Show icon (gate master — stays live) ──────────────────────────────
                     {
                         type   = "checkbox",
+                        ref    = "showicon",
                         label  = L["Show icon"],
                         get    = function() return RT.CfgGet("showIcon") ~= false end,
                         set    = function(val)
                             RT.CfgSet("showIcon", val)
                             RT.ApplyAll()
+                            if menu then menu.Refresh() end
                         end,
                     },
 
@@ -302,55 +314,74 @@ local function CreateRacialTrackerPanel(parent)
                         end,
                     },
 
-                    -- ── Border ────────────────────────────────────────────────────────────
+                    -- ── Border (sub-box) ──────────────────────────────────────────────────
                     {
-                        type = "checkbox", label = L["Show border"],
-                        get = function() return RT.CfgGet("borderEnabled") == true end,
-                        set = function(v) RT.CfgSet("borderEnabled", v); RT.ApplyBorder() end,
-                    },
-                    {
-                        type = "textEditor", label = L["Border color"],
-                        showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                        getColor = function() return RT.CfgGet("borderColor") end,
-                        onColorChange = function(r, g, b, a) RT.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); RT.ApplyBorder() end,
-                    },
-                    {
-                        type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-                        get = function() return RT.CfgGet("borderSize") or 1 end,
-                        set = function(v) if v and v > 0 then RT.CfgSet("borderSize", v); RT.ApplyBorder() end end,
+                        type  = "group",
+                        title = L["Border"],
+                        build = function()
+                            return {
+                                {
+                                    type = "checkbox", label = L["Show border"],
+                                    get = function() return RT.CfgGet("borderEnabled") == true end,
+                                    set = function(v) RT.CfgSet("borderEnabled", v); RT.ApplyBorder(); if menu then menu.Refresh() end end,
+                                },
+                                {
+                                    type = "textEditor", label = L["Border color"],
+                                    enabledBy = function() return RT.CfgGet("borderEnabled") == true end,
+                                    showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                                    getColor = function() return RT.CfgGet("borderColor") end,
+                                    onColorChange = function(r, g, b, a) RT.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); RT.ApplyBorder() end,
+                                },
+                                {
+                                    type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+                                    enabledBy = function() return RT.CfgGet("borderEnabled") == true end,
+                                    get = function() return RT.CfgGet("borderSize") or 1 end,
+                                    set = function(v) if v and v > 0 then RT.CfgSet("borderSize", v); RT.ApplyBorder() end end,
+                                },
+                            }
+                        end,
                     },
 
-                    -- ── Timer text ────────────────────────────────────────────────────────
+                    -- ── Timer text (sub-box) ──────────────────────────────────────────────
                     {
-                        type            = "textEditor",
-                        LSM             = LSM,
-                        label           = L["Timer text"],
-                        showText        = false,
-                        showFont        = true,
-                        showSize        = true,
-                        showColor       = true,
-                        showOutline     = true,
-                        getFontKey      = function() return RT.CfgGet("timerFontKey") end,
-                        getFontPath     = function() return RT.CfgGet("timerFontPath") end,
-                        getFontSize     = function() return RT.CfgGet("timerFontSize") end,
-                        getColor        = function() return RT.CfgGet("timerColor") end,
-                        getOutline      = function() return RT.CfgGet("timerOutline") end,
-                        onFontChange    = function(key, path)
-                            RT.CfgSet("timerFontKey", key)
-                            RT.CfgSet("timerFontPath", path)
-                            RT.ApplyTimerVisuals()
-                        end,
-                        onSizeChange    = function(size)
-                            RT.CfgSet("timerFontSize", size)
-                            RT.ApplyTimerVisuals()
-                        end,
-                        onColorChange   = function(r, g, b, a)
-                            RT.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
-                            RT.ApplyTimerVisuals()
-                        end,
-                        onOutlineChange = function(outline)
-                            RT.CfgSet("timerOutline", outline)
-                            RT.ApplyTimerVisuals()
+                        type  = "group",
+                        title = L["Timer text"],
+                        build = function()
+                            return {
+                                {
+                                    type            = "textEditor",
+                                    LSM             = LSM,
+                                    label           = L["Timer text"],
+                                    showLabel       = false,
+                                    showText        = false,
+                                    showFont        = true,
+                                    showSize        = true,
+                                    showColor       = true,
+                                    showOutline     = true,
+                                    getFontKey      = function() return RT.CfgGet("timerFontKey") end,
+                                    getFontPath     = function() return RT.CfgGet("timerFontPath") end,
+                                    getFontSize     = function() return RT.CfgGet("timerFontSize") end,
+                                    getColor        = function() return RT.CfgGet("timerColor") end,
+                                    getOutline      = function() return RT.CfgGet("timerOutline") end,
+                                    onFontChange    = function(key, path)
+                                        RT.CfgSet("timerFontKey", key)
+                                        RT.CfgSet("timerFontPath", path)
+                                        RT.ApplyTimerVisuals()
+                                    end,
+                                    onSizeChange    = function(size)
+                                        RT.CfgSet("timerFontSize", size)
+                                        RT.ApplyTimerVisuals()
+                                    end,
+                                    onColorChange   = function(r, g, b, a)
+                                        RT.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
+                                        RT.ApplyTimerVisuals()
+                                    end,
+                                    onOutlineChange = function(outline)
+                                        RT.CfgSet("timerOutline", outline)
+                                        RT.ApplyTimerVisuals()
+                                    end,
+                                },
+                            }
                         end,
                     },
                 }
