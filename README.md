@@ -1,9 +1,6 @@
 # UnbunkUtility
 
-WoW addon — Personal Utility Addon.
+WoW addon — Combat Utility Addon.
 
 ## Commands
-- `/ub` — Open settings
-- `/ub test` — Test the alert
-- `/ub lock` — Lock alert position after dragging
-- `/ub reset` — Reset alert position
+- `/ubu` — Open settings
