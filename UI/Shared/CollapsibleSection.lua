@@ -108,7 +108,7 @@ function ns.ui.CreateCollapsibleSection(config)
         result.checkbox = checkbox
     end
 
-    local headerLabel = headerBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local headerLabel = headerBtn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH4")
     headerLabel:SetPoint("LEFT", labelAnchor, "RIGHT", 6, 0)
     headerLabel:SetText(label)
 

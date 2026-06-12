@@ -21,7 +21,7 @@ local function CreateProfilesPanel(parent)
 
     local function SetCurrentText(name)
         if currentLbl then
-            currentLbl:SetText(string.format(L["Current profile: |cffffd700%s|r"], name))
+            currentLbl:SetText(string.format(L["Current profile: |cff338cff%s|r"], name))
         end
     end
 
@@ -29,7 +29,7 @@ local function CreateProfilesPanel(parent)
         -- ── Title ─────────────────────────────────────────────────────────────
         {
             type   = "label",
-            font   = "GameFontNormalLarge",
+            font   = "UnbunkUtilityH2",
             height = 20,
             text   = L["Profile Management"],
         },
@@ -41,13 +41,13 @@ local function CreateProfilesPanel(parent)
             build  = function(host)
                 local lbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
                 lbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                lbl:SetText(string.format(L["Current profile: |cffffd700%s|r"], ns.profiles.GetCurrent()))
+                lbl:SetText(string.format(L["Current profile: |cff338cff%s|r"], ns.profiles.GetCurrent()))
                 currentLbl = lbl
                 return {
                     frame   = host,
                     height  = 24,
                     Refresh = function()
-                        lbl:SetText(string.format(L["Current profile: |cffffd700%s|r"], ns.profiles.GetCurrent()))
+                        lbl:SetText(string.format(L["Current profile: |cff338cff%s|r"], ns.profiles.GetCurrent()))
                     end,
                 }
             end,
@@ -58,7 +58,7 @@ local function CreateProfilesPanel(parent)
             type          = "dropdown",
             height        = 50,
             label         = L["Switch profile"],
-            font          = "GameFontNormal",  -- match sibling labels (Create/Delete/…)
+            font          = "UnbunkUtilityH4",  -- match sibling labels (Create/Delete/…)
             labelGap      = 20,                -- original anchored the box to a -20 spacer
             width         = 200,
             itemHeight    = 20,
@@ -84,7 +84,7 @@ local function CreateProfilesPanel(parent)
             type   = "custom",
             height = 50,
             build  = function(host)
-                local createLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                local createLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                 createLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                 createLbl:SetText(L["Create new profile"])
 
@@ -127,7 +127,7 @@ local function CreateProfilesPanel(parent)
             type   = "custom",
             height = 50,
             build  = function(host)
-                local deleteLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                local deleteLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                 deleteLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                 deleteLbl:SetText(L["Delete profile"])
 
@@ -180,7 +180,7 @@ local function CreateProfilesPanel(parent)
             type   = "custom",
             height = 80,
             build  = function(host)
-                local exportLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                local exportLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                 exportLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                 exportLbl:SetText(L["Export current profile"])
 
@@ -213,7 +213,7 @@ local function CreateProfilesPanel(parent)
             type   = "custom",
             height = 80,
             build  = function(host)
-                local importLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                local importLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                 importLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                 importLbl:SetText(L["Import profile (creates a new profile)"])
 
@@ -264,7 +264,7 @@ local function CreateProfilesPanel(parent)
             type   = "custom",
             height = 50,
             build  = function(host)
-                local resetLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                local resetLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                 resetLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                 resetLbl:SetText(L["Reset current profile to defaults"])
 

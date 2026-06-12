@@ -41,7 +41,7 @@ local function EnsureDialog()
     f:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
     f:Hide()
 
-    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    local title = f:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
     title:SetPoint("TOP", f, "TOP", 0, -14)
     f.title = title
 

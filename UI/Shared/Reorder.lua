@@ -28,7 +28,7 @@ function ns.ui.CreateReorder(config)
     local anchorRight = container
     local anchorPoint, gap = "LEFT", 0
     if label then
-        local fs = container:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        local fs = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
         fs:SetPoint("LEFT", container, "LEFT", 0, 0)
         fs:SetText(label)
         anchorRight, anchorPoint, gap = fs, "RIGHT", 10

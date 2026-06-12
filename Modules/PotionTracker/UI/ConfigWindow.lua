@@ -36,7 +36,7 @@ local function BuildPotionSectionOptions(prefix, LSM)
             build  = function(potionFrame)
                 potionFrame:SetHeight(74)
 
-                local potionLbl = potionFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                local potionLbl = potionFrame:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                 potionLbl:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 0, 0)
                 potionLbl:SetText(L["Potion"])
 
@@ -105,7 +105,7 @@ local function BuildPotionSectionOptions(prefix, LSM)
 
                 -- ── Favorite potion picker (curated list) ─────────────────────
 
-                local favLbl = potionFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                local favLbl = potionFrame:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                 favLbl:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 260, 0)
                 favLbl:SetText(L["Favorite potion"])
 
@@ -319,7 +319,7 @@ local function BuildPotionSectionOptions(prefix, LSM)
                                     build  = function(sizeFrame)
                                         sizeFrame:SetHeight(46)
 
-                                        local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                                        local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                                         sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
                                         sizeLbl:SetText(L["Icon size"])
 

@@ -170,7 +170,7 @@ function ns.ui.CreateDropdown(config)
             btn.label:SetText(name)
 
             if name == currentKey then
-                btn.label:SetTextColor(1, 0.82, 0, 1)
+                btn.label:SetTextColor(0.20, 0.55, 1.0, 1)   -- selected item: brand blue
             else
                 btn.label:SetTextColor(1, 1, 1, 1)
             end

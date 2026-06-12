@@ -81,10 +81,10 @@ local function CreateRacialTrackerPanel(parent)
                         type   = "custom",
                         height = 46,
                         build  = function(host)
-                            local lbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                            local lbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                             lbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                             local function SetLbl()
-                                lbl:SetText(string.format(L["Tracked racial: |cffffd700%s|r"], DetectedRacialName()))
+                                lbl:SetText(string.format(L["Tracked racial: |cff338cff%s|r"], DetectedRacialName()))
                             end
                             SetLbl()
 
@@ -262,7 +262,7 @@ local function CreateRacialTrackerPanel(parent)
                                     height = 46,
                                     when   = function() return not ns.CDMIncludedVal(RT.CfgGet("includeInCdm")) end,
                                     build  = function(host)
-                                        local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                                        local sizeLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                                         sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                                         sizeLbl:SetText(L["Icon size"])
 

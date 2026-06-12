@@ -188,7 +188,7 @@ local function CreatePITrackerPanel(parent)
                                     height = 46,
                                     when   = function() return not ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
                                     build  = function(host)
-                                        local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                                        local sizeLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                                         sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                                         sizeLbl:SetText(L["Icon size"])
 
@@ -350,7 +350,7 @@ local function CreatePITrackerPanel(parent)
     local bannerFrame = CreateFrame("Frame", nil, parent)
     bannerFrame:SetAllPoints(parent)
     bannerFrame:SetFrameLevel((parent:GetFrameLevel() or 0) + 1000)
-    local banner = bannerFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    local banner = bannerFrame:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
     banner:SetPoint("CENTER", bannerFrame, "CENTER", 0, 100)
     banner:SetJustifyH("CENTER")
     banner:SetText("|cffff4444Feature unavailable since Midnight changes.\nWorking on it...|r")

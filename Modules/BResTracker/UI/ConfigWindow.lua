@@ -198,7 +198,7 @@ local function CreateBResTrackerPanel(parent)
                                     height = 46,
                                     when   = function() return not ns.CDMIncludedVal(BR.CfgGet("includeInCdm")) end,
                                     build  = function(host)
-                                        local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                                        local sizeLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                                         sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                                         sizeLbl:SetText(L["Icon size"])
 
@@ -360,7 +360,7 @@ local function CreateBResTrackerPanel(parent)
                                     type   = "custom",
                                     height = 46,
                                     build  = function(host)
-                                        local listSideLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                                        local listSideLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                                         listSideLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                                         listSideLbl:SetText(L["List position relative to icon"])
                                         local listSideAnchor = host:CreateFontString(nil, "ARTWORK")
@@ -395,7 +395,7 @@ local function CreateBResTrackerPanel(parent)
                                     type   = "custom",
                                     height = 46,
                                     build  = function(host)
-                                        local statusSideLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                                        local statusSideLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                                         statusSideLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                                         statusSideLbl:SetText(L["Status icon / timer position relative to name"])
                                         local statusSideAnchor = host:CreateFontString(nil, "ARTWORK")
@@ -432,7 +432,7 @@ local function CreateBResTrackerPanel(parent)
                                     type   = "custom",
                                     height = 46,
                                     build  = function(host)
-                                        local cdLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                                        local cdLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                                         cdLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                                         cdLbl:SetText(L["Estimated BRes cooldown (seconds)"])
                                         local cdInput = ns.ui.CreateTextInput({

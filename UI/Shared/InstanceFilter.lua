@@ -26,7 +26,7 @@ function ns.ui.CreateInstanceFilter(config)
     local container = CreateFrame("Frame", nil, parent)
     container:SetWidth(518)
 
-    local sectionLabel = container:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local sectionLabel = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
     sectionLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
     sectionLabel:SetText(L["Active in"])
     height = height + 20
