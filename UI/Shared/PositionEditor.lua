@@ -22,7 +22,7 @@ function ns.ui.CreatePositionEditor(parent, config)
 
     -- ── Label ─────────────────────────────────────────────────────────────────
 
-    local sectionLabel = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
+    local sectionLabel = container:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     sectionLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
     sectionLabel:SetText(label)
     height = height + 20

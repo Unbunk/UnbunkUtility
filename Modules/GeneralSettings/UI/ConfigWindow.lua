@@ -59,6 +59,8 @@ local function CreatePlayerSpeedPanel(parent)
     local options = {
         H2(L["Player speed display"]),
 
+        { type = "group", title = L["Speed display"], build = function() return {
+
         {
             type   = "checkbox",
             label  = L["Show player movement speed on screen"],
@@ -70,8 +72,10 @@ local function CreatePlayerSpeedPanel(parent)
             end,
         },
 
+        -- Greyed hint: the colour is speed-driven, not user-picked.
         { type = "label", text = L["|cffaaaaaaText colour changes with speed.|r"] },
 
+        -- Font / size / outline (colour omitted — it follows the speed tier).
         {
             type        = "textEditor",
             LSM         = LSM,
@@ -119,6 +123,8 @@ local function CreatePlayerSpeedPanel(parent)
             end,
             isUnlocked = function() return SD.IsUnlocked() end,
         },
+
+        } end },
     }
     return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
 end
@@ -129,6 +135,7 @@ local function CreateMultiAlertPanel(parent)
     local options = {
         H2(L["Multi-alert / anti-spam"]),
 
+        -- Combo sounds
         {
             type  = "group",
             title = L["Multi-alert combo sounds"],
@@ -170,6 +177,7 @@ local function CreateMultiAlertPanel(parent)
             end,
         },
 
+        -- Death-alert anti-spam
         {
             type  = "group",
             title = L["Death alert anti-spam"],
@@ -231,6 +239,7 @@ local function CreateMultiAlertPanel(parent)
             end,
         },
 
+        -- Boss reset sound
         {
             type  = "group",
             title = L["Boss reset sound"],
@@ -261,6 +270,9 @@ local function CreateBelowPlayerPanel(parent)
     local options = {
         H2(L["Below player frame"]),
 
+        { type = "group", title = L["Cooldown Manager row"], build = function() return {
+
+        -- Icon size (W / H)
         {
             type   = "custom",
             height = 46,
@@ -315,6 +327,7 @@ local function CreateBelowPlayerPanel(parent)
             end,
         },
 
+        -- Manual offset from the PlayerFrame bottom-left corner.
         {
             type   = "custom",
             height = 46,
@@ -370,6 +383,7 @@ local function CreateBelowPlayerPanel(parent)
             end,
         },
 
+        -- Unlock to drag the row to a custom spot.
         {
             type   = "custom",
             height = 28,
@@ -391,6 +405,8 @@ local function CreateBelowPlayerPanel(parent)
                 return { frame = host, height = 28, Refresh = Refresh }
             end,
         },
+
+        } end },
     }
     return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
 end

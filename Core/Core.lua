@@ -98,7 +98,9 @@ local function BuildNavTree()
 end
 local navTree
 
--- ── Content height measurement ─────────────────────────────────────────────────
+-- ── Content height measurement (unchanged) ─────────────────────────────────────
+-- Compute the actual vertical extent of a panel by the bottom edge of its deepest
+-- element, so contentArea fits the active panel instead of a fixed ceiling.
 local function ComputeModuleHeight(modFrame)
     local pTop = modFrame:GetTop()
     if not pTop then return nil end
@@ -172,8 +174,8 @@ local function ShowSubTab(name)
 
     local p = panels[name]
     if not p then
-        -- Registered panel missing (placeholder sub-tabs like Combat settings / Debug):
-        -- show a tidy "empty" page so the sub-tab is still selectable.
+        -- Registered panel missing (module not loaded): show a one-off placeholder
+        -- so the sub-tab is still selectable instead of blanking the window.
         p = { name = name }
         panels[name] = p
         p.createFn = function(parent)
@@ -203,7 +205,8 @@ local function ShowSubTab(name)
     HighlightMenu()
 end
 
--- First (default) panel of a main tab — the one shown when its main tab is clicked.
+-- First (default) panel name of a main tab — the one shown when its main tab is
+-- clicked. Recurses into the first category if the tab leads with one.
 local function FirstPanelOf(tab)
     if not tab then return nil end
     for _, item in ipairs(tab.subs) do
@@ -217,9 +220,9 @@ local function FirstPanelOf(tab)
 end
 
 -- ── Left sub-tab menu ──────────────────────────────────────────────────────────
-local MENU_W  = 150
-local ROW_H   = 24
-local ROW_GAP = 2
+local MENU_W   = 150
+local ROW_H    = 24
+local ROW_GAP  = 2
 
 local function LayoutLeftMenu()
     local y = 0
@@ -239,7 +242,7 @@ end
 
 local function MakeRow()
     -- Fully transparent (no border, no background): selection + hover are shown by
-    -- the label colour alone (active rows also get a left accent bar).
+    -- the label colour alone.
     local btn = CreateFrame("Button", nil, leftMenu)
     btn:SetHeight(ROW_H)
     return btn
@@ -261,7 +264,7 @@ local function MakeSubRow(panelName, catName)
     btn.accent = accent
 
     local lbl = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    lbl:SetPoint("LEFT", btn, "LEFT", catName and 34 or 20, 0)   -- deeper indent under a category
+    lbl:SetPoint("LEFT", btn, "LEFT", catName and 34 or 20, 0)
     lbl:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
     lbl:SetJustifyH("LEFT")
     lbl:SetText(panelName)
@@ -508,7 +511,7 @@ local function CreateMainWindow()
 
     contentArea = CreateFrame("Frame", nil, scrollFrame)
     local w = scrollFrame:GetWidth()
-    if not w or w <= 0 then w = 540 end
+    if not w or w <= 0 then w = 560 end
     contentArea:SetWidth(w)
     contentArea:SetHeight(1000)
     scrollFrame:SetScrollChild(contentArea)

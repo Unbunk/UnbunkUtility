@@ -10,6 +10,8 @@ local function CreateHealerRangePanel(parent)
     local menu  -- forward declare so the enable set closure can reach menu.Refresh()
 
     local options = {
+        { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["Healer Range"] },
+
         -- ════════════ General: enable + probe status + test + where active ════════════
         {
             type  = "group",
@@ -51,11 +53,7 @@ local function CreateHealerRangePanel(parent)
                                     probeMsg:SetText(L["|cff00ff00Combat range detection available. Note: Evoker healers are ignored unless other healers are present in the group.|r"])
                                 end
                             end
-
-                            -- Show the probe status immediately at build, not only when
-                            -- the module is toggled (otherwise the line stays blank until
-                            -- the first enable/disable).
-                            RefreshProbeStatus()
+                            RefreshProbeStatus()   -- set the text now; don't wait for the first menu.Refresh()
 
                             return {
                                 frame   = host,

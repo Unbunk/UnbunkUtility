@@ -17,6 +17,8 @@ local function CreateRacialTrackerPanel(parent)
     local menu  -- forward declare so closures can reach menu.Rebuild / menu.refs.pe
 
     local options = {
+        { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["Racial Tracker"] },
+
         -- ════════════ General: enable + where it is active ════════════
         {
             type  = "group",
