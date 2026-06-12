@@ -151,7 +151,7 @@ local function CreatePotionSection(parent, prefix)
     favoriteDD.selectedText:SetText(FavoriteDisplay())
 
     -- Favorite enable checkbox, sitting below the dropdown.
-    local favCb = Unbunk_CreateCheckbox({
+    local favCb = ns.ui.CreateCheckbox({
         parent  = potionFrame,
         label   = "Use favorite when in bag",
         checked = GetCfg("favoriteEnabled") == true,
@@ -200,7 +200,7 @@ local function CreatePotionSection(parent, prefix)
 
     local showIconFrame = CreateFrame("Frame", nil, parent)
     showIconFrame:SetHeight(24)
-    local showIconCb = Unbunk_CreateCheckbox({
+    local showIconCb = ns.ui.CreateCheckbox({
         parent  = showIconFrame,
         label   = "Show icon",
         checked = GetCfg("showIcon") ~= false,
@@ -226,7 +226,7 @@ local function CreatePotionSection(parent, prefix)
     wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
     wLbl:SetText("W")
 
-    local wInput = Unbunk_CreateTextInput({
+    local wInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
@@ -246,7 +246,7 @@ local function CreatePotionSection(parent, prefix)
     hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
     hLbl:SetText("H")
 
-    local hInput = Unbunk_CreateTextInput({
+    local hInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
@@ -329,7 +329,7 @@ local function CreatePotionSection(parent, prefix)
 
     local showStackFrame = CreateFrame("Frame", nil, parent)
     showStackFrame:SetHeight(24)
-    local showStackCb = Unbunk_CreateCheckbox({
+    local showStackCb = ns.ui.CreateCheckbox({
         parent  = showStackFrame,
         label   = "Show stack count below icon",
         checked = GetCfg("showStack") ~= false,
@@ -422,7 +422,7 @@ local function CreatePotionTrackerPanel(parent)
 
     local enableFrame = CreateFrame("Frame", nil, content)
     enableFrame:SetHeight(24)
-    local enableCb = Unbunk_CreateCheckbox({
+    local enableCb = ns.ui.CreateCheckbox({
         parent  = enableFrame,
         label   = "Enable Potion Tracker",
         checked = PT.CfgGet("enabled") ~= false,
@@ -436,7 +436,7 @@ local function CreatePotionTrackerPanel(parent)
 
     -- ── Instance filter ───────────────────────────────────────────────────────
 
-    local iF = Unbunk_CreateInstanceFilter({
+    local iF = ns.ui.CreateInstanceFilter({
         parent    = content,
         getConfig = function() return PT.CfgGet("instanceFilter") end,
         setConfig = function(key, val)
@@ -449,7 +449,7 @@ local function CreatePotionTrackerPanel(parent)
 
     -- ── Health potion section ─────────────────────────────────────────────────
 
-    local healthCS = Unbunk_CreateCollapsibleSection({
+    local healthCS = ns.ui.CreateCollapsibleSection({
         parent        = content,
         label         = "Health Potion",
         isChecked     = function() return PT.CfgGet("health") and PT.CfgGet("health").enabled end,
@@ -469,7 +469,7 @@ local function CreatePotionTrackerPanel(parent)
 
     -- ── Combat potion section ─────────────────────────────────────────────────
 
-    local combatCS = Unbunk_CreateCollapsibleSection({
+    local combatCS = ns.ui.CreateCollapsibleSection({
         parent        = content,
         label         = "Combat Potion",
         isChecked     = function() return PT.CfgGet("combat") and PT.CfgGet("combat").enabled end,

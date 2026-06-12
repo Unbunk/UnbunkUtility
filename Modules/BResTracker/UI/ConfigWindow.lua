@@ -43,7 +43,7 @@ local function CreateBResTrackerPanel(parent)
 
     local enableFrame = CreateFrame("Frame", nil, content)
     enableFrame:SetHeight(28)
-    local enableCb = Unbunk_CreateCheckbox({
+    local enableCb = ns.ui.CreateCheckbox({
         parent  = enableFrame,
         label   = "Enable BRez Tracker",
         checked = BR.CfgGet("enabled") ~= false,
@@ -55,7 +55,7 @@ local function CreateBResTrackerPanel(parent)
     })
     enableCb.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
 
-    local testBtn = Unbunk_CreateButton({
+    local testBtn = ns.ui.CreateButton({
         parent  = enableFrame,
         label   = "Test",
         width   = 80,
@@ -67,7 +67,7 @@ local function CreateBResTrackerPanel(parent)
 
     -- ── Instance filter ───────────────────────────────────────────────────────
 
-    local iF = Unbunk_CreateInstanceFilter({
+    local iF = ns.ui.CreateInstanceFilter({
         parent    = content,
         getConfig = function() return BR.CfgGet("instanceFilter") end,
         setConfig = function(key, val)
@@ -112,7 +112,7 @@ local function CreateBResTrackerPanel(parent)
 
     local showIconFrame = CreateFrame("Frame", nil, content)
     showIconFrame:SetHeight(24)
-    local showIconCb = Unbunk_CreateCheckbox({
+    local showIconCb = ns.ui.CreateCheckbox({
         parent  = showIconFrame,
         label   = "Show icon",
         checked = BR.CfgGet("showIcon") ~= false,
@@ -137,7 +137,7 @@ local function CreateBResTrackerPanel(parent)
     wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
     wLbl:SetText("W")
 
-    local wInput = Unbunk_CreateTextInput({
+    local wInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
@@ -157,7 +157,7 @@ local function CreateBResTrackerPanel(parent)
     hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
     hLbl:SetText("H")
 
-    local hInput = Unbunk_CreateTextInput({
+    local hInput = ns.ui.CreateTextInput({
         parent     = sizeFrame,
         width      = 46,
         height     = 22,
@@ -206,7 +206,7 @@ local function CreateBResTrackerPanel(parent)
 
     local listEnableFrame = CreateFrame("Frame", nil, content)
     listEnableFrame:SetHeight(24)
-    local listEnableCb = Unbunk_CreateCheckbox({
+    local listEnableCb = ns.ui.CreateCheckbox({
         parent  = listEnableFrame,
         label   = "Enable player list",
         checked = BR.CfgGet("listEnabled") == true,
