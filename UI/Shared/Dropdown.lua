@@ -122,6 +122,11 @@ function ns.ui.CreateDropdown(config)
 
     local buttons = {}
 
+    -- Open/close state + helpers. Forward-declared so the per-item OnClick created
+    -- inside RefreshList (below) can call CloseDrop.
+    local isOpen = false
+    local OpenDrop, CloseDrop
+
     local function RefreshList()
         local list       = getList()
         local currentKey = getCurrentKey()
@@ -157,7 +162,7 @@ function ns.ui.CreateDropdown(config)
                 btn:SetScript("OnClick", function(self)
                     onSelect(self.name)
                     selectedText:SetText(self.name)
-                    dropFrame:Hide()
+                    CloseDrop()
                     RefreshList()
                 end)
 
@@ -184,48 +189,93 @@ function ns.ui.CreateDropdown(config)
         UpdateScrollBar()
     end
 
+    -- ── Viewport tracking ──────────────────────────────────────────────────────
+    -- The open list floats on the TOOLTIP strata (a UIParent child), so it is never
+    -- clipped by the config window's scroll frame. Watch its button: hide the list
+    -- when the button is scrolled out of the scroll viewport (so it doesn't spill
+    -- over the tabs / header), and show it again when the button scrolls back in —
+    -- so the list comes and goes with its row, like the rest of the panel.
+    local function ButtonInViewport()
+        local vp = toggleBtn:GetParent()
+        while vp and vp.GetObjectType and vp:GetObjectType() ~= "ScrollFrame" do
+            vp = vp:GetParent()
+        end
+        if not vp then return true end   -- not inside a scroll frame: never auto-hide
+        local bt, bb = toggleBtn:GetTop(), toggleBtn:GetBottom()
+        local vt, vb = vp:GetTop(), vp:GetBottom()
+        if not (bt and bb and vt and vb) then return true end
+        return bb < vt and bt > vb       -- button still overlaps the viewport
+    end
+
+    local function ShowDrop()
+        dropFrame:Show()
+        dropFrame:EnableMouse(true)
+        scrollFrame:EnableMouse(true)
+        scrollChild:EnableMouse(true)
+        UpdateScrollBar()
+    end
+
+    local function UpdateDropVisibility()
+        if not isOpen then return end
+        if ButtonInViewport() then
+            if not dropFrame:IsShown() then ShowDrop() end
+        elseif dropFrame:IsShown() then
+            dropFrame:Hide()
+        end
+    end
+
+    -- Driven off the toggle button (which keeps running OnUpdate even while clipped,
+    -- unlike the hidden drop frame), throttled to ~30 Hz.
+    local driveAccum = 0
+    local function DriveOnUpdate(_, elapsed)
+        driveAccum = driveAccum + elapsed
+        if driveAccum < 0.03 then return end
+        driveAccum = 0
+        UpdateDropVisibility()
+    end
+
     -- ── Toggle logic ──────────────────────────────────────────────────────────
+    function OpenDrop()
+        isOpen = true
+        -- Anchor the list to the toggle button itself (not a one-shot snapshot of its
+        -- screen position) so it stays glued just below the button and travels with
+        -- the content on scroll.
+        dropFrame:ClearAllPoints()
+        dropFrame:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -2)
+        dropFrame:SetFrameLevel(1)
+        scrollTrack:SetFrameLevel(2)
+        scrollThumb:SetFrameLevel(3)
+        RefreshList()
+        ShowDrop()
+        driveAccum = 0
+        toggleBtn:SetScript("OnUpdate", DriveOnUpdate)
+
+        -- Scroll to the current selection. Deferred one frame so the ScrollFrame has
+        -- had a layout pass and GetVerticalScrollRange returns the real range.
+        C_Timer.After(0, function()
+            if not isOpen then return end
+            local list       = getList()
+            local currentKey = getCurrentKey()
+            for i, name in ipairs(list) do
+                if name == currentKey then
+                    local maxScroll = scrollFrame:GetVerticalScrollRange()
+                    local target    = math.max(0, math.min(maxScroll, (i - 1) * itemHeight))
+                    scrollFrame:SetVerticalScroll(target)
+                    UpdateScrollBar()
+                    break
+                end
+            end
+        end)
+    end
+
+    function CloseDrop()
+        isOpen = false
+        toggleBtn:SetScript("OnUpdate", nil)
+        dropFrame:Hide()
+    end
 
     toggleBtn:SetScript("OnClick", function()
-        if dropFrame:IsShown() then
-            dropFrame:Hide()
-        else
-            -- Anchor the list to the toggle button itself (not a one-shot snapshot of
-            -- its screen position) so it stays glued just below the button. The drop
-            -- frame is still a UIParent child on the TOOLTIP strata, so it renders on
-            -- top and is never clipped by the scroll frame — but because it now tracks
-            -- the button, scrolling the content moves the open list with it instead of
-            -- leaving it stranded where it first opened.
-            dropFrame:ClearAllPoints()
-            dropFrame:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -2)
-            dropFrame:SetFrameLevel(1)
-            scrollTrack:SetFrameLevel(2)
-            scrollThumb:SetFrameLevel(3)
-            RefreshList()
-            dropFrame:Show()
-            dropFrame:EnableMouse(true)
-            scrollFrame:EnableMouse(true)
-            scrollChild:EnableMouse(true)
-
-            -- Scroll to the current selection. Deferred one frame so the
-            -- ScrollFrame has had a layout pass and GetVerticalScrollRange
-            -- returns the real range (it is still 0 in the same frame the
-            -- scrollChild height changes / the frame is first shown).
-            C_Timer.After(0, function()
-                if not dropFrame:IsShown() then return end
-                local list       = getList()
-                local currentKey = getCurrentKey()
-                for i, name in ipairs(list) do
-                    if name == currentKey then
-                        local maxScroll = scrollFrame:GetVerticalScrollRange()
-                        local target    = math.max(0, math.min(maxScroll, (i - 1) * itemHeight))
-                        scrollFrame:SetVerticalScroll(target)
-                        UpdateScrollBar()
-                        break
-                    end
-                end
-            end)
-        end
+        if isOpen then CloseDrop() else OpenDrop() end
     end)
 
     dropFrame:SetScript("OnHide", function()
@@ -236,7 +286,7 @@ function ns.ui.CreateDropdown(config)
     end)
 
     parent:HookScript("OnHide", function()
-        dropFrame:Hide()
+        CloseDrop()
     end)
 
     result.RefreshList = RefreshList
