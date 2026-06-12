@@ -80,7 +80,7 @@ local function CreateBResTrackerPanel(parent)
 
     -- ── Sound on charge regained ──────────────────────────────────────────────
 
-    local soundResult = HealerRange_CreateSoundPicker(content, LSM, {
+    local soundResult = ns.ui.CreateSoundPicker(content, LSM, {
         label          = "Sound on charge regained",
         getSoundKey    = function() return BR.CfgGet("soundKeyReady") end,
         getSoundEnable = function() return BR.CfgGet("soundOnReady") end,
@@ -95,7 +95,7 @@ local function CreateBResTrackerPanel(parent)
 
     -- ── Sound on BRes used ────────────────────────────────────────────────────
 
-    local soundUsedResult = HealerRange_CreateSoundPicker(content, LSM, {
+    local soundUsedResult = ns.ui.CreateSoundPicker(content, LSM, {
         label          = "Sound on BRes used",
         getSoundKey    = function() return BR.CfgGet("soundKeyUsed") end,
         getSoundEnable = function() return BR.CfgGet("soundOnUsed") end,
@@ -177,7 +177,7 @@ local function CreateBResTrackerPanel(parent)
 
     -- ── Position editor ───────────────────────────────────────────────────────
 
-    BR.pe = HealerRange_CreatePositionEditor(content, {
+    BR.pe = ns.ui.CreatePositionEditor(content, {
         label      = "Icon position (offset from screen center)",
         getX       = function() return BR.CfgGet("posX") end,
         getY       = function() return BR.CfgGet("posY") end,
@@ -226,7 +226,7 @@ local function CreateBResTrackerPanel(parent)
     listSideLbl:SetText("List position relative to icon")
     local listSideAnchor = listSideFrame:CreateFontString(nil, "ARTWORK")
     listSideAnchor:SetPoint("TOPLEFT", listSideFrame, "TOPLEFT", 0, -20)
-    local listSideDD = HealerRange_CreateDropdown({
+    local listSideDD = ns.ui.CreateDropdown({
         parent        = listSideFrame,
         anchorFrame   = listSideAnchor,
         width         = 120,
@@ -251,7 +251,7 @@ local function CreateBResTrackerPanel(parent)
     statusSideLbl:SetText("Status icon / timer position relative to name")
     local statusSideAnchor = statusSideFrame:CreateFontString(nil, "ARTWORK")
     statusSideAnchor:SetPoint("TOPLEFT", statusSideFrame, "TOPLEFT", 0, -20)
-    local statusSideDD = HealerRange_CreateDropdown({
+    local statusSideDD = ns.ui.CreateDropdown({
         parent        = statusSideFrame,
         anchorFrame   = statusSideAnchor,
         width         = 120,
@@ -268,7 +268,7 @@ local function CreateBResTrackerPanel(parent)
     AddModule(statusSideFrame, 46)
 
     -- Name text editor (font / size / outline; color is class-based)
-    local nameTextEditor = HealerRange_CreateTextEditor(content, {
+    local nameTextEditor = ns.ui.CreateTextEditor(content, {
         LSM             = LSM,
         label           = "Player name text",
         showText        = false,
@@ -298,7 +298,7 @@ local function CreateBResTrackerPanel(parent)
 
     -- ── Timer text editor ─────────────────────────────────────────────────────
 
-    local te = HealerRange_CreateTextEditor(content, {
+    local te = ns.ui.CreateTextEditor(content, {
         LSM          = LSM,
         label        = "Timer text",
         showText     = false,
