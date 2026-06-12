@@ -70,7 +70,7 @@ function ns.ui.CreateTextEditor(parent, config)
     -- ── Section label ─────────────────────────────────────────────────────────
 
     if showLabel then
-        local sectionLabel = container:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        local sectionLabel = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
         sectionLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
         sectionLabel:SetText(label)
         height = height + 20

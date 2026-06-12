@@ -21,6 +21,7 @@ ns.ui = ns.ui or {}
 
 function ns.ui.CreateCollapsibleSection(config)
     local parent        = config.parent
+    local heading       = config.heading or "UnbunkUtilityH2"   -- header title tier (default H2)
     local label         = config.label or L["Section"]
     local showCheckbox  = config.showCheckbox ~= false
     local isChecked     = config.isChecked
@@ -46,29 +47,39 @@ function ns.ui.CreateCollapsibleSection(config)
 
     -- ── Header button ─────────────────────────────────────────────────────────
 
-    local headerBtn = CreateFrame("Button", nil, container, "BackdropTemplate")
+    -- One bordered box drawn around the WHOLE section, identical to CreateGroupBox,
+    -- so a per-item section reads the same as the other group cadres (replacing the
+    -- old separate header-bar border + 1px sharp body edges). It sits behind the
+    -- clickable header row and the content.
+    local box = CreateFrame("Frame", nil, container, "BackdropTemplate")
+    box:SetAllPoints(container)
+    box:SetBackdrop({
+        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
+        edgeFile = "Interface/Buttons/WHITE8X8",
+        edgeSize = 1,
+        insets   = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    box:SetBackdropColor(0.10, 0.10, 0.10, 0.5)
+    box:SetBackdropBorderColor(0.45, 0.45, 0.45, 1)
+    result.box = box
+
+    -- Transparent, clickable header row; the box above draws the frame.
+    local headerBtn = CreateFrame("Button", nil, container)
     headerBtn:SetHeight(HEADER_HEIGHT)
     headerBtn:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
     headerBtn:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, 0)
-    headerBtn:SetBackdrop({
-        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        edgeSize = 8,
-        insets   = { left = 2, right = 2, top = 2, bottom = 2 },
-    })
-    headerBtn:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
-    headerBtn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 
-    headerBtn:SetScript("OnEnter", function(self)
-        self:SetBackdropBorderColor(0.7, 0.7, 0.7, 1)
+    -- Hover lightens the box border (no separate header border anymore).
+    headerBtn:SetScript("OnEnter", function()
+        box:SetBackdropBorderColor(0.7, 0.7, 0.7, 1)
     end)
-    headerBtn:SetScript("OnLeave", function(self)
-        self:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+    headerBtn:SetScript("OnLeave", function()
+        box:SetBackdropBorderColor(0.45, 0.45, 0.45, 1)
     end)
 
     -- Arrow
     local arrow = headerBtn:CreateTexture(nil, "OVERLAY")
-    arrow:SetSize(12, 12)
+    arrow:SetSize(8, 8)
     arrow:SetPoint("LEFT", headerBtn, "LEFT", 8, 0)
     if UNBUNK_ICON_DROPDOWN_ARROW then
         arrow:SetTexture(UNBUNK_ICON_DROPDOWN_ARROW)
@@ -90,43 +101,26 @@ function ns.ui.CreateCollapsibleSection(config)
         })
         checkbox.frame:SetPoint("LEFT", arrow, "RIGHT", 6, 0)
         checkbox.frame:SetHeight(20)
+        -- Shrink the (label-less) checkbox container to just its box, so the section
+        -- title sits right beside the checkbox instead of ~300px to its right.
+        checkbox.frame:SetWidth(22)
         labelAnchor = checkbox.frame
         result.checkbox = checkbox
     end
 
-    local headerLabel = headerBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local headerLabel = headerBtn:CreateFontString(nil, "OVERLAY", heading)
     headerLabel:SetPoint("LEFT", labelAnchor, "RIGHT", 6, 0)
     headerLabel:SetText(label)
 
     -- ── Content frame ─────────────────────────────────────────────────────────
 
-    -- Bordered content box: when expanded the whole section reads as a framed
-    -- block (a header bar + a bordered body), not just a header. The nested
-    -- BuildMenu lays its content at originX +8 / originY -8 inside this frame, so
-    -- the border frames it with even margins.
-    -- Flush against the header (no gap) so the collapse bar + its bordered body read
-    -- as one connected, foldable block. The body is drawn with a 3-sided border
-    -- (left / right / bottom, OPEN at the top) so it doesn't paint a redundant top
-    -- edge under the header — the header bar visually closes it off.
-    local contentFrame = CreateFrame("Frame", nil, container, "BackdropTemplate")
+    -- Transparent host below the header; the surrounding box (created above) draws
+    -- the border + background, so the section is framed exactly like a group cadre.
+    -- Anchored flush under the header and full-width: the nested BuildMenu insets
+    -- its content via originX +8 / originY -8, so content positioning is unchanged.
+    local contentFrame = CreateFrame("Frame", nil, container)
     contentFrame:SetPoint("TOPLEFT", headerBtn, "BOTTOMLEFT", 0, 0)
     contentFrame:SetPoint("TOPRIGHT", headerBtn, "BOTTOMRIGHT", 0, 0)
-    contentFrame:SetBackdrop({
-        bgFile = "Interface/Tooltips/UI-Tooltip-Background",
-        insets = { left = 1, right = 1, top = 1, bottom = 1 },
-    })
-    contentFrame:SetBackdropColor(0.10, 0.10, 0.10, 0.5)
-
-    -- Manual left / right / bottom edges (no top), so the box opens upward into the
-    -- header bar instead of doubling its bottom border.
-    local function ContentEdge()
-        local t = contentFrame:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(0.45, 0.45, 0.45, 1)
-        return t
-    end
-    local edgeL = ContentEdge(); edgeL:SetPoint("TOPLEFT");     edgeL:SetPoint("BOTTOMLEFT");  edgeL:SetWidth(1)
-    local edgeR = ContentEdge(); edgeR:SetPoint("TOPRIGHT");    edgeR:SetPoint("BOTTOMRIGHT"); edgeR:SetWidth(1)
-    local edgeB = ContentEdge(); edgeB:SetPoint("BOTTOMLEFT");  edgeB:SetPoint("BOTTOMRIGHT"); edgeB:SetHeight(1)
 
     local contentHeight = 0
     if createContent then

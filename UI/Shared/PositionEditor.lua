@@ -22,7 +22,7 @@ function ns.ui.CreatePositionEditor(parent, config)
 
     -- ── Label ─────────────────────────────────────────────────────────────────
 
-    local sectionLabel = container:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local sectionLabel = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
     sectionLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
     sectionLabel:SetText(label)
     height = height + 20
@@ -43,7 +43,8 @@ function ns.ui.CreatePositionEditor(parent, config)
         parent     = container,
         width      = 70,
         height     = 22,
-        numeric    = false,
+        numeric       = true,
+        allowNegative = true,
         maxLetters = 7,
         text       = tostring(getX() or 0),
     })
@@ -54,7 +55,8 @@ function ns.ui.CreatePositionEditor(parent, config)
         parent     = container,
         width      = 70,
         height     = 22,
-        numeric    = false,
+        numeric       = true,
+        allowNegative = true,
         maxLetters = 7,
         text       = tostring(getY() or 0),
     })

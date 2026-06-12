@@ -76,7 +76,11 @@ end)
 
 -- Textures
 local ICON_PATH = "Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\"
-UNBUNK_ICON_DROPDOWN_ARROW = "Interface\\Buttons\\Arrow-Down-Up"
+UNBUNK_ICON_DROPDOWN_ARROW = ICON_PATH .. "DownArrowBlue.tga"
+UNBUNK_ICON_SPEAKER_ON     = ICON_PATH .. "BlueSpeakerOn.tga"
+UNBUNK_ICON_SPEAKER_OFF    = ICON_PATH .. "BlueSpeakerOff.tga"
+UNBUNK_ICON_CROSS_WHITE    = ICON_PATH .. "WhiteCross.tga"
+UNBUNK_ICON_CROSS_BLUE     = ICON_PATH .. "BlueCross.tga"
 
 -- Icon list for the icon pickers. These are plain .tga files and do not
 -- depend on LibSharedMedia, so populate them unconditionally at load time

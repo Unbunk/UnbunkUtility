@@ -17,6 +17,7 @@ Libs/Ace3-master/AceDB-3.0/AceDB-3.0.lua
 Libs/LibDeflate-1.0.2-release/LibDeflate.lua
 Core/Shared.lua
 Core/DB.lua
+Core/Welcome.lua
 Core/CDMAnchor.lua
 Locales/enUS.lua
 Locales/frFR.lua

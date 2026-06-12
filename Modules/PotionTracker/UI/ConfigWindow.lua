@@ -1,15 +1,26 @@
 -- Modules/PotionTracker/UI/ConfigWindow.lua
 
 local _, ns = ...
-local L = ns.L
 ns.PotionTracker = ns.PotionTracker or {}
 local PT = ns.PotionTracker
 
--- Builds the per-category (health / combat) inner option list consumed by a
--- BuildMenu "section". Returns the ordered options array. Inner widgets render
--- at width 500 / gap 10 / origin (8,-8) — exactly like the old CreatePotionSection
--- AddWidget loop — and a trailing 16px spacer reproduces the old `height + 16`.
-local function BuildPotionSectionOptions(prefix, LSM)
+local function CreatePotionSection(parent, prefix)
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    local height = 0
+    local lastFrame = nil
+    local GAP = 10
+
+    local function AddWidget(frame, frameHeight)
+        frame:SetWidth(500)
+        if lastFrame then
+            frame:SetPoint("TOPLEFT", lastFrame, "BOTTOMLEFT", 0, -GAP)
+        else
+            frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, -8)
+        end
+        height = height + frameHeight + GAP
+        lastFrame = frame
+    end
+
     local function GetCfg(key)
         local cfg = PT.CfgGet(prefix)
         return cfg and cfg[key]
@@ -25,600 +36,487 @@ local function BuildPotionSectionOptions(prefix, LSM)
 
     local tracker = prefix == "health" and PT.GetHealthTracker() or PT.GetCombatTracker()
 
-    local options = {
-        -- ── Potion picker + favorite picker + favorite checkbox (composite) ────
-        -- Two side-by-side dropdowns plus the "use favorite" checkbox live in a
-        -- single 74px host. ns.ui.CreateDropdown needs explicit anchor frames and
-        -- the selectedText label is driven by hand, so this stays a custom block.
-        {
-            type   = "custom",
-            height = 74,
-            build  = function(potionFrame)
-                potionFrame:SetHeight(74)
+    -- ── Potion picker (scans the player's bags) ───────────────────────────────
 
-                local potionLbl = potionFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-                potionLbl:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 0, 0)
-                potionLbl:SetText(L["Potion"])
+    local potionFrame = CreateFrame("Frame", nil, parent)
+    potionFrame:SetHeight(74)
 
-                local potionAnchor = potionFrame:CreateFontString(nil, "ARTWORK")
-                potionAnchor:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 0, -20)
+    local potionLbl = potionFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    potionLbl:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 0, 0)
+    potionLbl:SetText("Potion")
 
-                -- Build "|T<icon>:16|t Name" so each dropdown row shows its potion
-                -- icon next to the name. The same markup is used as the unique
-                -- identifier for both the displayed list and the current-selection
-                -- comparison.
-                local function FormatDisplay(itemID, name)
-                    local icon = C_Item.GetItemIconByID(itemID)
-                    if icon then
-                        return string.format("|T%d:16|t %s", icon, name)
-                    end
-                    return name
-                end
+    local potionAnchor = potionFrame:CreateFontString(nil, "ARTWORK")
+    potionAnchor:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 0, -20)
 
-                -- Displays the potion actually being tracked right now (the
-                -- resolver's pick, which falls back when the configured one is out
-                -- of bags).
-                local function ActivePotionDisplay()
-                    local id = PT.GetActiveItemId(prefix)
-                    if not id then return L["None"] end
-                    local name = C_Item.GetItemNameByID(id) or tostring(id)
-                    return FormatDisplay(id, name)
-                end
+    -- Build "|T<icon>:16|t Name" so each dropdown row shows its potion icon
+    -- next to the name. The same markup is used as the unique identifier for
+    -- both the displayed list and the current-selection comparison.
+    local function FormatDisplay(itemID, name)
+        local icon = C_Item.GetItemIconByID(itemID)
+        if icon then
+            return string.format("|T%d:16|t %s", icon, name)
+        end
+        return name
+    end
 
-                -- displayString -> itemID, rebuilt on every getList() so onSelect
-                -- can recover the item ID without re-scanning.
-                local displayToId = {}
+    -- Displays the potion actually being tracked right now (the resolver's
+    -- pick, which falls back when the configured one is out of bags).
+    local function ActivePotionDisplay()
+        local id = PT.GetActiveItemId(prefix)
+        if not id then return "None" end
+        local name = C_Item.GetItemNameByID(id) or tostring(id)
+        return FormatDisplay(id, name)
+    end
 
-                local potionDD
-                potionDD = ns.ui.CreateDropdown({
-                    parent        = potionFrame,
-                    anchorFrame   = potionAnchor,
-                    width         = 240,
-                    itemHeight    = 20,
-                    visibleItems  = 8,
-                    getList = function()
-                        -- Only show what is actually in the bags for this category;
-                        -- no phantom entry for a configured potion that has run out.
-                        displayToId = {}
-                        local list = {}
-                        for _, p in ipairs(PT.GetBagPotions(prefix)) do
-                            local display = FormatDisplay(p.id, p.name)
-                            table.insert(list, display)
-                            displayToId[display] = p.id
-                        end
-                        return list
-                    end,
-                    getCurrentKey = ActivePotionDisplay,
-                    onSelect = function(display)
-                        local id = displayToId[display]
-                        if not id then return end
-                        SetCfg("itemId", id)
-                        -- spellId is derived dynamically by PT.GetActiveSpellId from
-                        -- the active item; the resolver never reads a stored
-                        -- cfg.spellId, so do not persist one here (it would only ever
-                        -- be stale/nil dead data).
-                        potionDD.selectedText:SetText(display)
-                        PT.ApplyAll()
-                    end,
-                })
-                potionDD.selectedText:SetText(ActivePotionDisplay())
+    -- displayString -> itemID, rebuilt on every getList() so onSelect can
+    -- recover the item ID without re-scanning.
+    local displayToId = {}
 
-                -- ── Favorite potion picker (curated list) ─────────────────────
+    local potionDD
+    potionDD = HealerRange_CreateDropdown({
+        parent        = potionFrame,
+        anchorFrame   = potionAnchor,
+        width         = 240,
+        itemHeight    = 20,
+        visibleItems  = 8,
+        getList = function()
+            -- Only show what is actually in the bags for this category; no
+            -- phantom entry for a configured potion that has run out.
+            displayToId = {}
+            local list = {}
+            for _, p in ipairs(PT.GetBagPotions(prefix)) do
+                local display = FormatDisplay(p.id, p.name)
+                table.insert(list, display)
+                displayToId[display] = p.id
+            end
+            return list
+        end,
+        getCurrentKey = ActivePotionDisplay,
+        onSelect = function(display)
+            local id = displayToId[display]
+            if not id then return end
+            SetCfg("itemId", id)
+            local _, spellID = C_Item.GetItemSpell(id)
+            SetCfg("spellId", spellID)
+            potionDD.selectedText:SetText(display)
+            PT.ApplyAll()
+        end,
+    })
+    potionDD.selectedText:SetText(ActivePotionDisplay())
 
-                local favLbl = potionFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-                favLbl:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 260, 0)
-                favLbl:SetText(L["Favorite potion"])
+    -- ── Favorite potion picker (curated list) ─────────────────────────────────
 
-                local favAnchor = potionFrame:CreateFontString(nil, "ARTWORK")
-                favAnchor:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 260, -20)
+    local favLbl = potionFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    favLbl:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 260, 0)
+    favLbl:SetText("Favorite potion")
 
-                local function FavoriteDisplay()
-                    local id = GetCfg("favoriteId")
-                    if not id then return L["None"] end
-                    local name = C_Item.GetItemNameByID(id) or ("[" .. id .. "]")
-                    return FormatDisplay(id, name)
-                end
+    local favAnchor = potionFrame:CreateFontString(nil, "ARTWORK")
+    favAnchor:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 260, -20)
 
-                local favDisplayToId = {}
+    local function FavoriteDisplay()
+        local id = GetCfg("favoriteId")
+        if not id then return "None" end
+        local name = C_Item.GetItemNameByID(id) or ("[" .. id .. "]")
+        return FormatDisplay(id, name)
+    end
 
-                local favoriteDD
-                favoriteDD = ns.ui.CreateDropdown({
-                    parent        = potionFrame,
-                    anchorFrame   = favAnchor,
-                    width         = 200,
-                    itemHeight    = 20,
-                    visibleItems  = 8,
-                    getList = function()
-                        favDisplayToId = {}
-                        local list = {}
-                        for _, p in ipairs(PT.GetFavoritePotions(prefix)) do
-                            local display = FormatDisplay(p.id, p.name)
-                            table.insert(list, display)
-                            favDisplayToId[display] = p.id
-                        end
-                        return list
-                    end,
-                    getCurrentKey = FavoriteDisplay,
-                    onSelect = function(display)
-                        local id = favDisplayToId[display]
-                        if not id then return end
-                        SetCfg("favoriteId", id)
-                        favoriteDD.selectedText:SetText(display)
-                        PT.ApplyAll()
-                    end,
-                })
-                favoriteDD.selectedText:SetText(FavoriteDisplay())
+    local favDisplayToId = {}
 
-                -- Favorite enable checkbox, sitting below the dropdown.
-                local favCb = ns.ui.CreateCheckbox({
-                    parent  = potionFrame,
-                    label   = L["Use favorite when in bag"],
-                    checked = GetCfg("favoriteEnabled") == true,
-                    onClick = function(val)
-                        SetCfg("favoriteEnabled", val)
-                        PT.ApplyAll()
-                    end,
-                })
-                favCb.frame:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 260, -46)
+    local favoriteDD
+    favoriteDD = HealerRange_CreateDropdown({
+        parent        = potionFrame,
+        anchorFrame   = favAnchor,
+        width         = 200,
+        itemHeight    = 20,
+        visibleItems  = 8,
+        getList = function()
+            favDisplayToId = {}
+            local list = {}
+            for _, p in ipairs(PT.GetFavoritePotions(prefix)) do
+                local display = FormatDisplay(p.id, p.name)
+                table.insert(list, display)
+                favDisplayToId[display] = p.id
+            end
+            return list
+        end,
+        getCurrentKey = FavoriteDisplay,
+        onSelect = function(display)
+            local id = favDisplayToId[display]
+            if not id then return end
+            SetCfg("favoriteId", id)
+            favoriteDD.selectedText:SetText(display)
+            PT.ApplyAll()
+        end,
+    })
+    favoriteDD.selectedText:SetText(FavoriteDisplay())
 
-                return {
-                    frame   = potionFrame,
-                    height  = 74,
-                    Refresh = function()
-                        potionDD.selectedText:SetText(ActivePotionDisplay())
-                        favoriteDD.selectedText:SetText(FavoriteDisplay())
-                        favCb.SetChecked(GetCfg("favoriteEnabled") == true)
-                    end,
-                }
-            end,
-        },
+    -- Favorite enable checkbox, sitting below the dropdown.
+    local favCb = Unbunk_CreateCheckbox({
+        parent  = potionFrame,
+        label   = "Use favorite when in bag",
+        checked = GetCfg("favoriteEnabled") == true,
+        onClick = function(val)
+            SetCfg("favoriteEnabled", val)
+            PT.ApplyAll()
+        end,
+    })
+    favCb.frame:SetPoint("TOPLEFT", potionFrame, "TOPLEFT", 260, -46)
 
-        -- ════════════ Sound ════════════
-        {
-            type  = "group",
-            title = L["Sound"],
-            build = function()
-                return {
-                    -- ── Sound use ──────────────────────────────────────────────────────────
-                    {
-                        type      = "sound",
-                        LSM       = LSM,
-                        label     = L["Sound on use"],
-                        getKey    = function() return GetCfg("soundKeyUse") end,
-                        getEnable = function() return GetCfg("soundOnUse") end,
-                        onSelect  = function(key, path)
-                            SetCfg("soundKeyUse", key)
-                            SetCfg("soundPathUse", path)
-                        end,
-                        onToggle  = function(val) SetCfg("soundOnUse", val) end,
-                        onTest    = function() PT.PlaySound(prefix, "soundUse") end,
-                    },
+    AddWidget(potionFrame, 74)
 
-                    -- ── Sound ready ────────────────────────────────────────────────────────
-                    {
-                        type      = "sound",
-                        LSM       = LSM,
-                        label     = L["Sound when ready"],
-                        getKey    = function() return GetCfg("soundKeyReady") end,
-                        getEnable = function() return GetCfg("soundOnReady") end,
-                        onSelect  = function(key, path)
-                            SetCfg("soundKeyReady", key)
-                            SetCfg("soundPathReady", path)
-                        end,
-                        onToggle  = function(val) SetCfg("soundOnReady", val) end,
-                        onTest    = function() PT.PlaySound(prefix, "soundReady") end,
-                    },
-                }
-            end,
-        },
+    -- ── Sound use ─────────────────────────────────────────────────────────────
 
-        -- ════════════ Icon ════════════
-        {
-            type  = "group",
-            title = L["Icon"],
-            -- Unchecking "Show icon" greys the rest of the Icon box (placement / border /
-            -- timer text / stack) since there is no icon to configure; the checkbox stays live.
-            gate  = { enabled = function() return GetCfg("showIcon") ~= false end, master = "showicon" },
-            build = function()
-                return {
-                    -- ── Show icon checkbox + Show-at-0-stacks toggle (inline, to its right) ──
-                    {
-                        type   = "checkbox",
-                        ref    = "showicon",
-                        label  = L["Show icon"],
-                        height = 24,
-                        get    = function() return GetCfg("showIcon") ~= false end,
-                        set    = function(val)
-                            SetCfg("showIcon", val)
-                            tracker.ApplyVisuals()
-                        end,
-                        inline = {
-                            {
-                                type  = "checkbox",
-                                label = L["Show at 0 stacks"],
-                                get   = function() return GetCfg("showAtZero") == true end,
-                                set   = function(val)
-                                    SetCfg("showAtZero", val)
-                                    tracker.ApplyVisuals()
-                                    PT.ApplyStackVisuals(prefix, tracker)
-                                end,
-                                point = { "LEFT", "LEFT", 150, 0 },
-                            },
-                        },
-                    },
+    local soundUseResult = HealerRange_CreateSoundPicker(parent, LSM, {
+        label          = "Sound on use",
+        getSoundKey    = function() return GetCfg("soundKeyUse") end,
+        getSoundEnable = function() return GetCfg("soundOnUse") end,
+        onSoundSelect  = function(key, path)
+            SetCfg("soundKeyUse", key)
+            SetCfg("soundPathUse", path)
+        end,
+        onEnableToggle = function(val) SetCfg("soundOnUse", val) end,
+        onTest         = function() PT.PlaySound(prefix, "soundUse") end,
+    })
+    soundUseResult.frame:ClearAllPoints()
+    AddWidget(soundUseResult.frame, soundUseResult.height)
 
-                    -- ── Placement sub-box: Cooldown Manager slot OR free position. ──────────
-                    -- "Include in cdm" toggles which controls show; its set calls
-                    -- PT.configMenu.Rebuild() so the CDM options swap with the position editor.
-                    {
-                        type  = "group",
-                        title = L["Placement"],
-                        build = function()
-                            return {
-                                {
-                                    type = "checkbox", label = L["Include in cdm"],
-                                    disabled = function() return not ns.IsCDMEnabled() end,
-                                    get = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                                    set = function(v)
-                                        SetCfg("includeInCdm", v); tracker.ApplySize(); tracker.ApplyPosition()
-                                        if PT.configMenu then PT.configMenu.Rebuild() end
-                                    end,
-                                },
-                                {
-                                    type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
-                                    when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                                    getList = function() return ns.CDMDestList() end,
-                                    getCurrentKey = function() return ns.CDMDestLabel(GetCfg("cdmDest") or "essential") end,
-                                    onSelect = function(label) SetCfg("cdmDest", ns.CDMDestKeyFromLabel(label)); tracker.ApplySize(); tracker.ApplyPosition(); if PT.configMenu then PT.configMenu.Refresh() end end,
-                                },
-                                {
-                                    type = "checkbox", label = L["Icon at the end of the row"],
-                                    when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                                    get = function() return GetCfg("cdmAtEnd") ~= false end,
-                                    set = function(v) SetCfg("cdmAtEnd", v); tracker.ApplyPosition(); if PT.configMenu then PT.configMenu.Refresh() end end,
-                                },
-                                {
-                                    type = "dropdown", label = L["Row"], width = 120, height = 50,
-                                    when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                                    getList = function() return ns.CDMRowList(GetCfg("cdmDest") or "essential") end,
-                                    getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(GetCfg("cdmDest") or "essential", GetCfg("cdmRow"))) end,
-                                    onSelect = function(label) SetCfg("cdmRow", ns.CDMRowFromLabel(label)); tracker.ApplyPosition(); if PT.configMenu then PT.configMenu.Refresh() end end,
-                                },
-                                {
-                                    type = "reorder", label = L["Move in row"],
-                                    when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                                    getState = function() return ns.CDMAnchor.GetMoveState(tracker.GetFrame()) end,
-                                    onMove = function(dir) ns.CDMAnchor.Move(tracker.GetFrame(), dir) end,
-                                },
-                                -- Free icon position (only when NOT in the CDM)
-                                {
-                                    type       = "position",
-                                    ref        = "pe",
-                                    when       = function() return not ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                                    onBuilt    = function(w) tracker.pe = w end,
-                                    label      = L["Icon position (offset from screen center)"],
-                                    getX       = function() return GetCfg("posX") end,
-                                    getY       = function() return GetCfg("posY") end,
-                                    onApply    = function(x, yv)
-                                        if x  then SetCfg("posX", x)  end
-                                        if yv then SetCfg("posY", yv) end
-                                        PT.ApplyAll()
-                                    end,
-                                    onUnlock   = function() tracker.SetUnlocked(true) end,
-                                    onLock     = function()
-                                        tracker.SetUnlocked(false)
-                                        if tracker.pe then tracker.pe.Refresh() end
-                                    end,
-                                    isUnlocked = function() return tracker.IsUnlocked() end,
-                                },
-                                -- Icon size — free mode only. In the CDM the size is automatic.
-                                {
-                                    type   = "custom",
-                                    height = 46,
-                                    when   = function() return not ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                                    build  = function(sizeFrame)
-                                        sizeFrame:SetHeight(46)
+    -- ── Sound ready ───────────────────────────────────────────────────────────
 
-                                        local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-                                        sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
-                                        sizeLbl:SetText(L["Icon size"])
+    local soundReadyResult = HealerRange_CreateSoundPicker(parent, LSM, {
+        label          = "Sound when ready",
+        getSoundKey    = function() return GetCfg("soundKeyReady") end,
+        getSoundEnable = function() return GetCfg("soundOnReady") end,
+        onSoundSelect  = function(key, path)
+            SetCfg("soundKeyReady", key)
+            SetCfg("soundPathReady", path)
+        end,
+        onEnableToggle = function(val) SetCfg("soundOnReady", val) end,
+        onTest         = function() PT.PlaySound(prefix, "soundReady") end,
+    })
+    soundReadyResult.frame:ClearAllPoints()
+    AddWidget(soundReadyResult.frame, soundReadyResult.height)
 
-                                        local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                                        wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
-                                        wLbl:SetText(L["W"])
+    -- ── Show icon checkbox ────────────────────────────────────────────────────
 
-                                        local wInput = ns.ui.CreateTextInput({
-                                            parent     = sizeFrame,
-                                            width      = 46,
-                                            height     = 22,
-                                            numeric    = true,
-                                            min        = 8,
-                                            max        = 512,
-                                            maxLetters = 3,
-                                            text       = tostring(GetCfg("iconWidth") or 30),
-                                            onEnter    = function(val)
-                                                if val and val > 0 then
-                                                    SetCfg("iconWidth", val)
-                                                    tracker.ApplySize()
-                                                end
-                                            end,
-                                        })
-                                        wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+    local showIconFrame = CreateFrame("Frame", nil, parent)
+    showIconFrame:SetHeight(24)
+    local showIconCb = Unbunk_CreateCheckbox({
+        parent  = showIconFrame,
+        label   = "Show icon",
+        checked = GetCfg("showIcon") ~= false,
+        onClick = function(val)
+            SetCfg("showIcon", val)
+            tracker.ApplyVisuals()
+        end,
+    })
+    showIconCb.frame:SetPoint("TOPLEFT", showIconFrame, "TOPLEFT", 0, 0)
+    showIconFrame:ClearAllPoints()
+    AddWidget(showIconFrame, 24)
 
-                                        local hLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                                        hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
-                                        hLbl:SetText(L["H"])
+    -- ── Icon size ─────────────────────────────────────────────────────────────
 
-                                        local hInput = ns.ui.CreateTextInput({
-                                            parent     = sizeFrame,
-                                            width      = 46,
-                                            height     = 22,
-                                            numeric    = true,
-                                            min        = 8,
-                                            max        = 512,
-                                            maxLetters = 3,
-                                            text       = tostring(GetCfg("iconHeight") or 30),
-                                            onEnter    = function(val)
-                                                if val and val > 0 then
-                                                    SetCfg("iconHeight", val)
-                                                    tracker.ApplySize()
-                                                end
-                                            end,
-                                        })
-                                        hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+    local sizeFrame = CreateFrame("Frame", nil, parent)
+    sizeFrame:SetHeight(46)
 
-                                        return {
-                                            frame   = sizeFrame,
-                                            height  = 46,
-                                            Refresh = function()
-                                                wInput.SetText(tostring(GetCfg("iconWidth") or 30))
-                                                hInput.SetText(tostring(GetCfg("iconHeight") or 30))
-                                            end,
-                                        }
-                                    end,
-                                },
-                            }
-                        end,
-                    },
+    local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
+    sizeLbl:SetText("Icon size")
 
-                    -- ── Border (sub-box) ──────────────────────────────────────────────────
-                    {
-                        type  = "group",
-                        title = L["Border"],
-                        build = function()
-                            return {
-                                {
-                                    type = "checkbox", label = L["Show border"],
-                                    get = function() return GetCfg("borderEnabled") == true end,
-                                    set = function(v) SetCfg("borderEnabled", v); tracker.ApplyBorder(); if PT.configMenu then PT.configMenu.Refresh() end end,
-                                },
-                                {
-                                    type = "textEditor", label = L["Border color"],
-                                    enabledBy = function() return GetCfg("borderEnabled") == true end,
-                                    showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                                    getColor = function() return GetCfg("borderColor") end,
-                                    onColorChange = function(r, g, b, a)
-                                        SetCfg("borderColor", { r = r, g = g, b = b, a = a }); tracker.ApplyBorder()
-                                    end,
-                                },
-                                {
-                                    type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-                                    enabledBy = function() return GetCfg("borderEnabled") == true end,
-                                    get = function() return GetCfg("borderSize") or 1 end,
-                                    set = function(v) if v and v > 0 then SetCfg("borderSize", v); tracker.ApplyBorder() end end,
-                                },
-                            }
-                        end,
-                    },
+    local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
+    wLbl:SetText("W")
 
-                    -- ── Timer text (sub-box) ──────────────────────────────────────────────
-                    {
-                        type  = "group",
-                        title = L["Timer text"],
-                        build = function()
-                            return {
-                                {
-                                    type            = "textEditor",
-                                    LSM             = LSM,
-                                    label           = L["Timer text"],
-                                    showLabel       = false,
-                                    showText        = false,
-                                    showFont        = true,
-                                    showSize        = true,
-                                    showColor       = true,
-                                    showOutline     = true,
-                                    getFontKey      = function() return GetCfg("timerFontKey") end,
-                                    getFontPath     = function() return GetCfg("timerFontPath") end,
-                                    getFontSize     = function() return GetCfg("timerFontSize") end,
-                                    getColor        = function() return GetCfg("timerColor") end,
-                                    getOutline      = function() return GetCfg("timerOutline") end,
-                                    onFontChange    = function(key, path)
-                                        SetCfg("timerFontKey", key)
-                                        SetCfg("timerFontPath", path)
-                                        tracker.ApplyFont()
-                                    end,
-                                    onSizeChange    = function(size)
-                                        SetCfg("timerFontSize", size)
-                                        tracker.ApplyFont()
-                                    end,
-                                    onColorChange   = function(r, g, b, a)
-                                        SetCfg("timerColor", { r = r, g = g, b = b, a = a })
-                                        tracker.ApplyFont()
-                                    end,
-                                    onOutlineChange = function(outline)
-                                        SetCfg("timerOutline", outline)
-                                        tracker.ApplyFont()
-                                    end,
-                                },
-                            }
-                        end,
-                    },
+    local wInput = Unbunk_CreateTextInput({
+        parent     = sizeFrame,
+        width      = 46,
+        height     = 22,
+        numeric    = true,
+        maxLetters = 3,
+        text       = tostring(GetCfg("iconWidth") or 64),
+        onEnter    = function(val)
+            if val and val > 0 then
+                SetCfg("iconWidth", val)
+                tracker.ApplySize()
+            end
+        end,
+    })
+    wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
 
-                    -- ── Stack text (sub-box) ──────────────────────────────────────────────
-                    -- The "Show stack count below icon" checkbox is the gate master:
-                    -- unchecking it greys the stack text editor while staying live itself.
-                    {
-                        type  = "group",
-                        title = L["Stack text"],
-                        gate  = { enabled = function() return GetCfg("showStack") ~= false end, master = "showstack" },
-                        build = function()
-                            return {
-                                -- ── Show stack count checkbox (gate master — stays live) ──────────────
-                                {
-                                    type   = "checkbox",
-                                    ref    = "showstack",
-                                    label  = L["Show stack count below icon"],
-                                    height = 24,
-                                    get    = function() return GetCfg("showStack") ~= false end,
-                                    set    = function(val)
-                                        SetCfg("showStack", val)
-                                        PT.ApplyStackVisuals(prefix, tracker)
-                                    end,
-                                },
-                                {
-                                    type            = "textEditor",
-                                    LSM             = LSM,
-                                    label           = L["Stack text"],
-                                    showLabel       = false,
-                                    showText        = false,
-                                    showFont        = true,
-                                    showSize        = true,
-                                    showColor       = true,
-                                    showOutline     = true,
-                                    getFontKey      = function() return GetCfg("stackFontKey") end,
-                                    getFontPath     = function() return GetCfg("stackFontPath") end,
-                                    getFontSize     = function() return GetCfg("stackFontSize") end,
-                                    getColor        = function() return GetCfg("stackColor") end,
-                                    getOutline      = function() return GetCfg("stackOutline") end,
-                                    onFontChange    = function(key, path)
-                                        SetCfg("stackFontKey", key)
-                                        SetCfg("stackFontPath", path)
-                                        PT.ApplyStackVisuals(prefix, tracker)
-                                    end,
-                                    onSizeChange    = function(size)
-                                        SetCfg("stackFontSize", size)
-                                        PT.ApplyStackVisuals(prefix, tracker)
-                                    end,
-                                    onColorChange   = function(r, g, b, a)
-                                        SetCfg("stackColor", { r = r, g = g, b = b, a = a })
-                                        PT.ApplyStackVisuals(prefix, tracker)
-                                    end,
-                                    onOutlineChange = function(outline)
-                                        SetCfg("stackOutline", outline)
-                                        PT.ApplyStackVisuals(prefix, tracker)
-                                    end,
-                                },
-                            }
-                        end,
-                    },
-                }
-            end,
-        },
+    local hLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
+    hLbl:SetText("H")
 
-        -- ── Trailing padding ───────────────────────────────────────────────────
-        -- Reproduces the old `height = height + 16` bottom padding (the empty
-        -- spacer's gap + height = 10 + 16 = 26 also restores the trailing GAP the
-        -- old AddWidget loop added after the last widget).
-        {
-            type   = "label",
-            text   = "",
-            height = 16,
-        },
+    local hInput = Unbunk_CreateTextInput({
+        parent     = sizeFrame,
+        width      = 46,
+        height     = 22,
+        numeric    = true,
+        maxLetters = 3,
+        text       = tostring(GetCfg("iconHeight") or 64),
+        onEnter    = function(val)
+            if val and val > 0 then
+                SetCfg("iconHeight", val)
+                tracker.ApplySize()
+            end
+        end,
+    })
+    hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+
+    sizeFrame:ClearAllPoints()
+    AddWidget(sizeFrame, 46)
+
+    -- ── Position editor ───────────────────────────────────────────────────────
+
+    local peName = "PotionTracker_PE_" .. prefix
+    _G[peName] = HealerRange_CreatePositionEditor(parent, {
+        label      = "Icon position (offset from screen center)",
+        getX       = function() return GetCfg("posX") end,
+        getY       = function() return GetCfg("posY") end,
+        onApply    = function(x, yv)
+            if x  then SetCfg("posX", x)  end
+            if yv then SetCfg("posY", yv) end
+            PT.ApplyAll()
+        end,
+        onUnlock   = function() tracker.SetUnlocked(true) end,
+        onLock     = function()
+            tracker.SetUnlocked(false)
+            if _G[peName] then _G[peName].Refresh() end
+        end,
+        isUnlocked = function() return tracker.IsUnlocked() end,
+    })
+    _G[peName].frame:ClearAllPoints()
+    AddWidget(_G[peName].frame, _G[peName].height)
+
+    tracker.pe = _G[peName]
+
+    -- ── Timer text ────────────────────────────────────────────────────────────
+
+    local te = HealerRange_CreateTextEditor(parent, {
+        LSM          = LSM,
+        label        = "Timer text",
+        showText     = false,
+        showFont     = true,
+        showSize     = true,
+        showColor    = true,
+        showOutline  = true,
+        getFontKey   = function() return GetCfg("timerFontKey") end,
+        getFontPath  = function() return GetCfg("timerFontPath") end,
+        getFontSize  = function() return GetCfg("timerFontSize") end,
+        getColor     = function() return GetCfg("timerColor") end,
+        getOutline   = function() return GetCfg("timerOutline") end,
+        onFontChange = function(key, path)
+            SetCfg("timerFontKey", key)
+            SetCfg("timerFontPath", path)
+            tracker.ApplyFont()
+        end,
+        onSizeChange = function(size)
+            SetCfg("timerFontSize", size)
+            tracker.ApplyFont()
+        end,
+        onColorChange = function(r, g, b, a)
+            SetCfg("timerColor", { r=r, g=g, b=b, a=a })
+            tracker.ApplyFont()
+        end,
+        onOutlineChange = function(outline)
+            SetCfg("timerOutline", outline)
+            tracker.ApplyFont()
+        end,
+    })
+    te.frame:ClearAllPoints()
+    AddWidget(te.frame, te.height)
+
+    -- ── Show stack count checkbox ────────────────────────────────────────────
+
+    local showStackFrame = CreateFrame("Frame", nil, parent)
+    showStackFrame:SetHeight(24)
+    local showStackCb = Unbunk_CreateCheckbox({
+        parent  = showStackFrame,
+        label   = "Show stack count below icon",
+        checked = GetCfg("showStack") ~= false,
+        onClick = function(val)
+            SetCfg("showStack", val)
+            PT.ApplyStackVisuals(prefix, tracker)
+        end,
+    })
+    showStackCb.frame:SetPoint("TOPLEFT", showStackFrame, "TOPLEFT", 0, 0)
+    showStackFrame:ClearAllPoints()
+    AddWidget(showStackFrame, 24)
+
+    -- ── Stack text ────────────────────────────────────────────────────────────
+
+    local ste = HealerRange_CreateTextEditor(parent, {
+        LSM          = LSM,
+        label        = "Stack text",
+        showText     = false,
+        showFont     = true,
+        showSize     = true,
+        showColor    = true,
+        showOutline  = true,
+        getFontKey   = function() return GetCfg("stackFontKey") end,
+        getFontPath  = function() return GetCfg("stackFontPath") end,
+        getFontSize  = function() return GetCfg("stackFontSize") end,
+        getColor     = function() return GetCfg("stackColor") end,
+        getOutline   = function() return GetCfg("stackOutline") end,
+        onFontChange = function(key, path)
+            SetCfg("stackFontKey", key)
+            SetCfg("stackFontPath", path)
+            PT.ApplyStackVisuals(prefix, tracker)
+        end,
+        onSizeChange = function(size)
+            SetCfg("stackFontSize", size)
+            PT.ApplyStackVisuals(prefix, tracker)
+        end,
+        onColorChange = function(r, g, b, a)
+            SetCfg("stackColor", { r=r, g=g, b=b, a=a })
+            PT.ApplyStackVisuals(prefix, tracker)
+        end,
+        onOutlineChange = function(outline)
+            SetCfg("stackOutline", outline)
+            PT.ApplyStackVisuals(prefix, tracker)
+        end,
+    })
+    ste.frame:ClearAllPoints()
+    AddWidget(ste.frame, ste.height)
+
+    height = height + 16
+
+    return height, {
+        soundUse   = soundUseResult.Refresh,
+        soundReady = soundReadyResult.Refresh,
+        te         = te.Refresh,
+        ste        = ste.Refresh,
+        pe         = _G[peName].Refresh,
+        showIcon   = function() showIconCb.SetChecked(GetCfg("showIcon") ~= false) end,
+        showStack  = function() showStackCb.SetChecked(GetCfg("showStack") ~= false) end,
+        size       = function()
+            wInput.SetText(tostring(GetCfg("iconWidth") or 64))
+            hInput.SetText(tostring(GetCfg("iconHeight") or 64))
+        end,
+        potion     = function()
+            potionDD.selectedText:SetText(ActivePotionDisplay())
+            favoriteDD.selectedText:SetText(FavoriteDisplay())
+            favCb.SetChecked(GetCfg("favoriteEnabled") == true)
+        end,
     }
-
-    return options
 end
 
 local function CreatePotionTrackerPanel(parent)
-    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    local content = CreateFrame("Frame", nil, parent)
+    content:SetAllPoints(parent)
 
-    local options = {
-        -- ════════════ General: enable + where it is active ════════════
-        {
-            type  = "group",
-            title = L["General"],
-            -- Disabling the module greys the instance filter ("active in") while the
-            -- enable checkbox stays live to re-enable.
-            gate  = { enabled = function() return PT.CfgGet("enabled") ~= false end, master = "enable" },
-            build = function()
-                return {
-                    -- ── Enable checkbox (gate master — stays live) ────────────────────────
-                    {
-                        type   = "checkbox",
-                        ref    = "enable",
-                        label  = L["Enable Potion Tracker"],
-                        height = 24,
-                        get    = function() return PT.CfgGet("enabled") ~= false end,
-                        set    = function(val)
-                            PT.CfgSet("enabled", val)
-                            PT.ApplyAll()
-                            if PT.configMenu then PT.configMenu.Refresh() end
-                        end,
-                    },
+    local GAP = 8
+    local lastFrame = nil
+    local allRefreshFns = {}
 
-                    -- ── Instance filter ───────────────────────────────────────────────────
-                    {
-                        type      = "instanceFilter",
-                        getConfig = function() return PT.CfgGet("instanceFilter") end,
-                        setConfig = function(key, val)
-                            local filter = PT.CfgGet("instanceFilter")
-                            filter[key] = val
-                            PT.CfgSet("instanceFilter", filter)
-                        end,
-                    },
-                }
-            end,
-        },
+    local function AddSection(frame)
+        frame:SetWidth(518)
+        if lastFrame then
+            frame:SetPoint("TOPLEFT", lastFrame, "BOTTOMLEFT", 0, -GAP)
+        else
+            frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
+        end
+        lastFrame = frame
+    end
 
-        -- ── Health potion section ─────────────────────────────────────────────
-        {
-            type      = "section",
-            label     = L["Health Potion"],
-            enabledBy = function() return PT.CfgGet("enabled") ~= false end,
-            LSM       = LSM,
-            isChecked = function() return PT.CfgGet("health") and PT.CfgGet("health").enabled end,
-            onCheck   = function(val)
-                local cfg = PT.CfgGet("health")
-                cfg.enabled = val
-                PT.CfgSet("health", cfg)
-                PT.ApplyAll()
-            end,
-            getCollapsed = function() return PT._uiCollapsed and PT._uiCollapsed["health"] end,
-            onCollapse   = function(v) PT._uiCollapsed = PT._uiCollapsed or {}; PT._uiCollapsed["health"] = v end,
-            build     = function() return BuildPotionSectionOptions("health", LSM) end,
-        },
+    -- ── Enable checkbox ───────────────────────────────────────────────────────
 
-        -- ── Combat potion section ─────────────────────────────────────────────
-        {
-            type      = "section",
-            label     = L["Combat Potion"],
-            enabledBy = function() return PT.CfgGet("enabled") ~= false end,
-            LSM       = LSM,
-            isChecked = function() return PT.CfgGet("combat") and PT.CfgGet("combat").enabled end,
-            onCheck   = function(val)
-                local cfg = PT.CfgGet("combat")
-                cfg.enabled = val
-                PT.CfgSet("combat", cfg)
-                PT.ApplyAll()
-            end,
-            getCollapsed = function() return PT._uiCollapsed and PT._uiCollapsed["combat"] end,
-            onCollapse   = function(v) PT._uiCollapsed = PT._uiCollapsed or {}; PT._uiCollapsed["combat"] = v end,
-            build     = function() return BuildPotionSectionOptions("combat", LSM) end,
-        },
-    }
-
-    -- Outer panel: gap=8, width=518. Inner sections render at width 500 / gap 10 /
-    -- origin (8,-8), matching the old CreatePotionSection AddWidget loop. autoHook
-    -- generates the OnShow re-sync (enable, instance filter, both sections and all
-    -- their inner widgets).
-    PT.configMenu = ns.ui.BuildMenu(parent, options, {
-        gap        = 8,
-        width      = 518,
-        LSM        = LSM,
-        innerWidth = 500,
-        innerGap   = 10,
+    local enableFrame = CreateFrame("Frame", nil, content)
+    enableFrame:SetHeight(24)
+    local enableCb = Unbunk_CreateCheckbox({
+        parent  = enableFrame,
+        label   = "Enable Potion Tracker",
+        checked = PT.CfgGet("enabled") ~= false,
+        onClick = function(val)
+            PT.CfgSet("enabled", val)
+            PT.ApplyAll()
+        end,
     })
-    return PT.configMenu
+    enableCb.frame:SetPoint("TOPLEFT", enableFrame, "TOPLEFT", 0, 0)
+    AddSection(enableFrame)
+
+    -- ── Instance filter ───────────────────────────────────────────────────────
+
+    local iF = Unbunk_CreateInstanceFilter({
+        parent    = content,
+        getConfig = function() return PT.CfgGet("instanceFilter") end,
+        setConfig = function(key, val)
+            local filter = PT.CfgGet("instanceFilter")
+            filter[key] = val
+            PT.CfgSet("instanceFilter", filter)
+        end,
+    })
+    AddSection(iF.frame)
+
+    -- ── Health potion section ─────────────────────────────────────────────────
+
+    local healthCS = Unbunk_CreateCollapsibleSection({
+        parent        = content,
+        label         = "Health Potion",
+        isChecked     = function() return PT.CfgGet("health") and PT.CfgGet("health").enabled end,
+        onCheck       = function(val)
+            local cfg = PT.CfgGet("health")
+            cfg.enabled = val
+            PT.CfgSet("health", cfg)
+            PT.ApplyAll()
+        end,
+        createContent = function(sectionParent)
+            local h, fns = CreatePotionSection(sectionParent, "health")
+            allRefreshFns.health = fns
+            return h
+        end,
+    })
+    AddSection(healthCS.frame)
+
+    -- ── Combat potion section ─────────────────────────────────────────────────
+
+    local combatCS = Unbunk_CreateCollapsibleSection({
+        parent        = content,
+        label         = "Combat Potion",
+        isChecked     = function() return PT.CfgGet("combat") and PT.CfgGet("combat").enabled end,
+        onCheck       = function(val)
+            local cfg = PT.CfgGet("combat")
+            cfg.enabled = val
+            PT.CfgSet("combat", cfg)
+            PT.ApplyAll()
+        end,
+        createContent = function(sectionParent)
+            local h, fns = CreatePotionSection(sectionParent, "combat")
+            allRefreshFns.combat = fns
+            return h
+        end,
+    })
+    AddSection(combatCS.frame)
+
+    -- ── OnShow refresh ────────────────────────────────────────────────────────
+
+    parent:HookScript("OnShow", function()
+        enableCb.SetChecked(PT.CfgGet("enabled") ~= false)
+        iF.Refresh()
+        healthCS.Refresh()
+        combatCS.Refresh()
+        if allRefreshFns.health then
+            allRefreshFns.health.soundUse()
+            allRefreshFns.health.soundReady()
+            allRefreshFns.health.showIcon()
+            allRefreshFns.health.showStack()
+            allRefreshFns.health.size()
+            allRefreshFns.health.pe()
+            allRefreshFns.health.te()
+            allRefreshFns.health.ste()
+            allRefreshFns.health.potion()
+        end
+        if allRefreshFns.combat then
+            allRefreshFns.combat.soundUse()
+            allRefreshFns.combat.soundReady()
+            allRefreshFns.combat.showIcon()
+            allRefreshFns.combat.showStack()
+            allRefreshFns.combat.size()
+            allRefreshFns.combat.pe()
+            allRefreshFns.combat.te()
+            allRefreshFns.combat.ste()
+            allRefreshFns.combat.potion()
+        end
+    end)
 end
 
 -- ── Enregistrement ────────────────────────────────────────────────────────────
@@ -627,6 +525,6 @@ local initPTUI = CreateFrame("Frame")
 initPTUI:RegisterEvent("ADDON_LOADED")
 initPTUI:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    UnbunkUtility.RegisterModule(L["Potion Tracker"], nil, CreatePotionTrackerPanel)
+    UnbunkUtility.RegisterModule("Potion Tracker", nil, CreatePotionTrackerPanel)
     self:UnregisterEvent("ADDON_LOADED")
 end)

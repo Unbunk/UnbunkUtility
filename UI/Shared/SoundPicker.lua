@@ -98,8 +98,10 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
         local soundTest = CreateFrame("Button", nil, container)
         soundTest:SetSize(22, 22)
         soundTest:SetPoint("LEFT", dd.toggleBtn, "RIGHT", 6, 0)
-        soundTest:SetNormalTexture("Interface/Common/VoiceChat-Speaker")
-        soundTest:SetHighlightTexture("Interface/Common/VoiceChat-On")
+        soundTest:SetNormalTexture(UNBUNK_ICON_SPEAKER_OFF)
+        -- Blue speaker: resting shows the "off" variant, swap to "on" (emitting) on hover.
+        soundTest:SetScript("OnEnter", function(self) self:SetNormalTexture(UNBUNK_ICON_SPEAKER_ON) end)
+        soundTest:SetScript("OnLeave", function(self) self:SetNormalTexture(UNBUNK_ICON_SPEAKER_OFF) end)
         soundTest:SetScript("OnClick", onTest)
 
         gateDimFrames = { dd.toggleBtn, soundTest }   -- selectedText is a child of toggleBtn

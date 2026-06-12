@@ -4,12 +4,14 @@ local _, ns = ...
 ns.PotionTracker = ns.PotionTracker or {}
 local PT = ns.PotionTracker
 
+PotionTrackerDB = PotionTrackerDB or {}
+
 local DEFAULTS = {
     enabled         = true,
     instanceFilter  = {
         dungeon      = true,
         raid         = true,
-        battleground = true,
+        battleground = false,
         outdoor      = true,
     },
     health = {
@@ -21,17 +23,10 @@ local DEFAULTS = {
         -- auto-fills via fallback / favorite.
         favoriteEnabled = true,
         favoriteId      = 241304,  -- Silvermoon Health Potion
-        includeInCdm  = true,           -- default: shown in the CDM…
-        cdmDest       = "belowPlayer",  -- …in the artificial row below the PlayerFrame
-        cdmAtEnd      = true,
-        cdmRow        = 1,
         posX          = -400,
         posY          = -300,
         iconWidth     = 30,
         iconHeight    = 30,
-        borderEnabled = true,
-        borderColor   = { r = 0, g = 0, b = 0, a = 1 },
-        borderSize    = 1,
         timerFontKey  = "2002 Bold",
         timerFontPath = nil,
         timerFontSize = 20,
@@ -63,17 +58,10 @@ local DEFAULTS = {
         stackFontSize   = 12,
         stackOutline    = "OUTLINE",
         stackColor      = { r=1, g=1, b=1, a=1 },
-        includeInCdm  = true,           -- default: shown in the CDM…
-        cdmDest       = "belowPlayer",  -- …in the artificial row below the PlayerFrame
-        cdmAtEnd      = true,
-        cdmRow        = 1,
         posX          = -370,
         posY          = -300,
         iconWidth     = 30,
         iconHeight    = 30,
-        borderEnabled = true,
-        borderColor   = { r = 0, g = 0, b = 0, a = 1 },
-        borderSize    = 1,
         timerFontKey  = "2002 Bold",
         timerFontPath = nil,
         timerFontSize = 20,
@@ -88,35 +76,69 @@ local DEFAULTS = {
     },
 }
 
-function PT.CfgInit()
-    ns.db.profile.PotionTracker = ns.db.profile.PotionTracker or {}
-    ns.MigrateSoundKeys(ns.db.profile.PotionTracker)
-    ns.MergeDefaults(ns.db.profile.PotionTracker, DEFAULTS)
+-- Recursively merge defaults into target: only adds missing keys, never
+-- overwrites user-set values. Crucially, recurses into existing sub-tables
+-- so newly-introduced keys (e.g. stackColor) are populated for upgraders
+-- without forcing a profile Reset.
+local function MergeDefaults(target, defaults)
+    for k, v in pairs(defaults) do
+        if target[k] == nil then
+            if type(v) == "table" then
+                target[k] = {}
+                MergeDefaults(target[k], v)
+            else
+                target[k] = v
+            end
+        elseif type(v) == "table" and type(target[k]) == "table" then
+            MergeDefaults(target[k], v)
+        end
+    end
 end
-ns.RegisterCfgInitHook(PT.CfgInit)
+
+function PT.CfgInit()
+    ns.MigrateSoundKeys(PotionTrackerDB)
+    MergeDefaults(PotionTrackerDB, DEFAULTS)
+end
 
 function PT.CfgGet(key)
-    local t = ns.db and ns.db.profile.PotionTracker
-    local v = t and t[key]
-    if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
-    return v
+    return PotionTrackerDB[key]
 end
 
 function PT.CfgSet(key, value)
-    if not ns.db then return end
-    ns.db.profile.PotionTracker = ns.db.profile.PotionTracker or {}
-    ns.db.profile.PotionTracker[key] = value
+    PotionTrackerDB[key] = value
     -- Config drives which potion the resolver picks; invalidate the cache
     -- so the next GetActiveItemId() reflects the change.
     if PT.InvalidateActiveCache then PT.InvalidateActiveCache() end
 end
 
 function PT.PlaySound(prefix, key)
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local cfg = PT.CfgGet(prefix)
     if not cfg then return end
+    local pathKey, soundKeyKey
     if key == "soundUse" then
-        ns.PlaySoundFromCfg(cfg, "soundPathUse", "soundKeyUse")
+        pathKey    = "soundPathUse"
+        soundKeyKey = "soundKeyUse"
     elseif key == "soundReady" then
-        ns.PlaySoundFromCfg(cfg, "soundPathReady", "soundKeyReady")
+        pathKey    = "soundPathReady"
+        soundKeyKey = "soundKeyReady"
+    else
+        return
+    end
+    local path = cfg[pathKey]
+    if path then
+        PlaySoundFile(path, "Master")
+    elseif LSM then
+        local soundKey = cfg[soundKeyKey]
+        local soundPath = soundKey and LSM:Fetch("sound", soundKey)
+        if soundPath then PlaySoundFile(soundPath, "Master") end
     end
 end
+
+local initDB = CreateFrame("Frame")
+initDB:RegisterEvent("ADDON_LOADED")
+initDB:SetScript("OnEvent", function(self, event, addonName)
+    if addonName ~= "UnbunkUtility" then return end
+    PT.CfgInit()
+    self:UnregisterEvent("ADDON_LOADED")
+end)

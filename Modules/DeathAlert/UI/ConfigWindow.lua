@@ -1,25 +1,41 @@
 -- Modules/DeathAlert/UI/ConfigWindow.lua
+-- One sub-tab per role (Tank / Healer / DPS) under the Combat Utilities > Death
+-- Alert category. Each panel: General (enable + test + instance filter + duration),
+-- Sound, and Display (icon / alert text / alert position). The per-role enable
+-- checkbox is the master of its panel (greys the rest when off).
 
 local _, ns = ...
 local L = ns.L
 ns.DeathAlert = ns.DeathAlert or {}
 local DA = ns.DeathAlert
+DA.menus = DA.menus or {}
 
--- Build the ordered BuildMenu options for one role section (tank/healer/dps).
--- The widgets, their order, get/set/callbacks and config keys are identical to
--- the previous imperative CreateAlertSection: Test button, InstanceFilter,
--- IconPicker, SoundPicker, TextEditor ("Alert text"), PositionEditor, Duration,
--- and (DPS only) the "unassigned role" checkbox.
-local function BuildSectionOptions(prefix)
-    local options = {
-        -- ════════════ General: test, instance filter, duration (+ DPS opt) ════════════
+local function H2(text) return { type = "label", font = "UnbunkUtilityH2", height = 26, text = text } end
+
+local function BuildRoleOptions(prefix)
+    local enabledFn = function() return DA.CfgGet(prefix .. "Enabled") end
+
+    return {
+        -- ════════════ General: enable + test + instance filter + duration ════════════
         {
             type  = "group",
             title = L["General"],
+            gate  = { enabled = enabledFn, master = "enable" },
             build = function()
                 local general = {
-                    -- ── Test button ───────────────────────────────────────────────────────
-                    -- testFrame height 26, button at TOPLEFT (0,-2), 100x22.
+                    {
+                        type   = "checkbox",
+                        ref    = "enable",
+                        label  = L["Enable"],
+                        height = 24,
+                        get    = enabledFn,
+                        set    = function(val)
+                            DA.CfgSet(prefix .. "Enabled", val)
+                            if DA.menus[prefix] then DA.menus[prefix].Refresh() end
+                        end,
+                    },
+
+                    -- Test button
                     {
                         type       = "button",
                         label      = L["Test Alert"],
@@ -45,7 +61,7 @@ local function BuildSectionOptions(prefix)
                         end,
                     },
 
-                    -- ── Instance filter ───────────────────────────────────────────────────
+                    -- Instance filter
                     {
                         type      = "instanceFilter",
                         getConfig = function() return DA.CfgGet(prefix .. "InstanceFilter") end,
@@ -56,7 +72,7 @@ local function BuildSectionOptions(prefix)
                         end,
                     },
 
-                    -- ── Duration editor ───────────────────────────────────────────────────
+                    -- Duration editor
                     {
                         type = "duration",
                         get  = function() return DA.CfgGet(prefix .. "AlertDuration") end,
@@ -64,9 +80,7 @@ local function BuildSectionOptions(prefix)
                     },
                 }
 
-                -- ── Unassigned-role option (DPS section only) ─────────────────────────────
-                -- Routes deaths of members with no assigned group role to the DPS alert
-                -- (and the dpsSpam counter). See DA.CfgGet("dpsAlertUnassigned").
+                -- Unassigned-role option (DPS only).
                 if prefix == "dps" then
                     table.insert(general, {
                         type   = "checkbox",
@@ -83,11 +97,11 @@ local function BuildSectionOptions(prefix)
 
         -- ════════════ Sound ════════════
         {
-            type  = "group",
-            title = L["Sound"],
+            type      = "group",
+            title     = L["Sound"],
+            enabledBy = enabledFn,
             build = function()
                 return {
-                    -- ── Sound picker ──────────────────────────────────────────────────────
                     {
                         type      = "sound",
                         getKey    = function() return DA.CfgGet(prefix .. "SoundKey") end,
@@ -96,12 +110,8 @@ local function BuildSectionOptions(prefix)
                             DA.CfgSet(prefix .. "SoundKey", key)
                             DA.CfgSet(prefix .. "SoundPath", path)
                         end,
-                        onToggle  = function(val)
-                            DA.CfgSet(prefix .. "EnableSound", val)
-                        end,
-                        onTest    = function()
-                            DA.PlaySound(prefix)
-                        end,
+                        onToggle  = function(val) DA.CfgSet(prefix .. "EnableSound", val) end,
+                        onTest    = function() DA.PlaySound(prefix) end,
                     },
                 }
             end,
@@ -109,25 +119,19 @@ local function BuildSectionOptions(prefix)
 
         -- ════════════ Display: icon, alert text, alert position ════════════
         {
-            type  = "group",
-            title = L["Display"],
+            type      = "group",
+            title     = L["Display"],
+            enabledBy = enabledFn,
             build = function()
                 return {
-                    -- ── Icon ──────────────────────────────────────────────────────────────
                     {
                         type  = "group",
                         title = L["Icon"],
                         build = function()
                             return {
-                                -- ── Icon picker ───────────────────────────────────────────────────────
                                 {
                                     type      = "iconPicker",
-                                    -- The section header checkbox greys the section body, but the
-                                    -- IconPicker's "custom icon ID" checkbox + input escape that fade
-                                    -- (they live inside the composite widget's own container). Gate the
-                                    -- whole IconPicker host on the per-role enabled key so it greys with
-                                    -- its section. Uses the same key as the section's isChecked predicate.
-                                    enabledBy = function() return DA.CfgGet(prefix .. "Enabled") end,
+                                    enabledBy = enabledFn,
                                     getConfig = function() return DA.CfgGet(prefix .. "Icon") end,
                                     setConfig = function(key, val)
                                         local cfg = DA.CfgGet(prefix .. "Icon")
@@ -143,18 +147,14 @@ local function BuildSectionOptions(prefix)
                         end,
                     },
 
-                    -- ── Alert text ─────────────────────────────────────────────────────────
                     {
                         type  = "group",
                         title = L["Alert text"],
                         build = function()
                             return {
-                                -- ── Text editor ───────────────────────────────────────────────────────
                                 {
                                     type            = "textEditor",
-                                    label           = "",   -- box title says "Alert text"; suppress the inner header
-                                    -- Size auto-relocates to the Font row (TextEditor sizeOnFontRow), so the
-                                    -- text row carries only the input + colour swatch and stays inside the box.
+                                    label           = "",
                                     getText         = function() return DA.CfgGet(prefix .. "Message") end,
                                     getFontKey      = function() return DA.CfgGet(prefix .. "FontKey") end,
                                     getFontPath     = function() return DA.CfgGet(prefix .. "FontPath") end,
@@ -197,18 +197,14 @@ local function BuildSectionOptions(prefix)
                         end,
                     },
 
-                    -- ── Alert position ─────────────────────────────────────────────────────
                     {
                         type  = "group",
                         title = L["Alert position"],
                         build = function()
                             return {
-                                -- ── Position editor ───────────────────────────────────────────────────
-                                -- Registered into _G["DeathAlert_PE_"..prefix] so Core/Alert.lua's
-                                -- onDragStop can call .Refresh() on it (see Alert.lua).
                                 {
                                     type       = "position",
-                                    label      = "",  -- box title says "Alert position"; suppress the inner header
+                                    label      = "",
                                     onBuilt    = function(w) _G["DeathAlert_PE_" .. prefix] = w end,
                                     getX       = function() return DA.CfgGet(prefix .. "PosX") end,
                                     getY       = function() return DA.CfgGet(prefix .. "PosY") end,
@@ -242,59 +238,27 @@ local function BuildSectionOptions(prefix)
             end,
         },
     }
-
-    return options
 end
 
-local function CreateDeathAlertPanel(parent)
-    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-
-    -- Three collapsible role sections (tank / healer / dps), each a nested
-    -- BuildMenu drawn at innerWidth 500 so the embedded nested groups (General /
-    -- Sound / Display, with Icon / Alert text / Alert position inside Display)
-    -- render without clipping.
-    local options = {
-        {
-            type      = "section",
-            label     = L["Tank Death Alert"],
-            isChecked = function() return DA.CfgGet("tankEnabled") end,
-            onCheck   = function(val) DA.CfgSet("tankEnabled", val) end,
-            build     = function() return BuildSectionOptions("tank") end,
-        },
-        {
-            type      = "section",
-            label     = L["Healer Death Alert"],
-            isChecked = function() return DA.CfgGet("healerEnabled") end,
-            onCheck   = function(val) DA.CfgSet("healerEnabled", val) end,
-            build     = function() return BuildSectionOptions("healer") end,
-        },
-        {
-            type      = "section",
-            label     = L["DPS Death Alert"],
-            isChecked = function() return DA.CfgGet("dpsEnabled") end,
-            onCheck   = function(val) DA.CfgSet("dpsEnabled", val) end,
-            build     = function() return BuildSectionOptions("dps") end,
-        },
-    }
-
-    -- Outer sections stack with gap=8 (matches the previous AddSection GAP).
-    -- innerWidth=500 propagates to each section's nested BuildMenu so the
-    -- embedded nested groups draw at full width. autoHook generates the OnShow
-    -- re-sync (refreshes every widget + section checkbox) automatically.
-    return ns.ui.BuildMenu(parent, options, {
-        gap        = 8,
-        width      = 518,
-        innerWidth = 500,
-        LSM        = LSM,
-    })
+local function MakeRolePanel(prefix, titleText)
+    return function(parent)
+        local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+        local options = { H2(titleText) }
+        for _, o in ipairs(BuildRoleOptions(prefix)) do
+            table.insert(options, o)
+        end
+        DA.menus[prefix] = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
+        return DA.menus[prefix]
+    end
 end
 
--- ── Enregistrement ────────────────────────────────────────────────────────────
-
+-- ── Registration (three role sub-tabs) ─────────────────────────────────────────
 local initDA = CreateFrame("Frame")
 initDA:RegisterEvent("ADDON_LOADED")
 initDA:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
-    UnbunkUtility.RegisterModule(L["Death Alert"], nil, CreateDeathAlertPanel)
+    UnbunkUtility.RegisterModule(L["Tank Death Alert"],   nil, MakeRolePanel("tank",   L["Tank Death Alert"]))
+    UnbunkUtility.RegisterModule(L["Healer Death Alert"], nil, MakeRolePanel("healer", L["Healer Death Alert"]))
+    UnbunkUtility.RegisterModule(L["DPS Death Alert"],    nil, MakeRolePanel("dps",    L["DPS Death Alert"]))
     self:UnregisterEvent("ADDON_LOADED")
 end)

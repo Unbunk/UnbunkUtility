@@ -99,6 +99,44 @@ function ns.ResolveFontPath(path, key)
     return "Fonts\\FRIZQT__.TTF"
 end
 
+-- ── Brand title colour ───────────────────────────────────────────────────────
+-- Every config title/label renders in this blue (the same square the checkboxes
+-- use) instead of Blizzard's default gold. Two font objects clone GameFontNormal
+-- and GameFontNormalLarge and override ONLY the colour, so the face/size stay
+-- identical; config FontStrings inherit one of them (via CreateFontString's 3rd
+-- argument, or a BuildMenu `font=` field). Change ns.TITLE_COLOR to recolour
+-- every title at once.
+ns.TITLE_COLOR = { 0.20, 0.55, 1.0 }   -- #338CFF
+-- ── Heading scale (h1..h5) ────────────────────────────────────────────────────
+-- A small semantic type scale so the config reads as a hierarchy instead of a flat
+-- wall of blue. Each level is a font object (same UI face + shadow) differing only
+-- in size / weight / colour; FontStrings inherit one via CreateFontString's 3rd arg.
+--   H1  window title             19  bold(OUTLINE)  blue
+--   H2  module / main cadre title 16  normal         blue
+--   H3  sub-cadre / main label    13  normal         blue
+--   H4  secondary label           12  normal         blue
+--   H5  body text                 12  normal         white
+-- UnbunkUtilityTitle / ...Large are kept as legacy aliases (≈ H4 / H1) so any
+-- FontString not yet migrated to a tier still renders sensibly (blue).
+do
+    local C = ns.TITLE_COLOR
+    local basePath = GameFontNormal:GetFont()   -- the active UI font face
+    local function Heading(name, size, flags, r, g, b)
+        local f = CreateFont(name)
+        f:CopyFontObject(GameFontNormal)         -- inherit face + shadow + spacing
+        f:SetFont(basePath, size, flags or "")   -- override size / weight
+        f:SetTextColor(r, g, b)                  -- override colour
+        return f
+    end
+    Heading("UnbunkUtilityH1", 19, "OUTLINE", C[1], C[2], C[3])
+    Heading("UnbunkUtilityH2", 16, nil,       C[1], C[2], C[3])
+    Heading("UnbunkUtilityH3", 13, nil,       C[1], C[2], C[3])
+    Heading("UnbunkUtilityH4", 12, nil,       C[1], C[2], C[3])
+    Heading("UnbunkUtilityH5", 12, nil,       1, 1, 1)
+    Heading("UnbunkUtilityTitle",      12, nil, C[1], C[2], C[3])  -- legacy ≈ H4
+    Heading("UnbunkUtilityTitleLarge", 16, nil, C[1], C[2], C[3])  -- legacy ≈ H1/H2
+end
+
 -- ── Profile reload hooks ────────────────────────────────────────────────────
 -- Each module registers a function that re-applies its settings. Avoids the
 -- giant manual list that used to live in ns.profiles.ReloadAll.

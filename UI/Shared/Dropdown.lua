@@ -33,23 +33,20 @@ function ns.ui.CreateDropdown(config)
 
     -- ── Toggle button ─────────────────────────────────────────────────────────
 
-    local toggleBtn = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    local toggleBtn = CreateFrame("Button", nil, parent)
     toggleBtn:SetSize(width, 22)
     toggleBtn:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", 0, -4)
-    toggleBtn:SetBackdrop({
-        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        edgeSize = 10,
-        insets   = { left = 2, right = 2, top = 2, bottom = 2 },
-    })
-    toggleBtn:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
-    toggleBtn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 
-    toggleBtn:SetScript("OnEnter", function(self)
-        self:SetBackdropBorderColor(0.8, 0.8, 0.8, 1)
+    -- Borderless dark fill with sharp corners, matching the checkbox style.
+    local toggleFill = toggleBtn:CreateTexture(nil, "BACKGROUND")
+    toggleFill:SetAllPoints(toggleBtn)
+    toggleFill:SetColorTexture(0.12, 0.12, 0.12, 0.95)
+
+    toggleBtn:SetScript("OnEnter", function()
+        toggleFill:SetColorTexture(0.20, 0.20, 0.20, 0.95)
     end)
-    toggleBtn:SetScript("OnLeave", function(self)
-        self:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+    toggleBtn:SetScript("OnLeave", function()
+        toggleFill:SetColorTexture(0.12, 0.12, 0.12, 0.95)
     end)
 
     local selectedText = toggleBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -76,25 +73,22 @@ function ns.ui.CreateDropdown(config)
 
     if UNBUNK_ICON_DROPDOWN_ARROW then
         local arrowTex = toggleBtn:CreateTexture(nil, "OVERLAY")
-        arrowTex:SetSize(14, 14)
-        arrowTex:SetPoint("RIGHT", toggleBtn, "RIGHT", -4, 0)
+        arrowTex:SetSize(8, 8)
+        arrowTex:SetPoint("RIGHT", toggleBtn, "RIGHT", -6, 0)
         arrowTex:SetTexture(UNBUNK_ICON_DROPDOWN_ARROW)
     end
 
     -- ── Drop frame ────────────────────────────────────────────────────────────
 
-    local dropFrame = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    local dropFrame = CreateFrame("Frame", nil, UIParent)
     dropFrame:SetSize(width, itemHeight * visibleItems)
     dropFrame:SetFrameStrata("TOOLTIP")
     dropFrame:SetClipsChildren(true)
-    dropFrame:SetBackdrop({
-        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        edgeSize = 12,
-        insets   = { left = 2, right = 2, top = 2, bottom = 2 },
-    })
-    dropFrame:SetBackdropColor(0.1, 0.1, 0.1, 0.95)
-    dropFrame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+
+    -- Borderless dark fill with sharp corners, matching the checkbox style.
+    local dropFill = dropFrame:CreateTexture(nil, "BACKGROUND")
+    dropFill:SetAllPoints(dropFrame)
+    dropFill:SetColorTexture(0.10, 0.10, 0.10, 0.98)
     dropFrame:Hide()
     dropFrame:EnableMouse(false)
 
@@ -132,6 +126,12 @@ function ns.ui.CreateDropdown(config)
         local list       = getList()
         local currentKey = getCurrentKey()
         local level      = dropFrame:GetFrameLevel()
+
+        -- Auto-size the menu to the actual item count (capped at visibleItems) so a
+        -- short list (e.g. Anchor to / Row) shows a short menu, not a tall empty one.
+        -- +8 covers the scroll frame's 4px top/bottom insets.
+        local shownRows = math.max(1, math.min(#list, visibleItems))
+        dropFrame:SetHeight(shownRows * itemHeight + 8)
 
         scrollChild:SetHeight(itemHeight * #list)
 

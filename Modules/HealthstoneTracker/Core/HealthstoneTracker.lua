@@ -7,11 +7,6 @@ local L = ns.L
 ns.HealthstoneTracker = ns.HealthstoneTracker or {}
 local HT = ns.HealthstoneTracker
 
-local AceEvent = LibStub("AceEvent-3.0")
-local AceTimer = LibStub("AceTimer-3.0")
-AceEvent:Embed(HT)
-AceTimer:Embed(HT)
-
 local function IsActiveInCurrentInstance()
     return ns.IsActiveInInstance(HT.CfgGet("instanceFilter"))
 end
@@ -237,13 +232,6 @@ function HT.ApplyTimerVisuals()
     end
 end
 
--- Re-apply the configurable icon border to every pooled tracker.
-function HT.ApplyBorder()
-    for _, t in ipairs(trackers) do
-        if t.ApplyBorder then t.ApplyBorder() end
-    end
-end
-
 -- Size the red "C" marker relative to the icon, using the timer font config.
 local function ApplyCombatCFont(t)
     local iconW = HT.CfgGet("iconWidth")  or 30
@@ -277,28 +265,9 @@ local function ApplyCombatMarkerFor(t)
     t.combatC:Show()
 end
 
--- True when the Cooldown Manager integration owns the icons: each variant is
--- placed individually by ns.CDMAnchor (native essential/utility row slot, or the
--- artificial below-player row) via its per-icon TimerIcon descriptor. Our own
--- ApplyLayout row must stand down so it doesn't clobber those positions.
-local function CDMActive()
-    -- Cooldown Manager disabled in the game options -> integration inert, so the
-    -- row must lay out freely (matches TimerIcon's CDMActive + DoRefresh's cdmOn).
-    if ns.IsCDMEnabled and not ns.IsCDMEnabled() then return false end
-    if not HT.CfgGet("includeInCdm") then return false end
-    local dest = HT.CfgGet("cdmDest")
-    if dest == "belowPlayer" then return true end
-    return (ns.GetCDMViewer and ns.GetCDMViewer(dest)) ~= nil
-end
-
 -- Layout active trackers in a horizontal row to the right of the configured
 -- position. Hidden trackers (no assignedId) are skipped.
--- We only SetPoint OUR (unprotected) frames — nothing protected is moved.
 local function ApplyLayout()
-    -- CDM integration active: each variant icon is placed into its destination by
-    -- ns.CDMAnchor (via its per-icon TimerIcon descriptor), so skip our own row
-    -- layout — running it (incl. on the 0.5s ticker) would clobber those positions.
-    if CDMActive() then return end
     local x = HT.CfgGet("posX")     or 0
     local y = HT.CfgGet("posY")     or 0
     local w = HT.CfgGet("iconWidth") or 30
@@ -310,17 +279,6 @@ local function ApplyLayout()
                 x + (i - 1) * (w + ICON_GAP), y)
         end
     end
-end
-
--- Re-apply the row position. The position editor calls this directly; in CDM mode
--- the variant icons are laid into their destination by ns.CDMAnchor instead, so
--- just ask it for a refresh.
-function HT.ApplyPosition()
-    if CDMActive() then
-        if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
-        return
-    end
-    ApplyLayout()
 end
 
 -- ── Main update ───────────────────────────────────────────────────────────────
@@ -492,92 +450,66 @@ function HT.GetTracker() return trackers[1] end
 
 -- ── Events ────────────────────────────────────────────────────────────────────
 
+local eventFrame = CreateFrame("Frame")
+eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 -- BAG_UPDATE_COOLDOWN is intentionally NOT registered (matches PotionTracker):
 -- it fires on essentially every cooldown tick in combat, and invalidating the
 -- resolver cache + a full ApplyAll there is redundant — the resolver only cares
 -- about bag *contents* (BAG_UPDATE) and the 0.5s ticker keeps the cooldown swipe
 -- in sync by reading cooldown state fresh each pass.
--- AceEvent callbacks receive (event, ...) — not (self, event, ...). Each branch
--- of the old OnEvent ladder becomes its own handler; every one ends with
--- HT.ApplyAll() to mirror the single trailing call the ladder ran per event.
+eventFrame:RegisterEvent("BAG_UPDATE")
+eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 
-local function OnBagOrEnteringWorld(event)
-    InvalidateActiveCache()
-    HT.ApplyAll()
-end
-HT:RegisterEvent("PLAYER_ENTERING_WORLD", OnBagOrEnteringWorld)
-HT:RegisterEvent("BAG_UPDATE", OnBagOrEnteringWorld)
--- Late-loading item/spell data: refresh once it arrives so the first post-login
--- icon/spell resolves promptly instead of waiting up to one 0.5s ticker. Debounced
--- to a single refresh per 0.2s window because each preloaded healthstone fires this
--- (mirrors PotionTracker's ITEM_DATA_LOAD_RESULT handling).
-local idlrPending = false
-HT:RegisterEvent("ITEM_DATA_LOAD_RESULT", function(event, itemID)
-    -- Only react to a healthstone's data loading, not every hovered/streamed item:
-    -- an equipment hover otherwise fires a storm of ITEM_DATA_LOAD_RESULT → a full
-    -- invalidate + ApplyAll each time (~250 KB/s churn). The 0.5s ticker still
-    -- resolves anything filtered out here.
-    if not (itemID and HEALTHSTONE_ITEM_IDS[itemID]) then return end
-    if idlrPending then return end
-    idlrPending = true
-    C_Timer.After(0.2, function()
-        idlrPending = false
-        OnBagOrEnteringWorld("ITEM_DATA_LOAD_RESULT")
-    end)
-end)
-
-HT:RegisterEvent("PLAYER_REGEN_ENABLED", function(event)
-    -- Combat ended: clear the per-tracker and per-variant "used in combat"
-    -- flags so the "C" marker doesn't linger into the next pull.
-    wipe(usedInCombatById)
-    for _, t in ipairs(trackers) do
-        t.usedInCombat = false
-        if t.combatC then t.combatC:Hide() end
+eventFrame:SetScript("OnEvent", function(self, event, ...)
+    if event == "BAG_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
+        InvalidateActiveCache()
     end
-    HT.ApplyAll()
-end)
-
-HT:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit, _, spellId)
-    if unit == "player" then
-        local inCombat = UnitAffectingCombat("player")
+    if event == "PLAYER_REGEN_ENABLED" then
+        -- Combat ended: clear the per-tracker and per-variant "used in combat"
+        -- flags so the "C" marker doesn't linger into the next pull.
+        wipe(usedInCombatById)
         for _, t in ipairs(trackers) do
-            local id = t.assignedId
-            local itemSpellId = id and GetSpellIdForItem(id)
-            if itemSpellId and itemSpellId == spellId then
-                if HT.CfgGet("soundOnUse") then
-                    HT.PlaySound("soundUse")
+            t.usedInCombat = false
+            if t.combatC then t.combatC:Hide() end
+        end
+    end
+    if event == "UNIT_SPELLCAST_SUCCEEDED" then
+        local unit, _, spellId = ...
+        if unit == "player" then
+            local inCombat = UnitAffectingCombat("player")
+            for _, t in ipairs(trackers) do
+                local id = t.assignedId
+                local itemSpellId = id and GetSpellIdForItem(id)
+                if itemSpellId and itemSpellId == spellId then
+                    if HT.CfgGet("soundOnUse") then
+                        HT.PlaySound("soundUse")
+                    end
+                    if inCombat then
+                        t.usedInCombat = true
+                        -- Sticky by variant id: this survives the variant's
+                        -- last stone leaving the bag, so the "C" still shows
+                        -- after the final healthstone is consumed (until
+                        -- PLAYER_REGEN_ENABLED). See ApplyAll.
+                        usedInCombatById[id] = true
+                    end
+                    break
                 end
-                if inCombat then
-                    t.usedInCombat = true
-                    -- Sticky by variant id: this survives the variant's
-                    -- last stone leaving the bag, so the "C" still shows
-                    -- after the final healthstone is consumed (until
-                    -- PLAYER_REGEN_ENABLED). See ApplyAll.
-                    usedInCombatById[id] = true
-                end
-                break
             end
         end
     end
     HT.ApplyAll()
 end)
 
-HT:ScheduleRepeatingTimer(function()
+C_Timer.NewTicker(0.5, function()
     if not HT.CfgGet("enabled") then return end
-    HT.ApplyAll()
-end, 0.5)
-
-ns.RegisterReloadHook(function()
-    InvalidateActiveCache()
-    HT.ApplyBorder()
     HT.ApplyAll()
 end)
 
--- NOTE: no bare ns.CDMAnchor.Register(HT.ApplyPosition) here — each variant's own
--- TimerIcon already registers a full descriptor that ns.CDMAnchor lays out (and
--- re-applies on viewer relayout) in CDM mode; free mode is driven by HT's 0.5s
--- ticker + reload hook. A bare applier only re-entered RefreshAll (guarded no-op),
--- matching PotionTracker/TrinketTracker which add no such applier.
+ns.RegisterReloadHook(function()
+    InvalidateActiveCache()
+    HT.ApplyAll()
+end)
 
 local initHT = CreateFrame("Frame")
 initHT:RegisterEvent("PLAYER_LOGIN")

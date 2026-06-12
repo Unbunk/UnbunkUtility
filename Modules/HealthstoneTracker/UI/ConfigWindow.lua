@@ -14,24 +14,8 @@ local function CreateHealthstoneTrackerPanel(parent)
         {
             type  = "group",
             title = L["General"],
-            -- Disabling the module greys everything in General (Test button, instance
-            -- filter, etc.) except the enable checkbox itself, which stays live to re-enable.
-            gate  = { enabled = function() return HT.CfgGet("enabled") ~= false end, master = "enable" },
             build = function()
                 return {
-                    -- ── Enable checkbox (gate master — stays live) ────────────────────────
-                    {
-                        type   = "checkbox",
-                        ref    = "enable",
-                        label  = L["Enable Healthstone Tracker"],
-                        get    = function() return HT.CfgGet("enabled") ~= false end,
-                        set    = function(val)
-                            HT.CfgSet("enabled", val)
-                            HT.ApplyAll()
-                            if menu then menu.Refresh() end
-                        end,
-                    },
-
                     -- ── Test button (toggles Test / Stop Test) ────────────────────────────
                     {
                         type   = "custom",
@@ -66,6 +50,17 @@ local function CreateHealthstoneTrackerPanel(parent)
                         end,
                     },
 
+                    -- ── Enable checkbox ───────────────────────────────────────────────────
+                    {
+                        type   = "checkbox",
+                        label  = L["Enable Healthstone Tracker"],
+                        get    = function() return HT.CfgGet("enabled") ~= false end,
+                        set    = function(val)
+                            HT.CfgSet("enabled", val)
+                            HT.ApplyAll()
+                        end,
+                    },
+
                     -- ── Instance filter ───────────────────────────────────────────────────
                     {
                         type      = "instanceFilter",
@@ -84,7 +79,6 @@ local function CreateHealthstoneTrackerPanel(parent)
         {
             type  = "group",
             title = L["Sound"],
-            enabledBy = function() return HT.CfgGet("enabled") ~= false end,
             build = function()
                 return {
                     -- ── Sound on use ──────────────────────────────────────────────────────
@@ -124,16 +118,11 @@ local function CreateHealthstoneTrackerPanel(parent)
         {
             type  = "group",
             title = L["Icon"],
-            enabledBy = function() return HT.CfgGet("enabled") ~= false end,
-            -- Unchecking "Show icon" greys the rest of the Icon box (placement / border /
-            -- timer text / stack text) since there is no icon to configure; the checkbox stays live.
-            gate      = { enabled = function() return HT.CfgGet("showIcon") ~= false end, master = "showicon" },
             build = function()
                 return {
                     -- ── Show icon checkbox + Show-at-0-stacks toggle (inline, to its right) ──
                     {
                         type   = "checkbox",
-                        ref    = "showicon",
                         label  = L["Show icon"],
                         get    = function() return HT.CfgGet("showIcon") ~= false end,
                         set    = function(val)
@@ -312,117 +301,89 @@ local function CreateHealthstoneTrackerPanel(parent)
                         end,
                     },
 
-                    -- ── Border (sub-box) ──────────────────────────────────────────────────
+                    -- ── Border ────────────────────────────────────────────────────────────
                     {
-                        type  = "group",
-                        title = L["Border"],
-                        build = function()
-                            return {
-                                {
-                                    type = "checkbox", label = L["Show border"],
-                                    get = function() return HT.CfgGet("borderEnabled") == true end,
-                                    set = function(v) HT.CfgSet("borderEnabled", v); HT.ApplyBorder(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type = "textEditor", label = L["Border color"],
-                                    enabledBy = function() return HT.CfgGet("borderEnabled") == true end,
-                                    showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                                    getColor = function() return HT.CfgGet("borderColor") end,
-                                    onColorChange = function(r, g, b, a) HT.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); HT.ApplyBorder() end,
-                                },
-                                {
-                                    type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-                                    enabledBy = function() return HT.CfgGet("borderEnabled") == true end,
-                                    get = function() return HT.CfgGet("borderSize") or 1 end,
-                                    set = function(v) if v and v > 0 then HT.CfgSet("borderSize", v); HT.ApplyBorder() end end,
-                                },
-                            }
+                        type = "checkbox", label = L["Show border"],
+                        get = function() return HT.CfgGet("borderEnabled") == true end,
+                        set = function(v) HT.CfgSet("borderEnabled", v); HT.ApplyBorder() end,
+                    },
+                    {
+                        type = "textEditor", label = L["Border color"],
+                        showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                        getColor = function() return HT.CfgGet("borderColor") end,
+                        onColorChange = function(r, g, b, a) HT.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); HT.ApplyBorder() end,
+                    },
+                    {
+                        type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+                        get = function() return HT.CfgGet("borderSize") or 1 end,
+                        set = function(v) if v and v > 0 then HT.CfgSet("borderSize", v); HT.ApplyBorder() end end,
+                    },
+
+                    -- ── Timer text ────────────────────────────────────────────────────────
+                    {
+                        type            = "textEditor",
+                        LSM             = LSM,
+                        label           = L["Timer text"],
+                        showText        = false,
+                        showFont        = true,
+                        showSize        = true,
+                        showColor       = true,
+                        showOutline     = true,
+                        getFontKey      = function() return HT.CfgGet("timerFontKey") end,
+                        getFontPath     = function() return HT.CfgGet("timerFontPath") end,
+                        getFontSize     = function() return HT.CfgGet("timerFontSize") end,
+                        getColor        = function() return HT.CfgGet("timerColor") end,
+                        getOutline      = function() return HT.CfgGet("timerOutline") end,
+                        onFontChange    = function(key, path)
+                            HT.CfgSet("timerFontKey", key)
+                            HT.CfgSet("timerFontPath", path)
+                            HT.ApplyTimerVisuals()
+                        end,
+                        onSizeChange    = function(size)
+                            HT.CfgSet("timerFontSize", size)
+                            HT.ApplyTimerVisuals()
+                        end,
+                        onColorChange   = function(r, g, b, a)
+                            HT.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
+                            HT.ApplyTimerVisuals()
+                        end,
+                        onOutlineChange = function(outline)
+                            HT.CfgSet("timerOutline", outline)
+                            HT.ApplyTimerVisuals()
                         end,
                     },
 
-                    -- ── Timer text (sub-box) ──────────────────────────────────────────────
+                    -- ── Stack text ────────────────────────────────────────────────────────
                     {
-                        type  = "group",
-                        title = L["Timer text"],
-                        build = function()
-                            return {
-                                {
-                                    type            = "textEditor",
-                                    LSM             = LSM,
-                                    label           = L["Timer text"],
-                                    showLabel       = false,
-                                    showText        = false,
-                                    showFont        = true,
-                                    showSize        = true,
-                                    showColor       = true,
-                                    showOutline     = true,
-                                    getFontKey      = function() return HT.CfgGet("timerFontKey") end,
-                                    getFontPath     = function() return HT.CfgGet("timerFontPath") end,
-                                    getFontSize     = function() return HT.CfgGet("timerFontSize") end,
-                                    getColor        = function() return HT.CfgGet("timerColor") end,
-                                    getOutline      = function() return HT.CfgGet("timerOutline") end,
-                                    onFontChange    = function(key, path)
-                                        HT.CfgSet("timerFontKey", key)
-                                        HT.CfgSet("timerFontPath", path)
-                                        HT.ApplyTimerVisuals()
-                                    end,
-                                    onSizeChange    = function(size)
-                                        HT.CfgSet("timerFontSize", size)
-                                        HT.ApplyTimerVisuals()
-                                    end,
-                                    onColorChange   = function(r, g, b, a)
-                                        HT.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
-                                        HT.ApplyTimerVisuals()
-                                    end,
-                                    onOutlineChange = function(outline)
-                                        HT.CfgSet("timerOutline", outline)
-                                        HT.ApplyTimerVisuals()
-                                    end,
-                                },
-                            }
+                        type            = "textEditor",
+                        LSM             = LSM,
+                        label           = L["Stack text"],
+                        showText        = false,
+                        showFont        = true,
+                        showSize        = true,
+                        showColor       = true,
+                        showOutline     = true,
+                        getFontKey      = function() return HT.CfgGet("stackFontKey") end,
+                        getFontPath     = function() return HT.CfgGet("stackFontPath") end,
+                        getFontSize     = function() return HT.CfgGet("stackFontSize") end,
+                        getColor        = function() return HT.CfgGet("stackColor") end,
+                        getOutline      = function() return HT.CfgGet("stackOutline") end,
+                        onFontChange    = function(key, path)
+                            HT.CfgSet("stackFontKey", key)
+                            HT.CfgSet("stackFontPath", path)
+                            HT.ApplyStackVisuals()
                         end,
-                    },
-
-                    -- ── Stack text (sub-box) ──────────────────────────────────────────────
-                    {
-                        type  = "group",
-                        title = L["Stack text"],
-                        build = function()
-                            return {
-                                {
-                                    type            = "textEditor",
-                                    LSM             = LSM,
-                                    label           = L["Stack text"],
-                                    showLabel       = false,
-                                    showText        = false,
-                                    showFont        = true,
-                                    showSize        = true,
-                                    showColor       = true,
-                                    showOutline     = true,
-                                    getFontKey      = function() return HT.CfgGet("stackFontKey") end,
-                                    getFontPath     = function() return HT.CfgGet("stackFontPath") end,
-                                    getFontSize     = function() return HT.CfgGet("stackFontSize") end,
-                                    getColor        = function() return HT.CfgGet("stackColor") end,
-                                    getOutline      = function() return HT.CfgGet("stackOutline") end,
-                                    onFontChange    = function(key, path)
-                                        HT.CfgSet("stackFontKey", key)
-                                        HT.CfgSet("stackFontPath", path)
-                                        HT.ApplyStackVisuals()
-                                    end,
-                                    onSizeChange    = function(size)
-                                        HT.CfgSet("stackFontSize", size)
-                                        HT.ApplyStackVisuals()
-                                    end,
-                                    onColorChange   = function(r, g, b, a)
-                                        HT.CfgSet("stackColor", { r = r, g = g, b = b, a = a })
-                                        HT.ApplyStackVisuals()
-                                    end,
-                                    onOutlineChange = function(outline)
-                                        HT.CfgSet("stackOutline", outline)
-                                        HT.ApplyStackVisuals()
-                                    end,
-                                },
-                            }
+                        onSizeChange    = function(size)
+                            HT.CfgSet("stackFontSize", size)
+                            HT.ApplyStackVisuals()
+                        end,
+                        onColorChange   = function(r, g, b, a)
+                            HT.CfgSet("stackColor", { r = r, g = g, b = b, a = a })
+                            HT.ApplyStackVisuals()
+                        end,
+                        onOutlineChange = function(outline)
+                            HT.CfgSet("stackOutline", outline)
+                            HT.ApplyStackVisuals()
                         end,
                     },
                 }

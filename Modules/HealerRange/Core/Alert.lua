@@ -4,7 +4,7 @@ local _, ns = ...
 ns.HealerRange = ns.HealerRange or {}
 local HR = ns.HealerRange
 
-local alertFrame = ns.ui.CreateAlertFrame({
+local alertFrame = Unbunk_CreateAlertFrame({
     name   = "HealerRangeAlert",
     getCfg = function(key) return HR.CfgGet(key) end,
     onDragStop = function(x, y)
