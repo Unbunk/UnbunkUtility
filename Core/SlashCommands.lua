@@ -13,9 +13,9 @@ end
 
 local function PrintHelp()
     ns.Print(L["Commands:"])
-    print(L["  |cffffd700/ubu|r or |cffffd700/ubu config|r — open settings"])
-    print(L["  |cffffd700/ubu help|r — show this help"])
-    print(L["  |cffffd700/ubu debug|r — dump LibRangeCheck friend checkers (dev)"])
+    print(L["  |cff338cff/ubu|r or |cff338cff/ubu config|r — open settings"])
+    print(L["  |cff338cff/ubu help|r — show this help"])
+    print(L["  |cff338cff/ubu debug|r — dump LibRangeCheck friend checkers (dev)"])
 end
 
 SLASH_UNBUNKUTILITY1 = "/ubu"
@@ -37,17 +37,17 @@ SlashCmdList["UNBUNKUTILITY"] = function(msg)
         -- `or {}` guards against a future LibRangeCheck dropping/renaming these
         -- internal fields (ipairs on nil would error in this dev-only command).
         for _, rc in ipairs(RangeCheck.friendRCInCombat or {}) do
-            print("  |cffffd700" .. rc.range .. "y|r — " .. tostring(rc.info))
+            print("  |cff338cff" .. rc.range .. "y|r — " .. tostring(rc.info))
         end
         ns.Print(L["Debug — Friend checkers |cff00ff00out of combat|r:"])
         for _, rc in ipairs(RangeCheck.friendRC or {}) do
-            print("  |cffffd700" .. rc.range .. "y|r — " .. tostring(rc.info))
+            print("  |cff338cff" .. rc.range .. "y|r — " .. tostring(rc.info))
         end
         ns.Print(L["Debug — Res checkers |cffff9900in combat|r:"])
         for range in RangeCheck:GetFriendCheckers(true) do
-            print("  |cffffd700" .. range .. "y|r")
+            print("  |cff338cff" .. range .. "y|r")
         end
     else
-        ns.Print(L["Unknown command. Type |cffffd700/ubu help|r for the list."])
+        ns.Print(L["Unknown command. Type |cff338cff/ubu help|r for the list."])
     end
 end

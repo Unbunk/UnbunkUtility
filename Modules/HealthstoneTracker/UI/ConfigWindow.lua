@@ -248,7 +248,7 @@ local function CreateHealthstoneTrackerPanel(parent)
                                     height = 46,
                                     when   = function() return not ns.CDMIncludedVal(HT.CfgGet("includeInCdm")) end,
                                     build  = function(host)
-                                        local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                                        local sizeLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                                         sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                                         sizeLbl:SetText(L["Icon size"])
 

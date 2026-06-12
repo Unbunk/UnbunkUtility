@@ -314,7 +314,7 @@ initHR:SetScript("OnEvent", function(self, event, addonName)
 
     local blizzPanel = CreateFrame("Frame")
     blizzPanel.name = "UnbunkUtility"
-    local blizzTitle = blizzPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    local blizzTitle = blizzPanel:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH2")
     blizzTitle:SetPoint("TOPLEFT", 16, -16)
     blizzTitle:SetText("UnbunkUtility")
     local openBtn = CreateFrame("Button", nil, blizzPanel, "UIPanelButtonTemplate")

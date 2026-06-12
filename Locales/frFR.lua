@@ -9,12 +9,12 @@ if GetLocale() ~= "frFR" then return end
 local L = ns.L
 
 -- ── Slash commands / chat ────────────────────────────────────────────────────
-L["  |cffffd700/ubu debug|r — dump LibRangeCheck friend checkers (dev)"] = "  |cffffd700/ubu debug|r — affiche les vérificateurs alliés LibRangeCheck (dev)"
-L["  |cffffd700/ubu help|r — show this help"] = "  |cffffd700/ubu help|r — affiche cette aide"
-L["  |cffffd700/ubu|r or |cffffd700/ubu config|r — open settings"] = "  |cffffd700/ubu|r ou |cffffd700/ubu config|r — ouvre les réglages"
+L["  |cff338cff/ubu debug|r — dump LibRangeCheck friend checkers (dev)"] = "  |cff338cff/ubu debug|r — affiche les vérificateurs alliés LibRangeCheck (dev)"
+L["  |cff338cff/ubu help|r — show this help"] = "  |cff338cff/ubu help|r — affiche cette aide"
+L["  |cff338cff/ubu|r or |cff338cff/ubu config|r — open settings"] = "  |cff338cff/ubu|r ou |cff338cff/ubu config|r — ouvre les réglages"
 L["|cffff4444[UnbunkUtility]|r Commands:"] = "|cffff4444[UnbunkUtility]|r Commandes :"
 L["|cffff4444[UnbunkUtility]|r Config panel not ready yet."] = "|cffff4444[UnbunkUtility]|r Le panneau de configuration n'est pas encore prêt."
-L["|cffff4444[UnbunkUtility]|r Unknown command. Type |cffffd700/ubu help|r for the list."] = "|cffff4444[UnbunkUtility]|r Commande inconnue. Tapez |cffffd700/ubu help|r pour la liste."
+L["|cffff4444[UnbunkUtility]|r Unknown command. Type |cff338cff/ubu help|r for the list."] = "|cffff4444[UnbunkUtility]|r Commande inconnue. Tapez |cff338cff/ubu help|r pour la liste."
 L["|cffff4444[UnbunkUtility]|r Debug — LibRangeCheck-3.0 not loaded."] = "|cffff4444[UnbunkUtility]|r Debug — LibRangeCheck-3.0 non chargé."
 L["|cffff4444[UnbunkUtility]|r Debug — Friend checkers |cff00ff00out of combat|r:"] = "|cffff4444[UnbunkUtility]|r Debug — Vérificateurs alliés |cff00ff00hors combat|r :"
 L["|cffff4444[UnbunkUtility]|r Debug — Friend checkers |cffff9900in combat|r:"] = "|cffff4444[UnbunkUtility]|r Debug — Vérificateurs alliés |cffff9900en combat|r :"
@@ -23,7 +23,7 @@ L["|cffff4444[UnbunkUtility]|r Debug — Res checkers |cffff9900in combat|r:"] =
 -- ── Profiles ─────────────────────────────────────────────────────────────────
 L["Profile Management"] = "Gestion des profils"
 L["Profiles"] = "Profils"
-L["Current profile: |cffffd700%s|r"] = "Profil actuel : |cffffd700%s|r"
+L["Current profile: |cff338cff%s|r"] = "Profil actuel : |cff338cff%s|r"
 L["Switch profile"] = "Changer de profil"
 L["Create"] = "Créer"
 L["Create new profile"] = "Créer un nouveau profil"
@@ -239,7 +239,7 @@ L["Enable Healthstone Tracker"] = "Activer le suivi des pierres de soin"
 
 -- ── Racial tracker ───────────────────────────────────────────────────────────
 L["Enable Racial Tracker"] = "Activer le suivi raciale"
-L["Tracked racial: |cffffd700%s|r"] = "Raciale suivie : |cffffd700%s|r"
+L["Tracked racial: |cff338cff%s|r"] = "Raciale suivie : |cff338cff%s|r"
 L["Spell ID override (0 = auto)"] = "Forcer l'ID du sort (0 = auto)"
 L["(none for your race)"] = "(aucune pour votre race)"
 
@@ -267,8 +267,8 @@ L["Show minimap button (left-click to open settings, drag to reposition)"] = "Af
 L["Welcome message"] = "Message de bienvenue"
 L["Show the login message in chat"] = "Afficher le message de connexion dans le chat"
 L["Open UnbunkUtility"] = "Ouvrir UnbunkUtility"
-L["|cffeda55fLeft-click|r to open settings"] = "|cffeda55fClic gauche|r pour ouvrir les réglages"
-L["|cffeda55fDrag|r to reposition"] = "|cffeda55fGlisser|r pour repositionner"
+L["|cff338cffLeft-click|r to open settings"] = "|cff338cffClic gauche|r pour ouvrir les réglages"
+L["|cff338cffDrag|r to reposition"] = "|cff338cffGlisser|r pour repositionner"
 
 -- ── Position editor (shared) ─────────────────────────────────────────────────
 L["|cffff4444[UnbunkUtility]|r Alert unlocked — drag to reposition, then click Lock to save."] = "|cffff4444[UnbunkUtility]|r Alerte déverrouillée — glissez pour repositionner, puis cliquez sur Verrouiller pour sauvegarder."

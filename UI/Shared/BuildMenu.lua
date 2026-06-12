@@ -146,7 +146,7 @@ local function BuildChild(entry, host, defaultRel, refs, refreshers)
 
     elseif t == "label" or t == "header" then
         -- A bare FontString anchored inside the host.
-        local fontObj = entry.font or (t == "header" and "GameFontNormal" or "GameFontHighlightSmall")
+        local fontObj = entry.font or (t == "header" and "UnbunkUtilityH4" or "GameFontHighlightSmall")
         local fs = host:CreateFontString(nil, "ARTWORK", fontObj)
         fs:SetText(entry.text or "")
         widget = { frame = fs, fontString = fs }
@@ -495,7 +495,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                 local inputH = entry.inputHeight or DEFAULT_HEIGHTS.textinput
                 local labelFs
                 if entry.label then
-                    labelFs = hostFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                    labelFs = hostFrame:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                     labelFs:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", 0, 0)
                     labelFs:SetText(entry.label)
                 end
@@ -526,7 +526,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
             elseif t == "label" or t == "header" then
                 hostFrame = CreateFrame("Frame", nil, content)
                 spentHeight = entry.height or DEFAULT_HEIGHTS.label
-                local fontObj = entry.font or (t == "header" and "GameFontNormal" or "GameFontHighlightSmall")
+                local fontObj = entry.font or (t == "header" and "UnbunkUtilityH4" or "GameFontHighlightSmall")
                 local fs = hostFrame:CreateFontString(nil, "ARTWORK", fontObj)
                 fs:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", 0, 0)
                 fs:SetText(entry.text or "")

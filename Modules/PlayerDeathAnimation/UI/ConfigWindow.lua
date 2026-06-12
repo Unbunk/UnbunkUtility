@@ -103,7 +103,7 @@ local function CreatePlayerDeathPanel(parent)
                         type   = "custom",
                         height = 50,
                         build  = function(host)
-                            local animPickerLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                            local animPickerLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                             animPickerLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                             animPickerLbl:SetText(L["Animation"])
 
@@ -169,7 +169,7 @@ local function CreatePlayerDeathPanel(parent)
                         type   = "custom",
                         height = 46,
                         build  = function(host)
-                            local fpsLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                            local fpsLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                             fpsLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                             fpsLbl:SetText(L["Frames per second"])
 
@@ -271,7 +271,7 @@ local function CreatePlayerDeathPanel(parent)
                         type   = "custom",
                         height = 46,
                         build  = function(host)
-                            local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+                            local sizeLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                             sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                             sizeLbl:SetText(L["Animation size"])
 

@@ -28,7 +28,7 @@ function ns.ui.CreateDurationEditor(config)
 
     -- ── Label ─────────────────────────────────────────────────────────────────
 
-    local sectionLabel = container:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local sectionLabel = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
     sectionLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
     sectionLabel:SetText(L["Alert duration"])
     height = height + 20

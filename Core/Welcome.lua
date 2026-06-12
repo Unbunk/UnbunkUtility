@@ -36,6 +36,6 @@ f:SetScript("OnEvent", function(self)
     local meta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
     local version = (meta and meta(ADDON, "Version")) or "?"
     print(string.format(
-        "|cff33aaffUnbunkUtility|r v%s loaded - type |cffffd700/ubu|r to open settings.",
+        "|cff33aaffUnbunkUtility|r v%s loaded - type |cff338cff/ubu|r to open settings.",
         version))
 end)
