@@ -73,7 +73,7 @@ local function CreatePotionSection(parent, prefix)
     local displayToId = {}
 
     local potionDD
-    potionDD = HealerRange_CreateDropdown({
+    potionDD = ns.ui.CreateDropdown({
         parent        = potionFrame,
         anchorFrame   = potionAnchor,
         width         = 240,
@@ -123,7 +123,7 @@ local function CreatePotionSection(parent, prefix)
     local favDisplayToId = {}
 
     local favoriteDD
-    favoriteDD = HealerRange_CreateDropdown({
+    favoriteDD = ns.ui.CreateDropdown({
         parent        = potionFrame,
         anchorFrame   = favAnchor,
         width         = 200,
@@ -166,7 +166,7 @@ local function CreatePotionSection(parent, prefix)
 
     -- ── Sound use ─────────────────────────────────────────────────────────────
 
-    local soundUseResult = HealerRange_CreateSoundPicker(parent, LSM, {
+    local soundUseResult = ns.ui.CreateSoundPicker(parent, LSM, {
         label          = "Sound on use",
         getSoundKey    = function() return GetCfg("soundKeyUse") end,
         getSoundEnable = function() return GetCfg("soundOnUse") end,
@@ -182,7 +182,7 @@ local function CreatePotionSection(parent, prefix)
 
     -- ── Sound ready ───────────────────────────────────────────────────────────
 
-    local soundReadyResult = HealerRange_CreateSoundPicker(parent, LSM, {
+    local soundReadyResult = ns.ui.CreateSoundPicker(parent, LSM, {
         label          = "Sound when ready",
         getSoundKey    = function() return GetCfg("soundKeyReady") end,
         getSoundEnable = function() return GetCfg("soundOnReady") end,
@@ -268,7 +268,7 @@ local function CreatePotionSection(parent, prefix)
     -- ── Position editor ───────────────────────────────────────────────────────
 
     local peName = "PotionTracker_PE_" .. prefix
-    _G[peName] = HealerRange_CreatePositionEditor(parent, {
+    _G[peName] = ns.ui.CreatePositionEditor(parent, {
         label      = "Icon position (offset from screen center)",
         getX       = function() return GetCfg("posX") end,
         getY       = function() return GetCfg("posY") end,
@@ -291,7 +291,7 @@ local function CreatePotionSection(parent, prefix)
 
     -- ── Timer text ────────────────────────────────────────────────────────────
 
-    local te = HealerRange_CreateTextEditor(parent, {
+    local te = ns.ui.CreateTextEditor(parent, {
         LSM          = LSM,
         label        = "Timer text",
         showText     = false,
@@ -344,7 +344,7 @@ local function CreatePotionSection(parent, prefix)
 
     -- ── Stack text ────────────────────────────────────────────────────────────
 
-    local ste = HealerRange_CreateTextEditor(parent, {
+    local ste = ns.ui.CreateTextEditor(parent, {
         LSM          = LSM,
         label        = "Stack text",
         showText     = false,
