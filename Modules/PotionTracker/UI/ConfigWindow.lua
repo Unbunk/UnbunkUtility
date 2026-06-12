@@ -533,6 +533,8 @@ local function CreatePotionTrackerPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
     local options = {
+        { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["Potion Tracker"] },
+
         -- ════════════ General: enable + where it is active ════════════
         {
             type  = "group",

@@ -61,7 +61,7 @@ function ns.ui.CreateGroupBox(config)
     result.box = box
 
     if title then
-        local fs = box:CreateFontString(nil, "OVERLAY", heading)
+        local fs = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         fs:SetPoint("TOPLEFT", box, "TOPLEFT", sidePad, -6)
         fs:SetText(title)
         result.title = fs

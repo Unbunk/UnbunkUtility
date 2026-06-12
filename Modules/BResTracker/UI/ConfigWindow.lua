@@ -26,6 +26,8 @@ local function CreateBResTrackerPanel(parent)
     local menu  -- forward declare so closures can reach menu.refs.pe
 
     local options = {
+        { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["BRez Tracker"] },
+
         -- ════════════ General: enable + where it is active ════════════
         {
             type  = "group",

@@ -10,6 +10,8 @@ local function CreatePlayerDeathPanel(parent)
     local menu  -- forward declare so closures can reach the menu if needed
 
     local options = {
+        { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["Death Anim"] },
+
         -- ════════════ General: enable + Test ════════════
         {
             type  = "group",

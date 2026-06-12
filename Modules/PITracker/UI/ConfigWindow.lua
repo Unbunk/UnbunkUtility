@@ -10,6 +10,8 @@ local function CreatePITrackerPanel(parent)
     local menu  -- forward declare so closures can reach menu.refs.pe
 
     local options = {
+        { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["PI Tracker"] },
+
         -- ════════════ General: enable + where it is active ════════════
         {
             type  = "group",
@@ -21,13 +23,11 @@ local function CreatePITrackerPanel(parent)
                 return {
                     -- ── Enable checkbox (gate master — stays live) ────────────────────────
                     {
-                        type     = "checkbox",
-                        ref      = "enable",
-                        label    = L["Enable PI Tracker"],
-                        height   = 28,
-                        -- Locked off: PI Tracker is unavailable since the Midnight changes
-                        -- (CfgInit also force-disables it). The whole tab greys via the gate.
-                        disabled = function() return true end,
+                        type   = "checkbox",
+                        ref    = "enable",
+                        label  = L["Enable PI Tracker"],
+                        height = 28,
+                        disabled = function() return true end,   -- locked: feature unavailable
                         get    = function() return PI.CfgGet("enabled") ~= false end,
                         set    = function(val)
                             PI.CfgSet("enabled", val)
@@ -344,9 +344,9 @@ local function CreatePITrackerPanel(parent)
     menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
     -- NOTE: no parent:HookScript("OnShow", ...) here anymore — BuildMenu did it.
 
-    -- Feature-unavailable banner, in its own frame raised WAY above the greyed
-    -- cadres AND the gate click-blockers (host level + 500), so the red text reads
-    -- clearly on top of everything. Anchored a bit above centre.
+    -- Feature-unavailable banner. Put it in its own frame raised WAY above the greyed
+    -- cadres AND the disable-gate click-blockers (those sit at host level + 500), so the
+    -- red text reads clearly on top of everything. Anchored a bit above centre.
     local bannerFrame = CreateFrame("Frame", nil, parent)
     bannerFrame:SetAllPoints(parent)
     bannerFrame:SetFrameLevel((parent:GetFrameLevel() or 0) + 1000)

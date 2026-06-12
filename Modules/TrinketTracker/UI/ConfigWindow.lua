@@ -335,6 +335,8 @@ local function CreateTrinketTrackerPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
     local options = {
+        { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["Trinket Tracker"] },
+
         -- ════════════ General: enable + where it is active ════════════
         {
             type  = "group",
