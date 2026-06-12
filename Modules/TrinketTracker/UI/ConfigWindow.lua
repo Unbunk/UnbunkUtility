@@ -176,7 +176,7 @@ local function BuildTrinketOptions(prefix, LSM)
                                     height = 46,
                                     when   = function() return not ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                                     build  = function(host)
-                                        local sizeLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityTitle")
+                                        local sizeLbl = host:CreateFontString(nil, "ARTWORK", "GameFontNormal")
                                         sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                                         sizeLbl:SetText(L["Icon size"])
 

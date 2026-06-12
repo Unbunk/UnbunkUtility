@@ -27,7 +27,6 @@ local collapsed = {}      -- category name -> true when folded (session-persiste
 local BR, BG, BB = 0.20, 0.55, 1.0   -- brand blue
 
 -- ── Footer links ───────────────────────────────────────────────────────────────
--- TODO: confirm the real project URLs.
 local GITHUB_URL     = "https://github.com/Unbunk/UnbunkUtility"
 local CURSEFORGE_URL = "https://www.curseforge.com/wow/addons/unbunkutility"
 
