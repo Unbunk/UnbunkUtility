@@ -49,7 +49,7 @@ function ns.ui.CreateDropdown(config)
         toggleFill:SetColorTexture(0.12, 0.12, 0.12, 0.95)
     end)
 
-    local selectedText = toggleBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local selectedText = toggleBtn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityBody")
     selectedText:SetPoint("LEFT", 6, 0)
     selectedText:SetPoint("RIGHT", -22, 0)
     selectedText:SetJustifyH("LEFT")
@@ -76,7 +76,7 @@ function ns.ui.CreateDropdown(config)
         arrowTex:SetSize(8, 8)
         arrowTex:SetPoint("RIGHT", toggleBtn, "RIGHT", -6, 0)
         arrowTex:SetTexture(UNBUNK_ICON_DROPDOWN_ARROW)
-        local C = ns.TITLE_COLOR; arrowTex:SetVertexColor(C[1], C[2], C[3])  -- white glyph -> brand blue
+        ns.SetBrandVertex(arrowTex)   -- white glyph -> brand blue (re-tinted live)
     end
 
     -- ── Drop frame ────────────────────────────────────────────────────────────
@@ -154,7 +154,7 @@ function ns.ui.CreateDropdown(config)
                 hl:SetColorTexture(1, 1, 1, 0.1)
                 btn:SetHighlightTexture(hl)
 
-                local lbl = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                local lbl = btn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityBody")
                 lbl:SetPoint("LEFT", 4, 0)
                 lbl:SetPoint("RIGHT", -4, 0)
                 lbl:SetJustifyH("LEFT")
@@ -176,7 +176,7 @@ function ns.ui.CreateDropdown(config)
             btn.label:SetText(name)
 
             if name == currentKey then
-                btn.label:SetTextColor(0.20, 0.55, 1.0, 1)   -- selected item: brand blue
+                btn.label:SetTextColor(ns.GetBrandColor())   -- selected item: live brand blue
             else
                 btn.label:SetTextColor(1, 1, 1, 1)
             end

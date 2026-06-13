@@ -94,7 +94,7 @@ local function CreateHealerRangePanel(parent)
                             })
                             testAlertBtn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -4)
 
-                            local durLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                            local durLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                             durLbl:SetPoint("LEFT", testAlertBtn.frame, "RIGHT", 16, 0)
                             durLbl:SetText(L["Duration"])
 
@@ -150,7 +150,7 @@ local function CreateHealerRangePanel(parent)
                                 HR.CfgSet("alertDuration", v)
                             end)
 
-                            local durSecLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                            local durSecLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                             durSecLbl:SetPoint("LEFT", durPlusBtn.frame, "RIGHT", 6, 0)
                             durSecLbl:SetText(L["sec"])
 

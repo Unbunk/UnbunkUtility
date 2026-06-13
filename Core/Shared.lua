@@ -106,7 +106,11 @@ end
 -- identical; config FontStrings inherit one of them (via CreateFontString's 3rd
 -- argument, or a BuildMenu `font=` field). Change ns.TITLE_COLOR to recolour
 -- every title at once.
-ns.TITLE_COLOR = { 0.20, 0.55, 1.0 }   -- #338CFF
+ns.BRAND_DEFAULT = { 0.20, 0.55, 1.0 }   -- #338CFF — the base brand blue (Reset target)
+-- Live brand colour: a STABLE table, mutated in place by ns.ApplyBrandColor, so every
+-- reference that reads it (ns.GetBrandColor / direct C[1..3]) keeps resolving the
+-- current colour without re-capturing.
+ns.TITLE_COLOR = { ns.BRAND_DEFAULT[1], ns.BRAND_DEFAULT[2], ns.BRAND_DEFAULT[3] }
 -- ── Heading scale (h1..h6) ────────────────────────────────────────────────────
 -- A small semantic type scale so the config reads as a hierarchy instead of a flat
 -- wall of blue. Each level is a font object (same UI face + shadow) differing only
@@ -124,6 +128,7 @@ ns.TITLE_COLOR = { 0.20, 0.55, 1.0 }   -- #338CFF
 do
     local C = ns.TITLE_COLOR
     local basePath = GameFontNormal:GetFont()   -- the active UI font face
+    ns._fontBasePath = basePath                  -- default face for ns.GetAddonFontPath
     local function Heading(name, size, flags, r, g, b)
         local f = CreateFont(name)
         f:CopyFontObject(GameFontNormal)         -- inherit face + shadow + spacing
@@ -139,6 +144,11 @@ do
     Heading("UnbunkUtilityH6", 9,  nil,       1, 1, 1)   -- small descriptive text, white (inline |c..|r overrides)
     Heading("UnbunkUtilityTitle",      12, nil, C[1], C[2], C[3])  -- legacy ≈ H4
     Heading("UnbunkUtilityTitleLarge", 16, nil, C[1], C[2], C[3])  -- legacy ≈ H1/H2
+    -- Body text — all the addon's small body labels (buttons, checkboxes, nav rows,
+    -- dropdowns, …) inherit this instead of GameFontHighlightSmall. Cloned EXACTLY so
+    -- the default look is unchanged; ns.ApplyAddonFont re-faces it like the H tiers.
+    local body = CreateFont("UnbunkUtilityBody")
+    body:CopyFontObject(GameFontHighlightSmall)
 end
 
 -- ── Profile reload hooks ────────────────────────────────────────────────────
@@ -589,6 +599,16 @@ local DEFAULTS_CONSOLE = {
     chOthers       = false,
 }
 
+-- Debug "Print" panel: per-addon CPU/Memory usage printed to chat every `interval`
+-- seconds. cpu/mem map an addon folder name -> true when selected (account-wide).
+local DEFAULTS_PRINT_USAGE = {
+    interval = 5,
+    active   = false,   -- printing is OFF until Start (button or /ubu debug print start)
+    showDiff = true,    -- show the coloured ± change vs the previous tick
+    cpu      = {},
+    mem      = {},
+}
+
 function ns.InitGlobalCfg()
     if not ns.db then return end
     local g = ns.db.global
@@ -600,12 +620,143 @@ function ns.InitGlobalCfg()
     g.bossReset   = g.bossReset   or {}
     g.cdmBelowRow = g.cdmBelowRow or {}
     g.console     = g.console     or {}
+    g.printUsage  = g.printUsage  or {}
     ns.MergeDefaults(g.combo,       DEFAULTS_COMBO)
     ns.MergeDefaults(g.wipe,        DEFAULTS_WIPE)
     ns.MergeDefaults(g.dpsSpam,     DEFAULTS_DPS_SPAM)
     ns.MergeDefaults(g.bossReset,   DEFAULTS_BOSS_RESET)
     ns.MergeDefaults(g.cdmBelowRow, DEFAULTS_CDM_BELOW_ROW)
     ns.MergeDefaults(g.console,     DEFAULTS_CONSOLE)
+    ns.MergeDefaults(g.printUsage,  DEFAULTS_PRINT_USAGE)
 end
 
 ns.RegisterCfgInitHook(ns.InitGlobalCfg)
+
+-- ── Brand colour: single source of truth + live re-apply ──────────────────────
+-- The blue is read live from ns.TITLE_COLOR everywhere (ns.GetBrandColor). A stored
+-- override lives account-wide in ns.db.global.brandColor; ns.ApplyBrandColor pushes
+-- it to the H1..H4 font objects (recolouring ALL brand-blue TEXT instantly) and runs
+-- registered hooks so persistent non-text elements (window chrome, module borders)
+-- re-tint live too. Reset clears the override back to ns.BRAND_DEFAULT.
+ns.brandColorHooks = ns.brandColorHooks or {}
+-- Weak-keyed registry of brand-tinted targets, re-applied live by ns.ApplyBrandColor.
+-- Each entry is [key] = function(r,g,b) that re-tints that widget (border, vertex glyph,
+-- or a checkbox's UpdateVisual). WEAK keys → orphaned widgets (rebuilt config rows,
+-- pooled icons) are GC'd instead of leaking, so this is safe even for transient widgets.
+ns._brandTargets = ns._brandTargets or setmetatable({}, { __mode = "k" })
+
+function ns.GetBrandColor()
+    local c = ns.TITLE_COLOR
+    return c[1], c[2], c[3]
+end
+
+function ns.RegisterBrandColorHook(fn)
+    if type(fn) == "function" then ns.brandColorHooks[#ns.brandColorHooks + 1] = fn end
+end
+
+function ns.ApplyBrandColor()
+    local col = (ns.db and ns.db.global and ns.db.global.brandColor) or ns.BRAND_DEFAULT
+    local r, g, b = col[1], col[2], col[3]
+    ns.TITLE_COLOR[1], ns.TITLE_COLOR[2], ns.TITLE_COLOR[3] = r, g, b
+    for _, name in ipairs({
+        "UnbunkUtilityH1", "UnbunkUtilityH2", "UnbunkUtilityH3", "UnbunkUtilityH4",
+        "UnbunkUtilityTitle", "UnbunkUtilityTitleLarge",
+    }) do
+        local fo = _G[name]
+        if fo and fo.SetTextColor then fo:SetTextColor(r, g, b) end
+    end
+    for _, fn in pairs(ns._brandTargets) do pcall(fn, r, g, b) end
+    for _, fn in ipairs(ns.brandColorHooks) do pcall(fn, r, g, b) end
+end
+
+function ns.SetBrandColor(r, g, b)
+    if ns.db and ns.db.global then ns.db.global.brandColor = { r, g, b } end
+    ns.ApplyBrandColor()
+end
+
+function ns.ResetBrandColor()
+    if ns.db and ns.db.global then ns.db.global.brandColor = nil end
+    ns.ApplyBrandColor()
+end
+
+-- Register a frame's backdrop border as brand-tinted (set now + re-applied live).
+-- Safe for any frame, transient or not (weak registry GCs orphans).
+function ns.SetBrandBorder(frame, a)
+    if not frame then return end
+    a = a or 1
+    local fn = function(r, g, b)
+        if frame.SetBackdropBorderColor then frame:SetBackdropBorderColor(r, g, b, a) end
+    end
+    ns._brandTargets[frame] = fn
+    fn(ns.GetBrandColor())
+end
+
+-- Register a texture as brand-tinted (white glyph -> brand blue; re-tinted live).
+function ns.SetBrandVertex(tex)
+    if not tex then return end
+    local fn = function(r, g, b)
+        if tex.SetVertexColor then tex:SetVertexColor(r, g, b) end
+    end
+    ns._brandTargets[tex] = fn
+    fn(ns.GetBrandColor())
+end
+
+-- Register an arbitrary live re-tint callback, weakly keyed by a frame (e.g. a
+-- checkbox's UpdateVisual, which re-reads ns.GetBrandColor itself). Called on change.
+function ns.RegisterBrandRefresh(key, fn)
+    if key and type(fn) == "function" then ns._brandTargets[key] = fn end
+end
+
+-- Apply the stored brand colour once ns.db is ready (registered AFTER InitGlobalCfg so
+-- the global table exists). Module hooks created later re-read GetBrandColor() anyway.
+ns.RegisterCfgInitHook(ns.ApplyBrandColor)
+
+-- ── Addon font: single source of truth + live re-face ─────────────────────────
+-- ns.SetAddonFont(lsmKey) stores an account-wide font override; ns.ApplyAddonFont
+-- re-faces EVERY addon-owned font object (H1..H6 / Title / Body), preserving each
+-- tier's size + flags — so ALL addon text that uses them changes face instantly, no
+-- reload. nil key = the default UI face (ns._fontBasePath), i.e. the original look.
+ns.ADDON_FONTS = {
+    "UnbunkUtilityH1", "UnbunkUtilityH2", "UnbunkUtilityH3", "UnbunkUtilityH4",
+    "UnbunkUtilityH5", "UnbunkUtilityH6", "UnbunkUtilityTitle", "UnbunkUtilityTitleLarge",
+    "UnbunkUtilityBody",
+}
+
+function ns.GetAddonFontPath()
+    local key = ns.db and ns.db.global and ns.db.global.fontKey
+    if key then return ns.ResolveFontPath(nil, key) end
+    return ns._fontBasePath or "Fonts\\FRIZQT__.TTF"
+end
+
+-- The LSM font NAME in effect: the stored override, else the name matching the default
+-- face — so the picker can show/select the REAL default font instead of "Default font".
+function ns.GetAddonFontKey()
+    local key = ns.db and ns.db.global and ns.db.global.fontKey
+    if key then return key end
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    if LSM and ns._fontBasePath then
+        for name, path in pairs(LSM:HashTable("font")) do
+            if path == ns._fontBasePath then return name end
+        end
+    end
+    return nil
+end
+
+function ns.ApplyAddonFont()
+    local path = ns.GetAddonFontPath()
+    if not path then return end
+    for _, name in ipairs(ns.ADDON_FONTS) do
+        local fo = _G[name]
+        if fo and fo.GetFont then
+            local _, size, flags = fo:GetFont()
+            if size then fo:SetFont(path, size, flags) end
+        end
+    end
+end
+
+function ns.SetAddonFont(key)
+    if ns.db and ns.db.global then ns.db.global.fontKey = key end
+    ns.ApplyAddonFont()
+end
+
+ns.RegisterCfgInitHook(ns.ApplyAddonFont)

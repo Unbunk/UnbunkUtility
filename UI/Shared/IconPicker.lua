@@ -88,7 +88,7 @@ function ns.ui.CreateIconPicker(config)
 
     -- ── Icon dropdown ─────────────────────────────────────────────────────────
 
-    local iconLabel = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    local iconLabel = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
     iconLabel:SetPoint("LEFT", previewFrame, "RIGHT", 10, 8)
     iconLabel:SetText(L["Icon"])
 
@@ -162,7 +162,7 @@ function ns.ui.CreateIconPicker(config)
 
     -- ── Position dropdown ─────────────────────────────────────────────────────
 
-    local posLabel = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    local posLabel = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
     posLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
     posLabel:SetText(L["Position"])
     height = height + 18
@@ -200,12 +200,12 @@ function ns.ui.CreateIconPicker(config)
 
     -- ── Size inputs ───────────────────────────────────────────────────────────
 
-    local sizeLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    local sizeLbl = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
     sizeLbl:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
     sizeLbl:SetText(L["Size"])
     height = height + 18
 
-    local wLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    local wLbl = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
     wLbl:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
     wLbl:SetText(L["W"])
 
@@ -224,7 +224,7 @@ function ns.ui.CreateIconPicker(config)
     })
     wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
 
-    local hLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    local hLbl = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
     hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
     hLbl:SetText(L["H"])
 

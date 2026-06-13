@@ -63,7 +63,7 @@ local function ShowURL(url)
         eb:SetSize(400, 24)
         eb:SetPoint("TOP", f, "TOP", 0, -46)
         eb:SetAutoFocus(false)
-        eb:SetFontObject("GameFontHighlightSmall")
+        eb:SetFontObject("UnbunkUtilityBody")
         eb:SetTextInsets(6, 6, 0, 0)
         local ebFill = eb:CreateTexture(nil, "BACKGROUND")
         ebFill:SetAllPoints(eb)
@@ -110,14 +110,12 @@ local function BuildNavTree()
     return {
         { name = L["General Settings"], subs = {
             { panel = L["Addon settings"] },
-            { panel = L["Player speed display"] },
-            { panel = L["Multi-alert / anti-spam"] },
+            { panel = L["Profiles"] },
             { cat = L["Cooldown Manager"], subs = {
                 { panel = L["Below player frame"] },
                 { panel = L["Essentials"] },
                 { panel = L["Utility"] },
             } },
-            { panel = L["Profiles"] },
         } },
         { name = L["Combat Utilities"], subs = {
             { panel = L["Combat settings"] },
@@ -127,6 +125,7 @@ local function BuildNavTree()
                 { panel = L["Tank Death Alert"] },
                 { panel = L["Healer Death Alert"] },
                 { panel = L["DPS Death Alert"] },
+                { panel = L["Death alert anti-spam"] },
             } },
             { cat = L["Item/Spell Trackers"], subs = {
                 { panel = L["Trinket Tracker"] },
@@ -140,7 +139,10 @@ local function BuildNavTree()
             } },
         } },
         { name = L["Extra Utilities"], subs = {
+            { panel = L["Multi-alert combo"] },
+            { panel = L["Player speed display"] },
             { panel = L["Death Anim"] },
+            { panel = L["Boss reset sound"] },
         } },
         { name = L["Debug Utilities"], subs = (function()
             -- The "Debug" sub-tab is always present (it hosts the "I know what I'm
@@ -149,15 +151,17 @@ local function BuildNavTree()
             local subs = { { panel = L["Debug"] } }
             if ns.IsDebugUnlocked and ns.IsDebugUnlocked() then
                 subs[#subs + 1] = { panel = L["Secret settings"] }
+                subs[#subs + 1] = { panel = L["Beta"] }
                 subs[#subs + 1] = { cat = L["Addon usage"], subs = {
-                    { panel = L["Print"] },
+                    { panel = L["List"] },
                     { panel = L["Graph"] },
+                    { panel = L["Print"] },
                 } }
                 -- Owner-only secret category: requires BOTH the unlock above AND the
                 -- developer's Battle.net account.
                 if ns.IsAccountOwner and ns.IsAccountOwner() then
                     subs[#subs + 1] = { cat = L["Unbunk"], subs = {
-                        { panel = L["Overview"] },
+                        { panel = L["Personal utilities"] },
                     } }
                 end
             end
@@ -230,9 +234,25 @@ local function HighlightMenu()
             if row.label then row.label:SetTextColor(on and BR or 1, on and BG or 1, on and BB or 1) end
             if row.accent then
                 if on then row.accent:Show() else row.accent:Hide() end
+                if row.accent.SetColorTexture then row.accent:SetColorTexture(BR, BG, BB, 1) end
             end
         end
     end
+end
+
+-- Re-tint the config window's brand-blue chrome live when the brand colour changes:
+-- reassign the shared BR/BG/BB upvalues (so every hover/highlight handler picks up the
+-- new colour on its next call) and re-apply the current selection immediately.
+if ns.RegisterBrandColorHook then
+    ns.RegisterBrandColorHook(function(r, g, b)
+        BR, BG, BB = r, g, b
+        HighlightMenu()                          -- selected sub-tab row labels + accent
+        for i, btn in ipairs(mainButtons) do     -- selected main tab border + label
+            local on = (i == activeMain)
+            btn:SetBackdropBorderColor(on and BR or 0.4, on and BG or 0.4, on and BB or 0.4, 1)
+            if btn.label then btn.label:SetTextColor(on and BR or 1, on and BG or 1, on and BB or 1) end
+        end
+    end)
 end
 
 local function ShowSubTab(name)
@@ -338,7 +358,7 @@ local function MakeSubRow(panelName, catName)
     accent:Hide()
     btn.accent = accent
 
-    local lbl = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local lbl = btn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityBody")
     lbl:SetPoint("LEFT", btn, "LEFT", catName and 34 or 20, 0)
     lbl:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
     lbl:SetJustifyH("LEFT")
@@ -366,12 +386,23 @@ local function MakeCatRow(catName)
     arrow:SetPoint("LEFT", btn, "LEFT", 6, 0)
     if UNBUNK_ICON_DROPDOWN_ARROW then
         arrow:SetTexture(UNBUNK_ICON_DROPDOWN_ARROW)
-        arrow:SetVertexColor(BR, BG, BB)   -- white glyph -> brand blue
+        ns.SetBrandVertex(arrow)   -- white glyph -> brand blue (re-tinted live)
     end
 
     local lbl = btn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH4")
     lbl:SetPoint("LEFT", arrow, "RIGHT", 6, 0)
     lbl:SetText(catName)
+
+    -- Brand-blue at rest, a lighter brand tint on hover. Both read ns.GetBrandColor()
+    -- (the live colour, updated before the _brandTargets run) — NOT the BR/BG/BB
+    -- upvalues, which the Core hook only reassigns later in the same apply pass.
+    local function restColor() lbl:SetTextColor(ns.GetBrandColor()) end
+    local function hoverColor()
+        local r, g, b = ns.GetBrandColor()
+        lbl:SetTextColor(r + (1 - r) * 0.45, g + (1 - g) * 0.45, b + (1 - b) * 0.45)
+    end
+    restColor()
+    if ns.RegisterBrandRefresh then ns.RegisterBrandRefresh(btn, restColor) end
 
     local function ApplyArrow()
         arrow:SetRotation(collapsed[catName] and math.rad(-90) or 0)
@@ -383,8 +414,8 @@ local function MakeCatRow(catName)
         ApplyArrow()
         LayoutLeftMenu()
     end)
-    btn:SetScript("OnEnter", function() lbl:SetTextColor(0.5, 0.75, 1.0) end)
-    btn:SetScript("OnLeave", function() lbl:SetTextColor(BR, BG, BB) end)
+    btn:SetScript("OnEnter", hoverColor)
+    btn:SetScript("OnLeave", restColor)
     return btn
 end
 
@@ -454,7 +485,7 @@ local function BuildMainTabs()
         btn:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
         btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 
-        local lbl = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local lbl = btn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityBody")
         lbl:SetPoint("CENTER")
         lbl:SetText(tab.name)
         -- Shrink the label to fit a narrower tab so longer localized names (e.g. the
@@ -749,20 +780,29 @@ local function CreateMainWindow()
 
     local meta    = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
     local version = (meta and meta(ADDON, "Version")) or "?"
-    local verFS = window:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local verFS = window:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH6")
+    verFS:SetTextColor(0.6, 0.6, 0.6)   -- small grey descriptive text (H6 convention)
     verFS:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -16, 8)
     verFS:SetText("v" .. version)
 
     local function MakeLink(label, url)
         local btn = CreateFrame("Button", nil, window)
-        local fs  = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local fs  = btn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityBody")
         fs:SetAllPoints(btn)
         fs:SetJustifyH("LEFT")
         fs:SetText(label)
-        fs:SetTextColor(BR, BG, BB)
+        -- Brand-blue at rest (re-tinted live), lighter brand tint on hover. Read the
+        -- live colour, not the BR/BG/BB upvalues (reassigned later in the apply pass).
+        local function restColor() fs:SetTextColor(ns.GetBrandColor()) end
+        local function hoverColor()
+            local r, g, b = ns.GetBrandColor()
+            fs:SetTextColor(r + (1 - r) * 0.45, g + (1 - g) * 0.45, b + (1 - b) * 0.45)
+        end
+        restColor()
+        if ns.RegisterBrandRefresh then ns.RegisterBrandRefresh(btn, restColor) end
         btn:SetSize(math.max(24, fs:GetStringWidth() + 2), 14)
-        btn:SetScript("OnEnter", function() fs:SetTextColor(0.5, 0.75, 1.0) end)
-        btn:SetScript("OnLeave", function() fs:SetTextColor(BR, BG, BB) end)
+        btn:SetScript("OnEnter", hoverColor)
+        btn:SetScript("OnLeave", restColor)
         btn:SetScript("OnClick", function() ShowURL(url) end)
         return btn
     end

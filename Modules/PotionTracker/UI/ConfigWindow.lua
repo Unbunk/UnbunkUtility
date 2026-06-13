@@ -323,7 +323,7 @@ local function BuildPotionSectionOptions(prefix, LSM)
                                         sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0)
                                         sizeLbl:SetText(L["Icon size"])
 
-                                        local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                                        local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                                         wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20)
                                         wLbl:SetText(L["W"])
 
@@ -345,7 +345,7 @@ local function BuildPotionSectionOptions(prefix, LSM)
                                         })
                                         wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
 
-                                        local hLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                                        local hLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                                         hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
                                         hLbl:SetText(L["H"])
 

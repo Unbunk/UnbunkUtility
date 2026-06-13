@@ -101,13 +101,14 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
         -- White speaker glyph tinted to the brand blue via SetVertexColor (re-applied
         -- after each texture swap, since SetNormalTexture resets the tint). Resting
         -- shows the "off" variant, swap to "on" (emitting) on hover.
-        local C = ns.TITLE_COLOR
         local function tintSpeaker(btn)
             local t = btn:GetNormalTexture()
-            if t then t:SetVertexColor(C[1], C[2], C[3]) end
+            if t then t:SetVertexColor(ns.GetBrandColor()) end
         end
         soundTest:SetNormalTexture(UNBUNK_ICON_SPEAKER_OFF)
         tintSpeaker(soundTest)
+        -- Re-tint live on a brand-colour change (weak-keyed by the button).
+        if ns.RegisterBrandRefresh then ns.RegisterBrandRefresh(soundTest, function() tintSpeaker(soundTest) end) end
         soundTest:SetScript("OnEnter", function(self) self:SetNormalTexture(UNBUNK_ICON_SPEAKER_ON); tintSpeaker(self) end)
         soundTest:SetScript("OnLeave", function(self) self:SetNormalTexture(UNBUNK_ICON_SPEAKER_OFF); tintSpeaker(self) end)
         soundTest:SetScript("OnClick", onTest)
@@ -115,7 +116,7 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
         gateDimFrames = { dd.toggleBtn, soundTest }   -- selectedText is a child of toggleBtn
         height = height + 30
     else
-        local noLSM = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        local noLSM = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
         noLSM:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
         noLSM:SetTextColor(1, 0.5, 0)
         noLSM:SetText(L["LibSharedMedia-3.0 not found — enter sound ID manually:"])

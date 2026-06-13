@@ -86,3 +86,4 @@ Modules/CombatSettings/UI/ConfigWindow.lua
 Modules/MinimapIcon/Core/MinimapIcon.lua
 Modules/Profiles/UI/ConfigWindow.lua
 Modules/Debug/UI/ConfigWindow.lua
+Modules/Debug/UI/PrintPanel.lua

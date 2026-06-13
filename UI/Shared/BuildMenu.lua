@@ -145,7 +145,7 @@ local function BuildChild(entry, host, defaultRel, refs, refreshers)
 
     elseif t == "label" or t == "header" then
         -- A bare FontString anchored inside the host.
-        local fontObj = entry.font or (t == "header" and "UnbunkUtilityH4" or "GameFontHighlightSmall")
+        local fontObj = entry.font or (t == "header" and "UnbunkUtilityH4" or "UnbunkUtilityBody")
         local fs = host:CreateFontString(nil, "ARTWORK", fontObj)
         fs:SetText(entry.text or "")
         widget = { frame = fs, fontString = fs }
@@ -526,7 +526,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
             elseif t == "label" or t == "header" then
                 hostFrame = CreateFrame("Frame", nil, content)
                 spentHeight = entry.height or DEFAULT_HEIGHTS.label
-                local fontObj = entry.font or (t == "header" and "UnbunkUtilityH4" or "GameFontHighlightSmall")
+                local fontObj = entry.font or (t == "header" and "UnbunkUtilityH4" or "UnbunkUtilityBody")
                 local fs = hostFrame:CreateFontString(nil, "ARTWORK", fontObj)
                 fs:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", 0, 0)
                 fs:SetText(entry.text or "")
@@ -543,11 +543,11 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                     -- highlight font); entry.labelGap inserts an empty spacer so the
                     -- toggle sits a fixed distance below the top, reproducing panels
                     -- that anchored the box to a -labelGap spacer FontString.
-                    local lbl = hostFrame:CreateFontString(nil, "ARTWORK", entry.font or "GameFontHighlightSmall")
+                    local lbl = hostFrame:CreateFontString(nil, "ARTWORK", entry.font or "UnbunkUtilityBody")
                     lbl:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", 0, 0)
                     lbl:SetText(entry.label or "")
                     if entry.labelGap then
-                        local spacer = hostFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                        local spacer = hostFrame:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                         spacer:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", 0, -entry.labelGap)
                         anchor = spacer
                     else

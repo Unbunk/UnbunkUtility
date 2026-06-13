@@ -109,7 +109,7 @@ local function CreateRacialTrackerPanel(parent)
 
                             -- Spell ID label + input (below the checkbox); only used when
                             -- manual detection is on, so it's dimmed/inert otherwise.
-                            local ovLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                            local ovLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                             ovLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -78)
                             ovLbl:SetText(L["Spell ID"])
                             local ovInput = ns.ui.CreateTextInput({
@@ -304,7 +304,7 @@ local function CreateRacialTrackerPanel(parent)
                                         sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                                         sizeLbl:SetText(L["Icon size"])
 
-                                        local wLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                                        local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                                         wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
                                         wLbl:SetText(L["W"])
 
@@ -322,7 +322,7 @@ local function CreateRacialTrackerPanel(parent)
                                         })
                                         wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
 
-                                        local hLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                                        local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                                         hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
                                         hLbl:SetText(L["H"])
 

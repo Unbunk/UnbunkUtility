@@ -73,7 +73,7 @@ function ns.ui.CreateDurationEditor(config)
 
     -- ── Seconds label ─────────────────────────────────────────────────────────
 
-    local secLabel = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    local secLabel = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
     secLabel:SetPoint("LEFT", plusBtn.frame, "RIGHT", 6, 0)
     secLabel:SetText(L["seconds"])
 
