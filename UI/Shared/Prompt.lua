@@ -33,9 +33,9 @@ local function EnsureDialog()
     f:EnableMouse(true)   -- swallow clicks on the dialog body
     f:SetBackdrop({
         bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        edgeSize = 12,
-        insets   = { left = 3, right = 3, top = 3, bottom = 3 },
+        edgeFile = "Interface/Buttons/WHITE8X8",   -- sharp 1px border, like the main window
+        edgeSize = 1,
+        insets   = { left = 1, right = 1, top = 1, bottom = 1 },
     })
     f:SetBackdropColor(0.08, 0.08, 0.08, 0.97)
     f:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
