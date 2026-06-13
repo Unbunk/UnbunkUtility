@@ -188,6 +188,13 @@ end
 
 -- ── Reload + login + combat watcher ──────────────────────────────────────────
 ns.RegisterReloadHook(function()
+    -- Profile switch: drop any stale timer state when out of combat so a fresh
+    -- profile starts from a clean baseline. In combat, keep the running timer (its
+    -- start is still the real pull, and the new profile may want to show it).
+    if not InCombatLockdown() then
+        startTime = nil
+        frozen = nil
+    end
     CT.ApplyFont()
     CT.Refresh()
 end)
