@@ -40,7 +40,9 @@ local function CreateHealerRangePanel(parent)
                         type   = "custom",
                         height = 30,
                         build  = function(host)
-                            local probeMsg = host:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+                            -- H6: small descriptive text. The green/red colour comes from the
+                            -- inline |cff..|r codes in the message, which override H6's white default.
+                            local probeMsg = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
                             probeMsg:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                             probeMsg:SetWidth(500)
                             probeMsg:SetJustifyH("LEFT")

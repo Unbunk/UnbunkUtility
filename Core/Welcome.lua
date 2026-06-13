@@ -35,7 +35,9 @@ f:SetScript("OnEvent", function(self)
     if not ns.Welcome_IsEnabled() then return end
     local meta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
     local version = (meta and meta(ADDON, "Version")) or "?"
+    -- ns.L (not a captured upvalue): Welcome.lua loads BEFORE Locales/*.lua in the
+    -- .toc, so ns.L doesn't exist yet at file-load time — resolve it at call time.
     print(string.format(
-        "|cff33aaffUnbunkUtility|r v%s loaded - type |cff338cff/ubu|r to open settings.",
+        ns.L["|cff33aaffUnbunkUtility|r v%s loaded - type |cff338cff/ubu|r to open settings."],
         version))
 end)

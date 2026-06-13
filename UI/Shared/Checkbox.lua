@@ -124,6 +124,7 @@ function ns.ui.CreateCheckbox(config)
     end
 
     result.frame = container
+    result.label = lbl   -- exposed so callers can anchor extra content to the right of the text
 
     return result
 end

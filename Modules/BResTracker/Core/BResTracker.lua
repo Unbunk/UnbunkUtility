@@ -292,6 +292,7 @@ if ns.CDMAnchor then
         frame   = frame,
         getCfg  = BR.CfgGet,
         setSize = function(w, h) BR.SetSlotSize(w, h) end,
+        getIcon = function() return ResolveIcon() end,
     })
 end
 
@@ -368,11 +369,23 @@ function BR.SetUnlocked(val)
         frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
         frame:SetScript("OnDragStop", function(self)
             self:StopMovingOrSizing()
-            -- A CDM-managed icon is not free-draggable, so a drop is always a plain
-            -- screen-offset reposition.
-            local _, _, _, x, y = self:GetPoint()
-            BR.CfgSet("posX", math.floor(x))
-            BR.CfgSet("posY", math.floor(y))
+            -- Don't read GetPoint(): StartMoving can leave the frame on a different
+            -- anchor/relativePoint than the CENTER/UIParent/CENTER that ApplyPosition
+            -- re-applies, so its xOfs/yOfs would be in that other anchor's space and
+            -- the icon would teleport on the next locked tick. Compute the centre
+            -- offset from UIParent directly (scale-normalised) and re-anchor to a
+            -- single CENTER point so the saved offset and the live frame stay in sync
+            -- (mirrors TimerIcon.OnDragStop).
+            local es, ues = self:GetEffectiveScale(), UIParent:GetEffectiveScale()
+            local fx, fy = self:GetCenter()
+            local ux, uy = UIParent:GetCenter()
+            if not (fx and ux and es and es > 0) then return end
+            local x = math.floor((fx * es - ux * ues) / es)
+            local y = math.floor((fy * es - uy * ues) / es)
+            self:ClearAllPoints()
+            self:SetPoint("CENTER", UIParent, "CENTER", x, y)
+            BR.CfgSet("posX", x)
+            BR.CfgSet("posY", y)
             if BR.pe then BR.pe.Refresh() end
         end)
         frame:SetBackdrop({

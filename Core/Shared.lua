@@ -107,7 +107,7 @@ end
 -- argument, or a BuildMenu `font=` field). Change ns.TITLE_COLOR to recolour
 -- every title at once.
 ns.TITLE_COLOR = { 0.20, 0.55, 1.0 }   -- #338CFF
--- ── Heading scale (h1..h5) ────────────────────────────────────────────────────
+-- ── Heading scale (h1..h6) ────────────────────────────────────────────────────
 -- A small semantic type scale so the config reads as a hierarchy instead of a flat
 -- wall of blue. Each level is a font object (same UI face + shadow) differing only
 -- in size / weight / colour; FontStrings inherit one via CreateFontString's 3rd arg.
@@ -116,6 +116,9 @@ ns.TITLE_COLOR = { 0.20, 0.55, 1.0 }   -- #338CFF
 --   H3  sub-cadre / main label    13  normal         blue
 --   H4  secondary label           12  normal         blue
 --   H5  body text                 12  normal         white
+--   H6  small descriptive text     9  normal         white  (colour is overridable:
+--       its default is white, but an inline |cRRGGBB..|r colour code in the text
+--       wins, e.g. the green Healer-Range probe note / the grey anti-spam hints)
 -- UnbunkUtilityTitle / ...Large are kept as legacy aliases (≈ H4 / H1) so any
 -- FontString not yet migrated to a tier still renders sensibly (blue).
 do
@@ -133,6 +136,7 @@ do
     Heading("UnbunkUtilityH3", 13, nil,       C[1], C[2], C[3])
     Heading("UnbunkUtilityH4", 12, nil,       C[1], C[2], C[3])
     Heading("UnbunkUtilityH5", 12, nil,       1, 1, 1)
+    Heading("UnbunkUtilityH6", 9,  nil,       1, 1, 1)   -- small descriptive text, white (inline |c..|r overrides)
     Heading("UnbunkUtilityTitle",      12, nil, C[1], C[2], C[3])  -- legacy ≈ H4
     Heading("UnbunkUtilityTitleLarge", 16, nil, C[1], C[2], C[3])  -- legacy ≈ H1/H2
 end
@@ -566,8 +570,23 @@ local DEFAULTS_BOSS_RESET = {
 local DEFAULTS_CDM_BELOW_ROW = {
     width   = 36,
     height  = 36,
-    offsetX = 0,    -- manual nudge from PlayerFrame's BOTTOMLEFT (default: flush)
+    -- Manual mode: OFF -> the row stays flush under the PlayerFrame at offset 0,0
+    -- (the offset below is ignored and dragging is disabled). ON -> the offset /
+    -- drag take effect so the user can place the row anywhere.
+    manualEnabled = false,
+    offsetX = 0,    -- manual nudge from PlayerFrame's BOTTOMLEFT (only when manualEnabled)
     offsetY = 0,
+}
+
+-- Debug "Console mode" options (account-wide). textEditor on by default (bottom
+-- input box shown); the chat-capture buckets are all OFF by default, so the console
+-- starts mirroring only print() output.
+local DEFAULTS_CONSOLE = {
+    textEditor     = true,
+    allowSelection = false,
+    chPlayers      = false,
+    chChannels     = false,
+    chOthers       = false,
 }
 
 function ns.InitGlobalCfg()
@@ -580,11 +599,13 @@ function ns.InitGlobalCfg()
     g.dpsSpam     = g.dpsSpam     or {}
     g.bossReset   = g.bossReset   or {}
     g.cdmBelowRow = g.cdmBelowRow or {}
+    g.console     = g.console     or {}
     ns.MergeDefaults(g.combo,       DEFAULTS_COMBO)
     ns.MergeDefaults(g.wipe,        DEFAULTS_WIPE)
     ns.MergeDefaults(g.dpsSpam,     DEFAULTS_DPS_SPAM)
     ns.MergeDefaults(g.bossReset,   DEFAULTS_BOSS_RESET)
     ns.MergeDefaults(g.cdmBelowRow, DEFAULTS_CDM_BELOW_ROW)
+    ns.MergeDefaults(g.console,     DEFAULTS_CONSOLE)
 end
 
 ns.RegisterCfgInitHook(ns.InitGlobalCfg)

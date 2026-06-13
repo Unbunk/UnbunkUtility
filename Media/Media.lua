@@ -81,11 +81,16 @@ end)
 
 -- Textures
 local ICON_PATH = "Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\"
-UNBUNK_ICON_DROPDOWN_ARROW = ICON_PATH .. "DownArrowBlue.tga"
-UNBUNK_ICON_SPEAKER_ON     = ICON_PATH .. "BlueSpeakerOn.tga"
-UNBUNK_ICON_SPEAKER_OFF    = ICON_PATH .. "BlueSpeakerOff.tga"
+-- White glyphs tinted to the brand blue at use-time via SetVertexColor (same
+-- approach as the close cross), so the blue matches the rest of the addon and no
+-- pre-coloured image is needed. Tinted by: the dropdown arrow in Dropdown.lua /
+-- CollapsibleSection.lua / Core.lua, and the speaker in SoundPicker.lua.
+UNBUNK_ICON_DROPDOWN_ARROW = ICON_PATH .. "DownArrowWhite.tga"
+UNBUNK_ICON_SPEAKER_ON     = ICON_PATH .. "WhiteSpeakerOn.tga"
+UNBUNK_ICON_SPEAKER_OFF    = ICON_PATH .. "WhiteSpeakerOff.tga"
 UNBUNK_ICON_CROSS_WHITE    = ICON_PATH .. "WhiteCross.tga"
 UNBUNK_ICON_CROSS_BLUE     = ICON_PATH .. "BlueCross.tga"
+UNBUNK_ICON_PEPE_EZ        = ICON_PATH .. "PepeEz.tga"
 
 -- Icon list for the icon pickers. These are plain .tga files and do not
 -- depend on LibSharedMedia, so populate them unconditionally at load time

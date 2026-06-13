@@ -5,6 +5,56 @@ local L = ns.L
 ns.TrinketTracker = ns.TrinketTracker or {}
 local TT = ns.TrinketTracker
 
+-- Header extra for a trinket section: shows the equipped trinket's icon to the
+-- right of the "(slot N)" label, then an H6 status — green "usable" if the trinket
+-- has an on-use spell, red "passive" otherwise. With no trinket equipped in the
+-- slot, a red "No trinket" replaces the icon. Returns an update() the section's
+-- Refresh re-runs (so it re-reads the slot when the panel is shown / rebuilt).
+local function MakeTrinketHeaderExtra(prefix)
+    return function(headerBtn, headerLabel)
+        local icon = headerBtn:CreateTexture(nil, "OVERLAY")
+        icon:SetSize(18, 18)
+        icon:SetPoint("LEFT", headerLabel, "RIGHT", 8, 0)
+        icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        icon:Hide()
+
+        local status = headerBtn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH6")
+        status:SetPoint("LEFT", icon, "RIGHT", 6, 0)
+
+        local function update()
+            local cfg    = TT.CfgGet(prefix)
+            local slot   = cfg and cfg.slot
+            local itemId = slot and GetInventoryItemID("player", slot)
+            if not itemId then
+                -- Nothing equipped in this slot: red "No trinket" where the icon would be.
+                icon:Hide()
+                status:ClearAllPoints()
+                status:SetPoint("LEFT", headerLabel, "RIGHT", 8, 0)
+                status:SetText(L["No trinket"])
+                status:SetTextColor(1, 0.27, 0.27)
+                return
+            end
+            local iconID = select(5, C_Item.GetItemInfoInstant(itemId))
+            if iconID then icon:SetTexture(iconID) end
+            icon:Show()
+            status:ClearAllPoints()
+            status:SetPoint("LEFT", icon, "RIGHT", 6, 0)
+            -- Usable = the item has an on-use spell (GetItemSpell returns its name);
+            -- a passive/stat trinket returns nil. Mirrors the tracker's own detection.
+            if C_Item.GetItemSpell(itemId) then
+                status:SetText(L["active"])
+                status:SetTextColor(0, 1, 0)
+            else
+                status:SetText(L["passive"])
+                status:SetTextColor(1, 0.27, 0.27)
+            end
+        end
+
+        update()
+        return update
+    end
+end
+
 -- Build the ORDERED option list for a single trinket section ("trinket1" /
 -- "trinket2"). Returned to BuildMenu via the "section" entry's `build` callback,
 -- which wraps it in a nested BuildMenu (inner width 500, gap 10, origin 8/-8 —
@@ -388,6 +438,7 @@ local function CreateTrinketTrackerPanel(parent)
             end,
             getCollapsed = function() return TT._uiCollapsed and TT._uiCollapsed["trinket1"] end,
             onCollapse   = function(v) TT._uiCollapsed = TT._uiCollapsed or {}; TT._uiCollapsed["trinket1"] = v end,
+            headerExtra  = MakeTrinketHeaderExtra("trinket1"),
             build     = function() return BuildTrinketOptions("trinket1", LSM) end,
         },
 
@@ -405,6 +456,7 @@ local function CreateTrinketTrackerPanel(parent)
             end,
             getCollapsed = function() return TT._uiCollapsed and TT._uiCollapsed["trinket2"] end,
             onCollapse   = function(v) TT._uiCollapsed = TT._uiCollapsed or {}; TT._uiCollapsed["trinket2"] = v end,
+            headerExtra  = MakeTrinketHeaderExtra("trinket2"),
             build     = function() return BuildTrinketOptions("trinket2", LSM) end,
         },
     }

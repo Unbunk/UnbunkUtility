@@ -20,7 +20,7 @@ local BL_SPELLS = {
     [80353]  = { name = "Time Warp",           icon = 606545,  debuff = 80354  },
     [90355]  = { name = "Ancient Hysteria",    icon = 237589,  debuff = 95809  },
     [264667] = { name = "Primal Rage",         icon = 132276,  debuff = 264689 },
-    [390386] = { name = "Fury of the Aspects", icon = 4622460, debuff = 390527 },
+    [390386] = { name = "Fury of the Aspects", icon = 4622460, debuff = 390435 },
 }
 
 local BL_BUFFS = {

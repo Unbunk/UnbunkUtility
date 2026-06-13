@@ -190,9 +190,7 @@ function ns.ui.CreateTimerIcon(config)
             if total ~= lastSecs then
                 local prev = lastSecs
                 lastSecs = total
-                local mins = math.floor(total / 60)
-                local secs = total % 60
-                timerText:SetText(string.format("%d:%02d", mins, secs))
+                timerText:SetText(ns.FormatMMSS(total))
                 if result._timerColor then
                     -- Active positive buff (green / PI yellow): keep its colour
                     -- as-is — never urgency-recolour and never flash these.
@@ -247,7 +245,11 @@ function ns.ui.CreateTimerIcon(config)
 
     -- ── API ───────────────────────────────────────────────────────────────────
 
+    -- Remember the last icon so the config (e.g. the below-player reorder strip) can
+    -- show it via the getIcon registered with ns.CDMAnchor below.
+    local curIcon
     function result.SetIcon(texture)
+        curIcon = texture
         iconTex:SetTexture(texture)
     end
 
@@ -336,7 +338,12 @@ function ns.ui.CreateTimerIcon(config)
     -- consistent whatever drives the size.
     local function ApplyDerivedSizing()
         local w, h = frame:GetSize()
-        baseFontSize = math.max(10, math.floor(math.min(w, h) * 0.4))
+        -- The user-configured timer font size wins; we only auto-derive from the
+        -- icon size when none is set. ItemTracker.ApplyVisuals calls ApplySize()
+        -- (→ here) every 0.5s tick, so without this the configured timerFontSize
+        -- was overwritten by the derived value on the very next tick and the
+        -- exposed "Timer text size" control had no effect.
+        baseFontSize = getCfg("timerFontSize") or math.max(10, math.floor(math.min(w, h) * 0.4))
         SetTimerFont()
         local checkSize = math.floor(math.min(w, h) * 0.6)
         checkTex:SetSize(checkSize, checkSize)
@@ -535,6 +542,7 @@ function ns.ui.CreateTimerIcon(config)
             frame   = frame,
             getCfg  = getCfg,
             setSize = result.SetSlotSize,
+            getIcon = function() return curIcon end,
         })
     end
 

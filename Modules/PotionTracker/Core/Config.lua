@@ -4,8 +4,6 @@ local _, ns = ...
 ns.PotionTracker = ns.PotionTracker or {}
 local PT = ns.PotionTracker
 
-PotionTrackerDB = PotionTrackerDB or {}
-
 local DEFAULTS = {
     enabled         = true,
     instanceFilter  = {
@@ -76,69 +74,58 @@ local DEFAULTS = {
     },
 }
 
--- Recursively merge defaults into target: only adds missing keys, never
--- overwrites user-set values. Crucially, recurses into existing sub-tables
--- so newly-introduced keys (e.g. stackColor) are populated for upgraders
--- without forcing a profile Reset.
-local function MergeDefaults(target, defaults)
-    for k, v in pairs(defaults) do
-        if target[k] == nil then
-            if type(v) == "table" then
-                target[k] = {}
-                MergeDefaults(target[k], v)
-            else
-                target[k] = v
-            end
-        elseif type(v) == "table" and type(target[k]) == "table" then
-            MergeDefaults(target[k], v)
-        end
+-- One-shot legacy fold. Until this version PotionTracker stored its config in
+-- the account-wide global PotionTrackerDB instead of the AceDB profile (the only
+-- module that hadn't migrated). Core/DB.lua's one-shot snapshot migration copied
+-- PotionTrackerDB → ns.db.profile.PotionTracker, but the old code kept WRITING to
+-- the global afterwards, so that snapshot can be stale relative to the user's
+-- latest potion settings. On the first CfgInit after this change we therefore
+-- fold the live PotionTrackerDB into the active profile (preferring it as the
+-- freshest truth), then mark it done so it never runs again. PotionTrackerDB is
+-- left untouched on disk as a frozen backup (still listed in the .toc).
+local function FoldLegacyPotionDB()
+    if ns.db.global.potionTrackerMigrated then return end
+    ns.db.global.potionTrackerMigrated = true
+    if type(PotionTrackerDB) == "table" and next(PotionTrackerDB) ~= nil then
+        ns.db.profile.PotionTracker = ns.DeepCopy(PotionTrackerDB)
     end
 end
 
 function PT.CfgInit()
-    ns.MigrateSoundKeys(PotionTrackerDB)
-    MergeDefaults(PotionTrackerDB, DEFAULTS)
+    if not ns.db then return end
+    FoldLegacyPotionDB()
+    ns.db.profile.PotionTracker = ns.db.profile.PotionTracker or {}
+    ns.MigrateSoundKeys(ns.db.profile.PotionTracker)
+    ns.MergeDefaults(ns.db.profile.PotionTracker, DEFAULTS)
 end
+ns.RegisterCfgInitHook(PT.CfgInit)
 
 function PT.CfgGet(key)
-    return PotionTrackerDB[key]
+    local t = ns.db and ns.db.profile.PotionTracker
+    local v = t and t[key]
+    if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
+    return v
 end
 
 function PT.CfgSet(key, value)
-    PotionTrackerDB[key] = value
+    if not ns.db then return end
+    ns.db.profile.PotionTracker = ns.db.profile.PotionTracker or {}
+    ns.db.profile.PotionTracker[key] = value
     -- Config drives which potion the resolver picks; invalidate the cache
     -- so the next GetActiveItemId() reflects the change.
     if PT.InvalidateActiveCache then PT.InvalidateActiveCache() end
 end
 
 function PT.PlaySound(prefix, key)
-    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local cfg = PT.CfgGet(prefix)
-    if not cfg then return end
+    if type(cfg) ~= "table" then return end
     local pathKey, soundKeyKey
     if key == "soundUse" then
-        pathKey    = "soundPathUse"
-        soundKeyKey = "soundKeyUse"
+        pathKey, soundKeyKey = "soundPathUse", "soundKeyUse"
     elseif key == "soundReady" then
-        pathKey    = "soundPathReady"
-        soundKeyKey = "soundKeyReady"
+        pathKey, soundKeyKey = "soundPathReady", "soundKeyReady"
     else
         return
     end
-    local path = cfg[pathKey]
-    if path then
-        PlaySoundFile(path, "Master")
-    elseif LSM then
-        local soundKey = cfg[soundKeyKey]
-        local soundPath = soundKey and LSM:Fetch("sound", soundKey)
-        if soundPath then PlaySoundFile(soundPath, "Master") end
-    end
+    ns.PlaySoundFromCfg(cfg, pathKey, soundKeyKey)
 end
-
-local initDB = CreateFrame("Frame")
-initDB:RegisterEvent("ADDON_LOADED")
-initDB:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
-    PT.CfgInit()
-    self:UnregisterEvent("ADDON_LOADED")
-end)

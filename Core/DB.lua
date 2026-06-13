@@ -117,6 +117,11 @@ local function Bootstrap()
     -- profile name rather than a per-character one.
     ns.db = AceDB:New("UnbunkUtilityAceDB", nil, "Default")
 
+    -- The saved variables (incl. the account-wide language override ns.db.global.locale)
+    -- are now loaded: point ns.L at the chosen locale BEFORE any module registers its
+    -- localized config panels (their ADDON_LOADED handlers run after this bootstrap).
+    if ns.ApplyLocale then ns.ApplyLocale() end
+
     -- Account-wide current profile: force this character onto the shared profile.
     local shared = ns.db.global.sharedProfile
     if shared and ns.db:GetCurrentProfile() ~= shared then

@@ -83,6 +83,7 @@ function ns.ui.CreateCollapsibleSection(config)
     arrow:SetPoint("LEFT", headerBtn, "LEFT", 8, 0)
     if UNBUNK_ICON_DROPDOWN_ARROW then
         arrow:SetTexture(UNBUNK_ICON_DROPDOWN_ARROW)
+        local C = ns.TITLE_COLOR; arrow:SetVertexColor(C[1], C[2], C[3])  -- white glyph -> brand blue
     end
 
     -- Checkbox
@@ -111,6 +112,16 @@ function ns.ui.CreateCollapsibleSection(config)
     local headerLabel = headerBtn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH4")
     headerLabel:SetPoint("LEFT", labelAnchor, "RIGHT", 6, 0)
     headerLabel:SetText(label)
+    result.headerBtn   = headerBtn
+    result.headerLabel = headerLabel
+
+    -- Optional: let the caller add content to the RIGHT of the header label (e.g. a
+    -- detected-item icon + status text). headerExtra(headerBtn, headerLabel) may
+    -- return an update() that result.Refresh re-runs so the header stays current.
+    local headerUpdate
+    if config.headerExtra then
+        headerUpdate = config.headerExtra(headerBtn, headerLabel)
+    end
 
     -- ── Content frame ─────────────────────────────────────────────────────────
 
@@ -186,6 +197,7 @@ function ns.ui.CreateCollapsibleSection(config)
             checkbox.SetChecked(isChecked())
         end
         ApplyEnabledVisual()
+        if headerUpdate then headerUpdate() end
     end
 
     result.frame         = container

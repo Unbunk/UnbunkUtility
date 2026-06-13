@@ -56,7 +56,7 @@ local function ShowURL(url)
 
         local title = f:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
         title:SetPoint("TOP", f, "TOP", 0, -14)
-        title:SetText("Copy the link (Ctrl+C)")
+        title:SetText(ns.L["Copy the link (Ctrl+C)"])
 
         -- Selectable EditBox holding the URL, with the inputs' dark sharp fill.
         local eb = CreateFrame("EditBox", nil, f)
@@ -114,6 +114,8 @@ local function BuildNavTree()
             { panel = L["Multi-alert / anti-spam"] },
             { cat = L["Cooldown Manager"], subs = {
                 { panel = L["Below player frame"] },
+                { panel = L["Essentials"] },
+                { panel = L["Utility"] },
             } },
             { panel = L["Profiles"] },
         } },
@@ -140,9 +142,17 @@ local function BuildNavTree()
         { name = L["Extra Utilities"], subs = {
             { panel = L["Death Anim"] },
         } },
-        { name = L["Debug Utilities"], subs = {
-            { panel = L["Debug"] },
-        } },
+        { name = L["Debug Utilities"], subs = (function()
+            -- The "Debug" sub-tab is always present (it hosts the "I know what I'm
+            -- doing" unlock checkbox). Any further debug sub-tabs are GATED: they only
+            -- appear once unlocked. ns.RefreshNav() rebuilds this when the flag toggles.
+            local subs = { { panel = L["Debug"] } }
+            if ns.IsDebugUnlocked and ns.IsDebugUnlocked() then
+                -- Gated debug sub-tabs go here, e.g.:
+                --   subs[#subs + 1] = { panel = L["..."] }
+            end
+            return subs
+        end)() },
     }
 end
 local navTree
@@ -273,6 +283,12 @@ local MENU_W   = 150
 local ROW_H    = 24
 local ROW_GAP  = 2
 
+-- X where the content column begins: window left margin (16) + the sub-tab menu
+-- (MENU_W) + the vsep gutter (8px gap + 1px line + 8px gap = 17). The main tab bar
+-- AND the scroll content both align to this, so the tabs sit to the RIGHT of the
+-- sub-tab menu (not above it). BuildMainTabs also uses it to size the tabs.
+local CONTENT_X = 16 + MENU_W + 17
+
 local function LayoutLeftMenu()
     local y = 0
     for _, row in ipairs(menuRows) do
@@ -338,7 +354,10 @@ local function MakeCatRow(catName)
     local arrow = btn:CreateTexture(nil, "OVERLAY")
     arrow:SetSize(8, 8)
     arrow:SetPoint("LEFT", btn, "LEFT", 6, 0)
-    if UNBUNK_ICON_DROPDOWN_ARROW then arrow:SetTexture(UNBUNK_ICON_DROPDOWN_ARROW) end
+    if UNBUNK_ICON_DROPDOWN_ARROW then
+        arrow:SetTexture(UNBUNK_ICON_DROPDOWN_ARROW)
+        arrow:SetVertexColor(BR, BG, BB)   -- white glyph -> brand blue
+    end
 
     local lbl = btn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH4")
     lbl:SetPoint("LEFT", arrow, "RIGHT", 6, 0)
@@ -402,7 +421,16 @@ local function ShowMainTab(index)
 end
 
 local function BuildMainTabs()
-    local TAB_W, TAB_H, GAP = 150, 28, 4
+    local n = #navTree
+    if n == 0 then return end
+    local TAB_H, GAP = 28, 4
+    -- The tab bar spans from the content column (CONTENT_X) to the right margin and
+    -- is split evenly among the main tabs, so the tab width tracks the window width.
+    local avail = mainBar:GetWidth()
+    if not avail or avail <= 0 then
+        avail = (window:GetWidth() or 745) - 16 - CONTENT_X
+    end
+    local TAB_W = math.max(60, math.floor((avail - (n - 1) * GAP) / n))
     for i, tab in ipairs(navTree) do
         local btn = CreateFrame("Button", nil, mainBar, "BackdropTemplate")
         btn:SetSize(TAB_W, TAB_H)
@@ -419,6 +447,14 @@ local function BuildMainTabs()
         local lbl = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         lbl:SetPoint("CENTER")
         lbl:SetText(tab.name)
+        -- Shrink the label to fit a narrower tab so longer localized names (e.g. the
+        -- French "Utilitaires de débogage") aren't clipped when the window is small.
+        local fp, fsz, ffl = lbl:GetFont()
+        local fs = fsz or 11
+        while fs > 8 and lbl:GetStringWidth() > (TAB_W - 8) do
+            fs = fs - 1
+            lbl:SetFont(fp, fs, ffl)
+        end
         btn.label = lbl
 
         btn:SetScript("OnEnter", function(self)
@@ -461,10 +497,42 @@ function ns.RebuildActiveModule()
     end
 end
 
+-- Rebuild the nav tree + left sub-tab menu after something changes which sub-tabs
+-- are visible (e.g. the Debug "I know what I'm doing" toggle). Cached menu rows are
+-- orphaned so they rebuild from the new tree; the current sub-tab is kept if it
+-- survived, else the active main tab's default opens.
+function ns.RefreshNav()
+    if not navTree then return end
+    navTree = BuildNavTree()
+    for _, rows in pairs(menuCache) do
+        for _, r in ipairs(rows) do r:Hide(); r:ClearAllPoints(); r:SetParent(nil) end
+    end
+    wipe(menuCache)
+    menuRows = {}
+    if not activeMain then return end
+    BuildLeftMenu(activeMain)
+    local tab = navTree[activeMain]
+    local stillThere = false
+    if tab then
+        for _, item in ipairs(tab.subs) do
+            if item.panel == activeSub then stillThere = true break end
+            if item.subs then
+                for _, s in ipairs(item.subs) do
+                    if s.panel == activeSub then stillThere = true break end
+                end
+            end
+        end
+    end
+    ShowSubTab(stillThere and activeSub or FirstPanelOf(tab))
+end
+
 -- ── Window ─────────────────────────────────────────────────────────────────────
 local function CreateMainWindow()
     window = CreateFrame("Frame", "UnbunkUtilityWindow", UIParent, "BackdropTemplate")
-    window:SetSize(760, 800)
+    -- Width sized so the content panels (518px) sit with roughly equal gaps on the
+    -- left (sub-tab menu) and right (window edge / scrollbar) — no big empty band on
+    -- the right. The main tabs adapt to the remaining width (see BuildMainTabs).
+    window:SetSize(745, 800)
     window:SetPoint("CENTER")
     window:SetFrameStrata("DIALOG")
     window:SetMovable(true)
@@ -486,8 +554,10 @@ local function CreateMainWindow()
     titleBar:SetPoint("TOP", 0, -14)
     titleBar:SetText("UnbunkUtility")
 
-    -- Close button: grey square, sharp 1px border -> blue on hover, white cross ->
-    -- blue on hover (both crosses preloaded so the swap is instant).
+    -- Close button: grey square, sharp 1px border -> blue on hover. A SINGLE white
+    -- cross texture is tinted to the brand blue on hover via SetVertexColor (white
+    -- × colour = that colour), so it uses the EXACT same blue as the rest of the
+    -- addon and needs no second pre-coloured image.
     local closeBtn = CreateFrame("Button", nil, window)
     closeBtn:SetSize(24, 24)
     closeBtn:SetPoint("TOPRIGHT", -6, -6)
@@ -501,43 +571,96 @@ local function CreateMainWindow()
     closeFill:SetPoint("BOTTOMRIGHT", closeBtn, "BOTTOMRIGHT", -1,  1)
     closeFill:SetColorTexture(0.15, 0.15, 0.15, 0.9)
 
-    local crossWhite = closeBtn:CreateTexture(nil, "OVERLAY")
-    crossWhite:SetSize(12, 12)
-    crossWhite:SetPoint("CENTER")
-    crossWhite:SetTexture(UNBUNK_ICON_CROSS_WHITE)
-
-    local crossBlue = closeBtn:CreateTexture(nil, "OVERLAY")
-    crossBlue:SetSize(12, 12)
-    crossBlue:SetPoint("CENTER")
-    crossBlue:SetTexture(UNBUNK_ICON_CROSS_BLUE)
-    crossBlue:Hide()
+    local crossTex = closeBtn:CreateTexture(nil, "OVERLAY")
+    crossTex:SetSize(12, 12)
+    crossTex:SetPoint("CENTER")
+    crossTex:SetTexture(UNBUNK_ICON_CROSS_WHITE)
 
     closeBtn:SetScript("OnEnter", function()
         closeBorder:SetColorTexture(BR, BG, BB, 1)
         closeFill:SetColorTexture(0.22, 0.22, 0.22, 0.9)
-        crossWhite:Hide()
-        crossBlue:Show()
+        crossTex:SetVertexColor(BR, BG, BB)
     end)
     closeBtn:SetScript("OnLeave", function()
         closeBorder:SetColorTexture(0.4, 0.4, 0.4, 1)
         closeFill:SetColorTexture(0.15, 0.15, 0.15, 0.9)
-        crossBlue:Hide()
-        crossWhite:Show()
+        crossTex:SetVertexColor(1, 1, 1)
     end)
     closeBtn:SetScript("OnClick", function() window:Hide() end)
 
     table.insert(UISpecialFrames, "UnbunkUtilityWindow")
 
-    -- Main tab bar (top row).
+    -- ── Top row: language selector (left column) + main tabs (right) ────────────
+    -- The main tabs start at the content column (CONTENT_X, right of the sub-tab
+    -- menu) instead of above it; the freed top-left corner holds the language
+    -- dropdown, directly above the sub-tab menu it shares a column with.
+
+    -- Language selector (account-wide ns.db.global.locale). The default is simply the
+    -- game client locale (no "Auto" entry); picking a language overrides it. Built
+    -- strings are captured when widgets are created, so the change applies on reload.
+    local langLabel = window:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH6")
+    langLabel:SetPoint("TOPLEFT", window, "TOPLEFT", 16, -40)
+    langLabel:SetText(ns.L["Language :"])
+    langLabel:SetTextColor(0.67, 0.67, 0.67)   -- grey (0xaa), matching the other H6 hints
+
+    -- Languages shown in the dropdown (no "Auto" entry): the default is simply the
+    -- game client locale, resolved by ns.GetEffectiveLocale when nothing is saved.
+    local LANG_ORDER = {}
+    for _, code in ipairs(ns.LOCALE_ORDER or {}) do LANG_ORDER[#LANG_ORDER + 1] = code end
+    local function LangLabelFor(code)
+        return (ns.LOCALE_NAMES and ns.LOCALE_NAMES[code]) or code
+    end
+    -- The currently active language (saved override, else the game locale) so the
+    -- dropdown highlights what's really in use even before any explicit choice.
+    local function CurrentLangCode()
+        return ns.GetEffectiveLocale and ns.GetEffectiveLocale() or "enUS"
+    end
+
+    local langDD = ns.ui.CreateDropdown({
+        parent        = window,
+        anchorFrame   = langLabel,
+        width         = MENU_W,
+        itemHeight    = 20,
+        visibleItems  = #LANG_ORDER,
+        getList       = function()
+            local t = {}
+            for _, code in ipairs(LANG_ORDER) do t[#t + 1] = LangLabelFor(code) end
+            return t
+        end,
+        getCurrentKey = function() return LangLabelFor(CurrentLangCode()) end,
+        onSelect      = function(label)
+            local chosen
+            for _, code in ipairs(LANG_ORDER) do
+                if LangLabelFor(code) == label then chosen = code break end
+            end
+            if not chosen then return end
+            if ns.db then ns.db.global.locale = chosen end
+            if ns.ApplyLocale then ns.ApplyLocale() end
+            -- A full reload re-translates everything (tabs/menu/panels capture their
+            -- strings at build time). Don't reload in combat — the saved value will
+            -- apply on the next manual /reload or relog.
+            if InCombatLockdown() then
+                ns.Print(ns.L["Language set — type /reload to apply."])
+            elseif C_UI and C_UI.Reload then
+                C_UI.Reload()
+            else
+                ReloadUI()
+            end
+        end,
+    })
+    langDD.selectedText:SetText(LangLabelFor(CurrentLangCode()))
+
+    -- Main tab bar (top row, right of the language column / aligned with content).
     mainBar = CreateFrame("Frame", nil, window)
-    mainBar:SetPoint("TOPLEFT", window, "TOPLEFT", 16, -40)
-    mainBar:SetPoint("TOPRIGHT", window, "TOPRIGHT", -16, -40)
+    mainBar:SetPoint("TOPLEFT", window, "TOPLEFT", CONTENT_X, -52)
+    mainBar:SetPoint("TOPRIGHT", window, "TOPRIGHT", -16, -52)
     mainBar:SetHeight(28)
 
+    -- Full-width divider below the whole top row (language column + tabs).
     local sep = window:CreateTexture(nil, "ARTWORK")
     sep:SetColorTexture(0.4, 0.4, 0.4, 0.8)
-    sep:SetPoint("TOPLEFT", mainBar, "BOTTOMLEFT", 0, -4)
-    sep:SetPoint("TOPRIGHT", mainBar, "BOTTOMRIGHT", 0, -4)
+    sep:SetPoint("TOPLEFT", window, "TOPLEFT", 16, -86)
+    sep:SetPoint("TOPRIGHT", window, "TOPRIGHT", -16, -86)
     sep:SetHeight(1)
 
     -- Left sub-tab menu.
@@ -589,6 +712,22 @@ local function CreateMainWindow()
         -- first built while hidden, where widths/positions can read back as 0).
         ns.ResizeActiveModule()
         C_Timer.After(0.1, function() sb.Update() end)
+    end)
+
+    -- Re-lock any session "unlock for repositioning" modes when the config window
+    -- closes. Otherwise the below-player CDM row in particular lingers: it stays in
+    -- DIALOG strata with a mouse-capturing translucent blue drag overlay until the
+    -- user re-clicks Lock, and there is no other way to clear it without reopening
+    -- that exact sub-tab. The Unlock/Lock buttons read these states on (re)build, so
+    -- they show "Unlock" again next time the panel opens.
+    window:HookScript("OnHide", function()
+        if ns.CDMAnchor and ns.CDMAnchor.IsBelowUnlocked and ns.CDMAnchor.IsBelowUnlocked() then
+            ns.CDMAnchor.SetBelowUnlocked(false)
+        end
+        if ns.SpeedDisplay and ns.SpeedDisplay.IsUnlocked and ns.SpeedDisplay.IsUnlocked()
+            and ns.SpeedDisplay.SetUnlocked then
+            ns.SpeedDisplay.SetUnlocked(false)
+        end
     end)
 
     -- ── Footer: links (left) + version (right) ────────────────────────────────
