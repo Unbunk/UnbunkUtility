@@ -272,3 +272,15 @@ L["|cff338cffDrag|r to reposition"] = "|cff338cffGlisser|r pour repositionner"
 
 -- ── Position editor (shared) ─────────────────────────────────────────────────
 L["|cffff4444[UnbunkUtility]|r Alert unlocked — drag to reposition, then click Lock to save."] = "|cffff4444[UnbunkUtility]|r Alerte déverrouillée — glissez pour repositionner, puis cliquez sur Verrouiller pour sauvegarder."
+
+-- ── Combat settings (Combat state text + Combat timer) ───────────────────────
+L["Combat state text"] = "Texte d'état de combat"
+L["Enable combat state text"] = "Activer le texte d'état de combat"
+L["In-combat text"] = "Texte en combat"
+L["Also show a text out of combat"] = "Afficher aussi un texte hors combat"
+L["Out-of-combat text"] = "Texte hors combat"
+L["Combat state text position"] = "Position du texte d'état de combat"
+L["Combat timer"] = "Minuteur de combat"
+L["Enable combat timer"] = "Activer le minuteur de combat"
+L["Timer text"] = "Texte du minuteur"
+L["Combat timer position"] = "Position du minuteur de combat"
