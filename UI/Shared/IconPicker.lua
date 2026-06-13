@@ -64,9 +64,9 @@ function ns.ui.CreateIconPicker(config)
     previewFrame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
     previewFrame:SetBackdrop({
         bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        edgeSize = 8,
-        insets   = { left = 2, right = 2, top = 2, bottom = 2 },
+        edgeFile = "Interface/Buttons/WHITE8X8",   -- sharp 1px border
+        edgeSize = 1,
+        insets   = { left = 1, right = 1, top = 1, bottom = 1 },
     })
     previewFrame:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
     previewFrame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
