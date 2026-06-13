@@ -120,7 +120,8 @@ local function BuildNavTree()
         { name = L["Combat Utilities"], subs = {
             { panel = L["Combat settings"] },
             { panel = L["Healer Range"] },
-            { cat = L["Death Alert"], subs = {
+            { panel = L["BRez Tracker"] },
+            { cat = L["Death Alerts"], subs = {
                 { panel = L["Tank Death Alert"] },
                 { panel = L["Healer Death Alert"] },
                 { panel = L["DPS Death Alert"] },
@@ -131,11 +132,10 @@ local function BuildNavTree()
                 { panel = L["Healthstone Tracker"] },
                 { panel = L["Racial Tracker"] },
             } },
-            { cat = L["Aura Tracker"], subs = {
+            { cat = L["Aura Trackers"], subs = {
                 { panel = L["BL Tracker"] },
                 { panel = L["PI Tracker"] },
             } },
-            { panel = L["BRez Tracker"] },
         } },
         { name = L["Extra Utilities"], subs = {
             { panel = L["Death Anim"] },
