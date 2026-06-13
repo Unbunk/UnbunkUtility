@@ -656,11 +656,71 @@ local function CreateDebugPanel(parent)
     return menu
 end
 
+-- ── Secret scaffolding: owner detection + placeholder panels ──────────────────
+-- Hard-coded owner identity: the secret "Unbunk" nav category (Core.lua
+-- BuildNavTree) is shown only on this Battle.net account. To find a tag in-game:
+--   /run print(BNGetInfo())
+local OWNER_BATTLETAG = "REDACTED"   -- owner account; gates the secret "Unbunk" nav
+
+-- The player's own BattleTag, scanned out of BNGetInfo() (its return position varies
+-- by client) — the value shaped like "Name#1234". nil if Battle.net is unavailable.
+function ns.GetMyBattleTag()
+    if not BNGetInfo then return nil end
+    -- Scan ALL returns with select() (NOT ipairs over a packed table, which stops at
+    -- the first nil hole) for the value shaped like "Name#1234".
+    local n = select("#", BNGetInfo())
+    for i = 1, n do
+        local v = select(i, BNGetInfo())
+        if type(v) == "string" and v:find("#", 1, true) then return v end
+    end
+    return nil
+end
+
+-- True only on the owner's Battle.net account (gates the secret "Unbunk" nav).
+-- Tolerant compare (trim + case-fold) so stray spacing/case can't cause a miss.
+local function normTag(t) return (t or ""):gsub("%s", ""):lower() end
+function ns.IsAccountOwner()
+    local tag = ns.GetMyBattleTag()
+    return tag ~= nil and normTag(tag) == normTag(OWNER_BATTLETAG)
+end
+
+-- Minimal placeholder panel: H2 title + a grey description. New secret sub-tabs
+-- start as these stubs until their real content is built.
+local function StubPanel(parent, title, desc)
+    local h = parent:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
+    h:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, -16)
+    h:SetText(title)
+    local d = parent:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+    d:SetPoint("TOPLEFT", h, "BOTTOMLEFT", 0, -12)
+    d:SetWidth(480); d:SetJustifyH("LEFT")
+    d:SetTextColor(0.6, 0.6, 0.6)
+    d:SetText(desc)
+    return d
+end
+
 local initDbg = CreateFrame("Frame")
 initDbg:RegisterEvent("ADDON_LOADED")
 initDbg:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
     UnbunkUtility.RegisterModule(L["Debug"], nil, CreateDebugPanel)
+
+    -- Secret debug sub-tabs. Registered unconditionally; their visibility in the nav
+    -- is gated in Core.lua BuildNavTree (unlock for the secret settings + Addon usage,
+    -- owner account for Unbunk).
+    UnbunkUtility.RegisterModule(L["Secret settings"], nil, function(parent)
+        StubPanel(parent, L["Secret settings"], L["Hidden developer settings — work in progress."])
+        return nil
+    end)
+    UnbunkUtility.RegisterModule(L["Print"], nil, function(parent)
+        StubPanel(parent, L["Print"], L["Addon usage — print log (work in progress)."]); return nil
+    end)
+    UnbunkUtility.RegisterModule(L["Graph"], nil, function(parent)
+        StubPanel(parent, L["Graph"], L["Addon usage — graph (work in progress)."]); return nil
+    end)
+    UnbunkUtility.RegisterModule(L["Overview"], nil, function(parent)
+        StubPanel(parent, L["Unbunk"], L["Owner-only secret area — work in progress."]); return nil
+    end)
+
     -- Apply saved console options at login (ns.db ready via Core/DB.lua's earlier
     -- ADDON_LOADED), so any enabled chat buckets start capturing immediately.
     if ns.Debug_ApplyConsoleOptions then ns.Debug_ApplyConsoleOptions() end

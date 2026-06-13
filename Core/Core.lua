@@ -148,8 +148,18 @@ local function BuildNavTree()
             -- appear once unlocked. ns.RefreshNav() rebuilds this when the flag toggles.
             local subs = { { panel = L["Debug"] } }
             if ns.IsDebugUnlocked and ns.IsDebugUnlocked() then
-                -- Gated debug sub-tabs go here, e.g.:
-                --   subs[#subs + 1] = { panel = L["..."] }
+                subs[#subs + 1] = { panel = L["Secret settings"] }
+                subs[#subs + 1] = { cat = L["Addon usage"], subs = {
+                    { panel = L["Print"] },
+                    { panel = L["Graph"] },
+                } }
+                -- Owner-only secret category: requires BOTH the unlock above AND the
+                -- developer's Battle.net account.
+                if ns.IsAccountOwner and ns.IsAccountOwner() then
+                    subs[#subs + 1] = { cat = L["Unbunk"], subs = {
+                        { panel = L["Overview"] },
+                    } }
+                end
             end
             return subs
         end)() },
