@@ -173,38 +173,54 @@ local function CreateCombatSettingsPanel(parent)
                         end,
                     },
 
-                    -- Timer text appearance (no message — it renders the elapsed time).
+                    -- ── Timer text sub-cadre (appearance — it renders the elapsed time) ──
                     {
-                        type            = "textEditor",
-                        LSM             = LSM,
-                        label           = L["Timer text"],
-                        showText        = false,
-                        getFontKey      = function() return CT.CfgGet("fontKey") end,
-                        getFontPath     = function() return CT.CfgGet("fontPath") end,
-                        getFontSize     = function() return CT.CfgGet("fontSize") end,
-                        getColor        = function() return CT.CfgGet("color") end,
-                        getOutline      = function() return CT.CfgGet("outline") end,
-                        onFontChange    = function(k, p) CT.CfgSet("fontKey", k); CT.CfgSet("fontPath", p); CT.ApplyFont() end,
-                        onSizeChange    = function(s) CT.CfgSet("fontSize", s); CT.ApplyFont() end,
-                        onColorChange   = function(r, g, b, a) CT.CfgSet("color", { r = r, g = g, b = b, a = a }); CT.ApplyFont() end,
-                        onOutlineChange = function(o) CT.CfgSet("outline", o); CT.ApplyFont() end,
+                        type  = "group",
+                        title = L["Timer text"],
+                        build = function()
+                            return {
+                                {
+                                    type            = "textEditor",
+                                    LSM             = LSM,
+                                    showLabel       = false,
+                                    showText        = false,
+                                    getFontKey      = function() return CT.CfgGet("fontKey") end,
+                                    getFontPath     = function() return CT.CfgGet("fontPath") end,
+                                    getFontSize     = function() return CT.CfgGet("fontSize") end,
+                                    getColor        = function() return CT.CfgGet("color") end,
+                                    getOutline      = function() return CT.CfgGet("outline") end,
+                                    onFontChange    = function(k, p) CT.CfgSet("fontKey", k); CT.CfgSet("fontPath", p); CT.ApplyFont() end,
+                                    onSizeChange    = function(s) CT.CfgSet("fontSize", s); CT.ApplyFont() end,
+                                    onColorChange   = function(r, g, b, a) CT.CfgSet("color", { r = r, g = g, b = b, a = a }); CT.ApplyFont() end,
+                                    onOutlineChange = function(o) CT.CfgSet("outline", o); CT.ApplyFont() end,
+                                },
+                            }
+                        end,
                     },
 
-                    -- Position.
+                    -- ── Position sub-cadre ────────────────────────────────────────
                     {
-                        type       = "position",
-                        onBuilt    = function(w) CT.pe = w end,
-                        label      = L["Combat timer position"],
-                        getX       = function() return CT.CfgGet("posX") end,
-                        getY       = function() return CT.CfgGet("posY") end,
-                        onApply    = function(x, y)
-                            if x then CT.CfgSet("posX", x) end
-                            if y then CT.CfgSet("posY", y) end
-                            CT.ApplyPosition()
+                        type  = "group",
+                        title = L["Combat timer position"],
+                        build = function()
+                            return {
+                                {
+                                    type       = "position",
+                                    onBuilt    = function(w) CT.pe = w end,
+                                    label      = "",
+                                    getX       = function() return CT.CfgGet("posX") end,
+                                    getY       = function() return CT.CfgGet("posY") end,
+                                    onApply    = function(x, y)
+                                        if x then CT.CfgSet("posX", x) end
+                                        if y then CT.CfgSet("posY", y) end
+                                        CT.ApplyPosition()
+                                    end,
+                                    onUnlock   = function() CT.SetUnlocked(true) end,
+                                    onLock     = function() CT.SetUnlocked(false); if CT.pe then CT.pe.Refresh() end end,
+                                    isUnlocked = function() return CT.IsUnlocked() end,
+                                },
+                            }
                         end,
-                        onUnlock   = function() CT.SetUnlocked(true) end,
-                        onLock     = function() CT.SetUnlocked(false); if CT.pe then CT.pe.Refresh() end end,
-                        isUnlocked = function() return CT.IsUnlocked() end,
                     },
 
                     -- Out-of-combat behaviour (at the bottom).
