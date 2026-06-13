@@ -5,9 +5,9 @@
 -- Migrated to ns.ui.BuildMenu: the simple labels/dropdowns/inputs/buttons are
 -- declarative entries; the cross-widget syncing (current-profile label + the two
 -- dropdown toggle labels) is preserved verbatim via captured upvalues. The
--- export/import EditBoxes are atypical (plain InputBoxTemplate boxes the user
--- copies from / pastes into) and stay hand-built inside "custom" blocks so the
--- AceSerializer round-trip is untouched.
+-- export/import boxes are ns.ui.CreateTextInput fields (maxLetters = 0 so the
+-- blob isn't truncated) the user copies from / pastes into, kept inside "custom"
+-- blocks so the AceSerializer round-trip is untouched.
 
 local _, ns = ...
 local L = ns.L
@@ -184,11 +184,11 @@ local function CreateProfilesPanel(parent)
                 exportLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                 exportLbl:SetText(L["Export current profile"])
 
-                local exportBox = CreateFrame("EditBox", nil, host, "InputBoxTemplate")
-                exportBox:SetSize(400, 22)
-                exportBox:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -22)
-                exportBox:SetAutoFocus(false)
-                exportBox:SetMaxLetters(0)
+                local exportInput = ns.ui.CreateTextInput({
+                    parent = host, width = 400, height = 22, maxLetters = 0,
+                })
+                exportInput.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -22)
+                local exportBox = exportInput.editBox
 
                 local exportBtn = ns.ui.CreateButton({
                     parent  = host,
@@ -217,11 +217,11 @@ local function CreateProfilesPanel(parent)
                 importLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                 importLbl:SetText(L["Import profile (creates a new profile)"])
 
-                local importBox = CreateFrame("EditBox", nil, host, "InputBoxTemplate")
-                importBox:SetSize(400, 22)
-                importBox:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -22)
-                importBox:SetAutoFocus(false)
-                importBox:SetMaxLetters(0)
+                local importInput = ns.ui.CreateTextInput({
+                    parent = host, width = 400, height = 22, maxLetters = 0,
+                })
+                importInput.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -22)
+                local importBox = importInput.editBox
 
                 local importBtn = ns.ui.CreateButton({
                     parent  = host,
