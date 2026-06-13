@@ -26,8 +26,6 @@ function ns.ui.CreateButton(config)
 
     local result = {}
 
-    local BLUE_R, BLUE_G, BLUE_B = 0.20, 0.55, 1.0   -- brand blue (#338CFF)
-
     local btn = CreateFrame("Button", nil, parent)
     btn:SetSize(width, height)
 
@@ -46,15 +44,16 @@ function ns.ui.CreateButton(config)
     local function SetBorder(r, g, b) border:SetColorTexture(r, g, b, 1) end
     local function SetFill(v)         fill:SetColorTexture(v, v, v, 0.9) end
 
-    local lbl = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local lbl = btn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityBody")
     lbl:SetPoint("CENTER")
     lbl:SetText(label)
 
     btn:SetScript("OnEnter", function(self)
         if not self:IsEnabled() then return end
-        SetBorder(BLUE_R, BLUE_G, BLUE_B)            -- blue border on hover
+        local r, g, b = ns.GetBrandColor()           -- live brand blue
+        SetBorder(r, g, b)                            -- blue border on hover
         SetFill(0.22)
-        lbl:SetTextColor(BLUE_R, BLUE_G, BLUE_B, 1)  -- blue text on hover
+        lbl:SetTextColor(r, g, b, 1)                  -- blue text on hover
     end)
 
     btn:SetScript("OnLeave", function(self)

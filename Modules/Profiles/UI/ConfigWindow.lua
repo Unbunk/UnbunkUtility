@@ -39,7 +39,7 @@ local function CreateProfilesPanel(parent)
             type   = "custom",
             height = 24,
             build  = function(host)
-                local lbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                local lbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                 lbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                 lbl:SetText(string.format(L["Current profile: |cff338cff%s|r"], ns.profiles.GetCurrent()))
                 currentLbl = lbl

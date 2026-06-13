@@ -50,7 +50,7 @@ function ns.ui.CreateTextInput(config)
     editBox:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", -6, 3)
     editBox:SetAutoFocus(false)
     editBox:SetMaxLetters(maxLetters)
-    editBox:SetFontObject("GameFontHighlightSmall")
+    editBox:SetFontObject("UnbunkUtilityBody")
     editBox:SetTextColor(1, 1, 1, 1)
 
     editBox:SetScript("OnChar", function(self, char)

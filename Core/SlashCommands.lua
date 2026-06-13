@@ -33,6 +33,13 @@ SlashCmdList["UNBUNKUTILITY"] = function(msg)
         else
             ns.Print(L["Unknown command. Type |cff338cff/ubu help|r for the list."])
         end
+    elseif cmd == "debug print start" or cmd == "debug print stop" then
+        -- Start/stop the Addon-usage periodic print (debug suite — gated by the unlock).
+        if ns.IsDebugUnlocked and ns.IsDebugUnlocked() and ns.Debug_SetUsageActive then
+            ns.Debug_SetUsageActive(cmd == "debug print start")
+        else
+            ns.Print(L["Unknown command. Type |cff338cff/ubu help|r for the list."])
+        end
     else
         ns.Print(L["Unknown command. Type |cff338cff/ubu help|r for the list."])
     end

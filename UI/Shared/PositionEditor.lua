@@ -29,11 +29,11 @@ function ns.ui.CreatePositionEditor(parent, config)
 
     -- ── X offset ──────────────────────────────────────────────────────────────
 
-    local xLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    local xLbl = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
     xLbl:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
     xLbl:SetText(L["X offset"])
 
-    local yLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    local yLbl = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
     yLbl:SetPoint("LEFT", xLbl, "RIGHT", 40, 0)
     yLbl:SetText(L["Y offset"])
 

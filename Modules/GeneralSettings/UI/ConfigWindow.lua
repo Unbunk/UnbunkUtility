@@ -1,9 +1,11 @@
 -- Modules/GeneralSettings/UI/ConfigWindow.lua
--- Four sub-tabs of the "General Settings" main tab:
---   Addon settings            — minimap button + welcome message
---   Player speed display      — on-screen speed readout
---   Multi-alert / anti-spam   — combo sounds + death-alert anti-spam + boss reset sound
---   Below player frame        — the CDM artificial row under the PlayerFrame
+-- Panels registered here (the nav tree in Core.lua places them into main tabs):
+--   Addon settings        — minimap button + welcome message       (General Settings)
+--   Player speed display  — on-screen speed readout                (Extra Utilities)
+--   Multi-alert combo     — combo sounds                           (Extra Utilities)
+--   Boss reset sound      — wipe/reset sound                       (Extra Utilities)
+--   Death alert anti-spam — wipe + DPS-burst alert suppression     (Combat > Death Alerts)
+--   Below player frame / Essentials / Utility — the CDM rows       (General Settings)
 
 local _, ns = ...
 local L = ns.L
@@ -153,13 +155,11 @@ local function CreatePlayerSpeedPanel(parent)
     return menu
 end
 
--- ── Multi-alert / anti-spam ───────────────────────────────────────────────────
-local function CreateMultiAlertPanel(parent)
+-- ── Multi-alert combo (Extra Utilities) ───────────────────────────────────────
+local function CreateComboPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local options = {
-        H2(L["Multi-alert / anti-spam"]),
-
-        -- Combo sounds
+        H2(L["Multi-alert combo"]),
         {
             type  = "group",
             title = L["Multi-alert combo sounds"],
@@ -200,8 +200,14 @@ local function CreateMultiAlertPanel(parent)
                 }
             end,
         },
+    }
+    return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
+end
 
-        -- Death-alert anti-spam
+-- ── Death alert anti-spam (Combat Utilities > Death Alerts) ────────────────────
+local function CreateDeathAntiSpamPanel(parent)
+    local options = {
+        H2(L["Death alert anti-spam"]),
         {
             type  = "group",
             title = L["Death alert anti-spam"],
@@ -266,8 +272,15 @@ local function CreateMultiAlertPanel(parent)
                 }
             end,
         },
+    }
+    return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
+end
 
-        -- Boss reset sound
+-- ── Boss reset sound (Extra Utilities) ─────────────────────────────────────────
+local function CreateBossResetPanel(parent)
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    local options = {
+        H2(L["Boss reset sound"]),
         {
             type  = "group",
             title = L["Boss reset sound"],
@@ -325,7 +338,7 @@ local function CreateBelowPlayerPanel(parent)
                 type   = "custom",
                 height = 28,
                 build  = function(host)
-                    local wLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                    local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                     wLbl:SetPoint("LEFT", host, "LEFT", 0, 0)
                     wLbl:SetText(L["W"])
                     local wInput = ns.ui.CreateTextInput({
@@ -341,7 +354,7 @@ local function CreateBelowPlayerPanel(parent)
                     })
                     wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
 
-                    local hLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                    local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                     hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
                     hLbl:SetText(L["H"])
                     local hInput = ns.ui.CreateTextInput({
@@ -402,7 +415,7 @@ local function CreateBelowPlayerPanel(parent)
                     offLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                     offLbl:SetText(L["Offset"])
 
-                    local xLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                    local xLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                     xLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
                     xLbl:SetText("X")
                     local xInput = ns.ui.CreateTextInput({
@@ -418,7 +431,7 @@ local function CreateBelowPlayerPanel(parent)
                     })
                     xInput.frame:SetPoint("LEFT", xLbl, "RIGHT", 4, 0)
 
-                    local yLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                    local yLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                     yLbl:SetPoint("LEFT", xInput.frame, "RIGHT", 12, 0)
                     yLbl:SetText("Y")
                     local yInput = ns.ui.CreateTextInput({
@@ -580,7 +593,9 @@ initGS:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "UnbunkUtility" then return end
     UnbunkUtility.RegisterModule(L["Addon settings"],          nil, CreateAddonSettingsPanel)
     UnbunkUtility.RegisterModule(L["Player speed display"],    nil, CreatePlayerSpeedPanel)
-    UnbunkUtility.RegisterModule(L["Multi-alert / anti-spam"], nil, CreateMultiAlertPanel)
+    UnbunkUtility.RegisterModule(L["Multi-alert combo"],       nil, CreateComboPanel)
+    UnbunkUtility.RegisterModule(L["Boss reset sound"],        nil, CreateBossResetPanel)
+    UnbunkUtility.RegisterModule(L["Death alert anti-spam"],   nil, CreateDeathAntiSpamPanel)
     UnbunkUtility.RegisterModule(L["Below player frame"],      nil, CreateBelowPlayerPanel)
     UnbunkUtility.RegisterModule(L["Essentials"],              nil, CreateCDMEssentialsPanel)
     UnbunkUtility.RegisterModule(L["Utility"],                 nil, CreateCDMUtilityPanel)

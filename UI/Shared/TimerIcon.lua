@@ -413,7 +413,8 @@ function ns.ui.CreateTimerIcon(config)
                 edgeFile = "Interface/Buttons/WHITE8X8",
                 edgeSize = 1,
             })
-            frame:SetBackdropBorderColor(0.20, 0.55, 1.0, 0.8)
+            local _br, _bg, _bb = ns.GetBrandColor()
+            frame:SetBackdropBorderColor(_br, _bg, _bb, 0.8)   -- brand blue (re-read on (re)build)
             frame:Show()
         else
             frame:EnableMouse(false)

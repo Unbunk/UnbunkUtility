@@ -45,7 +45,7 @@ local function EnsureDialog()
     title:SetPoint("TOP", f, "TOP", 0, -14)
     f.title = title
 
-    local desc = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    local desc = f:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
     desc:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -46)
     desc:SetPoint("TOPRIGHT", f, "TOPRIGHT", -18, -46)
     desc:SetJustifyH("LEFT")

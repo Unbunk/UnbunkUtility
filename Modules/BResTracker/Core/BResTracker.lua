@@ -392,7 +392,7 @@ function BR.SetUnlocked(val)
             edgeFile = "Interface/Buttons/WHITE8X8",
             edgeSize = 1,
         })
-        frame:SetBackdropBorderColor(0.20, 0.55, 1.0, 0.8)
+        ns.SetBrandBorder(frame, 0.8)   -- live brand blue
         -- Preview: show the icon and a fake count so the user sees what they
         -- are positioning even when out of group.
         iconTex:SetTexture(ResolveIcon())

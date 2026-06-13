@@ -73,6 +73,23 @@ local function AddLine(text)
     end
 end
 
+-- Hook the global print ONCE, EAGERLY at load (not lazily when the console window is
+-- first opened) — so every print() is captured from login on: buffered into lineBuffer
+-- and replayed when the window opens, plus mirrored live while it is open. Gated at
+-- fire time, so nothing is captured/mirrored while debug is locked. origPrint always
+-- runs first, so normal chat output is untouched.
+if not ns._consoleHooked then
+    ns._consoleHooked = true
+    local origPrint = print
+    print = function(...)
+        origPrint(...)
+        if not ns.IsDebugUnlocked() then return end   -- locked: don't mirror
+        local n, parts = select("#", ...), {}
+        for i = 1, n do parts[i] = tostring((select(i, ...))) end
+        AddLine(table.concat(parts, " "))
+    end
+end
+
 local function RunConsoleInput(text)
     if not text or text:gsub("%s", "") == "" then return end
     AddLine("|cff999999> " .. text .. "|r")
@@ -473,7 +490,7 @@ local function EnsureConsole()
     grip:SetPushedTexture("Interface/ChatFrame/UI-ChatIM-SizeGrabber-Down")
     grip:SetHighlightTexture("Interface/ChatFrame/UI-ChatIM-SizeGrabber-Highlight")
     local gNorm = grip:GetNormalTexture(); if gNorm then gNorm:SetVertexColor(0.7, 0.7, 0.7) end
-    local gHi   = grip:GetHighlightTexture(); if gHi then gHi:SetVertexColor(0.20, 0.55, 1.0) end
+    local gHi   = grip:GetHighlightTexture(); if gHi then ns.SetBrandVertex(gHi) end
     grip:SetScript("OnMouseDown", function() f:StartSizing("BOTTOMRIGHT") end)
     grip:SetScript("OnMouseUp", function()
         f:StopMovingOrSizing()
@@ -495,21 +512,8 @@ local function EnsureConsole()
 
     consoleFrame = f
 
-    -- Replay the buffered history into the freshly-built log.
+    -- Replay the buffered history (print mirror is hooked eagerly at load, above).
     for _, line in ipairs(lineBuffer) do smf:AddMessage(line) end
-
-    -- Hook the global print ONCE so every print() also lands in the console.
-    if not ns._consoleHooked then
-        ns._consoleHooked = true
-        local origPrint = print
-        print = function(...)
-            origPrint(...)
-            if not ns.IsDebugUnlocked() then return end   -- locked: don't mirror
-            local n, parts = select("#", ...), {}
-            for i = 1, n do parts[i] = tostring((select(i, ...))) end
-            AddLine(table.concat(parts, " "))
-        end
-    end
 
     ns.Debug_ApplyConsoleOptions()
     return f
@@ -596,6 +600,7 @@ local function CreateDebugPanel(parent)
                             end
                         end
                         ns.Debug_ApplyConsoleOptions()
+                        if ns.Debug_ApplyUsageOptions then ns.Debug_ApplyUsageOptions() end
                         if menu then menu.Rebuild() end
                         if ns.RefreshNav then ns.RefreshNav() end
                     end,
@@ -698,6 +703,129 @@ local function StubPanel(parent, title, desc)
     return d
 end
 
+-- Secret settings: a "Brand colour" cadre with a colour swatch (opens the native
+-- ColorPickerFrame; its swatchFunc fires live while dragging) + a Reset button that
+-- restores the base blue. ns.SetBrandColor/ResetBrandColor recolour the whole addon
+-- live (Core/Shared.lua).
+local function CreateSecretPanel(parent)
+    local title = parent:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
+    title:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, -16)
+    title:SetText(L["Secret settings"])
+
+    local box = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    box:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, -52)
+    box:SetSize(380, 96)
+    box:SetBackdrop({
+        bgFile   = "Interface/Buttons/WHITE8X8",
+        edgeFile = "Interface/Buttons/WHITE8X8",
+        edgeSize = 1,
+    })
+    box:SetBackdropColor(0.08, 0.08, 0.08, 0.6)
+    box:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+
+    local boxTitle = box:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH3")
+    boxTitle:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -10)
+    boxTitle:SetText(L["Change addon color"])
+
+    local hint = box:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+    hint:SetPoint("TOPLEFT", boxTitle, "BOTTOMLEFT", 0, -6)
+    hint:SetWidth(352); hint:SetJustifyH("LEFT"); hint:SetTextColor(0.6, 0.6, 0.6)
+    hint:SetText(L["Changes the blue used everywhere in the addon, live."])
+
+    -- Colour swatch (also a click target for the picker).
+    local swatch = CreateFrame("Button", nil, box, "BackdropTemplate")
+    swatch:SetSize(40, 22)
+    swatch:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -10)
+    swatch:SetBackdrop({ edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
+    swatch:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+    local swatchTex = swatch:CreateTexture(nil, "ARTWORK")
+    swatchTex:SetPoint("TOPLEFT", swatch, "TOPLEFT", 1, -1)
+    swatchTex:SetPoint("BOTTOMRIGHT", swatch, "BOTTOMRIGHT", -1, 1)
+    local function refreshSwatch() swatchTex:SetColorTexture(ns.GetBrandColor()) end
+    refreshSwatch()
+
+    local function openPicker()
+        local r, g, b = ns.GetBrandColor()
+        local function onChange()
+            local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+            ns.SetBrandColor(nr, ng, nb)
+            refreshSwatch()
+        end
+        local info = {
+            r = r, g = g, b = b, hasOpacity = false,
+            swatchFunc = onChange,
+            cancelFunc = function() ns.SetBrandColor(r, g, b); refreshSwatch() end,
+        }
+        if ColorPickerFrame.SetupColorPickerAndShow then
+            ColorPickerFrame:SetupColorPickerAndShow(info)
+        else   -- legacy entry point
+            ColorPickerFrame.func        = onChange
+            ColorPickerFrame.cancelFunc  = info.cancelFunc
+            ColorPickerFrame.hasOpacity  = false
+            ColorPickerFrame.previousValues = { r = r, g = g, b = b }
+            ColorPickerFrame:SetColorRGB(r, g, b)
+            ColorPickerFrame:Hide(); ColorPickerFrame:Show()
+        end
+    end
+    swatch:SetScript("OnClick", openPicker)
+
+    local resetBtn = ns.ui.CreateButton({
+        parent = box, label = L["Reset"], width = 70, height = 22,
+        onClick = function() ns.ResetBrandColor(); refreshSwatch() end,
+    })
+    resetBtn.frame:SetPoint("LEFT", swatch, "RIGHT", 12, 0)
+
+    -- ── "Change addon font" cadre: pick an LSM font; ns.SetAddonFont re-faces every
+    -- addon font object live (no reload). Reset goes back to the default UI face.
+    local fbox = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    fbox:SetPoint("TOPLEFT", box, "BOTTOMLEFT", 0, -14)
+    fbox:SetSize(380, 96)
+    fbox:SetBackdrop({
+        bgFile   = "Interface/Buttons/WHITE8X8",
+        edgeFile = "Interface/Buttons/WHITE8X8",
+        edgeSize = 1,
+    })
+    fbox:SetBackdropColor(0.08, 0.08, 0.08, 0.6)
+    fbox:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+
+    local ftitle = fbox:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH3")
+    ftitle:SetPoint("TOPLEFT", fbox, "TOPLEFT", 12, -10)
+    ftitle:SetText(L["Change addon font"])
+
+    local fhint = fbox:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+    fhint:SetPoint("TOPLEFT", ftitle, "BOTTOMLEFT", 0, -6)
+    fhint:SetWidth(352); fhint:SetJustifyH("LEFT"); fhint:SetTextColor(0.6, 0.6, 0.6)
+    fhint:SetText(L["Changes the font of all the addon's text, live."])
+
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    if LSM then
+        local fontDD = ns.ui.CreateDropdown({
+            parent        = fbox,
+            anchorFrame   = fhint,
+            width         = 200,
+            itemHeight    = 20,
+            visibleItems  = 10,
+            getList       = function() return LSM:List("font") end,
+            getCurrentKey = function() return ns.GetAddonFontKey() end,
+            onSelect      = function(name) ns.SetAddonFont(name) end,
+        })
+        fontDD.SetCurrent(ns.GetAddonFontKey() or L["Default font"])
+
+        local fReset = ns.ui.CreateButton({
+            parent = fbox, label = L["Reset"], width = 70, height = 22,
+            onClick = function() ns.SetAddonFont(nil); fontDD.SetCurrent(ns.GetAddonFontKey() or L["Default font"]) end,
+        })
+        fReset.frame:SetPoint("LEFT", fontDD.toggleBtn, "RIGHT", 10, 0)
+    else
+        local noLSM = fbox:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+        noLSM:SetPoint("TOPLEFT", fhint, "BOTTOMLEFT", 0, -10)
+        noLSM:SetTextColor(1, 0.5, 0.2)
+        noLSM:SetText(L["LibSharedMedia-3.0 not found."])
+    end
+
+    return nil
+end
+
 local initDbg = CreateFrame("Frame")
 initDbg:RegisterEvent("ADDON_LOADED")
 initDbg:SetScript("OnEvent", function(self, event, addonName)
@@ -707,18 +835,19 @@ initDbg:SetScript("OnEvent", function(self, event, addonName)
     -- Secret debug sub-tabs. Registered unconditionally; their visibility in the nav
     -- is gated in Core.lua BuildNavTree (unlock for the secret settings + Addon usage,
     -- owner account for Unbunk).
-    UnbunkUtility.RegisterModule(L["Secret settings"], nil, function(parent)
-        StubPanel(parent, L["Secret settings"], L["Hidden developer settings — work in progress."])
-        return nil
+    UnbunkUtility.RegisterModule(L["Secret settings"], nil, CreateSecretPanel)
+    UnbunkUtility.RegisterModule(L["Beta"], nil, function(parent)
+        StubPanel(parent, L["Beta"], L["(nothing here yet)"]); return nil
     end)
-    UnbunkUtility.RegisterModule(L["Print"], nil, function(parent)
-        StubPanel(parent, L["Print"], L["Addon usage — print log (work in progress)."]); return nil
+    UnbunkUtility.RegisterModule(L["List"], nil, function(parent)
+        StubPanel(parent, L["List"], L["(nothing here yet)"]); return nil
     end)
+    -- "Print" is a real panel registered in Modules/Debug/UI/PrintPanel.lua.
     UnbunkUtility.RegisterModule(L["Graph"], nil, function(parent)
         StubPanel(parent, L["Graph"], L["Addon usage — graph (work in progress)."]); return nil
     end)
-    UnbunkUtility.RegisterModule(L["Overview"], nil, function(parent)
-        StubPanel(parent, L["Unbunk"], L["Owner-only secret area — work in progress."]); return nil
+    UnbunkUtility.RegisterModule(L["Personal utilities"], nil, function(parent)
+        StubPanel(parent, L["Personal utilities"], L["Owner-only secret area — work in progress."]); return nil
     end)
 
     -- Apply saved console options at login (ns.db ready via Core/DB.lua's earlier

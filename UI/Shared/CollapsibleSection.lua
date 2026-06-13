@@ -83,7 +83,7 @@ function ns.ui.CreateCollapsibleSection(config)
     arrow:SetPoint("LEFT", headerBtn, "LEFT", 8, 0)
     if UNBUNK_ICON_DROPDOWN_ARROW then
         arrow:SetTexture(UNBUNK_ICON_DROPDOWN_ARROW)
-        local C = ns.TITLE_COLOR; arrow:SetVertexColor(C[1], C[2], C[3])  -- white glyph -> brand blue
+        ns.SetBrandVertex(arrow)   -- white glyph -> brand blue (re-tinted live)
     end
 
     -- Checkbox

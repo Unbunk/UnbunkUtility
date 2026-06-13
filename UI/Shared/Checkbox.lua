@@ -66,12 +66,12 @@ function ns.ui.CreateCheckbox(config)
     local checkTex = box:CreateTexture(nil, "OVERLAY")
     checkTex:SetSize(10, 10)
     checkTex:SetPoint("CENTER", box, "CENTER", 0, 0)
-    checkTex:SetColorTexture(0.20, 0.55, 1.0, 1)
+    checkTex:SetColorTexture(ns.GetBrandColor())   -- live brand blue (re-read in UpdateVisual)
     checkTex:Hide()
 
     -- ── Label ─────────────────────────────────────────────────────────────────
 
-    local lbl = container:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local lbl = container:CreateFontString(nil, "OVERLAY", "UnbunkUtilityBody")
     lbl:SetPoint("LEFT", box, "RIGHT", 6, 0)
     lbl:SetText(label)
 
@@ -88,7 +88,7 @@ function ns.ui.CreateCheckbox(config)
             if disabled then
                 checkTex:SetColorTexture(0.5, 0.5, 0.5, 1)    -- grey
             else
-                checkTex:SetColorTexture(0.20, 0.55, 1.0, 1)  -- blue
+                checkTex:SetColorTexture(ns.GetBrandColor())  -- live brand blue
             end
             checkTex:Show()
         else
@@ -104,6 +104,9 @@ function ns.ui.CreateCheckbox(config)
     end
 
     UpdateVisual()
+    -- Re-tint the (checked) square live when the brand colour changes; weak-keyed by the
+    -- container so rebuilt checkboxes are GC'd, not leaked. UpdateVisual respects state.
+    if ns.RegisterBrandRefresh then ns.RegisterBrandRefresh(container, UpdateVisual) end
 
     box:SetScript("OnClick", function()
         if IsDisabled() then return end

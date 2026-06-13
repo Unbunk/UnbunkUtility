@@ -104,7 +104,7 @@ function ns.ui.CreateTextEditor(parent, config)
             local swatchTex = colorSwatch:CreateTexture(nil, "BACKGROUND")
             swatchTex:SetAllPoints()
 
-            local colorLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            local colorLbl = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
             colorLbl:SetPoint("LEFT", colorSwatch, "RIGHT", 4, 0)
             colorLbl:SetText(L["Color"])
 
@@ -143,7 +143,7 @@ function ns.ui.CreateTextEditor(parent, config)
             -- Size input to the right of the color swatch (unless relocated to the
             -- Font row to keep a narrow box from overflowing).
             if showSize and not sizeOnFontRow then
-                local sizeLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                local sizeLbl = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                 sizeLbl:SetPoint("LEFT", colorLbl, "RIGHT", 10, 0)
                 sizeLbl:SetText(L["Size"])
 
@@ -164,7 +164,7 @@ function ns.ui.CreateTextEditor(parent, config)
                 result.sizeBox = sizeInput.editBox
             end
         elseif showSize and not sizeOnFontRow then
-            local sizeLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            local sizeLbl = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
             sizeLbl:SetPoint("LEFT", textInput.frame, "RIGHT", 10, 0)
             sizeLbl:SetText(L["Size"])
 
@@ -191,7 +191,7 @@ function ns.ui.CreateTextEditor(parent, config)
         local rightAnchor
 
         if showSize and getFontSize and onSizeChange then
-            local sizeLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            local sizeLbl = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
             sizeLbl:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
             sizeLbl:SetText(L["Size"])
 
@@ -225,7 +225,7 @@ function ns.ui.CreateTextEditor(parent, config)
             local swatchTex = colorSwatch:CreateTexture(nil, "BACKGROUND")
             swatchTex:SetAllPoints()
 
-            local colorLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            local colorLbl = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
             colorLbl:SetPoint("LEFT", colorSwatch, "RIGHT", 4, 0)
             colorLbl:SetText(L["Color"])
 
@@ -268,7 +268,7 @@ function ns.ui.CreateTextEditor(parent, config)
     -- ── Font dropdown ─────────────────────────────────────────────────────────
 
     if showFont and LSM then
-        local fontLabel = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        local fontLabel = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
         fontLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
         fontLabel:SetText(L["Font"])
         height = height + 18
@@ -297,7 +297,7 @@ function ns.ui.CreateTextEditor(parent, config)
         -- Size control on the Font row (right of the font dropdown) when relocated
         -- off the text row — vertically aligned with the dropdown toggle button.
         if sizeOnFontRow then
-            local sizeLbl = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            local sizeLbl = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
             sizeLbl:SetPoint("LEFT", fontDD.toggleBtn, "RIGHT", 16, 0)
             sizeLbl:SetText(L["Size"])
 
@@ -322,7 +322,7 @@ function ns.ui.CreateTextEditor(parent, config)
 
         -- Outline picker stacked below the font picker.
         if showOutline then
-            local outlineLabel = container:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            local outlineLabel = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
             outlineLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
             outlineLabel:SetText(L["Outline"])
             height = height + 18

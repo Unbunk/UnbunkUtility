@@ -206,7 +206,7 @@ local function CreatePlayerDeathPanel(parent)
                             })
                             fpsPlusBtn.frame:SetPoint("LEFT", fpsInput.frame, "RIGHT", 4, 0)
 
-                            local fpsSecLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                            local fpsSecLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                             fpsSecLbl:SetPoint("LEFT", fpsPlusBtn.frame, "RIGHT", 6, 0)
                             fpsSecLbl:SetText(L["fps"])
 
@@ -275,7 +275,7 @@ local function CreatePlayerDeathPanel(parent)
                             sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                             sizeLbl:SetText(L["Animation size"])
 
-                            local wLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                            local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                             wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
                             wLbl:SetText(L["W"])
 
@@ -297,7 +297,7 @@ local function CreatePlayerDeathPanel(parent)
                             })
                             wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
 
-                            local hLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                            local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                             hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
                             hLbl:SetText(L["H"])
 

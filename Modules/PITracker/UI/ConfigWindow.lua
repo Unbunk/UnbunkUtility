@@ -192,7 +192,7 @@ local function CreatePITrackerPanel(parent)
                                         sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                                         sizeLbl:SetText(L["Icon size"])
 
-                                        local wLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                                        local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                                         wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
                                         wLbl:SetText(L["W"])
 
@@ -214,7 +214,7 @@ local function CreatePITrackerPanel(parent)
                                         })
                                         wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
 
-                                        local hLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                                        local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                                         hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
                                         hLbl:SetText(L["H"])
 

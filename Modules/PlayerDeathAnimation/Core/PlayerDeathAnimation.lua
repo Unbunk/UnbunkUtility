@@ -163,7 +163,7 @@ function PD.SetUnlocked(val)
             edgeFile = "Interface/Buttons/WHITE8X8",
             edgeSize = 1,
         })
-        animFrame:SetBackdropBorderColor(0.20, 0.55, 1.0, 0.8)
+        ns.SetBrandBorder(animFrame, 0.8)   -- live brand blue
         local anim = GetCurrentAnim()
         if anim then
             animTex:SetTexture(anim.path .. "0.tga")

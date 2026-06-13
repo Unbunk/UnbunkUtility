@@ -175,7 +175,7 @@ function CS.SetUnlocked(val)
             if CS.pe then CS.pe.Refresh() end
         end)
         frame:SetBackdrop({ edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
-        frame:SetBackdropBorderColor(0.20, 0.55, 1.0, 0.8)
+        ns.SetBrandBorder(frame, 0.8)   -- live brand blue
         frame:Show()
     else
         frame:SetMovable(false)
