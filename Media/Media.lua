@@ -9,6 +9,11 @@ initMedia:SetScript("OnEvent", function(self, event, addonName)
     if LSM then
         local ADDON_PATH = "Interface\\AddOns\\UnbunkUtility\\Media\\"
 
+        -- Bundled font (OFL): the addon-wide default. Registered here so the
+        -- "Fira Mono" default resolves to a real face without any external media
+        -- addon (ns.ResolveFontPath only falls back to FRIZQT when LSM is absent).
+        LSM:Register("font", "Fira Mono", ADDON_PATH .. "Fonts\\FiraMono-Regular.ttf")
+
         -- Sounds available in every loudness variant (High / Medium / Low /
         -- Loud). Every LSM key carries its loudness in parentheses so the
         -- picker reads e.g. "BL Ready (Loud)"; module defaults explicitly
