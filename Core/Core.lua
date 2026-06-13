@@ -70,6 +70,14 @@ local function ShowURL(url)
         ebFill:SetColorTexture(0.12, 0.12, 0.12, 0.95)
         eb:SetScript("OnEscapePressed", function() f:Hide() end)
         eb:SetScript("OnEnterPressed",  function() f:Hide() end)
+        -- Auto-close right after the link is copied (Ctrl+C). The client performs the
+        -- copy on this keypress, so defer the hide one frame so the clipboard write
+        -- finishes before the dialog goes away.
+        eb:SetScript("OnKeyDown", function(_, key)
+            if key == "C" and IsControlKeyDown() then
+                C_Timer.After(0, function() f:Hide() end)
+            end
+        end)
         -- Effectively read-only: snap back to the URL if edited, so it stays correct.
         eb:SetScript("OnTextChanged", function(self)
             if self.url and self:GetText() ~= self.url then
