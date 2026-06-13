@@ -376,10 +376,10 @@ function BR.SetUnlocked(val)
             if BR.pe then BR.pe.Refresh() end
         end)
         frame:SetBackdrop({
-            edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-            edgeSize = 10,
+            edgeFile = "Interface/Buttons/WHITE8X8",
+            edgeSize = 1,
         })
-        frame:SetBackdropBorderColor(1, 1, 0, 0.8)
+        frame:SetBackdropBorderColor(0.20, 0.55, 1.0, 0.8)
         -- Preview: show the icon and a fake count so the user sees what they
         -- are positioning even when out of group.
         iconTex:SetTexture(ResolveIcon())

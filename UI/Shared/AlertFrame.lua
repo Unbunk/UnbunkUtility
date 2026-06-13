@@ -153,10 +153,10 @@ function ns.ui.CreateAlertFrame(config)
                 if config.onDragStop then config.onDragStop(math.floor(x), math.floor(y)) end
             end)
             frame:SetBackdrop({
-                edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-                edgeSize = 10,
+                edgeFile = "Interface/Buttons/WHITE8X8",
+                edgeSize = 1,
             })
-            frame:SetBackdropBorderColor(1, 1, 0, 0.8)
+            frame:SetBackdropBorderColor(0.20, 0.55, 1.0, 0.8)
             frame:Show()
         else
             frame:SetMovable(false)
