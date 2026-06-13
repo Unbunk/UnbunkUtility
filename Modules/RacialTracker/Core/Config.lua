@@ -22,7 +22,7 @@ local DEFAULTS = {
     borderEnabled  = true,
     borderColor    = { r = 0, g = 0, b = 0, a = 1 },
     borderSize     = 1,
-    timerFontKey   = "2002 Bold",
+    timerFontKey   = "Fira Mono",
     timerFontPath  = nil,
     timerFontSize  = 20,
     timerOutline   = "OUTLINE",

@@ -18,7 +18,7 @@ local DEFAULTS = {
     cdmRow         = 1,
     posX           = -610,
     posY           = -290,
-    timerFontKey   = "2002 Bold",
+    timerFontKey   = "Fira Mono",
     timerFontPath  = nil,
     timerFontSize  = 14,
     timerOutline   = "OUTLINE",
@@ -46,7 +46,7 @@ local DEFAULTS = {
     listRowHeight     = 18,        -- cell height (per text line)
     listFontSize      = 14,
     listFontPath      = nil,
-    listFontKey       = "2002 Bold",
+    listFontKey       = "Fira Mono",
     listOutline       = "OUTLINE",
     -- Estimated per-player BRes cooldown (seconds) used for the list timers. An
     -- addon can't read another player's real cooldown, so this is a single

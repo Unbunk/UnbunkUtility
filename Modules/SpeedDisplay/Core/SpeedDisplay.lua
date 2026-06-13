@@ -66,7 +66,7 @@ local DEFAULTS = {
     posX     = 0,
     posY     = 0,
     fontSize = 18,
-    fontKey  = "2002 Bold",  -- LSM key; resolved via ns.ResolveFontPath (FRIZQT fallback)
+    fontKey  = "Fira Mono",  -- LSM key; resolved via ns.ResolveFontPath (FRIZQT fallback)
     fontPath = nil,
     outline  = "OUTLINE",
 }

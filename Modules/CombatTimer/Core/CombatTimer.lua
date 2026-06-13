@@ -15,7 +15,7 @@ local GetTime = GetTime
 local DEFAULTS = {
     enabled        = false,
     instanceFilter = { dungeon = true, raid = true, battleground = true, outdoor = true },
-    fontKey        = "2002 Bold",
+    fontKey        = "Fira Mono",
     fontPath       = nil,
     fontSize       = 20,
     color          = { r = 1, g = 1, b = 1, a = 1 },

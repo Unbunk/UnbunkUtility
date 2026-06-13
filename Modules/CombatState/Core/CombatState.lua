@@ -18,7 +18,7 @@ local DEFAULTS = {
     message         = "In Combat",
     showOutOfCombat = false,
     outOfCombatText = "Out of Combat",
-    fontKey         = "2002 Bold",   -- LSM key; resolved via ns.ResolveFontPath (FRIZQT fallback)
+    fontKey         = "Fira Mono",   -- LSM key; resolved via ns.ResolveFontPath (FRIZQT fallback)
     fontPath        = nil,
     fontSize        = 18,
     color           = { r = 1, g = 1, b = 1, a = 1 },
