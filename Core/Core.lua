@@ -30,27 +30,68 @@ local BR, BG, BB = 0.20, 0.55, 1.0   -- brand blue
 local GITHUB_URL     = "https://github.com/Unbunk/UnbunkUtility"
 local CURSEFORGE_URL = "https://www.curseforge.com/wow/addons/unbunkutility"
 
--- WoW can't open a browser, so a clicked link shows a tiny popup with the URL in a
--- selected EditBox the user copies with Ctrl+C.
-StaticPopupDialogs["UNBUNKUTILITY_URL"] = {
-    text = "Copy the link (Ctrl+C):",
-    button1 = CLOSE,
-    hasEditBox = true,
-    editBoxWidth = 360,
-    timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
-    OnShow = function(self)
-        if self.editBox then
-            self.editBox:SetText(self.data or "")
-            self.editBox:HighlightText()
-            self.editBox:SetFocus()
-        end
-    end,
-    EditBoxOnEnterPressed  = function(self) self:GetParent():Hide() end,
-    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
-}
-
+-- WoW can't open a browser, so a clicked link pops a small dialog with the URL in a
+-- pre-selected EditBox the user copies with Ctrl+C. A custom frame (not a Blizzard
+-- StaticPopup) so it matches the addon's square style AND reliably shows the URL —
+-- the StaticPopup `data` path stopped populating the edit box after Midnight's popup
+-- rework, which is why the link looked empty.
+local urlDialog
 local function ShowURL(url)
-    StaticPopup_Show("UNBUNKUTILITY_URL", nil, nil, url)
+    if not urlDialog then
+        local f = CreateFrame("Frame", "UnbunkUtilityURLDialog", UIParent, "BackdropTemplate")
+        f:SetSize(440, 118)
+        f:SetPoint("CENTER")
+        f:SetFrameStrata("FULLSCREEN_DIALOG")
+        f:SetToplevel(true)
+        f:EnableMouse(true)
+        f:SetBackdrop({
+            bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
+            edgeFile = "Interface/Buttons/WHITE8X8",
+            edgeSize = 1,
+            insets   = { left = 1, right = 1, top = 1, bottom = 1 },
+        })
+        f:SetBackdropColor(0.08, 0.08, 0.08, 0.97)
+        f:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+        f:Hide()
+
+        local title = f:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
+        title:SetPoint("TOP", f, "TOP", 0, -14)
+        title:SetText("Copy the link (Ctrl+C)")
+
+        -- Selectable EditBox holding the URL, with the inputs' dark sharp fill.
+        local eb = CreateFrame("EditBox", nil, f)
+        eb:SetSize(400, 24)
+        eb:SetPoint("TOP", f, "TOP", 0, -46)
+        eb:SetAutoFocus(false)
+        eb:SetFontObject("GameFontHighlightSmall")
+        eb:SetTextInsets(6, 6, 0, 0)
+        local ebFill = eb:CreateTexture(nil, "BACKGROUND")
+        ebFill:SetAllPoints(eb)
+        ebFill:SetColorTexture(0.12, 0.12, 0.12, 0.95)
+        eb:SetScript("OnEscapePressed", function() f:Hide() end)
+        eb:SetScript("OnEnterPressed",  function() f:Hide() end)
+        -- Effectively read-only: snap back to the URL if edited, so it stays correct.
+        eb:SetScript("OnTextChanged", function(self)
+            if self.url and self:GetText() ~= self.url then
+                self:SetText(self.url)
+                self:HighlightText()
+            end
+        end)
+        f.editBox = eb
+
+        local close = ns.ui.CreateButton({ parent = f, label = CLOSE or "Close", width = 110, height = 24 })
+        close.frame:SetPoint("BOTTOM", f, "BOTTOM", 0, 14)
+        close.frame:SetScript("OnClick", function() f:Hide() end)
+
+        urlDialog = f
+    end
+    local eb = urlDialog.editBox
+    eb.url = url
+    eb:SetText(url)
+    urlDialog:Show()
+    urlDialog:Raise()
+    eb:SetFocus()
+    eb:HighlightText()
 end
 
 -- ── Nav tree ──────────────────────────────────────────────────────────────────
