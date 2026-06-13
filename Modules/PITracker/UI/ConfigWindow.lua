@@ -353,7 +353,7 @@ local function CreatePITrackerPanel(parent)
     local banner = bannerFrame:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
     banner:SetPoint("CENTER", bannerFrame, "CENTER", 0, 100)
     banner:SetJustifyH("CENTER")
-    banner:SetText("|cffff4444Feature unavailable since Midnight changes.\nWorking on it...|r")
+    banner:SetText(L["|cffff4444Feature unavailable since Midnight changes.\nWorking on it...|r"])
 
     return menu
 end

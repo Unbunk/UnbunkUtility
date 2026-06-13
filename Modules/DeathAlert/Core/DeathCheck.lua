@@ -23,7 +23,15 @@ end
 -- locks it again (IsMovable() was a fragile proxy for "unlocked").
 local function ShowAlert(frame, duration, isUnlocked)
     frame:Show()
+    -- Stamp the latest scheduled hide time on the frame. If a second, closer death
+    -- of the same role re-shows the frame before this timer fires, that re-arm
+    -- stamps a newer hideAt — so this (older) callback bows out and only the most
+    -- recently armed timer hides the frame, giving the latest death its full
+    -- duration instead of being cut short by the first death's timer.
+    local hideAt = GetTime() + duration
+    frame._uuHideAt = hideAt
     C_Timer.After(duration, function()
+        if frame._uuHideAt ~= hideAt then return end  -- a newer death re-armed the hide
         if not (isUnlocked and isUnlocked()) then
             frame:Hide()
         end

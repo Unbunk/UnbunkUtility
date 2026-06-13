@@ -330,6 +330,13 @@ local function CreateBResTrackerPanel(parent)
                             }
                         end,
                     },
+
+                    -- Count text size: the big BRez-charges number drawn on the icon.
+                    {
+                        type = "textinput", label = L["Count text size"], width = 46, numeric = true, min = 6, max = 48, maxLetters = 2,
+                        get = function() return BR.CfgGet("countFontSize") or 16 end,
+                        set = function(v) if v and v > 0 then BR.CfgSet("countFontSize", v); BR.ApplyFont() end end,
+                    },
                 }
             end,
         },
@@ -488,6 +495,31 @@ local function CreateBResTrackerPanel(parent)
                                     onOutlineChange = function(outline)
                                         BR.CfgSet("listOutline", outline)
                                         if BR.RefreshList then BR.RefreshList() end
+                                    end,
+                                },
+
+                                -- List offset: pixel gap between the icon and the list.
+                                {
+                                    type = "textinput", label = L["List offset"], width = 46, numeric = true, min = 0, max = 200, maxLetters = 3,
+                                    get = function() return BR.CfgGet("listOffset") or 8 end,
+                                    set = function(v)
+                                        if v and v >= 0 then
+                                            BR.CfgSet("listOffset", v)
+                                            if BR.ApplyListPosition then BR.ApplyListPosition() end
+                                            if BR.RefreshList       then BR.RefreshList()       end
+                                        end
+                                    end,
+                                },
+
+                                -- List row height: cell height per text line.
+                                {
+                                    type = "textinput", label = L["List row height"], width = 46, numeric = true, min = 8, max = 60, maxLetters = 2,
+                                    get = function() return BR.CfgGet("listRowHeight") or 18 end,
+                                    set = function(v)
+                                        if v and v > 0 then
+                                            BR.CfgSet("listRowHeight", v)
+                                            if BR.RefreshList then BR.RefreshList() end
+                                        end
                                     end,
                                 },
                 }

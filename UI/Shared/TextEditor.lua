@@ -121,19 +121,19 @@ function ns.ui.CreateTextEditor(parent, config)
                     swatchFunc = function()
                         local r, g, b = ColorPickerFrame:GetColorRGB()
                         local a = ColorPickerFrame:GetColorAlpha()
-                        onColorChange(r, g, b, a) RefreshSwatch()
+                        if onColorChange then onColorChange(r, g, b, a) end RefreshSwatch()
                     end,
                     opacityFunc = function()
                         local r, g, b = ColorPickerFrame:GetColorRGB()
                         local a = ColorPickerFrame:GetColorAlpha()
-                        onColorChange(r, g, b, a) RefreshSwatch()
+                        if onColorChange then onColorChange(r, g, b, a) end RefreshSwatch()
                     end,
                     cancelFunc = function(prev)
                         -- `opacity` in previousValues already holds the alpha
                         -- (set via opacity = c.a below), so use it directly
                         -- rather than the legacy 1-opacity conversion.
                         local a = prev.a or prev.opacity or 1
-                        onColorChange(prev.r, prev.g, prev.b, a) RefreshSwatch()
+                        if onColorChange then onColorChange(prev.r, prev.g, prev.b, a) end RefreshSwatch()
                     end,
                     r = c.r, g = c.g, b = c.b, opacity = c.a,
                     hasOpacity = true,
@@ -157,7 +157,7 @@ function ns.ui.CreateTextEditor(parent, config)
                     maxLetters = 3,
                     text       = tostring(getFontSize() or 22),
                     onEnter    = function(val)
-                        if val and val > 0 then onSizeChange(val) end
+                        if val and val > 0 and onSizeChange then onSizeChange(val) end
                     end,
                 })
                 sizeInput.frame:SetPoint("LEFT", sizeLbl, "RIGHT", 4, 0)
@@ -178,7 +178,7 @@ function ns.ui.CreateTextEditor(parent, config)
                 maxLetters = 3,
                 text       = tostring(getFontSize() or 22),
                 onEnter    = function(val)
-                    if val and val > 0 then onSizeChange(val) end
+                    if val and val > 0 and onSizeChange then onSizeChange(val) end
                 end,
             })
             sizeInput.frame:SetPoint("LEFT", sizeLbl, "RIGHT", 4, 0)
@@ -205,7 +205,7 @@ function ns.ui.CreateTextEditor(parent, config)
                 maxLetters = 3,
                 text       = tostring(getFontSize() or 22),
                 onEnter    = function(val)
-                    if val and val > 0 then onSizeChange(val) end
+                    if val and val > 0 and onSizeChange then onSizeChange(val) end
                 end,
             })
             sizeInput.frame:SetPoint("LEFT", sizeLbl, "RIGHT", 4, 0)
@@ -286,7 +286,7 @@ function ns.ui.CreateTextEditor(parent, config)
                 -- stored path (config.getFontPath) if the key cannot be resolved.
                 local path = LSM:Fetch("font", name)
                 if not path and getFontPath then path = getFontPath() end
-                onFontChange(name, path)
+                if onFontChange then onFontChange(name, path) end
             end,
         })
         fontDD.selectedText:SetText(getFontKey() or L["(select a font)"])
@@ -311,7 +311,7 @@ function ns.ui.CreateTextEditor(parent, config)
                 maxLetters = 3,
                 text       = tostring(getFontSize() or 22),
                 onEnter    = function(val)
-                    if val and val > 0 then onSizeChange(val) end
+                    if val and val > 0 and onSizeChange then onSizeChange(val) end
                 end,
             })
             sizeInput.frame:SetPoint("LEFT", sizeLbl, "RIGHT", 4, 0)
@@ -346,7 +346,7 @@ function ns.ui.CreateTextEditor(parent, config)
                 onSelect      = function(lbl)
                     for _, v in ipairs(OUTLINE_OPTIONS) do
                         if OUTLINE_LABELS[v] == lbl then
-                            onOutlineChange(v)
+                            if onOutlineChange then onOutlineChange(v) end
                             break
                         end
                     end

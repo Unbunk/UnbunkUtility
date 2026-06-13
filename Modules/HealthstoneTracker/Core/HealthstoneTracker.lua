@@ -268,15 +268,33 @@ end
 -- Layout active trackers in a horizontal row to the right of the configured
 -- position. Hidden trackers (no assignedId) are skipped.
 local function ApplyLayout()
+    -- Don't fight the drag: while the row is unlocked for repositioning the user
+    -- is moving the primary icon (StartMoving). A ClearAllPoints+SetPoint here
+    -- would teleport it; the next locked tick re-anchors from the saved posX/posY.
+    -- (Mirrors TimerIcon.ApplyPosition's `if unlocked then return end` guard.)
+    if HT.IsUnlocked() then return end
     local x = HT.CfgGet("posX")     or 0
     local y = HT.CfgGet("posY")     or 0
     local w = HT.CfgGet("iconWidth") or 30
-    for i, t in ipairs(trackers) do
+    -- freeIndex counts only the FREE (non-CDM) icons so the on-screen row stays
+    -- compact when some variants are placed in the Cooldown Manager row instead.
+    local freeIndex = 0
+    for _, t in ipairs(trackers) do
         if t.assignedId then
-            local frame = t.GetFrame()
-            frame:ClearAllPoints()
-            frame:SetPoint("CENTER", UIParent, "CENTER",
-                x + (i - 1) * (w + ICON_GAP), y)
+            if t.icon and t.icon.CDMActive and t.icon.CDMActive() then
+                -- CDM-managed (includeInCdm + a live destination): ns.CDMAnchor owns
+                -- this icon's position AND size. Delegate to ApplyPosition (which
+                -- asks CDMAnchor to relayout the row) instead of clobbering it with
+                -- a free UIParent anchor every tick — that was why includeInCdm had
+                -- no effect.
+                t.ApplyPosition()
+            else
+                local frame = t.GetFrame()
+                frame:ClearAllPoints()
+                frame:SetPoint("CENTER", UIParent, "CENTER",
+                    x + freeIndex * (w + ICON_GAP), y)
+                freeIndex = freeIndex + 1
+            end
         end
     end
 end
@@ -361,6 +379,26 @@ function HT.ApplyAll()
     end
 
     ApplyLayout()
+end
+
+-- ── Placement / border refresh (called by the config UI) ──────────────────────
+-- The config panel's Placement section (Include in cdm, Anchor to, Icon at the
+-- end of the row, Row) calls HT.ApplyPosition, and the Border section (Show
+-- border / Border color / Border thickness) calls HT.ApplyBorder. Both delegate
+-- to the pooled trackers' ItemTracker methods — without these, every such control
+-- raised "attempt to call field ApplyPosition/ApplyBorder (a nil value)".
+
+function HT.ApplyBorder()
+    for _, t in ipairs(trackers) do
+        if t.ApplyBorder then t.ApplyBorder() end
+    end
+end
+
+function HT.ApplyPosition()
+    -- ApplyAll re-applies size (ApplyVisuals → icon.ApplySize, CDM-aware) and ends
+    -- with ApplyLayout, which now honours includeInCdm/cdmDest — so a CDM toggle
+    -- relocates AND resizes the icons correctly.
+    HT.ApplyAll()
 end
 
 -- ── Test mode (single-icon preview) ───────────────────────────────────────────
@@ -509,6 +547,7 @@ end)
 ns.RegisterReloadHook(function()
     InvalidateActiveCache()
     HT.ApplyAll()
+    HT.ApplyBorder()
 end)
 
 local initHT = CreateFrame("Frame")

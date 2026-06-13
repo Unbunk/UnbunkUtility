@@ -6,6 +6,7 @@
 -- and only active in the instance types its filter allows. Modelled on SpeedDisplay.
 
 local _, ns = ...
+local L = ns.L
 ns.CombatState = ns.CombatState or {}
 local CS = ns.CombatState
 
@@ -143,10 +144,10 @@ local function PreviewWhich(which, fallback)
     ApplyAppearanceFor(which)
 end
 function CS.OnInChanged()
-    if CS.IsUnlocked() then PreviewWhich("in", "Combat State Text") else CS.Refresh() end
+    if CS.IsUnlocked() then PreviewWhich("in", L["Combat State Text"]) else CS.Refresh() end
 end
 function CS.OnOutChanged()
-    if CS.IsUnlocked() then PreviewWhich("out", "Out of Combat") else CS.Refresh() end
+    if CS.IsUnlocked() then PreviewWhich("out", L["Out of Combat"]) else CS.Refresh() end
 end
 
 -- ── Unlock / drag (position editor) ──────────────────────────────────────────
@@ -154,7 +155,7 @@ function CS.SetUnlocked(val)
     if val then
         frame:ClearAllPoints()
         frame:SetPoint("CENTER", UIParent, "CENTER", CS.CfgGet("posX") or 0, CS.CfgGet("posY") or 0)
-        PreviewWhich("in", "Combat State Text")
+        PreviewWhich("in", L["Combat State Text"])
         frame:SetMovable(true)
         frame:EnableMouse(true)
         frame:RegisterForDrag("LeftButton")

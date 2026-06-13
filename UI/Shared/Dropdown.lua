@@ -76,6 +76,7 @@ function ns.ui.CreateDropdown(config)
         arrowTex:SetSize(8, 8)
         arrowTex:SetPoint("RIGHT", toggleBtn, "RIGHT", -6, 0)
         arrowTex:SetTexture(UNBUNK_ICON_DROPDOWN_ARROW)
+        local C = ns.TITLE_COLOR; arrowTex:SetVertexColor(C[1], C[2], C[3])  -- white glyph -> brand blue
     end
 
     -- ── Drop frame ────────────────────────────────────────────────────────────

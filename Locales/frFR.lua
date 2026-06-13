@@ -1,24 +1,27 @@
 -- Locales/frFR.lua
--- French translation overrides. Loaded after enUS.lua; only applies on a frFR
--- client. Any key not listed here falls back to the English source via the
--- ns.L identity metatable. Color codes (|cff..|r) and string.format specifiers
--- (%s / %d / %ds) are preserved in the same order as the English source.
+-- French translation overrides. Registered into ns.locales.frFR REGARDLESS of the
+-- game client locale, so the user can force French from the in-app language dropdown
+-- even on a non-French client (ns.L resolves the active locale via ns.ApplyLocale).
+-- Any key not listed here falls back to the English source via the ns.L identity
+-- metatable. Color codes (|cff..|r) and string.format specifiers (%s / %d / %ds) are
+-- preserved in the same order as the English source.
 
 local _, ns = ...
-if GetLocale() ~= "frFR" then return end
-local L = ns.L
+ns.locales = ns.locales or {}
+local L = ns.locales.frFR or {}
+ns.locales.frFR = L
 
 -- ── Slash commands / chat ────────────────────────────────────────────────────
-L["  |cff338cff/ubu debug|r — dump LibRangeCheck friend checkers (dev)"] = "  |cff338cff/ubu debug|r — affiche les vérificateurs alliés LibRangeCheck (dev)"
+-- NOTE: messages routed through ns.Print MUST use the bare (un-prefixed) key,
+-- because ns.Print prepends ns.PREFIX ("|cffff4444[UnbunkUtility]|r ") itself.
+-- Keying these with the prefix made the lookup miss and the chat fall back to
+-- English on a frFR client. The "  |cff338cff/ubu...|r" lines below are emitted
+-- via a raw print() (PrintHelp), so they intentionally have NO prefix.
 L["  |cff338cff/ubu help|r — show this help"] = "  |cff338cff/ubu help|r — affiche cette aide"
 L["  |cff338cff/ubu|r or |cff338cff/ubu config|r — open settings"] = "  |cff338cff/ubu|r ou |cff338cff/ubu config|r — ouvre les réglages"
-L["|cffff4444[UnbunkUtility]|r Commands:"] = "|cffff4444[UnbunkUtility]|r Commandes :"
-L["|cffff4444[UnbunkUtility]|r Config panel not ready yet."] = "|cffff4444[UnbunkUtility]|r Le panneau de configuration n'est pas encore prêt."
-L["|cffff4444[UnbunkUtility]|r Unknown command. Type |cff338cff/ubu help|r for the list."] = "|cffff4444[UnbunkUtility]|r Commande inconnue. Tapez |cff338cff/ubu help|r pour la liste."
-L["|cffff4444[UnbunkUtility]|r Debug — LibRangeCheck-3.0 not loaded."] = "|cffff4444[UnbunkUtility]|r Debug — LibRangeCheck-3.0 non chargé."
-L["|cffff4444[UnbunkUtility]|r Debug — Friend checkers |cff00ff00out of combat|r:"] = "|cffff4444[UnbunkUtility]|r Debug — Vérificateurs alliés |cff00ff00hors combat|r :"
-L["|cffff4444[UnbunkUtility]|r Debug — Friend checkers |cffff9900in combat|r:"] = "|cffff4444[UnbunkUtility]|r Debug — Vérificateurs alliés |cffff9900en combat|r :"
-L["|cffff4444[UnbunkUtility]|r Debug — Res checkers |cffff9900in combat|r:"] = "|cffff4444[UnbunkUtility]|r Debug — Vérificateurs de rés |cffff9900en combat|r :"
+L["Commands:"] = "Commandes :"
+L["Config panel not ready yet."] = "Le panneau de configuration n'est pas encore prêt."
+L["Unknown command. Type |cff338cff/ubu help|r for the list."] = "Commande inconnue. Tapez |cff338cff/ubu help|r pour la liste."
 
 -- ── Profiles ─────────────────────────────────────────────────────────────────
 L["Profile Management"] = "Gestion des profils"
@@ -32,16 +35,20 @@ L["Delete profile"] = "Supprimer le profil"
 L["Export"] = "Exporter"
 L["Export current profile"] = "Exporter le profil actuel"
 L["Import"] = "Importer"
-L["Import profile (overwrites current)"] = "Importer un profil (écrase l'actuel)"
+L["Import profile (creates a new profile)"] = "Importer un profil (crée un nouveau profil)"
+L["Import profile"] = "Importer un profil"
+L["Name the new profile:"] = "Nommez le nouveau profil :"
 L["Reset"] = "Réinitialiser"
 L["Reset current profile to defaults"] = "Réinitialiser le profil actuel aux valeurs par défaut"
-L["|cffff4444[UnbunkUtility]|r Profile loaded: %s"] = "|cffff4444[UnbunkUtility]|r Profil chargé : %s"
-L["|cffff4444[UnbunkUtility]|r Profile created: %s"] = "|cffff4444[UnbunkUtility]|r Profil créé : %s"
-L["|cffff4444[UnbunkUtility]|r Profile deleted: %s"] = "|cffff4444[UnbunkUtility]|r Profil supprimé : %s"
-L["|cffff4444[UnbunkUtility]|r Profile already exists: %s"] = "|cffff4444[UnbunkUtility]|r Le profil existe déjà : %s"
-L["|cffff4444[UnbunkUtility]|r Profile reset to defaults: %s"] = "|cffff4444[UnbunkUtility]|r Profil réinitialisé : %s"
-L["|cffff4444[UnbunkUtility]|r Profile imported successfully."] = "|cffff4444[UnbunkUtility]|r Profil importé avec succès."
-L["|cffff4444[UnbunkUtility]|r Import failed: %s"] = "|cffff4444[UnbunkUtility]|r Échec de l'import : %s"
+-- Routed through ns.Print -> use bare keys (no |cffff4444[UnbunkUtility]|r prefix).
+L["Profile loaded: %s"] = "Profil chargé : %s"
+L["Profile created: %s"] = "Profil créé : %s"
+L["Profile deleted: %s"] = "Profil supprimé : %s"
+L["Profile already exists: %s"] = "Le profil existe déjà : %s"
+L["Profile reset to defaults: %s"] = "Profil réinitialisé : %s"
+L["Profile imported as: %s"] = "Profil importé sous : %s"
+L["Import failed: %s"] = "Échec de l'import : %s"
+L["Profile name required"] = "Nom de profil requis"
 L["not an UnbunkUtility profile"] = "ce n'est pas un profil UnbunkUtility"
 L["invalid profile data"] = "données de profil invalides"
 L["corrupt profile data"] = "données de profil corrompues"
@@ -60,6 +67,20 @@ L["Combat settings"] = "Réglages de combat"
 L["Item/Spell Trackers"] = "Suivis d'objets/sorts"
 L["Aura Trackers"] = "Suivis d'auras"
 L["Debug"] = "Débogage"
+L["I know what I'm doing"] = "Je sais ce que je fais"
+L["Console mode"] = "Mode console"
+L["Console Mode"] = "Mode console"
+L["Open Console Mode"] = "Ouvrir le mode console"
+L["Clear"] = "Effacer"
+L["Text editor"] = "Éditeur de texte"
+L["Allow selection"] = "Autoriser la sélection"
+L["Channels"] = "Canaux"
+L["Activate players messages"] = "Activer les messages des joueurs"
+L["Activate channels"] = "Activer les canaux"
+L["Activate others"] = "Activer les autres"
+L["say, emote, yell, guild, officer, guild announce, whisper, party + leader, raid + leader + warning, instance + leader"] = "dire, émote, cri, guilde, officier, annonce de guilde, chuchotement, groupe + chef, raid + chef + avertissement, instance + chef"
+L["general, trade, local defense, services"] = "général, commerce, défense locale, services"
+L["everything else"] = "tout le reste"
 L["Enable"] = "Activer"
 L["(nothing here yet)"] = "(rien ici pour l'instant)"
 L["Healer Range"] = "Portée de soin"
@@ -233,15 +254,19 @@ L["Use favorite when in bag"] = "Utiliser le favori s'il est dans le sac"
 L["Show stack count below icon"] = "Afficher le nombre sous l'icône"
 L["Trinket 1 (slot 1)"] = "Bijou 1 (emplacement 1)"
 L["Trinket 2 (slot 2)"] = "Bijou 2 (emplacement 2)"
+L["active"] = "actif"
+L["passive"] = "passif"
+L["No trinket"] = "Aucun bijou"
 
 -- ── Healthstone tracker ──────────────────────────────────────────────────────
 L["Enable Healthstone Tracker"] = "Activer le suivi des pierres de soin"
 
 -- ── Racial tracker ───────────────────────────────────────────────────────────
 L["Enable Racial Tracker"] = "Activer le suivi raciale"
-L["Tracked racial: |cff338cff%s|r"] = "Raciale suivie : |cff338cff%s|r"
-L["Spell ID override (0 = auto)"] = "Forcer l'ID du sort (0 = auto)"
-L["(none for your race)"] = "(aucune pour votre race)"
+L["Tracked racial :"] = "Raciale suivie :"
+L["No racial detected"] = "Aucune raciale détectée"
+L["Manual racial detection"] = "Détection manuelle de la raciale"
+L["Spell ID"] = "ID du sort"
 
 -- ── BRez tracker ─────────────────────────────────────────────────────────────
 L["Enable BRez Tracker"] = "Activer le suivi BRez"
@@ -271,7 +296,8 @@ L["|cff338cffLeft-click|r to open settings"] = "|cff338cffClic gauche|r pour ouv
 L["|cff338cffDrag|r to reposition"] = "|cff338cffGlisser|r pour repositionner"
 
 -- ── Position editor (shared) ─────────────────────────────────────────────────
-L["|cffff4444[UnbunkUtility]|r Alert unlocked — drag to reposition, then click Lock to save."] = "|cffff4444[UnbunkUtility]|r Alerte déverrouillée — glissez pour repositionner, puis cliquez sur Verrouiller pour sauvegarder."
+-- Routed through ns.Print -> bare key (no prefix).
+L["Alert unlocked — drag to reposition, then click Lock to save."] = "Alerte déverrouillée — glissez pour repositionner, puis cliquez sur Verrouiller pour sauvegarder."
 
 -- ── Combat settings (Combat state text + Combat timer) ───────────────────────
 L["Combat state text"] = "Texte d'état de combat"
@@ -286,3 +312,44 @@ L["Timer text"] = "Texte du minuteur"
 L["Combat timer position"] = "Position du minuteur de combat"
 L["Hide out of combat"] = "Masquer hors combat"
 L["Reset out of combat"] = "Réinitialiser hors combat"
+
+-- ── Prompt dialog ────────────────────────────────────────────────────────────
+L["OK"] = "OK"
+L["Cancel"] = "Annuler"
+
+-- ── Sub-cadre titles / misc UI ───────────────────────────────────────────────
+L["Speed display"] = "Affichage de la vitesse"
+L["Speed display position"] = "Position de l'affichage de vitesse"
+L["Cooldown Manager row"] = "Rangée du Cooldown Manager"
+L["CDM: Below player frame"] = "CDM : Sous le cadre du joueur"
+L["Row icon order"] = "Ordre des icônes de la rangée"
+L["Manual mode"] = "Mode manuel"
+L["Enable manual positioning"] = "Activer le positionnement manuel"
+L["(no icons in the row)"] = "(aucune icône dans la rangée)"
+L["Essentials"] = "Essentiels"
+L["Utility"] = "Utilitaire"
+L["CDM: Essentials"] = "CDM : Essentiels"
+L["CDM: Utility"] = "CDM : Utilitaire"
+L["Front of the row"] = "Début de la rangée"
+L["End of the row"] = "Fin de la rangée"
+L["No icons"] = "Aucune icône"
+L["Copy the link (Ctrl+C)"] = "Copier le lien (Ctrl+C)"
+L["Count text size"] = "Taille du compteur"
+L["List offset"] = "Décalage de la liste"
+L["List row height"] = "Hauteur de ligne de la liste"
+L["Combat State Text"] = "Texte d'état de combat"
+L["Out of Combat"] = "Hors combat"
+
+-- ── Login greeting (Welcome) ──────────────────────────────────────────────────
+L["|cff33aaffUnbunkUtility|r v%s loaded - type |cff338cff/ubu|r to open settings."] = "|cff33aaffUnbunkUtility|r v%s chargé — tapez |cff338cff/ubu|r pour ouvrir les réglages."
+
+-- ── PI Tracker banner ─────────────────────────────────────────────────────────
+L["|cffff4444Feature unavailable since Midnight changes.\nWorking on it...|r"] = "|cffff4444Fonctionnalité indisponible depuis les changements de Midnight.\nCorrection en cours...|r"
+
+-- ── Language selector ─────────────────────────────────────────────────────────
+L["Language :"] = "Langue :"
+L["Language set — type /reload to apply."] = "Langue définie — tapez /reload pour appliquer."
+
+-- Apply now so a frFR client shows French at load time (before ns.db exists). Core/
+-- DB.lua re-applies once the saved account-wide override is known.
+ns.ApplyLocale()

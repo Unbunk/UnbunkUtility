@@ -50,13 +50,24 @@ local function BuildRoleOptions(prefix)
                             local setTest  = prefix == "tank" and DA.SetTankTesting or
                                          prefix == "healer" and DA.SetHealerTesting or
                                          DA.SetDpsTesting
+                            local isUnlocked = prefix == "tank" and DA.IsTankUnlocked or
+                                         prefix == "healer" and DA.IsHealerUnlocked or
+                                         DA.IsDpsUnlocked
+                            -- Cancel a still-running test for this role before relaunching:
+                            -- a quick second click would otherwise let the FIRST test's timer
+                            -- end the preview early and clear the testing flag mid-second-test.
+                            DA.testTimers = DA.testTimers or {}
+                            if DA.testTimers[prefix] then DA.testTimers[prefix]:Cancel() end
                             setTest(true)
                             getFrame():Show()
                             DA.PlaySound(prefix)
                             local duration = DA.CfgGet(prefix .. "AlertDuration")
-                            C_Timer.After(duration, function()
+                            DA.testTimers[prefix] = C_Timer.NewTimer(duration, function()
+                                DA.testTimers[prefix] = nil
                                 setTest(false)
-                                getFrame():Hide()
+                                -- Don't hide a frame the user unlocked for repositioning
+                                -- (mirrors HealerRange's test end).
+                                if not isUnlocked() then getFrame():Hide() end
                             end)
                         end,
                     },

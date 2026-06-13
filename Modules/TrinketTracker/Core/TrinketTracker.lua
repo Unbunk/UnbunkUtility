@@ -143,6 +143,12 @@ local function OnEquipmentRefresh(event)
     -- A new trinket may be equipped: drop the per-slot id/spell cache.
     InvalidateSlotCache()
     TT.ApplyAll()
+    -- If the config panel is open, refresh it so each slot's header (trinket icon +
+    -- usable/passive status) reflects the newly equipped trinket right away.
+    if TT.configMenu and TT.configMenu.content and TT.configMenu.content:IsVisible()
+        and TT.configMenu.Refresh then
+        TT.configMenu.Refresh()
+    end
 end
 TT:RegisterEvent("PLAYER_ENTERING_WORLD", OnEquipmentRefresh)
 TT:RegisterEvent("PLAYER_EQUIPMENT_CHANGED", OnEquipmentRefresh)

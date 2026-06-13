@@ -60,17 +60,14 @@ local startTime   -- GetTime() at combat start; nil when not counting
 local frozen      -- last fight's duration (s); nil before the first fight
 local ticker
 
-local function FormatTime(sec)
-    sec = floor(sec + 0.5)
-    if sec < 0 then sec = 0 end
-    return string.format("%d:%02d", floor(sec / 60), sec % 60)
-end
-
 local function UpdateText()
+    -- ns.FormatMMSS floors the seconds (standard stopwatch behaviour for elapsed
+    -- time) and clamps negatives to 0 — one shared mm:ss implementation instead of
+    -- a per-module copy.
     if startTime then
-        text:SetText(FormatTime(GetTime() - startTime))
+        text:SetText(ns.FormatMMSS(GetTime() - startTime))
     elseif frozen then
-        text:SetText(FormatTime(frozen))
+        text:SetText(ns.FormatMMSS(frozen))
     else
         text:SetText("0:00")
     end

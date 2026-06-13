@@ -34,7 +34,9 @@ local DEFAULTS = {
     soundOnReady   = false,
     soundKeyReady  = "UnbunkUtility: Racial Ready (High)",
     soundPathReady = nil,
-    -- Manual spellId override; 0 = auto-detect the player's known racial.
+    -- Manual racial detection: when enabled, the tracker uses spellOverride instead
+    -- of auto-detecting the player's known racial. Off by default (auto).
+    manualEnabled  = false,
     spellOverride  = 0,
     instanceFilter = {
         dungeon      = true,

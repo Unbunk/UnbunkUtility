@@ -98,10 +98,18 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
         local soundTest = CreateFrame("Button", nil, container)
         soundTest:SetSize(22, 22)
         soundTest:SetPoint("LEFT", dd.toggleBtn, "RIGHT", 6, 0)
+        -- White speaker glyph tinted to the brand blue via SetVertexColor (re-applied
+        -- after each texture swap, since SetNormalTexture resets the tint). Resting
+        -- shows the "off" variant, swap to "on" (emitting) on hover.
+        local C = ns.TITLE_COLOR
+        local function tintSpeaker(btn)
+            local t = btn:GetNormalTexture()
+            if t then t:SetVertexColor(C[1], C[2], C[3]) end
+        end
         soundTest:SetNormalTexture(UNBUNK_ICON_SPEAKER_OFF)
-        -- Blue speaker: resting shows the "off" variant, swap to "on" (emitting) on hover.
-        soundTest:SetScript("OnEnter", function(self) self:SetNormalTexture(UNBUNK_ICON_SPEAKER_ON) end)
-        soundTest:SetScript("OnLeave", function(self) self:SetNormalTexture(UNBUNK_ICON_SPEAKER_OFF) end)
+        tintSpeaker(soundTest)
+        soundTest:SetScript("OnEnter", function(self) self:SetNormalTexture(UNBUNK_ICON_SPEAKER_ON); tintSpeaker(self) end)
+        soundTest:SetScript("OnLeave", function(self) self:SetNormalTexture(UNBUNK_ICON_SPEAKER_OFF); tintSpeaker(self) end)
         soundTest:SetScript("OnClick", onTest)
 
         gateDimFrames = { dd.toggleBtn, soundTest }   -- selectedText is a child of toggleBtn

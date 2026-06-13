@@ -157,8 +157,10 @@ end
 -- changes can swap which racial is known, e.g. class-specific Arcane Torrent).
 local function ResolveRacial()
     local prev = racialSpellId
+    -- Manual override only applies when "Manual racial detection" is enabled;
+    -- otherwise always auto-detect the player's known racial.
     local override = RT.CfgGet("spellOverride")
-    if override and override > 0 then
+    if RT.CfgGet("manualEnabled") and override and override > 0 then
         racialSpellId = override
     else
         racialSpellId = nil
@@ -166,7 +168,17 @@ local function ResolveRacial()
             if SpellKnown(id) then racialSpellId = id break end
         end
     end
-    if racialSpellId ~= prev then racialIconId = nil end  -- re-resolve the icon
+    if racialSpellId ~= prev then
+        racialIconId = nil   -- re-resolve the icon for the new racial
+        -- The previous racial's cooldown/use state must NOT bleed onto the new one:
+        -- a spec/form change can swap the tracked racial (e.g. class-specific Arcane
+        -- Torrent) and the old hasCooldown/lastExpiry/lastUseAt would otherwise drive
+        -- a false "ready" sound or a ghost estimated timer for the new racial.
+        -- learnedCd is keyed by spellId so it stays valid across the swap.
+        hasCooldown = false
+        lastExpiry  = nil
+        lastUseAt   = nil
+    end
 end
 
 -- The racial's iconID is invariant once resolved; C_Spell.GetSpellInfo can return

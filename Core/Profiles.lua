@@ -71,7 +71,7 @@ local function Deserialize(str)
     setfenv(fn, {})
     local ok, result = pcall(fn)
     if not ok then return nil, result end
-    if type(result) ~= "table" then return nil, "invalid profile data" end
+    if type(result) ~= "table" then return nil, L["invalid profile data"] end
     return result
 end
 
@@ -125,6 +125,9 @@ end
 function ns.profiles.Load(name)
     if not ns.db then return false end
     if name == ns.db:GetCurrentProfile() then
+        -- Same profile: no AceDB SetProfile (so no OnProfileChanged callback) —
+        -- run the reload hooks ourselves before rebuilding the frames.
+        ns.RunReloadHooks()
         ns.profiles.ReloadAll()
         return true
     end
@@ -278,6 +281,7 @@ local function ApplySnapshot(snapshot)
     for k in pairs(profile) do profile[k] = nil end
     for k, v in pairs(snapshot) do profile[k] = ns.DeepCopy(v) end
     ns.RunCfgInitHooks()
+    ns.RunReloadHooks()   -- in-place import: no AceDB callback ran the reload hooks
     ns.profiles.ReloadAll()
 end
 
@@ -309,11 +313,16 @@ function ns.profiles.ImportAs(name, str)
     return true
 end
 
+-- Rebuild any open config frames to reflect the active profile. The module RELOAD
+-- hooks are intentionally NOT run here: the AceDB callbacks in Core/DB.lua
+-- (OnProfileChanged / OnProfileReset / OnProfileCopied) already run CfgInit + Reload
+-- on every real profile switch/reset, so running them here too fired every module's
+-- reload hook TWICE per switch (plus a full frame rebuild right after AceDB had
+-- already re-applied everything). Callers that change settings WITHOUT an AceDB
+-- callback — the same-profile branch of Load, and ApplySnapshot's in-place import —
+-- run the reload hooks themselves before calling this.
 function ns.profiles.ReloadAll()
-    -- Re-apply each module's settings through the hooks they registered.
-    ns.RunReloadHooks()
-
-    -- Rebuild any open config frames to reflect the new profile.
+    -- Rebuild any open config frames to reflect the active profile.
     if UnbunkUtility and UnbunkUtility.panels then
         for _, mod in pairs(UnbunkUtility.panels) do
             -- Reclaim the panel's UIParent-parented dropdown drop-frames before

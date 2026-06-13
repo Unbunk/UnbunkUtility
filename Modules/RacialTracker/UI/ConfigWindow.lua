@@ -5,13 +5,6 @@ local L = ns.L
 ns.RacialTracker = ns.RacialTracker or {}
 local RT = ns.RacialTracker
 
-local function DetectedRacialName()
-    local id = RT.GetSpellId()
-    if not id then return L["(none for your race)"] end
-    local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(id)
-    return (info and info.name) or tostring(id)
-end
-
 local function CreateRacialTrackerPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local menu  -- forward declare so closures can reach menu.Rebuild / menu.refs.pe
@@ -76,22 +69,49 @@ local function CreateRacialTrackerPanel(parent)
                         end,
                     },
 
-                    -- ── Tracked racial (auto-detected) + optional spellId override ─────────
+                    -- ── Tracked racial: header + detected name/icon, optional manual override ──
                     {
                         type   = "custom",
-                        height = 46,
+                        height = 126,
                         build  = function(host)
-                            local lbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-                            lbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                            local function SetLbl()
-                                lbl:SetText(string.format(L["Tracked racial: |cff338cff%s|r"], DetectedRacialName()))
-                            end
-                            SetLbl()
+                            -- "Tracked racial :" header (H4)
+                            local hdr = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
+                            hdr:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                            hdr:SetText(L["Tracked racial :"])
 
+                            -- Detected racial name (H5) + its icon to the right…
+                            local nameFs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH5")
+                            nameFs:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -22)
+                            local raceIcon = host:CreateTexture(nil, "OVERLAY")
+                            raceIcon:SetSize(18, 18)
+                            raceIcon:SetPoint("LEFT", nameFs, "RIGHT", 6, 0)
+                            raceIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+                            raceIcon:Hide()
+                            -- …or a red "No racial detected" (H6) when nothing is tracked.
+                            local noneFs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+                            noneFs:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -22)
+                            noneFs:SetText(L["No racial detected"])
+                            noneFs:SetTextColor(1, 0.27, 0.27)
+                            noneFs:Hide()
+
+                            -- Manual detection checkbox (off by default).
+                            local manualCb = ns.ui.CreateCheckbox({
+                                parent  = host,
+                                label   = L["Manual racial detection"],
+                                checked = RT.CfgGet("manualEnabled") == true,
+                                onClick = function(val)
+                                    RT.CfgSet("manualEnabled", val)
+                                    RT.ResolveAndApply()
+                                    if menu then menu.Refresh() end
+                                end,
+                            })
+                            manualCb.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -48)
+
+                            -- Spell ID label + input (below the checkbox); only used when
+                            -- manual detection is on, so it's dimmed/inert otherwise.
                             local ovLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                            ovLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -22)
-                            ovLbl:SetText(L["Spell ID override (0 = auto)"])
-
+                            ovLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -78)
+                            ovLbl:SetText(L["Spell ID"])
                             local ovInput = ns.ui.CreateTextInput({
                                 parent = host, width = 80, height = 22,
                                 numeric = true, min = 0, max = 9999999, maxLetters = 7,
@@ -99,19 +119,37 @@ local function CreateRacialTrackerPanel(parent)
                                 onEnter = function(val)
                                     RT.CfgSet("spellOverride", val or 0)
                                     RT.ResolveAndApply()
-                                    SetLbl()
+                                    if menu then menu.Refresh() end
                                 end,
                             })
-                            ovInput.frame:SetPoint("LEFT", ovLbl, "RIGHT", 8, 0)
+                            ovInput.frame:SetPoint("TOPLEFT", ovLbl, "BOTTOMLEFT", 0, -4)
 
-                            return {
-                                frame   = host,
-                                height  = 46,
-                                Refresh = function()
-                                    ovInput.SetText(tostring(RT.CfgGet("spellOverride") or 0))
-                                    SetLbl()
-                                end,
-                            }
+                            local function refresh()
+                                -- Detected/tracked racial name + icon, or the red fallback.
+                                local id = RT.GetSpellId()
+                                if id then
+                                    local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(id)
+                                    nameFs:SetText((info and info.name) or tostring(id))
+                                    nameFs:Show()
+                                    local ic = info and info.iconID
+                                    if ic then raceIcon:SetTexture(ic); raceIcon:Show() else raceIcon:Hide() end
+                                    noneFs:Hide()
+                                else
+                                    nameFs:Hide()
+                                    raceIcon:Hide()
+                                    noneFs:Show()
+                                end
+                                -- Manual override controls.
+                                manualCb.SetChecked(RT.CfgGet("manualEnabled") == true)
+                                ovInput.SetText(tostring(RT.CfgGet("spellOverride") or 0))
+                                local on = RT.CfgGet("manualEnabled") == true
+                                ovLbl:SetAlpha(on and 1 or 0.4)
+                                ovInput.frame:SetAlpha(on and 1 or 0.4)
+                                if ovInput.editBox then ovInput.editBox:EnableMouse(on) end
+                            end
+                            refresh()
+
+                            return { frame = host, height = 126, Refresh = refresh }
                         end,
                     },
                 }

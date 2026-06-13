@@ -86,8 +86,9 @@ local function CreatePlayerSpeedPanel(parent)
                     type  = "group",
                     title = L["Speed text appearance"],
                     build = function() return {
-                        -- The colour is speed-driven, not user-picked.
-                        { type = "label", text = L["|cffaaaaaaText colour changes with speed.|r"] },
+                        -- The colour is speed-driven, not user-picked. H6 = small
+                        -- descriptive text; the grey comes from the inline |cffaaaaaa..|r code.
+                        { type = "label", font = "UnbunkUtilityH6", text = L["|cffaaaaaaText colour changes with speed.|r"] },
                         {
                             type        = "textEditor",
                             LSM         = LSM,
@@ -217,7 +218,9 @@ local function CreateMultiAlertPanel(parent)
                                 onClick = function(val) ns.db.global.wipe.enabled = val end,
                             })
                             cb.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                            local desc = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                            -- H6: small descriptive hint. The grey comes from the inline
+                            -- |cffaaaaaa..|r code in the text, overriding H6's white default.
+                            local desc = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
                             desc:SetPoint("TOPLEFT", host, "TOPLEFT", 26, -20)
                             desc:SetText(string.format(
                                 L["|cffaaaaaa%d+ deaths in %ds, silence for %ds|r"],
@@ -243,7 +246,9 @@ local function CreateMultiAlertPanel(parent)
                                 onClick = function(val) ns.db.global.dpsSpam.enabled = val end,
                             })
                             cb.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                            local desc = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                            -- H6: small descriptive hint. The grey comes from the inline
+                            -- |cffaaaaaa..|r code in the text, overriding H6's white default.
+                            local desc = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
                             desc:SetPoint("TOPLEFT", host, "TOPLEFT", 26, -20)
                             desc:SetText(string.format(
                                 L["|cffaaaaaa%d+ DPS deaths in %ds, silence DPS alerts for %ds|r"],
@@ -290,151 +295,285 @@ end
 
 -- ── Below player frame (CDM row) ──────────────────────────────────────────────
 local function CreateBelowPlayerPanel(parent)
+    local function Row() return ns.db.global.cdmBelowRow end
+    local belowMenu   -- fwd: the manual-mode checkbox re-applies its gate via belowMenu.Refresh
+
     local options = {
-        H2(L["Below player frame"]),
+        H2(L["CDM: Below player frame"]),
 
-        { type = "group", title = L["Cooldown Manager row"], build = function() return {
+        -- ════════════ Row icon order (drag the icons to reorder the row) ════════════
+        { type = "group", title = L["Row icon order"], build = function() return {
+            {
+                type   = "custom",
+                height = 52,
+                build  = function(host)
+                    local s = ns.ui.CreateIconReorderStrip({
+                        parent    = host,
+                        emptyText = L["(no icons in the row)"],
+                        getIcons  = function() return (ns.CDMAnchor and ns.CDMAnchor.GetBelowIcons()) or {} end,
+                        setOrder  = function(ids) if ns.CDMAnchor then ns.CDMAnchor.SetBelowOrder(ids) end end,
+                    })
+                    s.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                    return { frame = host, height = 52, Refresh = s.Refresh }
+                end,
+            },
+        } end },
 
-        -- Icon size (W / H)
-        {
-            type   = "custom",
-            height = 46,
-            build  = function(host)
-                local function Row() return ns.db.global.cdmBelowRow end
+        -- ════════════ Icon size ════════════
+        { type = "group", title = L["Icon size"], build = function() return {
+            {
+                type   = "custom",
+                height = 28,
+                build  = function(host)
+                    local wLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                    wLbl:SetPoint("LEFT", host, "LEFT", 0, 0)
+                    wLbl:SetText(L["W"])
+                    local wInput = ns.ui.CreateTextInput({
+                        parent = host, width = 46, height = 22,
+                        numeric = true, min = 8, max = 512, maxLetters = 3,
+                        text = tostring((Row() and Row().width) or 36),
+                        onEnter = function(val)
+                            if val and val > 0 and Row() then
+                                Row().width = val
+                                if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+                            end
+                        end,
+                    })
+                    wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
 
-                local sizeLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-                sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                sizeLbl:SetText(L["Icon size"])
+                    local hLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                    hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
+                    hLbl:SetText(L["H"])
+                    local hInput = ns.ui.CreateTextInput({
+                        parent = host, width = 46, height = 22,
+                        numeric = true, min = 8, max = 512, maxLetters = 3,
+                        text = tostring((Row() and Row().height) or 36),
+                        onEnter = function(val)
+                            if val and val > 0 and Row() then
+                                Row().height = val
+                                if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+                            end
+                        end,
+                    })
+                    hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
 
-                local wLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
-                wLbl:SetText(L["W"])
+                    return {
+                        frame = host, height = 28,
+                        Refresh = function()
+                            wInput.SetText(tostring((Row() and Row().width)  or 36))
+                            hInput.SetText(tostring((Row() and Row().height) or 36))
+                        end,
+                    }
+                end,
+            },
+        } end },
 
-                local wInput = ns.ui.CreateTextInput({
-                    parent = host, width = 46, height = 22,
-                    numeric = true, min = 8, max = 512, maxLetters = 3,
-                    text = tostring((Row() and Row().width) or 36),
-                    onEnter = function(val)
-                        if val and val > 0 and Row() then
-                            Row().width = val
-                            if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
-                        end
-                    end,
-                })
-                wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+        -- ════════════ Manual mode ════════════
+        -- OFF (default): the row stays flush under the PlayerFrame at 0,0. ON: the
+        -- offset / drag take effect. The group gate greys the position controls while
+        -- the checkbox is off; the checkbox itself stays live.
+        { type = "group", title = L["Manual mode"],
+          gate = { enabled = function() return Row() and Row().manualEnabled == true end, master = "enable" },
+          build = function() return {
+            {
+                type   = "checkbox",
+                ref    = "enable",
+                label  = L["Enable manual positioning"],
+                get    = function() return Row() and Row().manualEnabled == true end,
+                set    = function(val)
+                    if Row() then Row().manualEnabled = val end
+                    -- Leaving manual mode: re-lock any active drag; RefreshAll then snaps
+                    -- the row back to its flush 0,0 position (BelowOffset returns 0,0).
+                    if not val and ns.CDMAnchor and ns.CDMAnchor.IsBelowUnlocked
+                        and ns.CDMAnchor.IsBelowUnlocked() then
+                        ns.CDMAnchor.SetBelowUnlocked(false)
+                    end
+                    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+                    if belowMenu then belowMenu.Refresh() end
+                end,
+            },
 
-                local hLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
-                hLbl:SetText(L["H"])
+            -- Manual offset from the PlayerFrame bottom-left corner.
+            {
+                type   = "custom",
+                height = 46,
+                build  = function(host)
+                    local offLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
+                    offLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                    offLbl:SetText(L["Offset"])
 
-                local hInput = ns.ui.CreateTextInput({
-                    parent = host, width = 46, height = 22,
-                    numeric = true, min = 8, max = 512, maxLetters = 3,
-                    text = tostring((Row() and Row().height) or 36),
-                    onEnter = function(val)
-                        if val and val > 0 and Row() then
-                            Row().height = val
-                            if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
-                        end
-                    end,
-                })
-                hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+                    local xLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                    xLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
+                    xLbl:SetText("X")
+                    local xInput = ns.ui.CreateTextInput({
+                        parent = host, width = 56, height = 22,
+                        numeric = true, allowNegative = true, min = -2000, max = 2000, maxLetters = 5,
+                        text = tostring((Row() and Row().offsetX) or 0),
+                        onEnter = function(val)
+                            if val ~= nil and Row() then
+                                Row().offsetX = val
+                                if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+                            end
+                        end,
+                    })
+                    xInput.frame:SetPoint("LEFT", xLbl, "RIGHT", 4, 0)
 
-                return {
-                    frame = host, height = 46,
-                    Refresh = function()
-                        wInput.SetText(tostring((Row() and Row().width)  or 36))
-                        hInput.SetText(tostring((Row() and Row().height) or 36))
-                    end,
-                }
-            end,
-        },
+                    local yLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                    yLbl:SetPoint("LEFT", xInput.frame, "RIGHT", 12, 0)
+                    yLbl:SetText("Y")
+                    local yInput = ns.ui.CreateTextInput({
+                        parent = host, width = 56, height = 22,
+                        numeric = true, allowNegative = true, min = -2000, max = 2000, maxLetters = 5,
+                        text = tostring((Row() and Row().offsetY) or 0),
+                        onEnter = function(val)
+                            if val ~= nil and Row() then
+                                Row().offsetY = val
+                                if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+                            end
+                        end,
+                    })
+                    yInput.frame:SetPoint("LEFT", yLbl, "RIGHT", 4, 0)
 
-        -- Manual offset from the PlayerFrame bottom-left corner.
-        {
-            type   = "custom",
-            height = 46,
-            build  = function(host)
-                local function Row() return ns.db.global.cdmBelowRow end
+                    local function Refresh()
+                        if not host:GetParent() then return end
+                        xInput.SetText(tostring((Row() and Row().offsetX) or 0))
+                        yInput.SetText(tostring((Row() and Row().offsetY) or 0))
+                    end
+                    ns.OnBelowRowMoved = Refresh
+                    return { frame = host, height = 46, Refresh = Refresh }
+                end,
+            },
 
-                local offLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-                offLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                offLbl:SetText(L["Offset"])
-
-                local xLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                xLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
-                xLbl:SetText("X")
-
-                local xInput = ns.ui.CreateTextInput({
-                    parent = host, width = 56, height = 22,
-                    numeric = true, allowNegative = true, min = -2000, max = 2000, maxLetters = 5,
-                    text = tostring((Row() and Row().offsetX) or 0),
-                    onEnter = function(val)
-                        if val ~= nil and Row() then
-                            Row().offsetX = val
-                            if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
-                        end
-                    end,
-                })
-                xInput.frame:SetPoint("LEFT", xLbl, "RIGHT", 4, 0)
-
-                local yLbl = host:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                yLbl:SetPoint("LEFT", xInput.frame, "RIGHT", 12, 0)
-                yLbl:SetText("Y")
-
-                local yInput = ns.ui.CreateTextInput({
-                    parent = host, width = 56, height = 22,
-                    numeric = true, allowNegative = true, min = -2000, max = 2000, maxLetters = 5,
-                    text = tostring((Row() and Row().offsetY) or 0),
-                    onEnter = function(val)
-                        if val ~= nil and Row() then
-                            Row().offsetY = val
-                            if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
-                        end
-                    end,
-                })
-                yInput.frame:SetPoint("LEFT", yLbl, "RIGHT", 4, 0)
-
-                local function Refresh()
-                    if not host:GetParent() then return end
-                    xInput.SetText(tostring((Row() and Row().offsetX) or 0))
-                    yInput.SetText(tostring((Row() and Row().offsetY) or 0))
-                end
-                ns.OnBelowRowMoved = Refresh
-
-                return { frame = host, height = 46, Refresh = Refresh }
-            end,
-        },
-
-        -- Unlock to drag the row to a custom spot.
-        {
-            type   = "custom",
-            height = 28,
-            build  = function(host)
-                local function unlocked() return ns.CDMAnchor and ns.CDMAnchor.IsBelowUnlocked() end
-                local btn, Refresh
-                Refresh = function() if btn then btn.SetText(unlocked() and L["Lock"] or L["Unlock"]) end end
-                btn = ns.ui.CreateButton({
-                    parent  = host,
-                    width   = 160,
-                    height  = 22,
-                    label   = unlocked() and L["Lock"] or L["Unlock"],
-                    onClick = function()
-                        if ns.CDMAnchor then ns.CDMAnchor.SetBelowUnlocked(not unlocked()) end
-                        Refresh()
-                    end,
-                })
-                btn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                return { frame = host, height = 28, Refresh = Refresh }
-            end,
-        },
-
+            -- Unlock to drag the row to a custom spot.
+            {
+                type   = "custom",
+                height = 28,
+                build  = function(host)
+                    local function unlocked() return ns.CDMAnchor and ns.CDMAnchor.IsBelowUnlocked() end
+                    local btn, Refresh
+                    Refresh = function() if btn then btn.SetText(unlocked() and L["Lock"] or L["Unlock"]) end end
+                    btn = ns.ui.CreateButton({
+                        parent  = host,
+                        width   = 160,
+                        height  = 22,
+                        label   = unlocked() and L["Lock"] or L["Unlock"],
+                        onClick = function()
+                            if ns.CDMAnchor then ns.CDMAnchor.SetBelowUnlocked(not unlocked()) end
+                            Refresh()
+                        end,
+                    })
+                    btn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                    return { frame = host, height = 28, Refresh = Refresh }
+                end,
+            },
         } end },
     }
-    return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
+    belowMenu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
+    return belowMenu
 end
 
--- ── Registration (four sub-tabs) ───────────────────────────────────────────────
+-- ── Essentials / Utility CDM rows ─────────────────────────────────────────────
+-- One pair of drag-reorder cadres ("Front of the row" / "End of the row") per row
+-- the destination renders, side by side. An empty cadre shows a grey "No icons".
+local function CreateCDMRowPanel(parent, dest, titleText)
+    local menu
+    local options = {
+        H2(titleText),
+        {
+            type   = "custom",
+            height = 90,
+            build  = function(host)
+                local GAP, HALF, SIDE = 10, 245, 8
+                local rows = {}   -- pool: rows[r] = { container, label, front, endbox, frontStrip, endStrip }
+
+                local function ensureRow(r)
+                    local rw = rows[r]
+                    if rw then return rw end
+                    rw = {}
+                    rw.container = CreateFrame("Frame", nil, host)
+                    rw.container:SetWidth(HALF * 2 + GAP)
+
+                    rw.label = rw.container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
+                    rw.label:SetPoint("TOPLEFT", rw.container, "TOPLEFT", 0, 0)
+
+                    rw.front = ns.ui.CreateGroupBox({
+                        parent = rw.container, title = L["Front of the row"], width = HALF, sidePad = SIDE,
+                        createContent = function(cf)
+                            rw.frontStrip = ns.ui.CreateIconReorderStrip({
+                                parent = cf, width = HALF - 2 * SIDE, emptyText = L["No icons"],
+                                getIcons = function() return (ns.CDMAnchor and ns.CDMAnchor.GetBucketIcons(dest, r, false)) or {} end,
+                                setOrder = function(ids) if ns.CDMAnchor then ns.CDMAnchor.SetBucketOrder(dest, r, false, ids) end end,
+                            })
+                            rw.frontStrip.frame:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, 0)
+                            return 40
+                        end,
+                    })
+                    rw.endbox = ns.ui.CreateGroupBox({
+                        parent = rw.container, title = L["End of the row"], width = HALF, sidePad = SIDE,
+                        createContent = function(cf)
+                            rw.endStrip = ns.ui.CreateIconReorderStrip({
+                                parent = cf, width = HALF - 2 * SIDE, emptyText = L["No icons"],
+                                getIcons = function() return (ns.CDMAnchor and ns.CDMAnchor.GetBucketIcons(dest, r, true)) or {} end,
+                                setOrder = function(ids) if ns.CDMAnchor then ns.CDMAnchor.SetBucketOrder(dest, r, true, ids) end end,
+                            })
+                            rw.endStrip.frame:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, 0)
+                            return 40
+                        end,
+                    })
+                    rows[r] = rw
+                    return rw
+                end
+
+                local function rebuildAll()
+                    local nRows = (ns.CDMAnchor and ns.CDMAnchor.GetRowCount and ns.CDMAnchor.GetRowCount(dest)) or 0
+                    if nRows < 1 then nRows = 1 end          -- always show one (possibly empty) pair
+                    local showLabel = nRows > 1
+                    local y = 0
+                    for r = 1, nRows do
+                        local rw = ensureRow(r)
+                        rw.container:Show()
+                        rw.container:ClearAllPoints()
+                        rw.container:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
+
+                        local labelH = 0
+                        if showLabel then
+                            rw.label:SetText(string.format(L["Row %d"], r))
+                            rw.label:Show()
+                            labelH = 20
+                        else
+                            rw.label:Hide()
+                        end
+
+                        rw.front.frame:ClearAllPoints()
+                        rw.front.frame:SetPoint("TOPLEFT", rw.container, "TOPLEFT", 0, -labelH)
+                        rw.endbox.frame:ClearAllPoints()
+                        rw.endbox.frame:SetPoint("TOPLEFT", rw.container, "TOPLEFT", HALF + GAP, -labelH)
+
+                        rw.frontStrip.Refresh()
+                        rw.endStrip.Refresh()
+
+                        local rowH = labelH + math.max(rw.front.height, rw.endbox.height) + 10
+                        rw.container:SetHeight(rowH)
+                        y = y + rowH
+                    end
+                    for r = nRows + 1, #rows do rows[r].container:Hide() end
+                    host:SetHeight(math.max(1, y))
+                    if ns.ResizeActiveModule then ns.ResizeActiveModule() end
+                end
+                rebuildAll()
+
+                return { frame = host, height = math.max(90, host:GetHeight() or 90), Refresh = rebuildAll }
+            end,
+        },
+    }
+    menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
+    return menu
+end
+
+local function CreateCDMEssentialsPanel(parent) return CreateCDMRowPanel(parent, "essential", L["CDM: Essentials"]) end
+local function CreateCDMUtilityPanel(parent)    return CreateCDMRowPanel(parent, "utility",   L["CDM: Utility"])    end
+
+-- ── Registration (sub-tabs) ────────────────────────────────────────────────────
 local initGS = CreateFrame("Frame")
 initGS:RegisterEvent("ADDON_LOADED")
 initGS:SetScript("OnEvent", function(self, event, addonName)
@@ -443,5 +582,7 @@ initGS:SetScript("OnEvent", function(self, event, addonName)
     UnbunkUtility.RegisterModule(L["Player speed display"],    nil, CreatePlayerSpeedPanel)
     UnbunkUtility.RegisterModule(L["Multi-alert / anti-spam"], nil, CreateMultiAlertPanel)
     UnbunkUtility.RegisterModule(L["Below player frame"],      nil, CreateBelowPlayerPanel)
+    UnbunkUtility.RegisterModule(L["Essentials"],              nil, CreateCDMEssentialsPanel)
+    UnbunkUtility.RegisterModule(L["Utility"],                 nil, CreateCDMUtilityPanel)
     self:UnregisterEvent("ADDON_LOADED")
 end)

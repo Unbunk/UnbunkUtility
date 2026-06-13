@@ -16,7 +16,6 @@
 -- in the caller's get closures — BuildMenu never injects defaults.
 
 local _, ns = ...
-local L = ns.L
 ns.ui = ns.ui or {}
 
 -- ── Disable gate ─────────────────────────────────────────────────────────────
@@ -378,6 +377,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                     onCheck       = entry.onCheck,
                     getCollapsed  = entry.getCollapsed,
                     onCollapse    = entry.onCollapse,
+                    headerExtra   = entry.headerExtra,
                     createContent = function(cf)
                         local innerOptions = entry.build and entry.build(cf) or {}
                         sectionSub = ns.ui.BuildMenu(cf, innerOptions, {

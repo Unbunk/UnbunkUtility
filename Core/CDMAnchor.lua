@@ -183,10 +183,12 @@ local BELOW_GAP = 0   -- icons placed flush against each other (no spacing)
 local belowRow
 local belowUnlocked = false   -- transient (per-session) manual-drag mode
 
--- Account-wide manual offset of the row from PlayerFrame's BOTTOMLEFT.
+-- Account-wide manual offset of the row from PlayerFrame's BOTTOMLEFT. Only honoured
+-- in manual mode; otherwise the row stays flush under the frame (offset 0,0).
 local function BelowOffset()
     local c = ns.db and ns.db.global and ns.db.global.cdmBelowRow
-    return (c and c.offsetX) or 0, (c and c.offsetY) or 0
+    if not (c and c.manualEnabled) then return 0, 0 end
+    return c.offsetX or 0, c.offsetY or 0
 end
 
 -- Resolve the frame to stick to: a supported custom unit-frame addon's player
@@ -427,6 +429,87 @@ function ns.CDMAnchor.Move(frame, dir)
     if target < 1 or target > #list then return end
     local a, b = DescId(list[idx]), DescId(list[target])
     map[a], map[b] = map[b], map[a]
+    ns.CDMAnchor.RefreshAll()
+end
+
+-- ── Below-player row order (config drag-reorder strip) ────────────────────────
+-- The icons CURRENTLY in the below-player row, in order: { { id, texture }, ... }.
+-- Only shown frames are returned (those actually occupying the row right now); a
+-- descriptor exposes its current icon via the optional getIcon it registered.
+function ns.CDMAnchor.GetBelowIcons()
+    local out = {}
+    for _, d in ipairs(BelowList()) do
+        if d.frame and d.frame.IsShown and d.frame:IsShown() then
+            out[#out + 1] = { id = DescId(d), texture = d.getIcon and d.getIcon() or nil }
+        end
+    end
+    return out
+end
+
+-- Persist a new below-player order from a list of descriptor ids (the config strip
+-- hands back the reordered ids). The given ids take positions 1..n; any other
+-- below descriptor (e.g. one currently hidden) is appended after, preserving its
+-- relative order, so it can never collide with the new positions. Then relayout.
+function ns.CDMAnchor.SetBelowOrder(idList)
+    local map = OrderMap()
+    if not map then return end
+    local pos, seen = 0, {}
+    for _, id in ipairs(idList) do
+        pos = pos + 1
+        map[id] = pos
+        seen[id] = true
+    end
+    for _, d in ipairs(BelowList()) do
+        local id = DescId(d)
+        if not seen[id] then
+            pos = pos + 1
+            map[id] = pos
+            seen[id] = true
+        end
+    end
+    ns.CDMAnchor.RefreshAll()
+end
+
+-- ── Essential / Utility native-row buckets (config drag-reorder strips) ───────
+-- How many rows the destination renders (so the config can show one front/end pair
+-- per row). Mirrors the layout's row count.
+function ns.CDMAnchor.GetRowCount(dest)
+    if not ns.GetCDMViewer(dest) then return 0 end
+    return EffectiveRowCount(dest)
+end
+
+-- Our shown icons in one (dest, row, atEnd) bucket, in order — same membership the
+-- layout uses (RowBucketKey), sorted by saved order.
+local function BucketList(dest, row, atEnd)
+    if not ns.GetCDMViewer(dest) then return {} end
+    local nRows = EffectiveRowCount(dest)
+    local key = row .. (atEnd and "E" or "S")
+    local list = {}
+    for _, d in ipairs(appliers) do
+        if d.frame and d.frame.IsShown and d.frame:IsShown() and d.getCfg
+            and d.getCfg("includeInCdm") and d.getCfg("cdmDest") == dest
+            and RowBucketKey(d, nRows) == key then
+            list[#list + 1] = d
+        end
+    end
+    return SortByOrder(list)
+end
+
+function ns.CDMAnchor.GetBucketIcons(dest, row, atEnd)
+    local out = {}
+    for _, d in ipairs(BucketList(dest, row, atEnd)) do
+        out[#out + 1] = { id = DescId(d), texture = d.getIcon and d.getIcon() or nil }
+    end
+    return out
+end
+
+-- Persist a new order for one bucket. The order map is keyed by frame name and each
+-- icon belongs to a single bucket, and SortByOrder only ever compares within a
+-- bucket, so writing 1..n for these ids can't disturb other buckets/rows.
+function ns.CDMAnchor.SetBucketOrder(dest, row, atEnd, idList)
+    local map = OrderMap()
+    if not map then return end
+    for i, id in ipairs(idList) do map[id] = i end
     ns.CDMAnchor.RefreshAll()
 end
 
