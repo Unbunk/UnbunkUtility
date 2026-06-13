@@ -190,14 +190,25 @@ local function CreateProfilesPanel(parent)
                 exportInput.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -22)
                 local exportBox = exportInput.editBox
 
+                -- Read-only: the box only displays the exported blob for copying, so
+                -- reject any typing/pasting by snapping back to the exported string
+                -- (it stays selectable for Ctrl+C).
+                local exportValue = ""
+                exportBox:SetScript("OnTextChanged", function(self)
+                    if self:GetText() ~= exportValue then
+                        self:SetText(exportValue)
+                        self:HighlightText()
+                    end
+                end)
+
                 local exportBtn = ns.ui.CreateButton({
                     parent  = host,
                     label   = L["Export"],
                     width   = 70,
                     height  = 22,
                     onClick = function()
-                        local str = ns.profiles.Export()
-                        exportBox:SetText(str)
+                        exportValue = ns.profiles.Export()
+                        exportBox:SetText(exportValue)
                         exportBox:SetFocus()
                         exportBox:HighlightText()   -- select all; the user copies with Ctrl+C
                     end,
