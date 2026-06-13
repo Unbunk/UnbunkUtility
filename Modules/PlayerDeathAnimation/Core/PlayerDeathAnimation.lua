@@ -160,10 +160,10 @@ function PD.SetUnlocked(val)
             if PD.pe then PD.pe.Refresh() end
         end)
         animFrame:SetBackdrop({
-            edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-            edgeSize = 10,
+            edgeFile = "Interface/Buttons/WHITE8X8",
+            edgeSize = 1,
         })
-        animFrame:SetBackdropBorderColor(1, 1, 0, 0.8)
+        animFrame:SetBackdropBorderColor(0.20, 0.55, 1.0, 0.8)
         local anim = GetCurrentAnim()
         if anim then
             animTex:SetTexture(anim.path .. "0.tga")
