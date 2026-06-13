@@ -20,6 +20,8 @@ local DEFAULTS = {
     fontSize       = 20,
     color          = { r = 1, g = 1, b = 1, a = 1 },
     outline        = "OUTLINE",
+    hideOutOfCombat  = false,   -- hide the timer entirely when out of combat
+    resetOutOfCombat = false,   -- show 0:00 out of combat instead of the last fight's time
     posX           = 0,
     posY           = -40,
 }
@@ -104,12 +106,21 @@ end
 -- Shows the running or frozen value; hides if disabled / filtered out / no fight yet.
 function CT.Refresh()
     if CT.IsUnlocked() then return end
-    if Active() and (startTime or frozen) then
+    if Active() and startTime then
+        -- In combat: counting up.
         CT.ApplyFont()
         CT.ApplyPosition()
         UpdateText()
         frame:Show()
-        if startTime then StartTicker() else StopTicker() end
+        StartTicker()
+    elseif Active() and not CT.CfgGet("hideOutOfCombat")
+            and (CT.CfgGet("resetOutOfCombat") or frozen ~= nil) then
+        -- Out of combat, visible: the last fight's frozen time, or 0:00 when reset.
+        StopTicker()
+        CT.ApplyFont()
+        CT.ApplyPosition()
+        UpdateText()
+        frame:Show()
     else
         StopTicker()
         frame:Hide()
@@ -131,17 +142,12 @@ end
 
 function CT.OnLeaveCombat()
     if startTime then
-        frozen = GetTime() - startTime
+        -- Freeze the fight duration, or drop it when "reset out of combat" is on.
+        frozen = CT.CfgGet("resetOutOfCombat") and nil or (GetTime() - startTime)
         startTime = nil
     end
     StopTicker()
-    if CT.IsUnlocked() then return end
-    if Active() and frozen then
-        UpdateText()
-        frame:Show()
-    else
-        frame:Hide()
-    end
+    CT.Refresh()
 end
 
 -- ── Unlock / drag (position editor) ──────────────────────────────────────────

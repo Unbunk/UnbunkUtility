@@ -1,9 +1,9 @@
 -- Modules/CombatState/Core/CombatState.lua
 -- On-screen "Combat state text": shows a customizable message while in combat and
--- (optionally) a different message out of combat. The text blinks on every combat
--- state change. Per-profile config (ns.db.profile.CombatState); the whole module
--- is disabled by default, and only active in the instance types its filter allows.
--- Modelled on Modules/SpeedDisplay (movable on-screen text + position editor).
+-- (optionally) a different message out of combat. Each text has its OWN appearance
+-- (font / size / colour / outline). The text blinks on every combat-state change.
+-- Per-profile (ns.db.profile.CombatState); the whole module is disabled by default
+-- and only active in the instance types its filter allows. Modelled on SpeedDisplay.
 
 local _, ns = ...
 ns.CombatState = ns.CombatState or {}
@@ -12,17 +12,28 @@ local CS = ns.CombatState
 local floor = math.floor
 
 -- ── Config ───────────────────────────────────────────────────────────────────
+-- The in-combat (in*) and out-of-combat (out*) texts are styled independently.
 local DEFAULTS = {
     enabled         = false,
     instanceFilter  = { dungeon = true, raid = true, battleground = true, outdoor = true },
+
+    -- In-combat text.
     message         = "In Combat",
+    inFontKey       = "Fira Mono",
+    inFontPath      = nil,
+    inFontSize      = 18,
+    inColor         = { r = 1, g = 0.2, b = 0.2, a = 1 },
+    inOutline       = "OUTLINE",
+
+    -- Out-of-combat text (optional).
     showOutOfCombat = false,
     outOfCombatText = "Out of Combat",
-    fontKey         = "Fira Mono",   -- LSM key; resolved via ns.ResolveFontPath (FRIZQT fallback)
-    fontPath        = nil,
-    fontSize        = 18,
-    color           = { r = 1, g = 1, b = 1, a = 1 },
-    outline         = "OUTLINE",
+    outFontKey      = "Fira Mono",
+    outFontPath     = nil,
+    outFontSize     = 18,
+    outColor        = { r = 0.4, g = 1, b = 0.4, a = 1 },
+    outOutline      = "OUTLINE",
+
     posX            = 0,
     posY            = 0,
 }
@@ -74,72 +85,76 @@ end
 local inCombat = false
 
 -- ── Apply settings ───────────────────────────────────────────────────────────
+-- Apply the font + colour of the "in" or "out" text to the shared FontString.
+local function ApplyAppearanceFor(which)
+    local fk = CS.CfgGet(which .. "FontKey")
+    local fp = CS.CfgGet(which .. "FontPath")
+    local fs = CS.CfgGet(which .. "FontSize") or 18
+    local ol = CS.CfgGet(which .. "Outline") or ""
+    text:SetFont(ns.ResolveFontPath(fp, fk), fs, ol)
+    local c = CS.CfgGet(which .. "Color") or {}
+    text:SetTextColor(c.r or 1, c.g or 1, c.b or 1, c.a or 1)
+end
+
 function CS.ApplyPosition()
     if CS.IsUnlocked() then return end   -- while unlocked the user owns placement
     frame:ClearAllPoints()
     frame:SetPoint("CENTER", UIParent, "CENTER", CS.CfgGet("posX") or 0, CS.CfgGet("posY") or 0)
 end
 
-function CS.ApplyFont()
-    local path = ns.ResolveFontPath(CS.CfgGet("fontPath"), CS.CfgGet("fontKey"))
-    text:SetFont(path, CS.CfgGet("fontSize") or 18, CS.CfgGet("outline") or "")
-    local c = CS.CfgGet("color") or { r = 1, g = 1, b = 1, a = 1 }
-    text:SetTextColor(c.r or 1, c.g or 1, c.b or 1, c.a or 1)
-end
-
--- The message to show for the current state, honouring enabled + the instance
--- filter; nil means "hide".
-local function DesiredText()
+-- The state to show: "in", "out", or nil (hidden), honouring enabled + filter.
+local function CurrentState()
     if not CS.CfgGet("enabled") then return nil end
     if not ns.IsActiveInInstance(CS.CfgGet("instanceFilter")) then return nil end
-    if inCombat then
-        return CS.CfgGet("message")
-    elseif CS.CfgGet("showOutOfCombat") then
-        return CS.CfgGet("outOfCombatText")
-    end
+    if inCombat then return "in"
+    elseif CS.CfgGet("showOutOfCombat") then return "out" end
     return nil
+end
+
+local function ShowState(st, doBlink)
+    text:SetText(st == "in" and CS.CfgGet("message") or CS.CfgGet("outOfCombatText"))
+    ApplyAppearanceFor(st)
+    CS.ApplyPosition()
+    frame:Show()
+    if doBlink then DoBlink() end
 end
 
 -- Re-apply the on-screen text WITHOUT blinking (login / reload / config edits).
 function CS.Refresh()
     if CS.IsUnlocked() then return end   -- unlocked owns the preview text
-    local str = DesiredText()
-    if str then
-        text:SetText(str)
-        CS.ApplyFont()
-        CS.ApplyPosition()
-        frame:Show()
-    else
-        frame:Hide()
-    end
+    local st = CurrentState()
+    if st then ShowState(st, false) else frame:Hide() end
 end
 
 -- Re-apply on a combat-state change, blinking the text when it is shown.
 function CS.OnStateChanged()
     if CS.IsUnlocked() then return end
-    local str = DesiredText()
-    if str then
-        text:SetText(str)
-        CS.ApplyFont()
-        CS.ApplyPosition()
-        frame:Show()
-        DoBlink()
-    else
-        frame:Hide()
-    end
+    local st = CurrentState()
+    if st then ShowState(st, true) else frame:Hide() end
 end
 
--- Called from the config when enable / instance filter changes.
 CS.ApplyEnabled = CS.Refresh
+
+-- Config-side helpers: while unlocked, the floating preview reflects whichever
+-- text the user is editing so appearance/message tweaks are visible live.
+local function PreviewWhich(which, fallback)
+    local m = which == "in" and CS.CfgGet("message") or CS.CfgGet("outOfCombatText")
+    text:SetText((m and m ~= "") and m or fallback)
+    ApplyAppearanceFor(which)
+end
+function CS.OnInChanged()
+    if CS.IsUnlocked() then PreviewWhich("in", "Combat State Text") else CS.Refresh() end
+end
+function CS.OnOutChanged()
+    if CS.IsUnlocked() then PreviewWhich("out", "Out of Combat") else CS.Refresh() end
+end
 
 -- ── Unlock / drag (position editor) ──────────────────────────────────────────
 function CS.SetUnlocked(val)
     if val then
         frame:ClearAllPoints()
         frame:SetPoint("CENTER", UIParent, "CENTER", CS.CfgGet("posX") or 0, CS.CfgGet("posY") or 0)
-        CS.ApplyFont()
-        local preview = CS.CfgGet("message")
-        text:SetText((preview and preview ~= "") and preview or "Combat State Text")
+        PreviewWhich("in", "Combat State Text")
         frame:SetMovable(true)
         frame:EnableMouse(true)
         frame:RegisterForDrag("LeftButton")

@@ -11,7 +11,28 @@ local function CreateCombatSettingsPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local CS  = ns.CombatState
     local CT  = ns.CombatTimer
-    local menu  -- forward declare so enable/toggle closures can reach menu.Refresh/Rebuild
+    local menu  -- forward declare so enable closures can reach menu.Refresh()
+
+    -- Build a textEditor entry (message + font/size/colour/outline) bound to a set
+    -- of config keys with a custom prefix, applying via the given on-change hook.
+    local function TextEditor(getMsg, setMsg, prefix, onChange)
+        return {
+            type            = "textEditor",
+            LSM             = LSM,
+            showLabel       = false,   -- the sub-cadre title already names it
+            getText         = getMsg,
+            getFontKey      = function() return CS.CfgGet(prefix .. "FontKey") end,
+            getFontPath     = function() return CS.CfgGet(prefix .. "FontPath") end,
+            getFontSize     = function() return CS.CfgGet(prefix .. "FontSize") end,
+            getColor        = function() return CS.CfgGet(prefix .. "Color") end,
+            getOutline      = function() return CS.CfgGet(prefix .. "Outline") end,
+            onTextChange    = function(t) setMsg(t); onChange() end,
+            onFontChange    = function(k, p) CS.CfgSet(prefix .. "FontKey", k); CS.CfgSet(prefix .. "FontPath", p); onChange() end,
+            onSizeChange    = function(s) CS.CfgSet(prefix .. "FontSize", s); onChange() end,
+            onColorChange   = function(r, g, b, a) CS.CfgSet(prefix .. "Color", { r = r, g = g, b = b, a = a }); onChange() end,
+            onOutlineChange = function(o) CS.CfgSet(prefix .. "Outline", o); onChange() end,
+        }
+    end
 
     local options = {
         { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["Combat settings"] },
@@ -49,60 +70,71 @@ local function CreateCombatSettingsPanel(parent)
                         end,
                     },
 
-                    -- In-combat text + appearance (message / font / size / colour / outline).
+                    -- ── In-combat text sub-cadre ──────────────────────────────────
                     {
-                        type            = "textEditor",
-                        LSM             = LSM,
-                        label           = L["In-combat text"],
-                        getText         = function() return CS.CfgGet("message") end,
-                        getFontKey      = function() return CS.CfgGet("fontKey") end,
-                        getFontPath     = function() return CS.CfgGet("fontPath") end,
-                        getFontSize     = function() return CS.CfgGet("fontSize") end,
-                        getColor        = function() return CS.CfgGet("color") end,
-                        getOutline      = function() return CS.CfgGet("outline") end,
-                        onTextChange    = function(t) CS.CfgSet("message", t); CS.Refresh() end,
-                        onFontChange    = function(k, p) CS.CfgSet("fontKey", k); CS.CfgSet("fontPath", p); CS.ApplyFont(); CS.Refresh() end,
-                        onSizeChange    = function(s) CS.CfgSet("fontSize", s); CS.ApplyFont(); CS.Refresh() end,
-                        onColorChange   = function(r, g, b, a) CS.CfgSet("color", { r = r, g = g, b = b, a = a }); CS.ApplyFont() end,
-                        onOutlineChange = function(o) CS.CfgSet("outline", o); CS.ApplyFont(); CS.Refresh() end,
-                    },
-
-                    -- Optional out-of-combat text (its input only shows when ticked).
-                    {
-                        type   = "checkbox",
-                        label  = L["Also show a text out of combat"],
-                        height = 24,
-                        get    = function() return CS.CfgGet("showOutOfCombat") == true end,
-                        set    = function(val)
-                            CS.CfgSet("showOutOfCombat", val)
-                            CS.Refresh()
-                            if menu then menu.Rebuild() end
+                        type  = "group",
+                        title = L["In-combat text"],
+                        build = function()
+                            return {
+                                TextEditor(
+                                    function() return CS.CfgGet("message") end,
+                                    function(t) CS.CfgSet("message", t) end,
+                                    "in", function() CS.OnInChanged() end
+                                ),
+                            }
                         end,
                     },
+
+                    -- ── Out-of-combat text sub-cadre (greys when the box is off) ───
                     {
-                        type       = "textinput",
-                        label      = L["Out-of-combat text"],
-                        when       = function() return CS.CfgGet("showOutOfCombat") == true end,
-                        maxLetters = 64,
-                        get        = function() return CS.CfgGet("outOfCombatText") end,
-                        set        = function(t) CS.CfgSet("outOfCombatText", t); CS.Refresh() end,
+                        type  = "group",
+                        title = L["Out-of-combat text"],
+                        gate  = { enabled = function() return CS.CfgGet("showOutOfCombat") == true end, master = "csShowOoc" },
+                        build = function()
+                            return {
+                                {
+                                    type   = "checkbox",
+                                    ref    = "csShowOoc",
+                                    label  = L["Show text out of combat"],
+                                    height = 24,
+                                    get    = function() return CS.CfgGet("showOutOfCombat") == true end,
+                                    set    = function(val)
+                                        CS.CfgSet("showOutOfCombat", val)
+                                        CS.Refresh()
+                                    end,
+                                },
+                                TextEditor(
+                                    function() return CS.CfgGet("outOfCombatText") end,
+                                    function(t) CS.CfgSet("outOfCombatText", t) end,
+                                    "out", function() CS.OnOutChanged() end
+                                ),
+                            }
+                        end,
                     },
 
-                    -- Position.
+                    -- ── Position sub-cadre ────────────────────────────────────────
                     {
-                        type       = "position",
-                        onBuilt    = function(w) CS.pe = w end,
-                        label      = L["Combat state text position"],
-                        getX       = function() return CS.CfgGet("posX") end,
-                        getY       = function() return CS.CfgGet("posY") end,
-                        onApply    = function(x, y)
-                            if x then CS.CfgSet("posX", x) end
-                            if y then CS.CfgSet("posY", y) end
-                            CS.ApplyPosition()
+                        type  = "group",
+                        title = L["Combat state text position"],
+                        build = function()
+                            return {
+                                {
+                                    type       = "position",
+                                    onBuilt    = function(w) CS.pe = w end,
+                                    label      = "",
+                                    getX       = function() return CS.CfgGet("posX") end,
+                                    getY       = function() return CS.CfgGet("posY") end,
+                                    onApply    = function(x, y)
+                                        if x then CS.CfgSet("posX", x) end
+                                        if y then CS.CfgSet("posY", y) end
+                                        CS.ApplyPosition()
+                                    end,
+                                    onUnlock   = function() CS.SetUnlocked(true) end,
+                                    onLock     = function() CS.SetUnlocked(false); if CS.pe then CS.pe.Refresh() end end,
+                                    isUnlocked = function() return CS.IsUnlocked() end,
+                                },
+                            }
                         end,
-                        onUnlock   = function() CS.SetUnlocked(true) end,
-                        onLock     = function() CS.SetUnlocked(false); if CS.pe then CS.pe.Refresh() end end,
-                        isUnlocked = function() return CS.IsUnlocked() end,
                     },
                 }
             end,
@@ -173,6 +205,22 @@ local function CreateCombatSettingsPanel(parent)
                         onUnlock   = function() CT.SetUnlocked(true) end,
                         onLock     = function() CT.SetUnlocked(false); if CT.pe then CT.pe.Refresh() end end,
                         isUnlocked = function() return CT.IsUnlocked() end,
+                    },
+
+                    -- Out-of-combat behaviour (at the bottom).
+                    {
+                        type   = "checkbox",
+                        label  = L["Hide out of combat"],
+                        height = 24,
+                        get    = function() return CT.CfgGet("hideOutOfCombat") == true end,
+                        set    = function(val) CT.CfgSet("hideOutOfCombat", val); CT.Refresh() end,
+                    },
+                    {
+                        type   = "checkbox",
+                        label  = L["Reset out of combat"],
+                        height = 24,
+                        get    = function() return CT.CfgGet("resetOutOfCombat") == true end,
+                        set    = function(val) CT.CfgSet("resetOutOfCombat", val); CT.Refresh() end,
                     },
                 }
             end,
