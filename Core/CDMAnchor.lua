@@ -178,6 +178,22 @@ function ns.CDMAnchor.Register(desc)
     if desc.frame then byFrame[desc.frame] = desc end
 end
 
+-- OUR tracker-icon frames currently placed in a CDM destination ("essential" |
+-- "utility" | "belowPlayer"), only while the Cooldown Manager is enabled and the icon
+-- opted in. Used by the Beta fader: our icons are ANCHORED to (not children of) the
+-- native viewer, so the viewer's alpha does not propagate to them — they must be faded
+-- directly. A nil cdmDest counts as "essential" (matches the layout default).
+function ns.CDMAnchor.GetIconFrames(dest)
+    local out = {}
+    for _, d in ipairs(appliers) do
+        if d.frame and d.getCfg and ns.CDMIncludedVal(d.getCfg("includeInCdm"))
+            and (d.getCfg("cdmDest") or "essential") == dest then
+            out[#out + 1] = d.frame
+        end
+    end
+    return out
+end
+
 -- ── Below-player artificial row ──────────────────────────────────────────────
 local BELOW_GAP = 0   -- icons placed flush against each other (no spacing)
 local belowRow
@@ -212,6 +228,22 @@ local function ResolvePlayerFrame()
         return main or pf
     end
     return nil
+end
+
+-- Every player-frame frame the BETA fader should fade: any loaded custom unit-frame
+-- addon's player frame (ElvUI's ElvUF_Player, Unhalted's UUF_Player, …) PLUS Blizzard's
+-- whole PlayerFrame (NOT its content-main; we want to fade the entire frame). Hidden
+-- ones are harmless (alpha on a hidden frame is invisible) — only the visible one shows
+-- the fade. Reuses the same candidate list as the below-player anchor.
+function ns.CDMAnchor.GetPlayerFrames()
+    local out = {}
+    for _, name in ipairs(PLAYER_FRAME_CANDIDATES) do
+        local f = _G[name]
+        if f then out[#out + 1] = f end
+    end
+    local pf = _G["PlayerFrame"]
+    if pf then out[#out + 1] = pf end
+    return out
 end
 
 -- Anchor the row's TOPLEFT to the player frame's BOTTOMLEFT (+ manual offset);

@@ -24,6 +24,8 @@ function ns.ui.CreateDropdown(config)
     local anchorFrame  = config.anchorFrame
     local width        = config.width        or 240
     local itemHeight   = config.itemHeight   or 20
+    local itemGap      = config.itemGap      or 0    -- empty space between rows (item pitch = itemHeight + itemGap)
+    local pitch        = itemHeight + itemGap
     local visibleItems = config.visibleItems or 10
     local getList      = config.getList       or function() return {} end
     local getCurrentKey = config.getCurrentKey or function() return nil end
@@ -98,7 +100,7 @@ function ns.ui.CreateDropdown(config)
     -- ── Drop frame ────────────────────────────────────────────────────────────
 
     local dropFrame = CreateFrame("Frame", nil, UIParent)
-    dropFrame:SetSize(width, itemHeight * visibleItems + searchH)
+    dropFrame:SetSize(width, pitch * visibleItems + searchH)
     dropFrame:SetFrameStrata("TOOLTIP")
     dropFrame:SetClipsChildren(true)
 
@@ -124,7 +126,7 @@ function ns.ui.CreateDropdown(config)
     local sb = ns.ui.CreateScrollBar({
         parent       = dropFrame,
         scrollFrame  = scrollFrame,
-        itemHeight   = itemHeight,
+        itemHeight   = pitch,   -- row pitch (height + gap) so scroll range / thumb match
         visibleItems = visibleItems,
         getListSize  = function() return #VisibleList() end,
     })
@@ -153,16 +155,16 @@ function ns.ui.CreateDropdown(config)
         -- so a short list shows a short menu, not a tall empty one. +8 covers the scroll
         -- frame's 4px top/bottom insets; +searchH reserves the pinned search strip.
         local shownRows = math.max(1, math.min(#list, visibleItems))
-        dropFrame:SetHeight(shownRows * itemHeight + 8 + searchH)
+        dropFrame:SetHeight(shownRows * pitch + 8 + searchH)
 
-        scrollChild:SetHeight(itemHeight * #list)
+        scrollChild:SetHeight(pitch * #list)
 
         for i, name in ipairs(list) do
             local btn = buttons[i]
             if not btn then
                 btn = CreateFrame("Button", nil, scrollChild)
-                btn:SetHeight(itemHeight)
-                btn:SetPoint("TOPLEFT", 0, -(i - 1) * itemHeight)
+                btn:SetHeight(itemHeight)                       -- clickable row height
+                btn:SetPoint("TOPLEFT", 0, -(i - 1) * pitch)    -- pitch leaves itemGap below each row
                 btn:SetWidth(width - 22)
 
                 local hl = btn:CreateTexture(nil, "HIGHLIGHT")
@@ -315,7 +317,7 @@ function ns.ui.CreateDropdown(config)
             for i, name in ipairs(list) do
                 if name == currentKey then
                     local maxScroll = scrollFrame:GetVerticalScrollRange()
-                    local target    = math.max(0, math.min(maxScroll, (i - 1) * itemHeight))
+                    local target    = math.max(0, math.min(maxScroll, (i - 1) * pitch))
                     scrollFrame:SetVerticalScroll(target)
                     UpdateScrollBar()
                     break
