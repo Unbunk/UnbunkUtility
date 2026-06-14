@@ -28,6 +28,18 @@ local _, ns = ...
 
 ns.ui = ns.ui or {}
 
+-- The most urgent matching tier for `total` seconds remaining: the entry with the
+-- smallest `at` threshold the time has fallen to or below. tiers = { {at=, scale=,
+-- color={r,g,b,a}}, ... } (order-independent). Returns nil when none apply.
+local function MatchTier(tiers, total)
+    local best
+    for _, ti in ipairs(tiers) do
+        local at = ti.at or 0
+        if total <= at and (not best or at < (best.at or 0)) then best = ti end
+    end
+    return best
+end
+
 function ns.ui.CreateTimerIcon(config)
     local name      = config.name
     local getCfg    = config.getCfg
@@ -191,14 +203,39 @@ function ns.ui.CreateTimerIcon(config)
                 local prev = lastSecs
                 lastSecs = total
                 timerText:SetText(ns.FormatMMSS(total))
+                -- Custom configurable urgency tiers (e.g. the user's custom CDM icons).
+                -- When present they REPLACE the hardcoded yellow@15 / red@5 thresholds;
+                -- absent (every built-in tracker) -> the original behaviour is untouched.
+                local tiers = getCfg and getCfg("timerTiers")
+                local scale = 1
                 if result._timerColor then
                     -- Active positive buff (green / PI yellow): keep its colour
                     -- as-is — never urgency-recolour and never flash these.
                     timerText:SetTextColor(result._timerColor.r, result._timerColor.g, result._timerColor.b, 1)
+                elseif tiers then
+                    -- Custom tiers: the most urgent matching tier sets colour + size.
+                    local tier = MatchTier(tiers, total)
+                    if tier and tier.color then
+                        timerText:SetTextColor(tier.color.r, tier.color.g, tier.color.b, tier.color.a or 1)
+                        scale = tier.scale or 1
+                    else
+                        local c = getCfg("timerColor")
+                        if c then timerText:SetTextColor(c.r, c.g, c.b, c.a or 1)
+                        else timerText:SetTextColor(1, 1, 1, 1) end
+                    end
+                    -- Flash when crossing INTO a more urgent tier (smaller `at`).
+                    if prev then
+                        local pT, cT = MatchTier(tiers, prev), MatchTier(tiers, total)
+                        if cT and (not pT or (cT.at or 0) < (pT.at or 0)) then
+                            flashUntil = GetTime() + FLASH_DURATION
+                        end
+                    end
                 elseif total <= URGENT_RED then
                     timerText:SetTextColor(1, 0, 0, 1)        -- red <=5s
+                    scale = SIZE_RED
                 elseif total <= URGENT_YELLOW then
                     timerText:SetTextColor(1, 0.82, 0, 1)     -- yellow <=15s
+                    scale = SIZE_YELLOW
                 else
                     local c = getCfg("timerColor")
                     if c then
@@ -207,28 +244,24 @@ function ns.ui.CreateTimerIcon(config)
                         timerText:SetTextColor(1, 0, 0, 1)
                     end
                 end
-                -- Grow the text at each urgency tier (cooldown timers only).
-                local scale = 1
-                if not result._timerColor then
-                    if total <= URGENT_RED then
-                        scale = SIZE_RED
-                    elseif total <= URGENT_YELLOW then
-                        scale = SIZE_YELLOW
-                    end
-                end
                 if scale ~= sizeScale then
                     sizeScale = scale
                     SetTimerFont()
                 end
-                -- Flash on crossing a threshold — cooldown timers only (active
-                -- buffs keep their colour and never flash).
-                if not result._timerColor and prev then
+                -- Flash on crossing a hardcoded threshold — cooldown timers only, and
+                -- only on the hardcoded path (the custom-tier flash is handled above).
+                if not result._timerColor and not tiers and prev then
                     if (prev > URGENT_YELLOW and total <= URGENT_YELLOW)
                         or (prev > URGENT_RED and total <= URGENT_RED) then
                         flashUntil = GetTime() + FLASH_DURATION
                     end
                 end
-                timerText:Show()
+                -- "Show timer" toggle (custom icons); absent -> always shown.
+                if (not getCfg) or getCfg("showTimer") ~= false then
+                    timerText:Show()
+                else
+                    timerText:Hide()
+                end
             end
             -- Per-frame: pulse the text alpha during a flash window, then restore.
             if flashUntil then
@@ -309,6 +342,13 @@ function ns.ui.CreateTimerIcon(config)
     function result.ApplyFont()
         baseFontSize = getCfg("timerFontSize") or 20
         SetTimerFont()
+        -- React to the "show timer" toggle immediately: hide now if off, else clear the
+        -- cached second so a re-enabled timer re-renders on the next tick.
+        if getCfg and getCfg("showTimer") == false then
+            timerText:Hide()
+        else
+            lastSecs = nil
+        end
     end
 
     function result.ApplyPosition()

@@ -919,12 +919,8 @@ initDbg:SetScript("OnEvent", function(self, event, addonName)
     -- is gated in Core.lua BuildNavTree (unlock for the secret settings + Addon usage,
     -- owner account for Unbunk).
     UnbunkUtility.RegisterModule(L["Secret settings"], nil, CreateSecretPanel)
-    -- "Beta" is a real panel registered in Modules/Fader/UI/ConfigWindow.lua.
-    -- "List" / "Print" / "Graph" are real panels registered in their own files
-    -- (ListPanel.lua, PrintPanel.lua, GraphPanel.lua).
-    UnbunkUtility.RegisterModule(L["Personal utilities"], nil, function(parent)
-        StubPanel(parent, L["Personal utilities"], L["Owner-only secret area — work in progress."]); return nil
-    end)
+    -- "Beta" (Modules/Fader/UI), "Personal utilities" (Modules/DetailsProfile/UI), and
+    -- "List" / "Print" / "Graph" (their own files) are real panels registered elsewhere.
 
     -- Apply saved console options at login (ns.db ready via Core/DB.lua's earlier
     -- ADDON_LOADED), so any enabled chat buckets start capturing immediately.

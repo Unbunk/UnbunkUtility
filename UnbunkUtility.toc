@@ -73,6 +73,8 @@ Modules/HealthstoneTracker/UI/ConfigWindow.lua
 Modules/RacialTracker/Core/Config.lua
 Modules/RacialTracker/Core/RacialTracker.lua
 Modules/RacialTracker/UI/ConfigWindow.lua
+Modules/CustomCDM/Core/CustomCDM.lua
+Modules/CustomCDM/UI/Editor.lua
 Modules/PITracker/Core/Config.lua
 Modules/PITracker/Core/PITracker.lua
 Modules/PITracker/UI/ConfigWindow.lua
@@ -92,3 +94,7 @@ Modules/Debug/UI/ListPanel.lua
 Modules/Debug/UI/GraphPanel.lua
 Modules/Fader/Core/Fader.lua
 Modules/Fader/UI/ConfigWindow.lua
+Modules/DetailsProfile/Core/DetailsProfile.lua
+Modules/DetailsProfile/UI/ConfigWindow.lua
+Modules/ReloadAnnounce/Core/ReloadAnnounce.lua
+Modules/ReloadAnnounce/UI/ConfigWindow.lua

@@ -194,16 +194,23 @@ function ns.CDMAnchor.GetIconFrames(dest)
     return out
 end
 
--- ── Below-player artificial row ──────────────────────────────────────────────
+-- ── Below-player artificial row (two buckets) ────────────────────────────────
+-- The below-player destination renders as TWO buckets under the player frame:
+--   * FRONT — anchored to the frame's BOTTOM-LEFT, icons laid left->right;
+--   * END   — anchored to the frame's BOTTOM-RIGHT, the whole group right-aligned
+--             so its last icon touches the frame's right edge.
+-- Each bucket has its own manual offset; the icon size is shared between them.
 local BELOW_GAP = 0   -- icons placed flush against each other (no spacing)
-local belowRow
+local belowFront, belowEnd
 local belowUnlocked = false   -- transient (per-session) manual-drag mode
 
--- Account-wide manual offset of the row from PlayerFrame's BOTTOMLEFT. Only honoured
--- in manual mode; otherwise the row stays flush under the frame (offset 0,0).
-local function BelowOffset()
+-- Account-wide manual offset of a bucket. Only honoured in manual mode; otherwise the
+-- bucket stays flush under the frame (offset 0,0). side=="end" -> the end bucket's own
+-- offset (from BOTTOMRIGHT); otherwise the front bucket's (from BOTTOMLEFT).
+local function BelowOffset(side)
     local c = ns.db and ns.db.global and ns.db.global.cdmBelowRow
     if not (c and c.manualEnabled) then return 0, 0 end
+    if side == "end" then return c.endOffsetX or 0, c.endOffsetY or 0 end
     return c.offsetX or 0, c.offsetY or 0
 end
 
@@ -246,50 +253,78 @@ function ns.CDMAnchor.GetPlayerFrames()
     return out
 end
 
--- Anchor the row's TOPLEFT to the player frame's BOTTOMLEFT (+ manual offset);
--- default offset 0,0 -> flush under the visible frame.
-local function AnchorBelowRow()
-    if not belowRow then return end
-    local ox, oy = BelowOffset()
+-- Anchor each bucket to the player frame (+ its manual offset): the FRONT bucket's
+-- TOPLEFT to BOTTOMLEFT, the END bucket's TOPRIGHT to BOTTOMRIGHT (so it grows to the
+-- left and stays right-aligned). Default offset 0,0 -> flush under the visible frame.
+local function AnchorBelowBuckets()
     local anchor = ResolvePlayerFrame()
-    belowRow.anchorFrame = anchor
-    belowRow:ClearAllPoints()
-    if anchor then
-        belowRow:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", ox, oy)
-    else
-        belowRow:SetPoint("CENTER", UIParent, "CENTER", ox, oy - 160)
+    if belowFront then
+        local ox, oy = BelowOffset("front")
+        belowFront.anchorFrame = anchor
+        belowFront:ClearAllPoints()
+        if anchor then
+            belowFront:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", ox, oy)
+        else
+            belowFront:SetPoint("CENTER", UIParent, "CENTER", ox - 80, oy - 160)
+        end
+    end
+    if belowEnd then
+        local ox, oy = BelowOffset("end")
+        belowEnd.anchorFrame = anchor
+        belowEnd:ClearAllPoints()
+        if anchor then
+            belowEnd:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", ox, oy)
+        else
+            belowEnd:SetPoint("CENTER", UIParent, "CENTER", ox + 80, oy - 160)
+        end
     end
 end
 
-local function GetBelowRow()
-    if not belowRow then
-        belowRow = CreateFrame("Frame", "UnbunkUtilityCDMBelowRow", UIParent)
-        belowRow:SetSize(1, 1)
-        belowRow:SetMovable(true)
-        belowRow:EnableMouse(false)
-        belowRow:RegisterForDrag("LeftButton")
-        local bg = belowRow:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints(belowRow)
-        bg:SetColorTexture(0.1, 0.6, 1, 0.25)
-        bg:Hide()
-        belowRow.dragBG = bg
-        belowRow:SetScript("OnDragStart", function(self)
-            if belowUnlocked then self:StartMoving() end
-        end)
-        belowRow:SetScript("OnDragStop", function(self)
-            self:StopMovingOrSizing()
-            local anchor = self.anchorFrame or _G["PlayerFrame"]
-            local c = ns.db and ns.db.global and ns.db.global.cdmBelowRow
-            if anchor and c and self:GetLeft() and anchor:GetLeft() then
+-- Build one draggable bucket frame. side decides which edge it anchors by and which
+-- offset keys a drag writes back (front -> offsetX/Y from the left; end -> endOffsetX/Y
+-- from the right). Dragging is gated by belowUnlocked; the blue overlay marks it.
+local function MakeBelowBucket(name, side)
+    local f = CreateFrame("Frame", name, UIParent)
+    f:SetSize(1, 1)
+    f:SetMovable(true)
+    f:EnableMouse(false)
+    f:RegisterForDrag("LeftButton")
+    local bg = f:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints(f)
+    bg:SetColorTexture(0.1, 0.6, 1, 0.25)
+    bg:Hide()
+    f.dragBG = bg
+    f:SetScript("OnDragStart", function(self)
+        if belowUnlocked then self:StartMoving() end
+    end)
+    f:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        local anchor = self.anchorFrame or _G["PlayerFrame"]
+        local c = ns.db and ns.db.global and ns.db.global.cdmBelowRow
+        if anchor and c and self:GetTop() and anchor:GetBottom() then
+            if side == "end" then
+                if self:GetRight() and anchor:GetRight() then
+                    c.endOffsetX = self:GetRight() - anchor:GetRight()
+                    c.endOffsetY = self:GetTop()   - anchor:GetBottom()
+                end
+            elseif self:GetLeft() and anchor:GetLeft() then
                 c.offsetX = self:GetLeft() - anchor:GetLeft()
                 c.offsetY = self:GetTop()  - anchor:GetBottom()
             end
-            AnchorBelowRow()
-            if ns.OnBelowRowMoved then ns.OnBelowRowMoved() end
-        end)
-    end
-    AnchorBelowRow()
-    return belowRow
+        end
+        AnchorBelowBuckets()
+        if ns.OnBelowRowMoved then ns.OnBelowRowMoved() end
+    end)
+    return f
+end
+
+-- Create both bucket frames (lazily) and (re)anchor them. The front keeps the original
+-- frame name for back-compat; the end bucket gets its own.
+local function EnsureBelowBuckets()
+    if not belowFront then belowFront = MakeBelowBucket("UnbunkUtilityCDMBelowRow",    "front") end
+    if not belowEnd   then belowEnd   = MakeBelowBucket("UnbunkUtilityCDMBelowRowEnd", "end")   end
+    AnchorBelowBuckets()
+    return belowFront, belowEnd
 end
 
 -- Unlock / lock the below-player row for manual dragging (General Settings).
@@ -297,11 +332,13 @@ end
 -- area is grabbable; locking restores the normal strata.
 function ns.CDMAnchor.SetBelowUnlocked(val)
     belowUnlocked = val and true or false
-    local row = GetBelowRow()
-    row:EnableMouse(belowUnlocked)
-    row:SetFrameStrata(belowUnlocked and "DIALOG" or "MEDIUM")
-    if row.dragBG then
-        if belowUnlocked then row.dragBG:Show() else row.dragBG:Hide() end
+    local f1, f2 = EnsureBelowBuckets()
+    for _, row in ipairs({ f1, f2 }) do
+        row:EnableMouse(belowUnlocked)
+        row:SetFrameStrata(belowUnlocked and "DIALOG" or "MEDIUM")
+        if row.dragBG then
+            if belowUnlocked then row.dragBG:Show() else row.dragBG:Hide() end
+        end
     end
     ns.CDMAnchor.RefreshAll()
 end
@@ -359,30 +396,51 @@ local function BelowRowSize()
 end
 
 local function LayoutBelowPlayer(list)
-    NormalizeOrder(list)
-    local w, h = BelowRowSize()
-    local row = GetBelowRow()
-    local prev, count = nil, 0
+    -- Split the (order-sorted) below list into front / end-of-row buckets by the
+    -- per-icon "Icon at the end of the row" flag (cdmAtEnd), then lay the front
+    -- bucket out left-to-right followed by the end bucket — same start/end
+    -- semantics as the essential/utility native rows. Filtering an already
+    -- order-sorted list keeps each bucket in saved order, so no per-bucket re-sort
+    -- is needed (and each bucket is reordered independently via SetBucketOrder, so
+    -- we no longer normalize the combined list to one contiguous run).
+    local front, tail = {}, {}
     for _, d in ipairs(list) do
-        local f = d.frame
-        if f and f:IsShown() then
-            if d.setSize then d.setSize(w, h) end
-            f:ClearAllPoints()
-            if prev then
-                f:SetPoint("LEFT", prev, "RIGHT", BELOW_GAP, 0)
-            else
-                f:SetPoint("LEFT", row, "LEFT", 0, 0)
+        if d.getCfg and d.getCfg("cdmAtEnd") ~= false then tail[#tail + 1] = d
+        else front[#front + 1] = d end
+    end
+    local w, h = BelowRowSize()
+    local frontRow, endRow = EnsureBelowBuckets()
+
+    -- Lay a bucket's shown icons left->right inside its frame, then size the frame to
+    -- bound them. The front frame is left-anchored, so icons grow rightward from the
+    -- frame's left; the end frame is right-anchored and sized to its content, so the
+    -- same left->right placement makes the group hug the player frame's right edge
+    -- (saved order still reads left->right, matching the reorder strip).
+    local function place(bucket, row)
+        local prev, count = nil, 0
+        for _, d in ipairs(bucket) do
+            local f = d.frame
+            if f and f:IsShown() then
+                if d.setSize then d.setSize(w, h) end
+                f:ClearAllPoints()
+                if prev then
+                    f:SetPoint("LEFT", prev, "RIGHT", BELOW_GAP, 0)
+                else
+                    f:SetPoint("LEFT", row, "LEFT", 0, 0)
+                end
+                prev = f
+                count = count + 1
             end
-            prev = f
-            count = count + 1
+        end
+        local totalW = count * w + math.max(0, count - 1) * BELOW_GAP
+        row:SetSize(math.max(1, totalW), math.max(1, h))
+        if row.dragBG then
+            if belowUnlocked then row.dragBG:Show() else row.dragBG:Hide() end
         end
     end
-    -- Size the row to bound its icons so it presents a grabbable area when unlocked.
-    local totalW = count * w + math.max(0, count - 1) * BELOW_GAP
-    row:SetSize(math.max(1, totalW), math.max(1, h))
-    if row.dragBG then
-        if belowUnlocked then row.dragBG:Show() else row.dragBG:Hide() end
-    end
+
+    place(front, frontRow)
+    place(tail,  endRow)
 end
 
 -- Effective number of rows the layout will actually render for a destination,
@@ -419,14 +477,19 @@ local function RowBucketKey(d, nRows)
 end
 
 -- Reorderable siblings of `frame`: the OUR icons it shares a bucket with — the
--- below-player row, or the same start/end of the same essential/utility row.
+-- same start/end of the same essential/utility row, or the start/end bucket of the
+-- single below-player row.
 local function SiblingList(frame)
     local d0 = byFrame[frame]
     if not d0 or not d0.getCfg or not d0.getCfg("includeInCdm") then return {} end
     local dest = d0.getCfg("cdmDest")
-    if dest == "belowPlayer" then return BelowList() end
-    if not ns.GetCDMViewer(dest) then return {} end
-    local nRows = EffectiveRowCount(dest)
+    local nRows
+    if dest == "belowPlayer" then
+        nRows = 1                              -- one row; buckets split only by start/end
+    else
+        if not ns.GetCDMViewer(dest) then return {} end
+        nRows = EffectiveRowCount(dest)
+    end
     local k0 = RowBucketKey(d0, nRows)
     local list = {}
     for _, d in ipairs(appliers) do
@@ -464,57 +527,32 @@ function ns.CDMAnchor.Move(frame, dir)
     ns.CDMAnchor.RefreshAll()
 end
 
--- ── Below-player row order (config drag-reorder strip) ────────────────────────
--- The icons CURRENTLY in the below-player row, in order: { { id, texture }, ... }.
--- Only shown frames are returned (those actually occupying the row right now); a
--- descriptor exposes its current icon via the optional getIcon it registered.
-function ns.CDMAnchor.GetBelowIcons()
-    local out = {}
-    for _, d in ipairs(BelowList()) do
-        if d.frame and d.frame.IsShown and d.frame:IsShown() then
-            out[#out + 1] = { id = DescId(d), texture = d.getIcon and d.getIcon() or nil }
-        end
-    end
-    return out
-end
-
--- Persist a new below-player order from a list of descriptor ids (the config strip
--- hands back the reordered ids). The given ids take positions 1..n; any other
--- below descriptor (e.g. one currently hidden) is appended after, preserving its
--- relative order, so it can never collide with the new positions. Then relayout.
-function ns.CDMAnchor.SetBelowOrder(idList)
-    local map = OrderMap()
-    if not map then return end
-    local pos, seen = 0, {}
-    for _, id in ipairs(idList) do
-        pos = pos + 1
-        map[id] = pos
-        seen[id] = true
-    end
-    for _, d in ipairs(BelowList()) do
-        local id = DescId(d)
-        if not seen[id] then
-            pos = pos + 1
-            map[id] = pos
-            seen[id] = true
-        end
-    end
-    ns.CDMAnchor.RefreshAll()
-end
-
--- ── Essential / Utility native-row buckets (config drag-reorder strips) ───────
+-- ── CDM row buckets (config drag-reorder strips: essential / utility / below) ─
 -- How many rows the destination renders (so the config can show one front/end pair
--- per row). Mirrors the layout's row count.
+-- per row). Mirrors the layout's row count. The below-player destination is a
+-- single row (only its start/end buckets differ), so it always reports one row.
 function ns.CDMAnchor.GetRowCount(dest)
+    if dest == "belowPlayer" then return 1 end
     if not ns.GetCDMViewer(dest) then return 0 end
     return EffectiveRowCount(dest)
 end
 
+-- Max number of OUR icons (tracker + custom) allowed in one row, combining the front
+-- and end buckets. This is the cap the "+" add tile is gated against; native Blizzard
+-- icons are NOT counted (they are not part of the front/end buckets).
+local ROW_CAP = { essential = 6, utility = 6, belowPlayer = 8 }
+function ns.CDMAnchor.RowCap(dest) return ROW_CAP[dest] or 6 end
+
 -- Our shown icons in one (dest, row, atEnd) bucket, in order — same membership the
 -- layout uses (RowBucketKey), sorted by saved order.
 local function BucketList(dest, row, atEnd)
-    if not ns.GetCDMViewer(dest) then return {} end
-    local nRows = EffectiveRowCount(dest)
+    local nRows
+    if dest == "belowPlayer" then
+        nRows = 1                                 -- single row, no native viewer
+    else
+        if not ns.GetCDMViewer(dest) then return {} end
+        nRows = EffectiveRowCount(dest)
+    end
     local key = row .. (atEnd and "E" or "S")
     local list = {}
     for _, d in ipairs(appliers) do
@@ -530,7 +568,35 @@ end
 function ns.CDMAnchor.GetBucketIcons(dest, row, atEnd)
     local out = {}
     for _, d in ipairs(BucketList(dest, row, atEnd)) do
-        out[#out + 1] = { id = DescId(d), texture = d.getIcon and d.getIcon() or nil }
+        local id = DescId(d)
+        out[#out + 1] = {
+            id      = id,
+            texture = d.getIcon and d.getIcon() or nil,
+            custom  = ns.CustomCDM and ns.CustomCDM.IsCustom(id) or nil,
+        }
+    end
+    return out
+end
+
+-- How many of OUR icons currently occupy a row (front + end combined), used to gate
+-- the "+" add tile against ns.CDMAnchor.RowCap(dest).
+function ns.CDMAnchor.RowIconCount(dest, row)
+    return #BucketList(dest, row, false) + #BucketList(dest, row, true)
+end
+
+-- Addon TRACKER icons (not custom) that are CDM-capable but taken OUT of the CDM
+-- (includeInCdm false) and currently shown — for the "Free icons" tab, where clicking
+-- one jumps to its own config panel. Custom free icons come from ns.CustomCDM instead.
+function ns.CDMAnchor.GetFreeTrackerIcons()
+    local out = {}
+    for _, d in ipairs(appliers) do
+        local name = d.frame and DescId(d)
+        if name and d.getCfg and d.frame.IsShown and d.frame:IsShown()
+            and d.getCfg("cdmDest")                 -- a CDM-capable tracker (excludes alert frames)
+            and not d.getCfg("includeInCdm")        -- the user took it out of the CDM
+            and not (ns.CustomCDM and ns.CustomCDM.IsCustom(name)) then
+            out[#out + 1] = { id = name, texture = d.getIcon and d.getIcon() or nil, custom = false }
+        end
     end
     return out
 end
@@ -924,6 +990,7 @@ local function ComputeSig()
     if c then
         p[#p + 1] = "B" .. tostring(c.width) .. "," .. tostring(c.height)
             .. "," .. tostring(c.offsetX) .. "," .. tostring(c.offsetY)
+            .. "," .. tostring(c.endOffsetX) .. "," .. tostring(c.endOffsetY)
     end
     p[#p + 1] = belowUnlocked and "U1" or "U0"
     -- Whether the game's Cooldown Manager is on: toggling it in the options must
