@@ -567,6 +567,24 @@ function ns.RefreshNav()
     ShowSubTab(stillThere and activeSub or FirstPanelOf(tab))
 end
 
+-- Called by Core/DB.lua right after AceDB applies a new profile. The per-profile debug,
+-- console, appearance and addon-usage settings have just been re-merged (CfgInit) and the
+-- appearance hooks (brand colour / font) have already re-applied. Here we re-apply the
+-- debug-suite BEHAVIOUR for the new profile and shut its windows if the new profile
+-- re-locks the suite (else let open graphs adopt the new size). The config-panel rebuild
+-- + nav refresh are done by ns.profiles.ReloadAll (called by the profile UI after the
+-- switch), so they are intentionally NOT duplicated here.
+function ns.OnProfileApplied()
+    if ns.Debug_ApplyConsoleOptions then ns.Debug_ApplyConsoleOptions() end
+    if ns.Debug_ApplyUsageOptions  then ns.Debug_ApplyUsageOptions()  end
+    if ns.IsDebugUnlocked and not ns.IsDebugUnlocked() then
+        if ns.Debug_CloseConsole then ns.Debug_CloseConsole() end
+        if ns.Debug_CloseGraphs  then ns.Debug_CloseGraphs()  end
+    elseif ns.Debug_ReapplyGraphSizes then
+        ns.Debug_ReapplyGraphSizes()
+    end
+end
+
 -- ── Window ─────────────────────────────────────────────────────────────────────
 local function CreateMainWindow()
     window = CreateFrame("Frame", "UnbunkUtilityWindow", UIParent, "BackdropTemplate")

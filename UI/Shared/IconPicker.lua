@@ -109,6 +109,7 @@ function ns.ui.CreateIconPicker(config)
         width         = 200,
         itemHeight    = 20,
         visibleItems  = 6,
+        searchable    = true,
         getList       = function() return iconList end,
         getCurrentKey = function()
             local cfg = getConfig()

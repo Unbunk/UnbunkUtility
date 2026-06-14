@@ -560,6 +560,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                     width         = entry.width,
                     itemHeight    = entry.itemHeight,
                     visibleItems  = entry.visibleItems,
+                    searchable    = entry.searchable,
                     getList       = entry.getList,
                     getCurrentKey = entry.getCurrentKey,
                     onSelect      = entry.onSelect,

@@ -282,6 +282,7 @@ local function ApplySnapshot(snapshot)
     for k, v in pairs(snapshot) do profile[k] = ns.DeepCopy(v) end
     ns.RunCfgInitHooks()
     ns.RunReloadHooks()   -- in-place import: no AceDB callback ran the reload hooks
+    if ns.OnProfileApplied then ns.OnProfileApplied() end   -- re-apply per-profile debug state
     ns.profiles.ReloadAll()
 end
 
@@ -308,7 +309,11 @@ function ns.profiles.ImportAs(name, str)
     end
     local snapshot, err = DecodeProfileBlob(str)
     if not snapshot then return false, err end
+    -- Suppress the OnProfileChanged apply for the empty profile this creates: ApplySnapshot
+    -- runs CfgInit + Reload + OnProfileApplied once, on the imported data (avoids applying twice).
+    ns._importingProfile = true
     ns.db:SetProfile(name)   -- create + switch to the new (empty) profile
+    ns._importingProfile = nil
     ApplySnapshot(snapshot)  -- the snapshot is now written into the new profile
     return true
 end
@@ -343,7 +348,12 @@ function ns.profiles.ReloadAll()
             end
             mod.menu = nil
         end
-        if UnbunkUtility.ShowActiveModule then
+        -- RefreshNav rebuilds the nav tree (so debug sub-tab visibility tracks the new
+        -- profile's "I know what I'm doing") AND re-shows the active panel fresh; fall
+        -- back to ShowActiveModule if the nav was never built.
+        if ns.RefreshNav then
+            ns.RefreshNav()
+        elseif UnbunkUtility.ShowActiveModule then
             UnbunkUtility.ShowActiveModule()
         end
     end

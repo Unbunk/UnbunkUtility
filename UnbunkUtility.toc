@@ -26,6 +26,7 @@ UI/Shared/IconPicker.lua
 UI/Shared/ScrollBar.lua
 UI/Shared/Button.lua
 UI/Shared/TextInput.lua
+UI/Shared/ColorPicker.lua
 UI/Shared/Prompt.lua
 UI/Shared/Checkbox.lua
 UI/Shared/Dropdown.lua
@@ -87,3 +88,7 @@ Modules/MinimapIcon/Core/MinimapIcon.lua
 Modules/Profiles/UI/ConfigWindow.lua
 Modules/Debug/UI/ConfigWindow.lua
 Modules/Debug/UI/PrintPanel.lua
+Modules/Debug/UI/ListPanel.lua
+Modules/Debug/UI/GraphPanel.lua
+Modules/Fader/Core/Fader.lua
+Modules/Fader/UI/ConfigWindow.lua

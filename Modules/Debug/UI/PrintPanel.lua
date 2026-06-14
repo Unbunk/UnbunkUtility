@@ -11,7 +11,7 @@
 local _, ns = ...
 local L = ns.L
 
-local function PUCfg() return ns.db and ns.db.global and ns.db.global.printUsage end
+local function PUCfg() return ns.db and ns.db.profile and ns.db.profile.printUsage end
 
 -- Interface 120005: C_AddOns.* is canonical; keep a legacy fallback (codebase idiom).
 local getNum  = (C_AddOns and C_AddOns.GetNumAddOns) or GetNumAddOns
@@ -26,7 +26,7 @@ local function CPUProfiling() return cvarBool("scriptProfile") end
 -- Strip colour / texture escapes from a title for display + sorting.
 local function clean(s)
     s = tostring(s or "")
-    s = s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", "")
+    s = s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|cn.-:", ""):gsub("|r", ""):gsub("|T.-|t", "")
     return (s:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
@@ -156,7 +156,7 @@ function ns.Debug_ApplyUsageOptions()
     ticker = C_Timer.NewTicker(interval, DoUsagePrint)
 end
 
--- The Start/Stop toggle button (module-level so the slash commands can refresh it).
+-- The panel's Start/Stop toggle button (module-level so it can be refreshed anytime).
 local usageButton
 local function RefreshUsageButton()
     if not usageButton then return end
@@ -164,13 +164,29 @@ local function RefreshUsageButton()
     usageButton.SetText(c.active and L["Stop print"] or L["Start print"])
 end
 
--- Turn periodic printing on/off (Start button + /ubu debug print start|stop).
+-- Anything that mirrors the active state (the panel button, the console-mode toggle)
+-- registers a refresher here; ns.Debug_SetUsageActive re-syncs them all so the two
+-- buttons + the slash commands stay in lock-step.
+ns._usageRefreshers = ns._usageRefreshers or {}
+function ns.Debug_RegisterUsageRefresh(fn)
+    if type(fn) ~= "function" then return end
+    ns._usageRefreshers[#ns._usageRefreshers + 1] = fn
+    fn()   -- sync immediately to the current state
+end
+function ns.Debug_IsUsageActive()
+    local c = PUCfg(); return c and c.active == true
+end
+
+-- Turn periodic printing on/off (panel button, console toggle, /ubu debug print start|stop).
 function ns.Debug_SetUsageActive(on)
     local c = PUCfg(); if not c then return end
     c.active = on and true or false
     if ns.Debug_ApplyUsageOptions then ns.Debug_ApplyUsageOptions() end
-    RefreshUsageButton()
+    for _, fn in ipairs(ns._usageRefreshers) do pcall(fn) end
 end
+
+-- The panel button's refresher, registered once (reads the live module-level usageButton).
+ns.Debug_RegisterUsageRefresh(RefreshUsageButton)
 
 -- ── Panel ─────────────────────────────────────────────────────────────────────
 local BOX_W   = 504   -- cadre width
@@ -250,6 +266,13 @@ local function CreatePrintPanel(parent)
     })
     usageButton.frame:SetPoint("TOPRIGHT", ctrl, "TOPRIGHT", -14, -13)
     RefreshUsageButton()
+
+    -- Open the Console Mode window (left of Start print) — same toggle as the Debug panel.
+    local consoleBtn = ns.ui.CreateButton({
+        parent = ctrl, label = L["Open Console Mode"], width = 150, height = 22,
+        onClick = function() if ns.Debug_ToggleConsole then ns.Debug_ToggleConsole() end end,
+    })
+    consoleBtn.frame:SetPoint("RIGHT", usageButton.frame, "LEFT", -6, 0)
 
     -- Row 2: show differential (coloured ± change vs the previous tick). On by default.
     local diffCB = ns.ui.CreateCheckbox({

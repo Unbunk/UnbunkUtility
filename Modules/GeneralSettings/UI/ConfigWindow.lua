@@ -306,6 +306,25 @@ local function CreateBossResetPanel(parent)
     return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
 end
 
+-- Brand-coloured "Drag" hint, centred just below a reorder cadre's bottom border, to
+-- signal that the icons inside can be dragged to reorder them. Re-tints live with the
+-- brand colour. The FontString is parented to the cadre it sits under, so it shows /
+-- hides with it and renders in the gap below (the cadre never clips its children).
+local function AddDragHint(cadre, inside)
+    local fs = cadre:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH6")
+    if inside then
+        fs:SetPoint("BOTTOM", cadre, "BOTTOM", 0, 3)    -- inside the cadre, just above the bottom border
+    else
+        fs:SetPoint("TOP", cadre, "BOTTOM", 0, -2)      -- centred just below the bottom border
+    end
+    fs:SetText(L["Drag"])
+    fs:SetTextColor(ns.GetBrandColor())
+    if ns.RegisterBrandRefresh then
+        ns.RegisterBrandRefresh(fs, function() fs:SetTextColor(ns.GetBrandColor()) end)
+    end
+    return fs
+end
+
 -- ── Below player frame (CDM row) ──────────────────────────────────────────────
 local function CreateBelowPlayerPanel(parent)
     local function Row() return ns.db.global.cdmBelowRow end
@@ -327,6 +346,10 @@ local function CreateBelowPlayerPanel(parent)
                         setOrder  = function(ids) if ns.CDMAnchor then ns.CDMAnchor.SetBelowOrder(ids) end end,
                     })
                     s.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                    -- "Drag" hint inside the group cadre, just above its bottom border
+                    -- (host -> content -> cadre).
+                    local cadre = host:GetParent(); cadre = cadre and cadre:GetParent()
+                    AddDragHint(cadre or host, true)
                     return { frame = host, height = 52, Refresh = s.Refresh }
                 end,
             },
@@ -533,6 +556,9 @@ local function CreateCDMRowPanel(parent, dest, titleText)
                             return 40
                         end,
                     })
+                    -- "Drag" hint under each cadre's bottom border.
+                    AddDragHint(rw.front.frame)
+                    AddDragHint(rw.endbox.frame)
                     rows[r] = rw
                     return rw
                 end
@@ -565,7 +591,8 @@ local function CreateCDMRowPanel(parent, dest, titleText)
                         rw.frontStrip.Refresh()
                         rw.endStrip.Refresh()
 
-                        local rowH = labelH + math.max(rw.front.height, rw.endbox.height) + 10
+                        -- +16 (was +10): leave room for the "Drag" hint under the cadres.
+                        local rowH = labelH + math.max(rw.front.height, rw.endbox.height) + 16
                         rw.container:SetHeight(rowH)
                         y = y + rowH
                     end
