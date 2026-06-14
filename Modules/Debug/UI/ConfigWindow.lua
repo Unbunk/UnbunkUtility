@@ -647,17 +647,116 @@ local function CreateDebugPanel(parent)
                 }
             end,
         },
+
+        -- ── Special Key (owner access) ────────────────────────────────────────────
+        {
+            type  = "group",
+            title = L["Special Key"],
+            shown = function() return ns.IsDebugUnlocked() end,
+            build = function()
+                return {
+                    -- Validate (or Enter) SAVES the typed key to the variables, then clears
+                    -- the field — the key is never displayed afterwards (only stored).
+                    { type = "custom", height = 30, build = function(host)
+                        local input   -- forward-declared so store() captures THIS local
+                        local function store()
+                            local v = input.GetText()
+                            if ns.db and ns.db.global then ns.db.global.specialKey = v or "" end
+                            input.SetText(""); input.editBox:ClearFocus()
+                            if ns.RefreshNav then ns.RefreshNav() end   -- owner nav appears if key + account match
+                        end
+                        local lbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                        lbl:SetPoint("LEFT", host, "LEFT", 0, 0)
+                        lbl:SetText(L["Key"])
+                        input = ns.ui.CreateTextInput({
+                            parent = host, width = 200, height = 22, maxLetters = 64, text = "",
+                            onEnter = function() store() end,
+                        })
+                        input.frame:SetPoint("LEFT", lbl, "RIGHT", 8, 0)
+                        local valBtn = ns.ui.CreateButton({
+                            parent = host, label = L["Validate Key"], width = 120, height = 22,
+                            onClick = function() store() end,
+                        })
+                        valBtn.frame:SetPoint("LEFT", input.frame, "RIGHT", 8, 0)
+                        return { frame = host, height = 30, Refresh = function() input.SetText("") end }
+                    end },
+                }
+            end,
+        },
+
+        -- ── Create an account hash (mint access hashes for specific accounts) ──────
+        -- A standalone generator: enter a key, click Generate, and it prints the hash
+        -- of (key :: THIS account's BattleTag). Each authorised person runs it on their
+        -- account and sends you the value; you bake the values into a future allow-list
+        -- to gate features to specific people. (Running it with the owner key reproduces
+        -- OWNER_HASH.) It stores nothing — it is purely a generator.
+        {
+            type  = "group",
+            title = L["Create an account hash"],
+            shown = function() return ns.IsDebugUnlocked() end,
+            build = function()
+                return {
+                    { type = "custom", height = 30, build = function(host)
+                        local lbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                        lbl:SetPoint("LEFT", host, "LEFT", 0, 0)
+                        lbl:SetText(L["Key"])
+                        local input = ns.ui.CreateTextInput({
+                            parent = host, width = 200, height = 22, maxLetters = 64, text = "",
+                        })
+                        input.frame:SetPoint("LEFT", lbl, "RIGHT", 8, 0)
+                        local genBtn = ns.ui.CreateButton({
+                            parent = host, label = L["Generate account hash"], width = 180, height = 22,
+                            onClick = function()
+                                -- Prints the hash (saves NOTHING), then clears the field.
+                                if ns.Debug_GenerateAccountHash then ns.Debug_GenerateAccountHash(input.GetText()) end
+                                input.SetText(""); input.editBox:ClearFocus()
+                            end,
+                        })
+                        genBtn.frame:SetPoint("LEFT", input.frame, "RIGHT", 8, 0)
+                        return { frame = host, height = 30 }
+                    end },
+                }
+            end,
+        },
     }
 
     menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
     return menu
 end
 
--- ── Secret scaffolding: owner detection + placeholder panels ──────────────────
--- Hard-coded owner identity: the secret "Unbunk" nav category (Core.lua
--- BuildNavTree) is shown only on this Battle.net account. To find a tag in-game:
---   /run print(BNGetInfo())
-local OWNER_BATTLETAG = "REDACTED"   -- owner account; gates the secret "Unbunk" nav
+-- ── Secret scaffolding: owner detection (hashed) + placeholder panels ──────────
+-- The owner's BattleTag is NOT stored in clear. We keep a one-way HASH of
+-- (secret key :: BattleTag). The secret key is NEVER in the code — the owner types it
+-- into Debug > Special Key (saved account-wide as ns.db.global.specialKey). Owner access
+-- needs BOTH the right key AND the right Battle.net account, because the hash binds them:
+-- a stranger can't paste their own tag (the hash wouldn't match without the key) and the
+-- tag can't be read back out of the code (a hash is one-way). The owner sets OWNER_HASH
+-- once via Debug > Special Key > "Generate owner hash" (prints the value to paste here).
+-- CAVEAT: this only deters CASUAL inspection/tampering. Client Lua ships in the clear and
+-- can always be edited to bypass the gate — there is no real client-side security.
+local OWNER_HASH = "01c6c812c5d94c88"   -- from Debug > Special Key > "Generate owner hash"
+
+-- 64-bit FNV-1a (two salted passes) -> 16 hex chars. `bit` is WoW's LuaBitOp library.
+local FNV_PRIME = 16777619
+local function fnvMul(h)   -- (h * FNV_PRIME) mod 2^32, kept precision-exact (h < 2^32)
+    local hi = math.floor(h / 65536) % 65536
+    local lo = h % 65536
+    return ((lo * FNV_PRIME) + ((hi * FNV_PRIME) % 65536) * 65536) % 4294967296
+end
+local function fnv1a(str, seed)
+    local h = seed
+    for i = 1, #str do
+        h = bit.bxor(h, str:byte(i)) % 4294967296   -- keep h unsigned (bxor can return signed)
+        h = fnvMul(h)
+    end
+    return h
+end
+local function Hash(str)
+    return string.format("%08x%08x", fnv1a(str, 2166136261), fnv1a(str .. "|UU|", 2654435761))
+end
+local function normKey(k) return (k or ""):gsub("^%s+", ""):gsub("%s+$", "") end   -- trim, keep case
+local function normTag(t) return (t or ""):gsub("%s", ""):lower() end               -- trim + case-fold
+local function OwnerHashOf(key, tag) return Hash(normKey(key) .. "::" .. normTag(tag)) end
 
 -- The player's own BattleTag, scanned out of BNGetInfo() (its return position varies
 -- by client) — the value shaped like "Name#1234". nil if Battle.net is unavailable.
@@ -673,12 +772,32 @@ function ns.GetMyBattleTag()
     return nil
 end
 
--- True only on the owner's Battle.net account (gates the secret "Unbunk" nav).
--- Tolerant compare (trim + case-fold) so stray spacing/case can't cause a miss.
-local function normTag(t) return (t or ""):gsub("%s", ""):lower() end
+-- Owner = right Special Key (Debug tab) AND the right Battle.net account. Both are
+-- required because the hash binds them. An empty key or an unset OWNER_HASH -> not owner.
 function ns.IsAccountOwner()
+    if OWNER_HASH == "" then return false end
+    local key = ns.db and ns.db.global and ns.db.global.specialKey
+    if not key or key == "" then return false end
     local tag = ns.GetMyBattleTag()
-    return tag ~= nil and normTag(tag) == normTag(OWNER_BATTLETAG)
+    if not tag then return false end
+    return OwnerHashOf(key, tag) == OWNER_HASH
+end
+
+-- Print an access hash for a typed key + THIS account's BattleTag. Used to mint hashes
+-- to gate future features to specific people: each authorised person runs it on their
+-- account with an agreed key and sends you the value, which you bake into an allow-list.
+-- Running it with the owner key reproduces OWNER_HASH. Stores nothing — pure generator.
+function ns.Debug_GenerateAccountHash(key)
+    local tag = ns.GetMyBattleTag()
+    if normKey(key) == "" then
+        print("|cff338cff[UnbunkUtility]|r " .. (L["Enter a key first."] or "Enter a key first."))
+        return
+    end
+    if not tag then
+        print("|cff338cff[UnbunkUtility]|r " .. (L["No BattleTag found (is Battle.net available?)."] or "No BattleTag found."))
+        return
+    end
+    print("|cff338cff[UnbunkUtility]|r ACCOUNT_HASH = \"" .. OwnerHashOf(key, tag) .. "\"")
 end
 
 -- Minimal placeholder panel: H2 title + a grey description. New secret sub-tabs

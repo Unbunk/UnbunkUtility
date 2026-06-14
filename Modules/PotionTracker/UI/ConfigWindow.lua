@@ -75,7 +75,9 @@ local function BuildPotionSectionOptions(prefix, LSM)
                     anchorFrame   = potionAnchor,
                     width         = 240,
                     itemHeight    = 20,
+                    itemGap       = 5,
                     visibleItems  = 8,
+                    searchable    = true,
                     getList = function()
                         -- Only show what is actually in the bags for this category;
                         -- no phantom entry for a configured potion that has run out.
@@ -127,7 +129,9 @@ local function BuildPotionSectionOptions(prefix, LSM)
                     anchorFrame   = favAnchor,
                     width         = 200,
                     itemHeight    = 20,
+                    itemGap       = 5,
                     visibleItems  = 8,
+                    searchable    = true,
                     getList = function()
                         favDisplayToId = {}
                         local list = {}
