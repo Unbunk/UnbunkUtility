@@ -28,8 +28,24 @@ function ns.ui.CreateDropdown(config)
     local getList      = config.getList       or function() return {} end
     local getCurrentKey = config.getCurrentKey or function() return nil end
     local onSelect     = config.onSelect       or function() end
+    -- Optional pinned live-search box at the top of the open list (font/sound/icon pickers).
+    local searchable   = config.searchable and true or false
 
     local result = {}
+
+    -- Current search text (lowercased) + the filtered view of getList() it produces.
+    -- searchH reserves a fixed top strip for the search box so it never scrolls away.
+    local searchText = ""
+    local searchH    = searchable and (itemHeight + 4) or 0
+    local function VisibleList()
+        local full = getList()
+        if not searchable or searchText == "" then return full end
+        local out = {}
+        for _, n in ipairs(full) do
+            if tostring(n):lower():find(searchText, 1, true) then out[#out + 1] = n end
+        end
+        return out
+    end
 
     -- ── Toggle button ─────────────────────────────────────────────────────────
 
@@ -82,7 +98,7 @@ function ns.ui.CreateDropdown(config)
     -- ── Drop frame ────────────────────────────────────────────────────────────
 
     local dropFrame = CreateFrame("Frame", nil, UIParent)
-    dropFrame:SetSize(width, itemHeight * visibleItems)
+    dropFrame:SetSize(width, itemHeight * visibleItems + searchH)
     dropFrame:SetFrameStrata("TOOLTIP")
     dropFrame:SetClipsChildren(true)
 
@@ -96,7 +112,7 @@ function ns.ui.CreateDropdown(config)
     -- ── Scroll frame ──────────────────────────────────────────────────────────
 
     local scrollFrame = CreateFrame("ScrollFrame", nil, dropFrame)
-    scrollFrame:SetPoint("TOPLEFT", 4, -4)
+    scrollFrame:SetPoint("TOPLEFT", 4, -4 - searchH)   -- below the pinned search box
     scrollFrame:SetPoint("BOTTOMRIGHT", -18, 4)
 
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
@@ -110,9 +126,9 @@ function ns.ui.CreateDropdown(config)
         scrollFrame  = scrollFrame,
         itemHeight   = itemHeight,
         visibleItems = visibleItems,
-        getListSize  = function() return #getList() end,
+        getListSize  = function() return #VisibleList() end,
     })
-    sb.track:SetPoint("TOPRIGHT", dropFrame, "TOPRIGHT", -3, -4)
+    sb.track:SetPoint("TOPRIGHT", dropFrame, "TOPRIGHT", -3, -4 - searchH)
     sb.track:SetPoint("BOTTOMRIGHT", dropFrame, "BOTTOMRIGHT", -3, 4)
 
     local scrollTrack = sb.track
@@ -129,15 +145,15 @@ function ns.ui.CreateDropdown(config)
     local OpenDrop, CloseDrop
 
     local function RefreshList()
-        local list       = getList()
+        local list       = VisibleList()
         local currentKey = getCurrentKey()
         local level      = dropFrame:GetFrameLevel()
 
-        -- Auto-size the menu to the actual item count (capped at visibleItems) so a
-        -- short list (e.g. Anchor to / Row) shows a short menu, not a tall empty one.
-        -- +8 covers the scroll frame's 4px top/bottom insets.
+        -- Auto-size the menu to the actual (filtered) item count (capped at visibleItems)
+        -- so a short list shows a short menu, not a tall empty one. +8 covers the scroll
+        -- frame's 4px top/bottom insets; +searchH reserves the pinned search strip.
         local shownRows = math.max(1, math.min(#list, visibleItems))
-        dropFrame:SetHeight(shownRows * itemHeight + 8)
+        dropFrame:SetHeight(shownRows * itemHeight + 8 + searchH)
 
         scrollChild:SetHeight(itemHeight * #list)
 
@@ -188,6 +204,39 @@ function ns.ui.CreateDropdown(config)
         end
 
         UpdateScrollBar()
+    end
+
+    -- ── Pinned search box (config.searchable) ───────────────────────────────────
+    -- Lives directly on dropFrame (NOT in the scroll child), anchored to the top, so it
+    -- stays visible while the list scrolls. Typing filters VisibleList() live.
+    local searchBox
+    if searchable then
+        searchBox = CreateFrame("EditBox", nil, dropFrame)
+        searchBox:SetHeight(itemHeight)
+        searchBox:SetPoint("TOPLEFT", dropFrame, "TOPLEFT", 4, -2)
+        searchBox:SetPoint("TOPRIGHT", dropFrame, "TOPRIGHT", -4, -2)
+        searchBox:SetAutoFocus(false)
+        searchBox:EnableMouse(true)
+        searchBox:SetFontObject("UnbunkUtilityBody")
+        searchBox:SetTextColor(1, 1, 1, 1)
+        searchBox:SetTextInsets(6, 6, 0, 0)
+        local sbg = searchBox:CreateTexture(nil, "BACKGROUND")
+        sbg:SetAllPoints()
+        sbg:SetColorTexture(0.18, 0.18, 0.18, 0.95)
+        local ph = searchBox:CreateFontString(nil, "OVERLAY", "UnbunkUtilityBody")
+        ph:SetPoint("LEFT", 6, 0)
+        ph:SetTextColor(0.5, 0.5, 0.5)
+        ph:SetText(L["Search..."])
+        searchBox:SetScript("OnTextChanged", function(self)
+            local t = self:GetText() or ""
+            ph:SetShown(t == "")
+            searchText = t:lower()
+            scrollFrame:SetVerticalScroll(0)   -- new filter -> back to the top
+            RefreshList()
+        end)
+        searchBox:SetScript("OnEnterPressed",  function(self) self:ClearFocus() end)
+        searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus(); CloseDrop() end)
+        result.searchBox = searchBox
     end
 
     -- ── Viewport tracking ──────────────────────────────────────────────────────
@@ -246,16 +295,22 @@ function ns.ui.CreateDropdown(config)
         dropFrame:SetFrameLevel(1)
         scrollTrack:SetFrameLevel(2)
         scrollThumb:SetFrameLevel(3)
+        if searchBox then
+            searchBox:SetFrameLevel(dropFrame:GetFrameLevel() + 4)   -- above dropFill, clickable
+            searchText = ""
+            searchBox:SetText("")   -- fresh search each open (fires OnTextChanged -> full list)
+        end
         RefreshList()
         ShowDrop()
         driveAccum = 0
         toggleBtn:SetScript("OnUpdate", DriveOnUpdate)
+        if searchBox then searchBox:SetFocus() end   -- ready to type immediately
 
         -- Scroll to the current selection. Deferred one frame so the ScrollFrame has
         -- had a layout pass and GetVerticalScrollRange returns the real range.
         C_Timer.After(0, function()
             if not isOpen then return end
-            local list       = getList()
+            local list       = VisibleList()
             local currentKey = getCurrentKey()
             for i, name in ipairs(list) do
                 if name == currentKey then
@@ -272,6 +327,7 @@ function ns.ui.CreateDropdown(config)
     function CloseDrop()
         isOpen = false
         toggleBtn:SetScript("OnUpdate", nil)
+        if searchBox then searchBox:ClearFocus() end
         dropFrame:Hide()
     end
 

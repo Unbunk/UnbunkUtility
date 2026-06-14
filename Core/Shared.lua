@@ -609,9 +609,20 @@ local DEFAULTS_PRINT_USAGE = {
     mem      = {},
 }
 
+-- Debug "Graph" panel: per-addon CPU/Memory plotted in graph windows. Own selection
+-- (independent of the Print panel). cpu/mem map an addon folder name -> true.
+local DEFAULTS_GRAPH_USAGE = {
+    interval = 5,
+    showDiff = true,
+    cpu      = {},
+    mem      = {},
+    win      = {},   -- per-metric saved window size: win.cpu / win.mem = { w = , h = }
+}
+
 function ns.InitGlobalCfg()
     if not ns.db then return end
     local g = ns.db.global
+    local p = ns.db.profile
     -- Walk the global table to rewrite any pre-restructure sound key.
     ns.MigrateSoundKeys(g)
     g.combo       = g.combo       or {}
@@ -619,15 +630,30 @@ function ns.InitGlobalCfg()
     g.dpsSpam     = g.dpsSpam     or {}
     g.bossReset   = g.bossReset   or {}
     g.cdmBelowRow = g.cdmBelowRow or {}
-    g.console     = g.console     or {}
-    g.printUsage  = g.printUsage  or {}
+
+    -- One-time migration: the debug-suite + appearance settings below used to be
+    -- account-wide (db.global); they are now PER-PROFILE (db.profile). Fold the old
+    -- global values into whichever profile is active at upgrade, once; other profiles
+    -- start from defaults. The old globals are left untouched as a harmless backup.
+    if p and not g.__profileSettingsMigrated then
+        for _, k in ipairs({ "console", "printUsage", "graphUsage", "brandColor", "fontKey", "debugUnlocked" }) do
+            if g[k] ~= nil and p[k] == nil then p[k] = ns.DeepCopy(g[k]) end
+        end
+        g.__profileSettingsMigrated = true
+    end
+
+    -- Per-profile (merged into the ACTIVE profile, so switching profiles applies its own).
+    p.console     = p.console     or {}
+    p.printUsage  = p.printUsage  or {}
+    p.graphUsage  = p.graphUsage  or {}
     ns.MergeDefaults(g.combo,       DEFAULTS_COMBO)
     ns.MergeDefaults(g.wipe,        DEFAULTS_WIPE)
     ns.MergeDefaults(g.dpsSpam,     DEFAULTS_DPS_SPAM)
     ns.MergeDefaults(g.bossReset,   DEFAULTS_BOSS_RESET)
     ns.MergeDefaults(g.cdmBelowRow, DEFAULTS_CDM_BELOW_ROW)
-    ns.MergeDefaults(g.console,     DEFAULTS_CONSOLE)
-    ns.MergeDefaults(g.printUsage,  DEFAULTS_PRINT_USAGE)
+    ns.MergeDefaults(p.console,     DEFAULTS_CONSOLE)
+    ns.MergeDefaults(p.printUsage,  DEFAULTS_PRINT_USAGE)
+    ns.MergeDefaults(p.graphUsage,  DEFAULTS_GRAPH_USAGE)
 end
 
 ns.RegisterCfgInitHook(ns.InitGlobalCfg)
@@ -655,7 +681,7 @@ function ns.RegisterBrandColorHook(fn)
 end
 
 function ns.ApplyBrandColor()
-    local col = (ns.db and ns.db.global and ns.db.global.brandColor) or ns.BRAND_DEFAULT
+    local col = (ns.db and ns.db.profile and ns.db.profile.brandColor) or ns.BRAND_DEFAULT
     local r, g, b = col[1], col[2], col[3]
     ns.TITLE_COLOR[1], ns.TITLE_COLOR[2], ns.TITLE_COLOR[3] = r, g, b
     for _, name in ipairs({
@@ -670,12 +696,12 @@ function ns.ApplyBrandColor()
 end
 
 function ns.SetBrandColor(r, g, b)
-    if ns.db and ns.db.global then ns.db.global.brandColor = { r, g, b } end
+    if ns.db and ns.db.profile then ns.db.profile.brandColor = { r, g, b } end
     ns.ApplyBrandColor()
 end
 
 function ns.ResetBrandColor()
-    if ns.db and ns.db.global then ns.db.global.brandColor = nil end
+    if ns.db and ns.db.profile then ns.db.profile.brandColor = nil end
     ns.ApplyBrandColor()
 end
 
@@ -723,7 +749,7 @@ ns.ADDON_FONTS = {
 }
 
 function ns.GetAddonFontPath()
-    local key = ns.db and ns.db.global and ns.db.global.fontKey
+    local key = ns.db and ns.db.profile and ns.db.profile.fontKey
     if key then return ns.ResolveFontPath(nil, key) end
     return ns._fontBasePath or "Fonts\\FRIZQT__.TTF"
 end
@@ -731,7 +757,7 @@ end
 -- The LSM font NAME in effect: the stored override, else the name matching the default
 -- face — so the picker can show/select the REAL default font instead of "Default font".
 function ns.GetAddonFontKey()
-    local key = ns.db and ns.db.global and ns.db.global.fontKey
+    local key = ns.db and ns.db.profile and ns.db.profile.fontKey
     if key then return key end
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     if LSM and ns._fontBasePath then
@@ -755,7 +781,7 @@ function ns.ApplyAddonFont()
 end
 
 function ns.SetAddonFont(key)
-    if ns.db and ns.db.global then ns.db.global.fontKey = key end
+    if ns.db and ns.db.profile then ns.db.profile.fontKey = key end
     ns.ApplyAddonFont()
 end
 

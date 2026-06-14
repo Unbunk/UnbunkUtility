@@ -131,7 +131,13 @@ local function Bootstrap()
     -- Keep the shared profile in sync and re-apply modules on any profile change.
     local function OnProfileChange()
         ns.db.global.sharedProfile = ns.db:GetCurrentProfile()
+        -- ImportAs switches to a fresh EMPTY profile then writes the blob; its
+        -- ApplySnapshot runs CfgInit + Reload + OnProfileApplied once on the real data,
+        -- so skip the (redundant, empty-profile) apply here to avoid doing it twice.
+        if ns._importingProfile then return end
         ApplyProfileReload()
+        -- Re-apply the per-profile debug/appearance state + rebuild the open config UI.
+        if ns.OnProfileApplied then ns.OnProfileApplied() end
     end
     ns.db.RegisterCallback(ns, "OnProfileChanged", function() OnProfileChange() end)
     ns.db.RegisterCallback(ns, "OnProfileCopied",  function() OnProfileChange() end)

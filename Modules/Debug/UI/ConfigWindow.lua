@@ -14,12 +14,13 @@
 local _, ns = ...
 local L = ns.L
 
--- Account-wide unlock flag. nil / false = locked (the default).
+-- Per-profile unlock flag. nil / false = locked (the default). Switching profiles
+-- therefore switches the whole debug suite on/off (handled by ns.OnProfileApplied).
 function ns.IsDebugUnlocked()
-    return ns.db and ns.db.global and ns.db.global.debugUnlocked == true
+    return ns.db and ns.db.profile and ns.db.profile.debugUnlocked == true
 end
 
-local function CCfg() return ns.db and ns.db.global and ns.db.global.console end
+local function CCfg() return ns.db and ns.db.profile and ns.db.profile.console end
 
 -- ── Chat capture buckets ──────────────────────────────────────────────────────
 local PLAYERS_EVENTS = {
@@ -112,30 +113,6 @@ local function RunConsoleInput(text)
     end
 end
 
--- Strip WoW escape sequences so copied text is clean plain text (no |cff… codes,
--- no |T texture markup) — hyperlinks collapse to their visible label.
-local function stripCodes(s)
-    s = s:gsub("|H.-|h(.-)|h", "%1")          -- hyperlink -> its display text
-    s = s:gsub("|T.-|t", "")                  -- inline textures (icons)
-    s = s:gsub("|K.-|k", "")                  -- masked text
-    s = s:gsub("|c%x%x%x%x%x%x%x%x", "")      -- colour start
-    s = s:gsub("|r", "")                      -- colour end
-    s = s:gsub("||", "|")                     -- unescape pipes
-    return s
-end
-
--- Selection mode shows a read-only EditBox snapshot of the buffer: reliable drag-
--- select + Ctrl+C. Built once on entry and left frozen, so incoming lines can't
--- clear the active selection mid-drag.
-local function RebuildEditBox()
-    if not consoleFrame or not consoleFrame.edit then return end
-    local edit = consoleFrame.edit
-    local txt  = stripCodes(table.concat(lineBuffer, "\n"))
-    edit._str  = txt
-    edit:SetText(txt)
-    edit:SetCursorPosition(#txt)
-end
-
 -- Thin scrollbar styled exactly like ns.ui.CreateScrollBar (8px dark track + grey
 -- thumb), but driven by a ScrollingMessageFrame's OFFSET model instead of a
 -- ScrollFrame: offset 0 = bottom/newest, GetMaxScrollRange() = top/oldest. Methods
@@ -210,46 +187,28 @@ local function CreateMessageScrollBar(parent, smf)
     return sb
 end
 
--- Show the active view's scrollbar (and refresh its thumb), hide the other.
-local function RefreshScrollBars()
-    if not consoleFrame or not consoleFrame.smfSB then return end
-    if (CCfg() or {}).allowSelection == true then
-        consoleFrame.smfSB.track:Hide()
-        consoleFrame.selSB.Update()
-    else
-        consoleFrame.selSB.track:Hide()
-        consoleFrame.smfSB.Update()
-    end
-end
-
 local function LayoutBody()
     if not consoleFrame then return end
     local c = CCfg() or {}
     consoleFrame.input:SetShown(c.textEditor ~= false)
     local bottom = (c.textEditor ~= false) and (12 + INPUT_H + 6) or 12
-    for _, region in ipairs({ consoleFrame.smf, consoleFrame.scroll }) do
-        region:ClearAllPoints()
-        region:SetPoint("TOPLEFT", consoleFrame, "TOPLEFT", 12, -46)
-        region:SetPoint("BOTTOMRIGHT", consoleFrame, "BOTTOMRIGHT", -26, bottom)
-    end
-    -- Both tracks share the right-hand gutter; only the active view shows one.
-    for _, bar in ipairs({ consoleFrame.smfSB, consoleFrame.selSB }) do
-        bar.track:ClearAllPoints()
-        bar.track:SetPoint("TOPRIGHT", consoleFrame, "TOPRIGHT", -12, -46)
-        bar.track:SetPoint("BOTTOMRIGHT", consoleFrame, "BOTTOMRIGHT", -12, bottom)
-    end
-    consoleFrame.edit:SetWidth(consoleFrame:GetWidth() - 52)
-    RefreshScrollBars()
+    consoleFrame.smf:ClearAllPoints()
+    consoleFrame.smf:SetPoint("TOPLEFT", consoleFrame, "TOPLEFT", 12, -46)
+    consoleFrame.smf:SetPoint("BOTTOMRIGHT", consoleFrame, "BOTTOMRIGHT", -26, bottom)
+    consoleFrame.smfSB.track:ClearAllPoints()
+    consoleFrame.smfSB.track:SetPoint("TOPRIGHT", consoleFrame, "TOPRIGHT", -12, -46)
+    consoleFrame.smfSB.track:SetPoint("BOTTOMRIGHT", consoleFrame, "BOTTOMRIGHT", -12, bottom)
+    consoleFrame.smfSB.Update()
 end
 
--- Toggle between the live ScrollingMessageFrame and the copyable EditBox snapshot.
+-- "Allow selection": make the LIVE log itself drag-selectable + Ctrl+C-able in place
+-- (smf:SetTextCopyable). No separate snapshot — it stays live and renders identically
+-- to the normal view. (New lines clear an active selection, so stop the print toggle
+-- before copying a stable block.)
 local function ApplySelectionMode()
     if not consoleFrame then return end
     local sel = (CCfg() or {}).allowSelection == true
-    consoleFrame.smf:SetShown(not sel)
-    consoleFrame.scroll:SetShown(sel)
-    if sel then RebuildEditBox() end
-    RefreshScrollBars()
+    if consoleFrame.smf.SetTextCopyable then consoleFrame.smf:SetTextCopyable(sel) end
 end
 
 -- ── Native-style formatting helpers ───────────────────────────────────────────
@@ -349,11 +308,30 @@ local function UpdateChatRegistration()
     reg(OTHERS_EVENTS,   c.chOthers)
 end
 
--- Re-apply all console options (panel checkboxes + on creation + at login).
+-- Re-apply all console options (panel checkboxes + on creation + at login + profile
+-- switch). Also re-applies the saved (now per-profile) window size to an open console.
 function ns.Debug_ApplyConsoleOptions()
+    if consoleFrame then
+        local c = CCfg()
+        if c and c.w and c.h then
+            consoleFrame:SetSize(c.w, c.h)        -- this profile's saved size
+        else
+            consoleFrame:SetSize(760, 500)        -- no saved size -> default (matches EnsureConsole)
+        end
+    end
     LayoutBody()
     ApplySelectionMode()
     UpdateChatRegistration()
+end
+
+-- Force-close the console (used by the profile switch when the new profile re-locks the
+-- debug suite); mirrors the "I know what I'm doing" un-tick teardown.
+function ns.Debug_CloseConsole()
+    if consoleFrame then
+        consoleFrame:Hide()
+        consoleFrame.smf:Clear()
+    end
+    wipe(lineBuffer)
 end
 
 local function EnsureConsole()
@@ -396,6 +374,24 @@ local function EnsureConsole()
     local clearBtn = ns.ui.CreateButton({ parent = f, label = L["Clear"], width = 70, height = 22 })
     clearBtn.frame:SetPoint("RIGHT", closeBtn.frame, "LEFT", -6, 0)
 
+    -- Start/Stop print toggle (left of Clear) — same state as the Print panel button
+    -- and /ubu debug print start|stop; the refresher keeps all of them in sync.
+    local printBtn = ns.ui.CreateButton({
+        parent = f, label = L["Start print"], width = 90, height = 22,
+        onClick = function()
+            if ns.Debug_SetUsageActive then
+                ns.Debug_SetUsageActive(not (ns.Debug_IsUsageActive and ns.Debug_IsUsageActive()))
+            end
+        end,
+    })
+    printBtn.frame:SetPoint("RIGHT", clearBtn.frame, "LEFT", -6, 0)
+    if ns.Debug_RegisterUsageRefresh then
+        ns.Debug_RegisterUsageRefresh(function()
+            printBtn.SetText((ns.Debug_IsUsageActive and ns.Debug_IsUsageActive())
+                and L["Stop print"] or L["Start print"])
+        end)
+    end
+
     local smf = CreateFrame("ScrollingMessageFrame", nil, f)
     smf:SetFontObject("ChatFontNormal")
     smf:SetJustifyH("LEFT")
@@ -427,43 +423,10 @@ local function EnsureConsole()
     clearBtn.frame:SetScript("OnClick", function()
         smf:Clear()
         wipe(lineBuffer)
-        if f.edit then f.edit._str = ""; f.edit:SetText("") end
     end)
 
-    -- Copyable snapshot (selection mode): read-only multiline EditBox in a PLAIN
-    -- scroll frame (no UIPanelScrollFrameTemplate, so no default Blizzard scrollbar —
-    -- we attach our own addon-styled bar below to match the rest of the UI).
-    local scroll = CreateFrame("ScrollFrame", nil, f)
-    local edit   = CreateFrame("EditBox", nil, scroll)
-    edit:SetMultiLine(true)
-    edit:SetAutoFocus(false)
-    edit:SetFontObject("ChatFontNormal")
-    edit:SetMaxLetters(0)
-    edit:SetWidth(f:GetWidth() - 48)
-    edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    -- Read-only: revert any typed change so it stays a faithful copy buffer
-    -- (selecting/copying never triggers OnTextChanged, so it stays usable).
-    edit:SetScript("OnTextChanged", function(self, user)
-        if user and self._str and self:GetText() ~= self._str then
-            self:SetText(self._str)
-        end
-    end)
-    scroll:SetScrollChild(edit)
-    scroll:Hide()
-    f.scroll = scroll
-    f.edit   = edit
-
-    -- Addon-styled scrollbars (same look as ns.ui.CreateScrollBar everywhere else):
-    -- one for the selection snapshot (real ScrollFrame) and one for the live log
-    -- (smf offset model). LayoutBody anchors both tracks in the right gutter;
-    -- RefreshScrollBars shows only the active view's bar.
-    f.selSB = ns.ui.CreateScrollBar({
-        parent       = f,
-        scrollFrame  = scroll,
-        itemHeight   = 14,
-        visibleItems = 20,
-        getListSize  = function() return math.max(20, #lineBuffer) end,
-    })
+    -- Addon-styled scrollbar for the live log (smf offset model). "Allow selection"
+    -- makes the smf itself copyable in place (ApplySelectionMode) — no extra frame.
     f.smfSB = CreateMessageScrollBar(f, smf)
 
     local input = CreateFrame("EditBox", nil, f)
@@ -501,12 +464,11 @@ local function EnsureConsole()
     f.grip = grip
 
     -- Live re-layout while dragging the grip (anchored regions auto-resize, but the
-    -- edit width + scrollbar thumbs need a recompute) and a refresh once shown.
+    -- scrollbar thumb needs a recompute) and a refresh once shown.
     f:SetScript("OnSizeChanged", function() LayoutBody() end)
     f:HookScript("OnShow", function()
         C_Timer.After(0.05, function()
             if f.smfSB then f.smfSB.Update() end
-            if f.selSB then f.selSB.Update() end
         end)
     end)
 
@@ -538,6 +500,33 @@ local function CreateDebugPanel(parent)
                 local c = CCfg()
                 if c then c[key] = v and true or false end
                 if ns.Debug_ApplyConsoleOptions then ns.Debug_ApplyConsoleOptions() end
+            end,
+        }
+    end
+
+    -- Like ConsoleToggle but with a grey H6 hint to the RIGHT of the checkbox label.
+    local function ConsoleToggleHint(label, key, hint)
+        return {
+            type   = "custom",
+            height = 24,
+            build  = function(host)
+                local function get() local c = CCfg(); return c and c[key] == true end
+                local cb = ns.ui.CreateCheckbox({
+                    parent  = host,
+                    label   = label,
+                    checked = get(),
+                    onClick = function(v)
+                        local c = CCfg()
+                        if c then c[key] = v and true or false end
+                        if ns.Debug_ApplyConsoleOptions then ns.Debug_ApplyConsoleOptions() end
+                    end,
+                })
+                cb.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                local h = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+                h:SetPoint("LEFT", cb.label, "RIGHT", 10, 0)
+                h:SetTextColor(0.6, 0.6, 0.6)
+                h:SetText(hint)
+                return { frame = host, height = 24, Refresh = function() cb.SetChecked(get()) end }
             end,
         }
     end
@@ -587,7 +576,7 @@ local function CreateDebugPanel(parent)
                     label   = L["I know what I'm doing"],
                     checked = ns.IsDebugUnlocked(),
                     onClick = function(val)
-                        if ns.db then ns.db.global.debugUnlocked = val and true or false end
+                        if ns.db and ns.db.profile then ns.db.profile.debugUnlocked = val and true or false end
                         -- Re-locking must fully shut the suite down: close the window,
                         -- drop any captured chat/prints from memory, and re-apply options
                         -- (UpdateChatRegistration unregisters every chat event while locked).
@@ -596,8 +585,10 @@ local function CreateDebugPanel(parent)
                             if consoleFrame then
                                 consoleFrame:Hide()
                                 consoleFrame.smf:Clear()
-                                if consoleFrame.edit then consoleFrame.edit._str = ""; consoleFrame.edit:SetText("") end
                             end
+                            -- Close any open Graph windows (hiding them cancels their
+                            -- sampling tickers via OnHide) so nothing keeps polling once locked.
+                            if ns.Debug_CloseGraphs then ns.Debug_CloseGraphs() end
                         end
                         ns.Debug_ApplyConsoleOptions()
                         if ns.Debug_ApplyUsageOptions then ns.Debug_ApplyUsageOptions() end
@@ -636,7 +627,8 @@ local function CreateDebugPanel(parent)
                         onClick    = function() if ns.Debug_ToggleConsole then ns.Debug_ToggleConsole() end end,
                     },
                     ConsoleToggle(L["Text editor"],     "textEditor"),
-                    ConsoleToggle(L["Allow selection"], "allowSelection"),
+                    ConsoleToggleHint(L["Allow selection"], "allowSelection",
+                        L["hold and drag to select, then Ctrl+C to copy"]),
 
                     {
                         type  = "group",
@@ -732,48 +724,19 @@ local function CreateSecretPanel(parent)
     hint:SetWidth(352); hint:SetJustifyH("LEFT"); hint:SetTextColor(0.6, 0.6, 0.6)
     hint:SetText(L["Changes the blue used everywhere in the addon, live."])
 
-    -- Colour swatch (also a click target for the picker).
-    local swatch = CreateFrame("Button", nil, box, "BackdropTemplate")
-    swatch:SetSize(40, 22)
-    swatch:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -10)
-    swatch:SetBackdrop({ edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
-    swatch:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
-    local swatchTex = swatch:CreateTexture(nil, "ARTWORK")
-    swatchTex:SetPoint("TOPLEFT", swatch, "TOPLEFT", 1, -1)
-    swatchTex:SetPoint("BOTTOMRIGHT", swatch, "BOTTOMRIGHT", -1, 1)
-    local function refreshSwatch() swatchTex:SetColorTexture(ns.GetBrandColor()) end
-    refreshSwatch()
-
-    local function openPicker()
-        local r, g, b = ns.GetBrandColor()
-        local function onChange()
-            local nr, ng, nb = ColorPickerFrame:GetColorRGB()
-            ns.SetBrandColor(nr, ng, nb)
-            refreshSwatch()
-        end
-        local info = {
-            r = r, g = g, b = b, hasOpacity = false,
-            swatchFunc = onChange,
-            cancelFunc = function() ns.SetBrandColor(r, g, b); refreshSwatch() end,
-        }
-        if ColorPickerFrame.SetupColorPickerAndShow then
-            ColorPickerFrame:SetupColorPickerAndShow(info)
-        else   -- legacy entry point
-            ColorPickerFrame.func        = onChange
-            ColorPickerFrame.cancelFunc  = info.cancelFunc
-            ColorPickerFrame.hasOpacity  = false
-            ColorPickerFrame.previousValues = { r = r, g = g, b = b }
-            ColorPickerFrame:SetColorRGB(r, g, b)
-            ColorPickerFrame:Hide(); ColorPickerFrame:Show()
-        end
-    end
-    swatch:SetScript("OnClick", openPicker)
+    -- Colour swatch -> addon-styled picker; live-updates the brand colour as you drag.
+    local sw = ns.ui.CreateColorSwatch({
+        parent = box, width = 40, height = 22, hasOpacity = false,
+        getColor = function() local r, g, b = ns.GetBrandColor(); return { r = r, g = g, b = b, a = 1 } end,
+        onChange = function(r, g, b) ns.SetBrandColor(r, g, b) end,
+    })
+    sw.frame:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -10)
 
     local resetBtn = ns.ui.CreateButton({
         parent = box, label = L["Reset"], width = 70, height = 22,
-        onClick = function() ns.ResetBrandColor(); refreshSwatch() end,
+        onClick = function() ns.ResetBrandColor(); sw.Refresh() end,
     })
-    resetBtn.frame:SetPoint("LEFT", swatch, "RIGHT", 12, 0)
+    resetBtn.frame:SetPoint("LEFT", sw.frame, "RIGHT", 12, 0)
 
     -- ── "Change addon font" cadre: pick an LSM font; ns.SetAddonFont re-faces every
     -- addon font object live (no reload). Reset goes back to the default UI face.
@@ -805,6 +768,7 @@ local function CreateSecretPanel(parent)
             width         = 200,
             itemHeight    = 20,
             visibleItems  = 10,
+            searchable    = true,
             getList       = function() return LSM:List("font") end,
             getCurrentKey = function() return ns.GetAddonFontKey() end,
             onSelect      = function(name) ns.SetAddonFont(name) end,
@@ -836,16 +800,9 @@ initDbg:SetScript("OnEvent", function(self, event, addonName)
     -- is gated in Core.lua BuildNavTree (unlock for the secret settings + Addon usage,
     -- owner account for Unbunk).
     UnbunkUtility.RegisterModule(L["Secret settings"], nil, CreateSecretPanel)
-    UnbunkUtility.RegisterModule(L["Beta"], nil, function(parent)
-        StubPanel(parent, L["Beta"], L["(nothing here yet)"]); return nil
-    end)
-    UnbunkUtility.RegisterModule(L["List"], nil, function(parent)
-        StubPanel(parent, L["List"], L["(nothing here yet)"]); return nil
-    end)
-    -- "Print" is a real panel registered in Modules/Debug/UI/PrintPanel.lua.
-    UnbunkUtility.RegisterModule(L["Graph"], nil, function(parent)
-        StubPanel(parent, L["Graph"], L["Addon usage — graph (work in progress)."]); return nil
-    end)
+    -- "Beta" is a real panel registered in Modules/Fader/UI/ConfigWindow.lua.
+    -- "List" / "Print" / "Graph" are real panels registered in their own files
+    -- (ListPanel.lua, PrintPanel.lua, GraphPanel.lua).
     UnbunkUtility.RegisterModule(L["Personal utilities"], nil, function(parent)
         StubPanel(parent, L["Personal utilities"], L["Owner-only secret area — work in progress."]); return nil
     end)

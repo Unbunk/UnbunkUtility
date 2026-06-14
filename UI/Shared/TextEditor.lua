@@ -95,50 +95,19 @@ function ns.ui.CreateTextEditor(parent, config)
         textInput.frame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
         result.textBox = textInput.editBox
 
-        -- Color swatch to the right of the text input.
+        -- Color swatch to the right of the text input (addon-styled picker).
         if showColor then
-            local colorSwatch = CreateFrame("Button", nil, container)
-            colorSwatch:SetSize(16, 16)
-            colorSwatch:SetPoint("LEFT", textInput.frame, "RIGHT", 10, 0)
-
-            local swatchTex = colorSwatch:CreateTexture(nil, "BACKGROUND")
-            swatchTex:SetAllPoints()
+            local sw = ns.ui.CreateColorSwatch({
+                parent = container, width = 16, height = 16, hasOpacity = true,
+                getColor = getColor,
+                onChange = function(r, g, b, a) if onColorChange then onColorChange(r, g, b, a) end end,
+            })
+            sw.frame:SetPoint("LEFT", textInput.frame, "RIGHT", 10, 0)
+            result.RefreshSwatch = sw.Refresh
 
             local colorLbl = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-            colorLbl:SetPoint("LEFT", colorSwatch, "RIGHT", 4, 0)
+            colorLbl:SetPoint("LEFT", sw.frame, "RIGHT", 4, 0)
             colorLbl:SetText(L["Color"])
-
-            local function RefreshSwatch()
-                local c = getColor()
-                if c then swatchTex:SetColorTexture(c.r, c.g, c.b, 1) end
-            end
-            RefreshSwatch()
-            result.RefreshSwatch = RefreshSwatch
-
-            colorSwatch:SetScript("OnClick", function()
-                local c = getColor() or { r = 1, g = 1, b = 1, a = 1 }
-                ColorPickerFrame:SetupColorPickerAndShow({
-                    swatchFunc = function()
-                        local r, g, b = ColorPickerFrame:GetColorRGB()
-                        local a = ColorPickerFrame:GetColorAlpha()
-                        if onColorChange then onColorChange(r, g, b, a) end RefreshSwatch()
-                    end,
-                    opacityFunc = function()
-                        local r, g, b = ColorPickerFrame:GetColorRGB()
-                        local a = ColorPickerFrame:GetColorAlpha()
-                        if onColorChange then onColorChange(r, g, b, a) end RefreshSwatch()
-                    end,
-                    cancelFunc = function(prev)
-                        -- `opacity` in previousValues already holds the alpha
-                        -- (set via opacity = c.a below), so use it directly
-                        -- rather than the legacy 1-opacity conversion.
-                        local a = prev.a or prev.opacity or 1
-                        if onColorChange then onColorChange(prev.r, prev.g, prev.b, a) end RefreshSwatch()
-                    end,
-                    r = c.r, g = c.g, b = c.b, opacity = c.a,
-                    hasOpacity = true,
-                })
-            end)
 
             -- Size input to the right of the color swatch (unless relocated to the
             -- Font row to keep a narrow box from overflowing).
@@ -214,52 +183,21 @@ function ns.ui.CreateTextEditor(parent, config)
         end
 
         if showColor and getColor and onColorChange then
-            local colorSwatch = CreateFrame("Button", nil, container)
-            colorSwatch:SetSize(16, 16)
+            local sw = ns.ui.CreateColorSwatch({
+                parent = container, width = 16, height = 16, hasOpacity = true,
+                getColor = getColor,
+                onChange = function(r, g, b, a) onColorChange(r, g, b, a) end,
+            })
             if rightAnchor then
-                colorSwatch:SetPoint("LEFT", rightAnchor, "RIGHT", 14, 0)
+                sw.frame:SetPoint("LEFT", rightAnchor, "RIGHT", 14, 0)
             else
-                colorSwatch:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -(height + 4))
+                sw.frame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -(height + 4))
             end
-
-            local swatchTex = colorSwatch:CreateTexture(nil, "BACKGROUND")
-            swatchTex:SetAllPoints()
+            result.RefreshSwatch = sw.Refresh
 
             local colorLbl = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-            colorLbl:SetPoint("LEFT", colorSwatch, "RIGHT", 4, 0)
+            colorLbl:SetPoint("LEFT", sw.frame, "RIGHT", 4, 0)
             colorLbl:SetText(L["Color"])
-
-            local function RefreshSwatch()
-                local c = getColor()
-                if c then swatchTex:SetColorTexture(c.r, c.g, c.b, 1) end
-            end
-            RefreshSwatch()
-            result.RefreshSwatch = RefreshSwatch
-
-            colorSwatch:SetScript("OnClick", function()
-                local c = getColor() or { r = 1, g = 1, b = 1, a = 1 }
-                ColorPickerFrame:SetupColorPickerAndShow({
-                    swatchFunc = function()
-                        local r, g, b = ColorPickerFrame:GetColorRGB()
-                        local a = ColorPickerFrame:GetColorAlpha()
-                        onColorChange(r, g, b, a); RefreshSwatch()
-                    end,
-                    opacityFunc = function()
-                        local r, g, b = ColorPickerFrame:GetColorRGB()
-                        local a = ColorPickerFrame:GetColorAlpha()
-                        onColorChange(r, g, b, a); RefreshSwatch()
-                    end,
-                    cancelFunc = function(prev)
-                        -- `opacity` in previousValues already holds the alpha
-                        -- (set via opacity = c.a below), so use it directly
-                        -- rather than the legacy 1-opacity conversion.
-                        local a = prev.a or prev.opacity or 1
-                        onColorChange(prev.r, prev.g, prev.b, a); RefreshSwatch()
-                    end,
-                    r = c.r, g = c.g, b = c.b, opacity = c.a,
-                    hasOpacity = true,
-                })
-            end)
         end
 
         height = height + 28
@@ -279,6 +217,7 @@ function ns.ui.CreateTextEditor(parent, config)
             width         = 200,
             itemHeight    = 20,
             visibleItems  = 10,
+            searchable    = true,
             getList       = function() return LSM:List("font") end,
             getCurrentKey = getFontKey,
             onSelect      = function(name)

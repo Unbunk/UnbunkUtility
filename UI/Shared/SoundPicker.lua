@@ -74,6 +74,7 @@ function ns.ui.CreateSoundPicker(parent, LSM, config)
             width         = 290,
             itemHeight    = 20,
             visibleItems  = 10,
+            searchable    = true,
             getList       = function()
                 local list = { NONE }
                 for _, name in ipairs(LSM:List("sound")) do
