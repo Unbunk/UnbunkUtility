@@ -115,6 +115,16 @@ local function CreateFaderPanel(parent)
         { type = "label", text = L["Beta"], font = "UnbunkUtilityH2", height = 28 },
         { type = "label", font = "UnbunkUtilityH6", height = 24,
           text = L["Experimental fade for the Cooldown Manager and Player Frame."] },
+
+        -- Link the two groups: when either reveals (un-fades), the other does too.
+        { type = "checkbox", label = L["Link CDM and player frame fading"],
+          get = function() local c = ns.Fader and ns.Fader.Cfg and ns.Fader.Cfg(); return c and c.link end,
+          set = function(v)
+              local c = ns.Fader and ns.Fader.Cfg and ns.Fader.Cfg()
+              if c then c.link = v and true or false end
+              if ns.Fader and ns.Fader.Apply then ns.Fader.Apply() end
+          end },
+
         FaderGroup("cdm",    L["Cooldown Manager"]),
         FaderGroup("player", L["Player frame"]),
     }

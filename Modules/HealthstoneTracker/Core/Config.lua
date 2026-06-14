@@ -12,8 +12,8 @@ local DEFAULTS = {
     -- so every known healthstone (5512, 224464, legacy ranks, etc.) works
     -- as long as one is in the player's bag.
     includeInCdm   = true,           -- default: shown in the CDM…
-    cdmDest        = "belowPlayer",  -- …in the artificial row below the PlayerFrame (after the potions)
-    cdmAtEnd       = true,
+    cdmDest        = "belowPlayer",  -- …in the artificial row below the PlayerFrame, in the
+    cdmAtEnd       = false,          --    FRONT (left) bucket, after the racial + potions
     cdmRow         = 1,
     posX           = -340,
     posY           = -300,

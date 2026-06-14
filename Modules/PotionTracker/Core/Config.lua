@@ -16,6 +16,13 @@ local DEFAULTS = {
         enabled         = true,
         showIcon        = true,
         showAtZero      = false,  -- keep the icon visible even with 0 potions in bags
+        -- Default: in the Cooldown Manager's artificial below-player row, in the
+        -- FRONT (left) bucket (cdmAtEnd=false), beside the racial. Falls back to the
+        -- free position below (posX/posY) when the Cooldown Manager is disabled.
+        includeInCdm    = true,
+        cdmDest         = "belowPlayer",
+        cdmAtEnd        = false,
+        cdmRow          = 1,
         -- itemId/spellId left unset on a fresh install: the main dropdown
         -- shows "None" until the player picks a potion or the resolver
         -- auto-fills via fallback / favorite.
@@ -47,6 +54,11 @@ local DEFAULTS = {
         enabled         = true,
         showIcon        = true,
         showAtZero      = false,  -- keep the icon visible even with 0 potions in bags
+        -- Default: below-player row, FRONT (left) bucket — see the health section.
+        includeInCdm    = true,
+        cdmDest         = "belowPlayer",
+        cdmAtEnd        = false,
+        cdmRow          = 1,
         -- itemId/spellId left unset on a fresh install (see health section).
         favoriteEnabled = true,
         favoriteId      = 241308,  -- Light's Potential

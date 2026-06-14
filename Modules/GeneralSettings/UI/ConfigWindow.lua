@@ -325,6 +325,12 @@ local function AddDragHint(cadre, inside)
     return fs
 end
 
+-- The CDM row reorder strip entry (a Front/End cadre pair per row) is shared by the
+-- Essentials / Utility panels AND the Below-player panel; forward-declared here so
+-- CreateBelowPlayerPanel can reference it, and defined further down beside the
+-- essential/utility panels it also serves.
+local CDMRowReorderEntry
+
 -- ── Below player frame (CDM row) ──────────────────────────────────────────────
 local function CreateBelowPlayerPanel(parent)
     local function Row() return ns.db.global.cdmBelowRow end
@@ -333,27 +339,12 @@ local function CreateBelowPlayerPanel(parent)
     local options = {
         H2(L["CDM: Below player frame"]),
 
-        -- ════════════ Row icon order (drag the icons to reorder the row) ════════════
-        { type = "group", title = L["Row icon order"], build = function() return {
-            {
-                type   = "custom",
-                height = 52,
-                build  = function(host)
-                    local s = ns.ui.CreateIconReorderStrip({
-                        parent    = host,
-                        emptyText = L["(no icons in the row)"],
-                        getIcons  = function() return (ns.CDMAnchor and ns.CDMAnchor.GetBelowIcons()) or {} end,
-                        setOrder  = function(ids) if ns.CDMAnchor then ns.CDMAnchor.SetBelowOrder(ids) end end,
-                    })
-                    s.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                    -- "Drag" hint inside the group cadre, just above its bottom border
-                    -- (host -> content -> cadre).
-                    local cadre = host:GetParent(); cadre = cadre and cadre:GetParent()
-                    AddDragHint(cadre or host, true)
-                    return { frame = host, height = 52, Refresh = s.Refresh }
-                end,
-            },
-        } end },
+        -- ════════════ Row icon order (Front / End of the row, drag to reorder) ══════
+        -- The SAME Front-of-row / End-of-row cadre pair as the Essentials / Utility
+        -- sub-tabs. The per-icon "Icon at the end of the row" checkbox decides which
+        -- cadre each icon lands in; the below-player destination is a single row, so
+        -- exactly one pair shows (no "Row N" label).
+        CDMRowReorderEntry("belowPlayer"),
 
         -- ════════════ Icon size ════════════
         { type = "group", title = L["Icon size"], build = function() return {
@@ -405,9 +396,10 @@ local function CreateBelowPlayerPanel(parent)
         } end },
 
         -- ════════════ Manual mode ════════════
-        -- OFF (default): the row stays flush under the PlayerFrame at 0,0. ON: the
-        -- offset / drag take effect. The group gate greys the position controls while
-        -- the checkbox is off; the checkbox itself stays live.
+        -- OFF (default): both buckets stay flush under the PlayerFrame (front bottom-left,
+        -- end bottom-right) at 0,0. ON: the per-bucket offsets / drag take effect. The
+        -- group gate greys the position controls while the checkbox is off; the checkbox
+        -- itself stays live.
         { type = "group", title = L["Manual mode"],
           gate = { enabled = function() return Row() and Row().manualEnabled == true end, master = "enable" },
           build = function() return {
@@ -419,7 +411,7 @@ local function CreateBelowPlayerPanel(parent)
                 set    = function(val)
                     if Row() then Row().manualEnabled = val end
                     -- Leaving manual mode: re-lock any active drag; RefreshAll then snaps
-                    -- the row back to its flush 0,0 position (BelowOffset returns 0,0).
+                    -- both buckets back to their flush 0,0 positions (BelowOffset -> 0,0).
                     if not val and ns.CDMAnchor and ns.CDMAnchor.IsBelowUnlocked
                         and ns.CDMAnchor.IsBelowUnlocked() then
                         ns.CDMAnchor.SetBelowUnlocked(false)
@@ -429,58 +421,75 @@ local function CreateBelowPlayerPanel(parent)
                 end,
             },
 
-            -- Manual offset from the PlayerFrame bottom-left corner.
+            -- Manual offsets, set independently per bucket: the FRONT bucket from the
+            -- player frame's bottom-LEFT corner, the END bucket from its bottom-RIGHT.
             {
                 type   = "custom",
-                height = 46,
+                height = 74,
                 build  = function(host)
                     local offLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                     offLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                     offLbl:SetText(L["Offset"])
 
-                    local xLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                    xLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
-                    xLbl:SetText("X")
-                    local xInput = ns.ui.CreateTextInput({
-                        parent = host, width = 56, height = 22,
-                        numeric = true, allowNegative = true, min = -2000, max = 2000, maxLetters = 5,
-                        text = tostring((Row() and Row().offsetX) or 0),
-                        onEnter = function(val)
-                            if val ~= nil and Row() then
-                                Row().offsetX = val
-                                if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
-                            end
-                        end,
-                    })
-                    xInput.frame:SetPoint("LEFT", xLbl, "RIGHT", 4, 0)
+                    -- One "<label>  X [..] Y [..]" row writing the given config keys; returns
+                    -- a closure that re-reads both inputs from the saved values.
+                    local function offsetRow(yOff, rowText, keyX, keyY)
+                        local rLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                        rLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, yOff)
+                        rLbl:SetWidth(44); rLbl:SetJustifyH("LEFT")
+                        rLbl:SetText(rowText)
 
-                    local yLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                    yLbl:SetPoint("LEFT", xInput.frame, "RIGHT", 12, 0)
-                    yLbl:SetText("Y")
-                    local yInput = ns.ui.CreateTextInput({
-                        parent = host, width = 56, height = 22,
-                        numeric = true, allowNegative = true, min = -2000, max = 2000, maxLetters = 5,
-                        text = tostring((Row() and Row().offsetY) or 0),
-                        onEnter = function(val)
-                            if val ~= nil and Row() then
-                                Row().offsetY = val
-                                if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
-                            end
-                        end,
-                    })
-                    yInput.frame:SetPoint("LEFT", yLbl, "RIGHT", 4, 0)
+                        local xLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                        xLbl:SetPoint("LEFT", rLbl, "RIGHT", 2, 0)
+                        xLbl:SetText("X")
+                        local xInput = ns.ui.CreateTextInput({
+                            parent = host, width = 56, height = 22,
+                            numeric = true, allowNegative = true, min = -2000, max = 2000, maxLetters = 5,
+                            text = tostring((Row() and Row()[keyX]) or 0),
+                            onEnter = function(val)
+                                if val ~= nil and Row() then
+                                    Row()[keyX] = val
+                                    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+                                end
+                            end,
+                        })
+                        xInput.frame:SetPoint("LEFT", xLbl, "RIGHT", 4, 0)
+
+                        local yLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                        yLbl:SetPoint("LEFT", xInput.frame, "RIGHT", 12, 0)
+                        yLbl:SetText("Y")
+                        local yInput = ns.ui.CreateTextInput({
+                            parent = host, width = 56, height = 22,
+                            numeric = true, allowNegative = true, min = -2000, max = 2000, maxLetters = 5,
+                            text = tostring((Row() and Row()[keyY]) or 0),
+                            onEnter = function(val)
+                                if val ~= nil and Row() then
+                                    Row()[keyY] = val
+                                    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+                                end
+                            end,
+                        })
+                        yInput.frame:SetPoint("LEFT", yLbl, "RIGHT", 4, 0)
+
+                        return function()
+                            xInput.SetText(tostring((Row() and Row()[keyX]) or 0))
+                            yInput.SetText(tostring((Row() and Row()[keyY]) or 0))
+                        end
+                    end
+
+                    local refreshFront = offsetRow(-24, L["Front"], "offsetX",    "offsetY")
+                    local refreshEnd   = offsetRow(-50, L["End"],   "endOffsetX", "endOffsetY")
 
                     local function Refresh()
                         if not host:GetParent() then return end
-                        xInput.SetText(tostring((Row() and Row().offsetX) or 0))
-                        yInput.SetText(tostring((Row() and Row().offsetY) or 0))
+                        refreshFront(); refreshEnd()
                     end
                     ns.OnBelowRowMoved = Refresh
-                    return { frame = host, height = 46, Refresh = Refresh }
+                    return { frame = host, height = 74, Refresh = Refresh }
                 end,
             },
 
-            -- Unlock to drag the row to a custom spot.
+            -- Unlock to drag either bucket (front / end) to a custom spot.
             {
                 type   = "custom",
                 height = 28,
@@ -508,14 +517,14 @@ local function CreateBelowPlayerPanel(parent)
     return belowMenu
 end
 
--- ── Essentials / Utility CDM rows ─────────────────────────────────────────────
+-- ── CDM row reorder strips (essential / utility / below player) ───────────────
 -- One pair of drag-reorder cadres ("Front of the row" / "End of the row") per row
 -- the destination renders, side by side. An empty cadre shows a grey "No icons".
-local function CreateCDMRowPanel(parent, dest, titleText)
-    local menu
-    local options = {
-        H2(titleText),
-        {
+-- belowPlayer reports a single row, so it shows just one Front/End pair (no row
+-- label) — the exact same widget as essential/utility, driven by the same bucket
+-- APIs (GetRowCount / GetBucketIcons / SetBucketOrder).
+function CDMRowReorderEntry(dest)
+    return {
             type   = "custom",
             height = 90,
             build  = function(host)
@@ -532,6 +541,24 @@ local function CreateCDMRowPanel(parent, dest, titleText)
                     rw.label = rw.container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
                     rw.label:SetPoint("TOPLEFT", rw.container, "TOPLEFT", 0, 0)
 
+                    -- Custom-icon hooks shared by both strips: the "+" adds a custom
+                    -- icon into THIS cadre's bucket (dest/row/atEnd), the X removes one,
+                    -- the pen re-opens its spell-ID editor. (id = the icon's frame name.)
+                    local function onRemoveCustom(id)
+                        local cid = ns.CustomCDM and ns.CustomCDM.IdFromFrameName(id)
+                        if cid then ns.CustomCDM.Remove(cid) end
+                    end
+                    local function onEditCustom(id)
+                        local cid = ns.CustomCDM and ns.CustomCDM.IdFromFrameName(id)
+                        if cid then ns.CustomCDM.PromptEdit(cid) end
+                    end
+                    -- Row is "full" once front + end together hit the per-destination cap;
+                    -- both strips share this (row-level) gate so the "+" hides on both.
+                    local function canAddToRow()
+                        if not ns.CDMAnchor then return false end
+                        return ns.CDMAnchor.RowIconCount(dest, r) < ns.CDMAnchor.RowCap(dest)
+                    end
+
                     rw.front = ns.ui.CreateGroupBox({
                         parent = rw.container, title = L["Front of the row"], width = HALF, sidePad = SIDE,
                         createContent = function(cf)
@@ -539,6 +566,10 @@ local function CreateCDMRowPanel(parent, dest, titleText)
                                 parent = cf, width = HALF - 2 * SIDE, emptyText = L["No icons"],
                                 getIcons = function() return (ns.CDMAnchor and ns.CDMAnchor.GetBucketIcons(dest, r, false)) or {} end,
                                 setOrder = function(ids) if ns.CDMAnchor then ns.CDMAnchor.SetBucketOrder(dest, r, false, ids) end end,
+                                onAdd          = function() if ns.CustomCDM then ns.CustomCDM.PromptAdd(dest, r, false) end end,
+                                canAdd         = canAddToRow,
+                                onRemoveCustom = onRemoveCustom,
+                                onEditCustom   = onEditCustom,
                             })
                             rw.frontStrip.frame:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, 0)
                             return 40
@@ -551,6 +582,10 @@ local function CreateCDMRowPanel(parent, dest, titleText)
                                 parent = cf, width = HALF - 2 * SIDE, emptyText = L["No icons"],
                                 getIcons = function() return (ns.CDMAnchor and ns.CDMAnchor.GetBucketIcons(dest, r, true)) or {} end,
                                 setOrder = function(ids) if ns.CDMAnchor then ns.CDMAnchor.SetBucketOrder(dest, r, true, ids) end end,
+                                onAdd          = function() if ns.CustomCDM then ns.CustomCDM.PromptAdd(dest, r, true) end end,
+                                canAdd         = canAddToRow,
+                                onRemoveCustom = onRemoveCustom,
+                                onEditCustom   = onEditCustom,
                             })
                             rw.endStrip.frame:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, 0)
                             return 40
@@ -604,14 +639,87 @@ local function CreateCDMRowPanel(parent, dest, titleText)
 
                 return { frame = host, height = math.max(90, host:GetHeight() or 90), Refresh = rebuildAll }
             end,
-        },
     }
-    menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
-    return menu
+end
+
+-- A full essential/utility sub-tab: an H2 title then the row reorder strips.
+local function CreateCDMRowPanel(parent, dest, titleText)
+    return ns.ui.BuildMenu(parent, { H2(titleText), CDMRowReorderEntry(dest) }, { gap = 12, width = 518 })
 end
 
 local function CreateCDMEssentialsPanel(parent) return CreateCDMRowPanel(parent, "essential", L["CDM: Essentials"]) end
 local function CreateCDMUtilityPanel(parent)    return CreateCDMRowPanel(parent, "utility",   L["CDM: Utility"])    end
+
+-- ── Free icons sub-tab ────────────────────────────────────────────────────────
+-- A big (10-row) wrapping grid of every icon taken OUT of the Cooldown Manager, in
+-- add order. Custom ones get the pen (edit) / cross (delete); addon tracker ones are
+-- clicked to jump to their own settings. A trailing "+" adds a new free custom icon.
+local FREE_PANEL_PREFIX = {
+    { "RacialTracker",      "Racial Tracker"      },
+    { "PotionTracker",      "Potion Tracker"      },
+    { "HealthstoneTracker", "Healthstone Tracker" },
+    { "TrinketTracker",     "Trinket Tracker"     },
+    { "BLTracker",          "BL Tracker"          },
+    { "PITracker",          "PI Tracker"          },
+}
+local function FreePanelForFrame(name)
+    if type(name) ~= "string" then return nil end
+    for _, e in ipairs(FREE_PANEL_PREFIX) do
+        if name:find("^" .. e[1]) then return L[e[2]] end
+    end
+    return nil
+end
+
+local function CreateFreeIconsPanel(parent)
+    local function onEditFree(itemId)
+        local cid = ns.CustomCDM and ns.CustomCDM.IdFromFrameName(itemId)
+        if cid then ns.CustomCDM.PromptEdit(cid) end
+    end
+    local options = {
+        H2(L["CDM: Free icons"]),
+        { type = "label", font = "UnbunkUtilityH6", height = 36,
+          text = L["Icons taken out of the Cooldown Manager. Pen/cross edit or delete a custom one; click an addon icon to open its settings; the + adds a new free custom icon."] },
+        {
+            type   = "custom",
+            height = 10,
+            build  = function(host)
+                local s = ns.ui.CreateIconReorderStrip({
+                    parent = host, width = 500, rows = 10, wrap = true, noDrag = true, emptyText = L["No icons"],
+                    getIcons = function()
+                        local out = {}
+                        if ns.CustomCDM then
+                            for _, it in ipairs(ns.CustomCDM.GetFreeIcons()) do out[#out + 1] = it end
+                        end
+                        if ns.CDMAnchor and ns.CDMAnchor.GetFreeTrackerIcons then
+                            for _, it in ipairs(ns.CDMAnchor.GetFreeTrackerIcons()) do
+                                local nav = FreePanelForFrame(it.id)
+                                if nav then it.nav = nav; out[#out + 1] = it end
+                            end
+                        end
+                        return out
+                    end,
+                    onAdd          = function() if ns.CustomCDM then ns.CustomCDM.PromptAddFree() end end,
+                    onRemoveCustom = function(itemId)
+                        local cid = ns.CustomCDM and ns.CustomCDM.IdFromFrameName(itemId)
+                        if cid then ns.CustomCDM.Remove(cid) end
+                    end,
+                    onEditCustom   = onEditFree,
+                    onIconClick    = function(item)
+                        if item.nav then
+                            if ns.NavigateToPanel then ns.NavigateToPanel(item.nav) end
+                        elseif item.custom then
+                            onEditFree(item.id)
+                        end
+                    end,
+                })
+                s.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                host:SetHeight(s.height)
+                return { frame = host, height = s.height, Refresh = s.Refresh }
+            end,
+        },
+    }
+    return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
+end
 
 -- ── Registration (sub-tabs) ────────────────────────────────────────────────────
 local initGS = CreateFrame("Frame")
@@ -626,5 +734,6 @@ initGS:SetScript("OnEvent", function(self, event, addonName)
     UnbunkUtility.RegisterModule(L["Below player frame"],      nil, CreateBelowPlayerPanel)
     UnbunkUtility.RegisterModule(L["Essentials"],              nil, CreateCDMEssentialsPanel)
     UnbunkUtility.RegisterModule(L["Utility"],                 nil, CreateCDMUtilityPanel)
+    UnbunkUtility.RegisterModule(L["Free icons"],             nil, CreateFreeIconsPanel)
     self:UnregisterEvent("ADDON_LOADED")
 end)

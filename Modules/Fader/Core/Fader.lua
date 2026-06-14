@@ -19,6 +19,7 @@ local F = ns.Fader
 -- `hover` is a per-component map: hovering an ENABLED component reveals the whole group.
 -- The CDM group has one entry per CDM sub-component; the player group has just itself.
 local DEFAULTS = {
+    link = false,   -- link the two groups: if either reveals, both reveal
     cdm = {
         enabled        = false,
         fadedAlpha     = 0.3,
@@ -38,6 +39,7 @@ local DEFAULTS = {
 }
 
 local function Cfg() return ns.db and ns.db.profile and ns.db.profile.fader end
+F.Cfg = Cfg                                    -- exposed for the "Link" checkbox in the panel
 function F.GroupCfg(key) local c = Cfg(); return c and c[key] end
 
 local function InitCfg()
@@ -93,9 +95,10 @@ local function ComponentFrames(comp, out)
     return out
 end
 
--- One pass over a group: build the union of all its frames AND decide the target alpha
--- (1 when not active in this instance, or revealed by combat / target / a hovered
--- enabled component; else the faded opacity). Returns target, frameList.
+-- One pass over a group: build the union of all its frames AND decide whether it is
+-- revealed (1 alpha) by its own conditions (combat / target / a hovered enabled component)
+-- and whether the fade is active here at all. Returns reveal, active, frameList. The final
+-- target alpha is decided by the driver (so the optional link can OR reveals across groups).
 local function Evaluate(g, c)
     local active = ns.IsActiveInInstance(c.instanceFilter)
     local reveal = active and (
@@ -114,8 +117,7 @@ local function Evaluate(g, c)
             end
         end
     end
-    local target = (not active or reveal) and 1 or (c.fadedAlpha or 0.3)
-    return target, all
+    return reveal, active, all
 end
 
 -- ── Smooth fade driver ──────────────────────────────────────────────────────────
@@ -130,20 +132,35 @@ driver:SetScript("OnUpdate", function(_, dt)
     if accum < 0.03 then return end
     local step = FADE_SPEED * accum
     accum = 0
-    local anyActive = false
+    -- Pass 1: evaluate each enabled group's reveal/active state + frames.
+    local info, anyEnabled, anyReveal = {}, false, false
     for key, g in pairs(GROUPS) do
         local c = F.GroupCfg(key)
         if c and c.enabled then
-            anyActive = true
-            local target, frames = Evaluate(g, c)
-            local a = cur[key]
-            if a < target then a = math.min(target, a + step)
-            elseif a > target then a = math.max(target, a - step) end
-            cur[key] = a
-            for _, f in ipairs(frames) do f:SetAlpha(a) end   -- re-applied each tick (wins over relayouts)
+            anyEnabled = true
+            local reveal, active, frames = Evaluate(g, c)
+            info[key] = { c = c, reveal = reveal, active = active, frames = frames }
+            if reveal then anyReveal = true end
         end
     end
-    if not anyActive then driver:Hide() end
+    -- Pass 2: pick the target (with optional link — any reveal reveals all) and lerp.
+    local linked = (Cfg() and Cfg().link) and true or false
+    for key, d in pairs(info) do
+        local target
+        if not d.active then
+            target = 1                                       -- fade not active here -> full
+        elseif d.reveal or (linked and anyReveal) then
+            target = 1                                       -- revealed (own conditions or linked)
+        else
+            target = d.c.fadedAlpha or 0.3
+        end
+        local a = cur[key]
+        if a < target then a = math.min(target, a + step)
+        elseif a > target then a = math.max(target, a - step) end
+        cur[key] = a
+        for _, f in ipairs(d.frames) do f:SetAlpha(a) end    -- re-applied each tick (wins over relayouts)
+    end
+    if not anyEnabled then driver:Hide() end
 end)
 
 -- (Re)evaluate which groups are enabled: start the driver for enabled ones, restore full

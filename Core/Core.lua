@@ -115,6 +115,7 @@ local function BuildNavTree()
                 { panel = L["Below player frame"] },
                 { panel = L["Essentials"] },
                 { panel = L["Utility"] },
+                { panel = L["Free icons"] },
             } },
         } },
         { name = L["Combat Utilities"], subs = {
@@ -143,6 +144,7 @@ local function BuildNavTree()
             { panel = L["Player speed display"] },
             { panel = L["Death Anim"] },
             { panel = L["Boss reset sound"] },
+            { panel = L["Reloading announcement"] },
         } },
         { name = L["Debug Utilities"], subs = (function()
             -- The "Debug" sub-tab is always present (it hosts the "I know what I'm
@@ -458,6 +460,31 @@ local function ShowMainTab(index)
         btn:SetBackdropColor(on and 0.12 or 0.1, on and 0.15 or 0.1, on and 0.22 or 0.1, on and 1 or 0.8)
         btn:SetBackdropBorderColor(on and BR or 0.4, on and BG or 0.4, on and BB or 0.4, 1)
         if btn.label then btn.label:SetTextColor(on and BR or 1, on and BG or 1, on and BB or 1) end
+    end
+end
+
+-- Public: jump to a registered sub-tab by name, switching the main tab and expanding
+-- its category if needed. Used by the Free-icons tab to click through to a tracker.
+function ns.NavigateToPanel(panelName)
+    if not (navTree and panelName) then return end
+    for mi, tab in ipairs(navTree) do
+        for _, item in ipairs(tab.subs) do
+            if item.panel == panelName then
+                if activeMain ~= mi then ShowMainTab(mi) end
+                ShowSubTab(panelName)
+                return true
+            elseif item.subs then
+                for _, s in ipairs(item.subs) do
+                    if s.panel == panelName then
+                        if activeMain ~= mi then ShowMainTab(mi) end
+                        collapsed[item.cat] = false   -- reveal the category holding it
+                        LayoutLeftMenu()
+                        ShowSubTab(panelName)
+                        return true
+                    end
+                end
+            end
+        end
     end
 end
 

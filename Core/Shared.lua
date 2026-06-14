@@ -578,14 +578,17 @@ local DEFAULTS_BOSS_RESET = {
 -- CDM row (cdmDest = "belowPlayer"). Configured in General Settings; applied to
 -- every below-player icon by ns.CDMAnchor (so they share one consistent size).
 local DEFAULTS_CDM_BELOW_ROW = {
-    width   = 36,
+    width   = 36,   -- shared icon size for BOTH buckets (front + end)
     height  = 36,
-    -- Manual mode: OFF -> the row stays flush under the PlayerFrame at offset 0,0
-    -- (the offset below is ignored and dragging is disabled). ON -> the offset /
-    -- drag take effect so the user can place the row anywhere.
+    -- Manual mode: OFF -> both buckets stay flush under the PlayerFrame (front at the
+    -- bottom-LEFT, end at the bottom-RIGHT) at offset 0,0 (offsets ignored, dragging
+    -- disabled). ON -> the per-bucket offsets / drag take effect so each bucket can be
+    -- placed independently.
     manualEnabled = false,
-    offsetX = 0,    -- manual nudge from PlayerFrame's BOTTOMLEFT (only when manualEnabled)
+    offsetX = 0,    -- FRONT bucket nudge from PlayerFrame's BOTTOMLEFT  (manual only)
     offsetY = 0,
+    endOffsetX = 0, -- END  bucket nudge from PlayerFrame's BOTTOMRIGHT (manual only)
+    endOffsetY = 0,
 }
 
 -- Debug "Console mode" options (account-wide). textEditor on by default (bottom
