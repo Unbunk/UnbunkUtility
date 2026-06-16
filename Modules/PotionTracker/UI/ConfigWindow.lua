@@ -454,6 +454,12 @@ local function BuildPotionSectionOptions(prefix, LSM)
                                         tracker.ApplyFont()
                                     end,
                                 },
+                                -- Configurable urgency tiers (size + colour as the timer drops).
+                                ns.ui.TiersEntry({
+                                    getTiers = function() return GetCfg("timerTiers") end,
+                                    apply    = function() tracker.ApplyVisuals() end,
+                                    rebuild  = function() if PT.configMenu then PT.configMenu.Rebuild() end end,
+                                }),
                             }
                         end,
                     },
@@ -479,6 +485,15 @@ local function BuildPotionSectionOptions(prefix, LSM)
                                         PT.ApplyStackVisuals(prefix, tracker)
                                     end,
                                 },
+                                -- Stack anchor + nudge (Center / edges / 4 inside corners).
+                                ns.ui.AnchorOffsetEntry({
+                                    getAnchor = function() return GetCfg("stackAnchor") end,
+                                    setAnchor = function(m) SetCfg("stackAnchor", m); PT.ApplyStackVisuals(prefix, tracker) end,
+                                    getX = function() return GetCfg("stackOffsetX") end,
+                                    setX = function(v) SetCfg("stackOffsetX", v); PT.ApplyStackVisuals(prefix, tracker) end,
+                                    getY = function() return GetCfg("stackOffsetY") end,
+                                    setY = function(v) SetCfg("stackOffsetY", v); PT.ApplyStackVisuals(prefix, tracker) end,
+                                }),
                                 {
                                     type            = "textEditor",
                                     LSM             = LSM,

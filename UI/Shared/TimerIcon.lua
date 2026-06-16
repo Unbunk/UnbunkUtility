@@ -392,8 +392,8 @@ function ns.ui.CreateTimerIcon(config)
 
     function result.ApplySize()
         -- In any CDM mode the size is owned by ns.CDMAnchor via SetSlotSize:
-        -- essential/utility match the native row icons; below-player uses the
-        -- account-wide cdmBelowRow size. Only a FREE icon uses its configured size.
+        -- essential/utility use the per-row size override (default 44); below-player uses
+        -- the per-profile cdmBelowRow size. Only a FREE icon uses its configured size.
         if not CDMActive() then
             local w = math.max(8, math.min(512, getCfg("iconWidth") or 64))
             local h = math.max(8, math.min(512, getCfg("iconHeight") or 64))
@@ -413,12 +413,21 @@ function ns.ui.CreateTimerIcon(config)
     -- Draw / refresh the configurable border from config (borderEnabled,
     -- borderColor, borderSize). Cheap; safe to call on every size / reload pass.
     function result.ApplyBorder()
-        if not getCfg("borderEnabled") then
+        -- In the Cooldown Manager the per-DEST border (set in the Essentials / Utility /
+        -- Below player frame panels) governs every icon of that dest, so they all share one
+        -- border. A free icon (not in the CDM) uses its own border config.
+        local enabled, c, size
+        if CDMActive() and ns.CDMAnchor and ns.CDMAnchor.GetDestBorder then
+            enabled, c, size = ns.CDMAnchor.GetDestBorder(getCfg("cdmDest") or "essential")
+        else
+            enabled, c, size = getCfg("borderEnabled"), getCfg("borderColor"), getCfg("borderSize")
+        end
+        if not enabled then
             for _, t in pairs(borderEdges) do t:Hide() end
             return
         end
-        local size = math.max(1, math.min(16, getCfg("borderSize") or 1))
-        local c = getCfg("borderColor") or { r = 0, g = 0, b = 0, a = 1 }
+        size = math.max(1, math.min(16, size or 1))
+        c = c or { r = 0, g = 0, b = 0, a = 1 }
         local r, g, b, a = c.r or 0, c.g or 0, c.b or 0, c.a or 1
         for _, t in pairs(borderEdges) do t:SetColorTexture(r, g, b, a) end
 

@@ -34,10 +34,13 @@ local DEFAULTS = {
         iconHeight    = 30,
         timerFontKey  = "Fira Mono",
         timerFontPath = nil,
-        timerFontSize = 20,
+        timerFontSize = 14,
         timerOutline  = "OUTLINE",
         timerColor    = { r=1, g=1, b=1, a=1 },
         showStack       = true,
+        stackAnchor     = "BOTTOM",   -- potions keep their stack count below the icon
+        stackOffsetX    = 0,
+        stackOffsetY    = 0,
         stackFontKey    = "Fira Mono",
         stackFontPath   = nil,
         stackFontSize   = 12,
@@ -63,6 +66,9 @@ local DEFAULTS = {
         favoriteEnabled = true,
         favoriteId      = 241308,  -- Light's Potential
         showStack       = true,
+        stackAnchor     = "BOTTOM",   -- potions keep their stack count below the icon
+        stackOffsetX    = 0,
+        stackOffsetY    = 0,
         stackFontKey    = "Fira Mono",
         stackFontPath   = nil,
         stackFontSize   = 12,
@@ -74,7 +80,7 @@ local DEFAULTS = {
         iconHeight    = 30,
         timerFontKey  = "Fira Mono",
         timerFontPath = nil,
-        timerFontSize = 20,
+        timerFontSize = 14,
         timerOutline  = "OUTLINE",
         timerColor    = { r=1, g=1, b=1, a=1 },
         soundOnUse    = true,
@@ -85,6 +91,17 @@ local DEFAULTS = {
         soundPathReady= nil,
     },
 }
+
+-- Default urgency tiers (match the custom-icon / defensive behaviour: yellow @15s,
+-- red @5s). Seeded per category if missing — never merged, so deleting/editing
+-- tiers sticks (ns.MergeDefaults recurses into sub-tables and would re-add them).
+local DEFAULT_TIERS = {
+    { at = 15, scale = 1.2,  color = { r = 1, g = 0.82, b = 0, a = 1 } },
+    { at = 5,  scale = 1.45, color = { r = 1, g = 0,    b = 0, a = 1 } },
+}
+local function SeedTiers(t)
+    if t and t.timerTiers == nil then t.timerTiers = ns.DeepCopy(DEFAULT_TIERS) end
+end
 
 -- One-shot legacy fold. Until this version PotionTracker stored its config in
 -- the account-wide global PotionTrackerDB instead of the AceDB profile (the only
@@ -109,6 +126,8 @@ function PT.CfgInit()
     ns.db.profile.PotionTracker = ns.db.profile.PotionTracker or {}
     ns.MigrateSoundKeys(ns.db.profile.PotionTracker)
     ns.MergeDefaults(ns.db.profile.PotionTracker, DEFAULTS)
+    SeedTiers(ns.db.profile.PotionTracker.health)
+    SeedTiers(ns.db.profile.PotionTracker.combat)
 end
 ns.RegisterCfgInitHook(PT.CfgInit)
 

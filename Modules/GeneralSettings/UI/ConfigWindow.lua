@@ -325,15 +325,60 @@ local function AddDragHint(cadre, inside)
     return fs
 end
 
+-- Maps an addon icon's frame name to its config panel, so the pen on a non-custom icon
+-- (in the reorder strips AND the Free icons tab) navigates to that tracker's own tab.
+local FREE_PANEL_PREFIX = {
+    { "RacialTracker",      "Racial Tracker"      },
+    { "PotionTracker",      "Potion Tracker"      },
+    { "HealthstoneTracker", "Healthstone Tracker" },
+    { "TrinketTracker",     "Trinket Tracker"     },
+    { "BLTracker",          "BL Tracker"          },
+    { "PITracker",          "PI Tracker"          },
+    { "UnbunkUtilityDefensive", "Defensive Tracker" },
+}
+local function FreePanelForFrame(name)
+    if type(name) ~= "string" then return nil end
+    for _, e in ipairs(FREE_PANEL_PREFIX) do
+        if name:find("^" .. e[1]) then return L[e[2]] end
+    end
+    return nil
+end
+
 -- The CDM row reorder strip entry (a Front/End cadre pair per row) is shared by the
 -- Essentials / Utility panels AND the Below-player panel; forward-declared here so
 -- CreateBelowPlayerPanel can reference it, and defined further down beside the
 -- essential/utility panels it also serves.
 local CDMRowReorderEntry
 
+-- The "Border" cadre shown in the Essentials / Utility / Below player frame panels: ONE
+-- border (show / colour / thickness) the CDM applies to EVERY icon in that dest. (A free
+-- icon — one taken out of the CDM — keeps its own Border cadre instead.)
+local function DestBorderEntry(dest)
+    -- if/return (not `and`) so all three values come back, not just the first.
+    local function db()
+        if ns.CDMAnchor then return ns.CDMAnchor.GetDestBorder(dest) end
+        return true, { r = 0, g = 0, b = 0, a = 1 }, 1
+    end
+    local function isOn() local e = db(); return e and true or false end
+    return { type = "group", title = L["Border"], build = function() return {
+        { type = "checkbox", label = L["Show border"],
+          get = isOn,
+          set = function(v) if ns.CDMAnchor then ns.CDMAnchor.SetDestBorder(dest, "borderEnabled", v and true or false) end end },
+        { type = "textEditor", label = L["Border color"],
+          enabledBy = isOn,
+          showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+          getColor = function() local _, col = db(); return col end,
+          onColorChange = function(r, g, b, a) if ns.CDMAnchor then ns.CDMAnchor.SetDestBorder(dest, "borderColor", { r = r, g = g, b = b, a = a }) end end },
+        { type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+          enabledBy = isOn,
+          get = function() local _, _, sz = db(); return sz end,
+          set = function(v) if v and v > 0 and ns.CDMAnchor then ns.CDMAnchor.SetDestBorder(dest, "borderSize", v) end end },
+    } end }
+end
+
 -- ── Below player frame (CDM row) ──────────────────────────────────────────────
 local function CreateBelowPlayerPanel(parent)
-    local function Row() return ns.db.global.cdmBelowRow end
+    local function Row() return ns.db.profile.cdmBelowRow end
     local belowMenu   -- fwd: the manual-mode checkbox re-applies its gate via belowMenu.Refresh
 
     local options = {
@@ -512,6 +557,9 @@ local function CreateBelowPlayerPanel(parent)
                 end,
             },
         } end },
+
+        -- Border for every below-player icon (the CDM manages it; free icons use their own).
+        DestBorderEntry("belowPlayer"),
     }
     belowMenu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
     return belowMenu
@@ -546,11 +594,23 @@ function CDMRowReorderEntry(dest)
                     -- the pen re-opens its spell-ID editor. (id = the icon's frame name.)
                     local function onRemoveCustom(id)
                         local cid = ns.CustomCDM and ns.CustomCDM.IdFromFrameName(id)
-                        if cid then ns.CustomCDM.Remove(cid) end
+                        if cid then ns.CustomCDM.ConfirmRemove(cid) end
                     end
                     local function onEditCustom(id)
                         local cid = ns.CustomCDM and ns.CustomCDM.IdFromFrameName(id)
                         if cid then ns.CustomCDM.PromptEdit(cid) end
+                    end
+                    -- The pen on a non-custom (addon) icon jumps to that tracker's tab.
+                    local function onNavigate(panel)
+                        if panel and ns.NavigateToPanel then ns.NavigateToPanel(panel) end
+                    end
+                    -- getIcons wrapper: tag each non-custom (addon) icon with its nav panel.
+                    local function bucketIcons(atEnd)
+                        local list = (ns.CDMAnchor and ns.CDMAnchor.GetBucketIcons(dest, r, atEnd)) or {}
+                        for _, it in ipairs(list) do
+                            if not it.custom then it.nav = FreePanelForFrame(it.id) end
+                        end
+                        return list
                     end
                     -- Row is "full" once front + end together hit the per-destination cap;
                     -- both strips share this (row-level) gate so the "+" hides on both.
@@ -564,12 +624,13 @@ function CDMRowReorderEntry(dest)
                         createContent = function(cf)
                             rw.frontStrip = ns.ui.CreateIconReorderStrip({
                                 parent = cf, width = HALF - 2 * SIDE, emptyText = L["No icons"],
-                                getIcons = function() return (ns.CDMAnchor and ns.CDMAnchor.GetBucketIcons(dest, r, false)) or {} end,
+                                getIcons = function() return bucketIcons(false) end,
                                 setOrder = function(ids) if ns.CDMAnchor then ns.CDMAnchor.SetBucketOrder(dest, r, false, ids) end end,
                                 onAdd          = function() if ns.CustomCDM then ns.CustomCDM.PromptAdd(dest, r, false) end end,
                                 canAdd         = canAddToRow,
                                 onRemoveCustom = onRemoveCustom,
                                 onEditCustom   = onEditCustom,
+                                onNavigate     = onNavigate,
                             })
                             rw.frontStrip.frame:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, 0)
                             return 40
@@ -580,12 +641,13 @@ function CDMRowReorderEntry(dest)
                         createContent = function(cf)
                             rw.endStrip = ns.ui.CreateIconReorderStrip({
                                 parent = cf, width = HALF - 2 * SIDE, emptyText = L["No icons"],
-                                getIcons = function() return (ns.CDMAnchor and ns.CDMAnchor.GetBucketIcons(dest, r, true)) or {} end,
+                                getIcons = function() return bucketIcons(true) end,
                                 setOrder = function(ids) if ns.CDMAnchor then ns.CDMAnchor.SetBucketOrder(dest, r, true, ids) end end,
                                 onAdd          = function() if ns.CustomCDM then ns.CustomCDM.PromptAdd(dest, r, true) end end,
                                 canAdd         = canAddToRow,
                                 onRemoveCustom = onRemoveCustom,
                                 onEditCustom   = onEditCustom,
+                                onNavigate     = onNavigate,
                             })
                             rw.endStrip.frame:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, 0)
                             return 40
@@ -642,9 +704,219 @@ function CDMRowReorderEntry(dest)
     }
 end
 
--- A full essential/utility sub-tab: an H2 title then the row reorder strips.
+-- ── Placement cadre (essential / utility) ────────────────────────────────────
+-- Move the native Cooldown Manager from its Edit Mode position: an X/Y offset (typed)
+-- plus an Unlock button to drag it. The addon takes the viewer over while an offset is
+-- set (or it is unlocked); a zeroed offset hands it back to Edit Mode.
+local function ViewerPlacementEntry(dest)
+    return { type = "group", title = L["Placement"], build = function() return {
+        { type = "label", font = "UnbunkUtilityH6", height = 30,
+          text = L["Move the Cooldown Manager. X / Y are measured from the centre of the screen. Unlock to drag it; Reset returns it to Edit Mode."] },
+        {
+            type = "custom", height = 28,
+            build = function(host)
+                -- NOTE: `return A and f()` truncates f() to ONE value, which silently
+                -- dropped Y — use if/return so BOTH coordinates come back.
+                local function pos()
+                    if ns.CDMAnchor then return ns.CDMAnchor.GetViewerPos(dest) end
+                    return 0, 0
+                end
+                local function setPos(x, y)
+                    if ns.CDMAnchor then ns.CDMAnchor.SetViewerPos(dest, x, y); ns.CDMAnchor.RefreshAll(true) end
+                end
+                local xLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                xLbl:SetPoint("LEFT", host, "LEFT", 0, 0); xLbl:SetText("X")
+                local xInput = ns.ui.CreateTextInput({
+                    parent = host, width = 56, height = 22, numeric = true, allowNegative = true,
+                    min = -2000, max = 2000, maxLetters = 5, text = tostring(math.floor((select(1, pos())) or 0)),
+                    onEnter = function(v) if v ~= nil then setPos(v, nil) end end,
+                })
+                xInput.frame:SetPoint("LEFT", xLbl, "RIGHT", 4, 0)
+                local yLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                yLbl:SetPoint("LEFT", xInput.frame, "RIGHT", 12, 0); yLbl:SetText("Y")
+                local yInput = ns.ui.CreateTextInput({
+                    parent = host, width = 56, height = 22, numeric = true, allowNegative = true,
+                    min = -2000, max = 2000, maxLetters = 5, text = tostring(math.floor((select(2, pos())) or 0)),
+                    onEnter = function(v) if v ~= nil then setPos(nil, v) end end,
+                })
+                yInput.frame:SetPoint("LEFT", yLbl, "RIGHT", 4, 0)
+                local function Refresh()
+                    local x, y = pos()
+                    xInput.SetText(tostring(math.floor(x or 0))); yInput.SetText(tostring(math.floor(y or 0)))
+                end
+                -- Let a drag-release (CDMAnchor) push the new position back into these boxes.
+                ns.OnViewerMoved = ns.OnViewerMoved or {}
+                ns.OnViewerMoved[dest] = Refresh
+                return { frame = host, height = 28, Refresh = Refresh }
+            end,
+        },
+        {
+            type = "custom", height = 28,
+            build = function(host)
+                local function unlocked() return ns.CDMAnchor and ns.CDMAnchor.IsViewerUnlocked(dest) end
+                local btn, Refresh
+                Refresh = function() if btn then btn.SetText(unlocked() and L["Lock"] or L["Unlock"]) end end
+                btn = ns.ui.CreateButton({
+                    parent = host, width = 150, height = 22,
+                    label = unlocked() and L["Lock"] or L["Unlock"],
+                    onClick = function()
+                        if ns.CDMAnchor then ns.CDMAnchor.SetViewerUnlocked(dest, not unlocked()) end
+                        Refresh()
+                    end,
+                })
+                btn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                return { frame = host, height = 28, Refresh = Refresh }
+            end,
+        },
+    } end }
+end
+
+-- One per-row icon-size sub-cadre (W / H). The displayed value is the saved override or,
+-- when unset, the viewer's current native icon size as the starting point.
+local function ViewerRowSizeSubCadre(dest, r)
+    return { type = "group", title = string.format(L["Row %d"], r), build = function() return {
+        {
+            type = "custom", height = 28,
+            build = function(host)
+                -- Show the size the layout actually uses: the per-row override, else the
+                -- default (44 for essential/utility).
+                local function eff()
+                    if ns.CDMAnchor then return ns.CDMAnchor.EffectiveRowSize(dest, r) end
+                    return 44, 44
+                end
+                local function curW() return (eff()) or 44 end
+                local function curH() local _, h = eff(); return h or 44 end
+                local function setSize(w, h)
+                    if ns.CDMAnchor then ns.CDMAnchor.SetViewerRowSize(dest, r, w, h); ns.CDMAnchor.RefreshAll(true) end
+                end
+                local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                wLbl:SetPoint("LEFT", host, "LEFT", 0, 0); wLbl:SetText(L["W"])
+                local wInput = ns.ui.CreateTextInput({
+                    parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+                    text = tostring(curW()),
+                    onEnter = function(v) if v and v > 0 then setSize(v, nil) end end,
+                })
+                wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+                local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
+                local hInput = ns.ui.CreateTextInput({
+                    parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+                    text = tostring(curH()),
+                    onEnter = function(v) if v and v > 0 then setSize(nil, v) end end,
+                })
+                hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+                return { frame = host, height = 28,
+                    Refresh = function() wInput.SetText(tostring(curW())); hInput.SetText(tostring(curH())) end }
+            end,
+        },
+    } end }
+end
+
+-- Icon size cadre: one sub-cadre per row the viewer currently renders. The row count is
+-- read at build time; adding/removing icons rebuilds the panel (RebuildActiveModule), so
+-- the sub-cadres track the row count.
+local function ViewerIconSizeEntry(dest)
+    return { type = "group", title = L["Icon size"], build = function()
+        local nRows = (ns.CDMAnchor and ns.CDMAnchor.GetRowCount and ns.CDMAnchor.GetRowCount(dest)) or 1
+        if nRows < 1 then nRows = 1 end
+        local entries = {}
+        for r = 1, nRows do entries[#entries + 1] = ViewerRowSizeSubCadre(dest, r) end
+        return entries
+    end }
+end
+
+-- A full essential/utility sub-tab: an H2 title, the Placement + Icon size cadres, then
+-- the row reorder strips.
+-- "Native icons" cadre: the native Cooldown Manager spells for this dest, one strip per
+-- row (single list, no Front/End, no drag). Non-adopted natives carry a pen (click =
+-- adopt + customize); adopted ones carry the pen (edit) + X (un-adopt). Adopted spells
+-- stay listed here (from ns.NativeCDM.AdoptedForDest) even though their native frame is
+-- hidden, so they remain manageable.
+local function NativeIconsEntry(dest)
+    return { type = "group", title = L["Native icons"], build = function() return {
+        { type = "custom", build = function(host)
+            local rows = (ns.CDMAnchor and ns.CDMAnchor.GetNativeRows and ns.CDMAnchor.GetNativeRows(dest)) or {}
+            -- Group adopted spells by their stored row so they appear alongside the rest.
+            local adoptedByRow = {}
+            local maxAdoptedRow = 0
+            if ns.NativeCDM and ns.NativeCDM.AdoptedForDest then
+                for _, it in ipairs(ns.NativeCDM.AdoptedForDest(dest)) do
+                    local r = it.row or 1
+                    adoptedByRow[r] = adoptedByRow[r] or {}
+                    adoptedByRow[r][#adoptedByRow[r] + 1] = it
+                    if r > maxAdoptedRow then maxAdoptedRow = r end
+                end
+            end
+            local nRows = math.max(#rows, maxAdoptedRow)
+
+            local function openEditor(spellId, ri) if ns.NativeCDM then ns.NativeCDM.OpenEditor(spellId, dest, ri) end end
+            local function editFrame(id, ri)
+                local sid = ns.NativeCDM and ns.NativeCDM.SpellIdFromFrameName(id)
+                if sid then openEditor(sid, ri) end
+            end
+            local function removeFrame(id)
+                local sid = ns.NativeCDM and ns.NativeCDM.SpellIdFromFrameName(id)
+                if sid then ns.NativeCDM.ConfirmRemove(sid) end
+            end
+
+            local strips, y = {}, 0
+            for ri = 1, nRows do
+                local rowList   = rows[ri] or {}
+                local adoptList = adoptedByRow[ri] or {}
+                local labelH = 0
+                if nRows > 1 then
+                    local lbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
+                    lbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
+                    lbl:SetText(string.format(L["Row %d"], ri))
+                    labelH = 20
+                end
+                local strip = ns.ui.CreateIconReorderStrip({
+                    parent = host, width = 498, emptyText = L["No icons"], noDrag = true,
+                    getIcons = function()
+                        local items = {}
+                        -- Adopted first (pen edits, X un-adopts), then the live natives (pen adopts).
+                        for _, it in ipairs(adoptList) do
+                            items[#items + 1] = { id = ns.NativeCDM.FrameName(it.spellId), texture = it.texture, custom = true }
+                        end
+                        for _, it in ipairs(rowList) do
+                            items[#items + 1] = { id = "native:" .. tostring(it.spellId), texture = it.texture, nav = it.spellId }
+                        end
+                        return items
+                    end,
+                    setOrder       = function() end,
+                    onNavigate     = function(spellId) openEditor(spellId, ri) end,
+                    onEditCustom   = function(id) editFrame(id, ri) end,
+                    onRemoveCustom = removeFrame,
+                })
+                strip.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -(y + labelH))
+                strips[#strips + 1] = strip
+                y = y + labelH + (strip.height or 40) + 8
+            end
+            if nRows == 0 then
+                local fs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+                fs:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                fs:SetTextColor(0.6, 0.6, 0.6)
+                fs:SetText(L["No native cooldowns detected (open the Cooldown Manager with cooldowns showing)."])
+                y = 22
+            end
+            host:SetHeight(math.max(1, y))
+            return { frame = host, height = math.max(1, y) }
+        end },
+    } end }
+end
+
 local function CreateCDMRowPanel(parent, dest, titleText)
-    return ns.ui.BuildMenu(parent, { H2(titleText), CDMRowReorderEntry(dest) }, { gap = 12, width = 518 })
+    return ns.ui.BuildMenu(parent, {
+        H2(titleText),
+        ViewerPlacementEntry(dest),
+        DestBorderEntry(dest),
+        ViewerIconSizeEntry(dest),
+        NativeIconsEntry(dest),
+        -- All the Front/End reorder strips live under one "Addon Icons" cadre.
+        { type = "group", title = L["Addon Icons"], build = function() return {
+            CDMRowReorderEntry(dest),
+        } end },
+    }, { gap = 12, width = 518 })
 end
 
 local function CreateCDMEssentialsPanel(parent) return CreateCDMRowPanel(parent, "essential", L["CDM: Essentials"]) end
@@ -654,22 +926,6 @@ local function CreateCDMUtilityPanel(parent)    return CreateCDMRowPanel(parent,
 -- A big (10-row) wrapping grid of every icon taken OUT of the Cooldown Manager, in
 -- add order. Custom ones get the pen (edit) / cross (delete); addon tracker ones are
 -- clicked to jump to their own settings. A trailing "+" adds a new free custom icon.
-local FREE_PANEL_PREFIX = {
-    { "RacialTracker",      "Racial Tracker"      },
-    { "PotionTracker",      "Potion Tracker"      },
-    { "HealthstoneTracker", "Healthstone Tracker" },
-    { "TrinketTracker",     "Trinket Tracker"     },
-    { "BLTracker",          "BL Tracker"          },
-    { "PITracker",          "PI Tracker"          },
-}
-local function FreePanelForFrame(name)
-    if type(name) ~= "string" then return nil end
-    for _, e in ipairs(FREE_PANEL_PREFIX) do
-        if name:find("^" .. e[1]) then return L[e[2]] end
-    end
-    return nil
-end
-
 local function CreateFreeIconsPanel(parent)
     local function onEditFree(itemId)
         local cid = ns.CustomCDM and ns.CustomCDM.IdFromFrameName(itemId)
@@ -678,7 +934,7 @@ local function CreateFreeIconsPanel(parent)
     local options = {
         H2(L["CDM: Free icons"]),
         { type = "label", font = "UnbunkUtilityH6", height = 36,
-          text = L["Icons taken out of the Cooldown Manager. Pen/cross edit or delete a custom one; click an addon icon to open its settings; the + adds a new free custom icon."] },
+          text = L["Icons taken out of the Cooldown Manager. The pen edits a custom icon (cross deletes it) or opens an addon icon's tab; the + adds a new free custom icon."] },
         {
             type   = "custom",
             height = 10,
@@ -701,15 +957,11 @@ local function CreateFreeIconsPanel(parent)
                     onAdd          = function() if ns.CustomCDM then ns.CustomCDM.PromptAddFree() end end,
                     onRemoveCustom = function(itemId)
                         local cid = ns.CustomCDM and ns.CustomCDM.IdFromFrameName(itemId)
-                        if cid then ns.CustomCDM.Remove(cid) end
+                        if cid then ns.CustomCDM.ConfirmRemove(cid) end
                     end,
                     onEditCustom   = onEditFree,
-                    onIconClick    = function(item)
-                        if item.nav then
-                            if ns.NavigateToPanel then ns.NavigateToPanel(item.nav) end
-                        elseif item.custom then
-                            onEditFree(item.id)
-                        end
+                    onNavigate     = function(panel)
+                        if panel and ns.NavigateToPanel then ns.NavigateToPanel(panel) end
                     end,
                 })
                 s.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)

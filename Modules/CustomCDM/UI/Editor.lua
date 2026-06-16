@@ -13,26 +13,11 @@ local CC = ns.CustomCDM
 local editor      -- singleton { frame, scroll, content, sb, menu }
 local editingId   -- the icon id currently shown
 
--- ── Anchor dropdown helpers (Center / Above / Below / Left / Right) ───────────
-local ANCHOR_MODES = { "CENTER", "TOP", "BOTTOM", "LEFT", "RIGHT" }
-local function AnchorLabel(mode)
-    if mode == "TOP"    then return L["Above"]  end
-    if mode == "BOTTOM" then return L["Below"]  end
-    if mode == "LEFT"   then return L["Left"]   end
-    if mode == "RIGHT"  then return L["Right"]  end
-    return L["Center"]
-end
-local function AnchorFromLabel(label)
-    for _, m in ipairs(ANCHOR_MODES) do
-        if AnchorLabel(m) == label then return m end
-    end
-    return "CENTER"
-end
-local function AnchorList()
-    local t = {}
-    for _, m in ipairs(ANCHOR_MODES) do t[#t + 1] = AnchorLabel(m) end
-    return t
-end
+-- ── Anchor dropdown helpers ───────────────────────────────────────────────────
+-- Centralised in ns (Core/Shared.lua): Center / edge modes / 4 inside corners.
+local AnchorLabel     = ns.AnchorLabel
+local AnchorFromLabel = ns.AnchorFromLabel
+local AnchorList      = ns.AnchorList
 
 -- A textEditor entry editing one styled-text block (font / size / colour / outline) of
 -- a config key prefix, e.g. "timer" -> timerFontKey/timerFontPath/timerFontSize/
@@ -188,175 +173,246 @@ local function TiersEntry(id, rebuildEditor)
     }
 end
 
--- Build the option list for an icon. `refresh` re-syncs widgets; `rebuild` re-renders
--- the whole menu (used after add/remove of a threshold row).
-local function EditorOptions(id, LSM, refresh, rebuild)
-    local pe   -- free-mode position editor widget (captured via onBuilt)
-    return {
-        -- ── Spell (ID or name) ────────────────────────────────────────────────
-        { type = "group", title = L["Spell"], build = function() return {
-            { type = "custom", height = 26, build = function(host)
+-- ── Cadre builders (each returns a BuildMenu group entry, bound to an icon id) ─
+local function SpellGroup(id)
+    return { type = "group", title = L["Spell"], build = function() return {
+            { type = "custom", height = 52, build = function(host)
+                -- Row 1: the current spell's icon + name.
                 local fs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                fs:SetPoint("LEFT", host, "LEFT", 0, 0)
-                local function show()
+                fs:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                local function showName()
                     local sid  = CC.Get(id, "spellId")
                     local tex  = sid and sid ~= 0 and C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)
                     local name = CC.SpellName(id)
-                    if tex then fs:SetText(string.format("|T%d:20|t %s", tex, name)) else fs:SetText(name) end
+                    if tex then fs:SetText(string.format("|T%d:20|t %s", tex, name)) else fs:SetText(name or "") end
                 end
-                show()
-                return { frame = host, height = 26, Refresh = show }
-            end },
-            { type = "textinput", label = L["Spell (ID or name)"], width = 240, maxLetters = 64,
-              get = function() return tostring(CC.Get(id, "spellId") or "") end,
-              set = function(v) if CC.SetSpellInput(id, v) then refresh() end end },
-        } end },
+                -- The input shows the current spell id, or BLANK for a not-yet-set draft
+                -- (no "0" placeholder).
+                local function spellText()
+                    local sid = CC.Get(id, "spellId")
+                    return (sid and sid ~= 0) and tostring(sid) or ""
+                end
+                showName()
 
-        -- ── Timer (show + text style + thresholds) ────────────────────────────
-        { type = "group", title = L["Timer"],
-          gate = { enabled = function() return CC.Get(id, "showTimer") ~= false end, master = "showtimer" },
-          build = function() return {
-            { type = "checkbox", ref = "showtimer", label = L["Show timer"],
-              get = function() return CC.Get(id, "showTimer") ~= false end,
-              set = function(v) CC.Set(id, "showTimer", v) end },
-            StyleEditor(id, "timer", LSM),
-            TiersEntry(id, rebuild),
-        } end },
+                -- Forward-declared so the input's onEnter (which commits a draft) can use
+                -- the button refresher.
+                local btn, updateBtn
+                updateBtn = function()
+                    if btn then btn.SetText(CC.IsDraft(id) and L["Add Icon"] or L["Delete Icon"]) end
+                end
+                -- Add the (committed) icon for a draft, else just refresh its display.
+                local function commitOrApply()
+                    if CC.IsDraft(id) then
+                        if CC.CommitDraft(id) then showName(); updateBtn() end
+                    else
+                        showName()
+                    end
+                end
 
-        -- ── Title (show + text + anchor + style) ──────────────────────────────
-        { type = "group", title = L["Title"],
-          gate = { enabled = function() return CC.Get(id, "showTitle") == true end, master = "showtitle" },
-          build = function() return {
-            { type = "checkbox", ref = "showtitle", label = L["Show title"],
-              get = function() return CC.Get(id, "showTitle") == true end,
-              set = function(v) CC.Set(id, "showTitle", v) end },
-            { type = "textinput", label = L["Title text"], width = 240, maxLetters = 64,
-              get = function() return CC.Get(id, "titleText") or "" end,
-              set = function(v) CC.Set(id, "titleText", v or "") end },
-            AnchorOffsetEntry(id, "title"),
-            StyleEditor(id, "title", LSM),
-        } end },
-
-        -- ── Stacks (show + show-at-0 + anchor + style) ────────────────────────
-        { type = "group", title = L["Stacks"],
-          gate = { enabled = function() return CC.Get(id, "showStack") ~= false end, master = "showstack" },
-          build = function() return {
-            { type = "checkbox", ref = "showstack", label = L["Show stacks"], height = 24,
-              get = function() return CC.Get(id, "showStack") ~= false end,
-              set = function(v) CC.Set(id, "showStack", v) end,
-              inline = {
-                { type = "checkbox", label = L["Show icon at 0 stacks"],
-                  get = function() return CC.Get(id, "showAtZero") ~= false end,
-                  set = function(v) CC.Set(id, "showAtZero", v) end,
-                  point = { "LEFT", "LEFT", 150, 0 } },
-              } },
-            AnchorOffsetEntry(id, "stack"),
-            StyleEditor(id, "stack", LSM),
-        } end },
-
-        -- ── Border ────────────────────────────────────────────────────────────
-        { type = "group", title = L["Border"], build = function() return {
-            { type = "checkbox", label = L["Show border"],
-              get = function() return CC.Get(id, "borderEnabled") == true end,
-              set = function(v) CC.Set(id, "borderEnabled", v); refresh() end },
-            { type = "textEditor", label = L["Border color"],
-              enabledBy = function() return CC.Get(id, "borderEnabled") == true end,
-              showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-              getColor = function() return CC.Get(id, "borderColor") end,
-              onColorChange = function(r, g, b, a) CC.Set(id, "borderColor", { r = r, g = g, b = b, a = a }) end },
-            { type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-              enabledBy = function() return CC.Get(id, "borderEnabled") == true end,
-              get = function() return CC.Get(id, "borderSize") or 1 end,
-              set = function(v) if v and v > 0 then CC.Set(id, "borderSize", v) end end },
-        } end },
-
-        -- ── Sound alert (on use / when ready) ─────────────────────────────────
-        { type = "group", title = L["Sound alert"], build = function() return {
-            { type = "sound", LSM = LSM, label = L["Sound on use"],
-              getKey    = function() return CC.Get(id, "soundKeyUse") end,
-              getEnable = function() return CC.Get(id, "soundOnUse") end,
-              onSelect  = function(key, path) CC.Set(id, "soundKeyUse", key); CC.Set(id, "soundPathUse", path) end,
-              onToggle  = function(v) CC.Set(id, "soundOnUse", v) end,
-              onTest    = function() CC.TestSound(id, "use") end },
-            { type = "sound", LSM = LSM, label = L["Sound when ready"],
-              getKey    = function() return CC.Get(id, "soundKeyReady") end,
-              getEnable = function() return CC.Get(id, "soundOnReady") end,
-              onSelect  = function(key, path) CC.Set(id, "soundKeyReady", key); CC.Set(id, "soundPathReady", path) end,
-              onToggle  = function(v) CC.Set(id, "soundOnReady", v) end,
-              onTest    = function() CC.TestSound(id, "ready") end },
-        } end },
-
-        -- ── Placement (Cooldown Manager slot, or free on screen) ──────────────
-        -- Pre-filled from the cadre the "+" was clicked in. Unchecking "Include in cdm"
-        -- moves the icon to the "Free icons" sub-tab and reveals the free position editor.
-        { type = "group", title = L["Placement"], build = function() return {
-            { type = "checkbox", label = L["Include in cdm"],
-              disabled = function() return not ns.IsCDMEnabled() end,
-              get = function() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
-              set = function(v)
-                  CC.Set(id, "includeInCdm", v)
-                  rebuild()
-                  if ns.RebuildActiveModule then ns.RebuildActiveModule() end
-              end },
-            { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
-              when = function() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
-              getList = function() return ns.CDMDestList() end,
-              getCurrentKey = function() return ns.CDMDestLabel(CC.Get(id, "cdmDest") or "belowPlayer") end,
-              onSelect = function(label)
-                  CC.Set(id, "cdmDest", ns.CDMDestKeyFromLabel(label))
-                  rebuild()
-                  if ns.RebuildActiveModule then ns.RebuildActiveModule() end
-              end },
-            { type = "checkbox", label = L["Icon at the end of the row"],
-              when = function() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
-              get = function() return CC.Get(id, "cdmAtEnd") ~= false end,
-              set = function(v) CC.Set(id, "cdmAtEnd", v); if ns.RebuildActiveModule then ns.RebuildActiveModule() end end },
-            { type = "dropdown", label = L["Row"], width = 120, height = 50,
-              when = function() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
-              getList = function() return ns.CDMRowList(CC.Get(id, "cdmDest") or "belowPlayer") end,
-              getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(CC.Get(id, "cdmDest") or "belowPlayer", CC.Get(id, "cdmRow"))) end,
-              onSelect = function(label) CC.Set(id, "cdmRow", ns.CDMRowFromLabel(label)); if ns.RebuildActiveModule then ns.RebuildActiveModule() end end },
-            -- Free placement (only when NOT in the CDM): screen position + drag unlock.
-            { type = "position", ref = "pe",
-              when = function() return not ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
-              onBuilt = function(w) pe = w end,
-              label = L["Icon position (offset from screen center)"],
-              getX = function() return CC.Get(id, "posX") end,
-              getY = function() return CC.Get(id, "posY") end,
-              onApply = function(x, yv)
-                  if x  then CC.Set(id, "posX", x)  end
-                  if yv then CC.Set(id, "posY", yv) end
-              end,
-              onUnlock = function() CC.SetUnlocked(id, true) end,
-              onLock   = function() CC.SetUnlocked(id, false); if pe then pe.Refresh() end end,
-              isUnlocked = function() return CC.IsUnlocked(id) end },
-            -- Icon size — free icons only; a CDM-slotted icon keeps the native row size.
-            { type = "custom", height = 46,
-              when = function() return not ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
-              build = function(host)
-                local sLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-                sLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); sLbl:SetText(L["Icon size"])
-                local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
-                local wInput = ns.ui.CreateTextInput({
-                    parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                    text = tostring(CC.Get(id, "iconWidth") or 30),
-                    onEnter = function(v) if v and v > 0 then CC.Set(id, "iconWidth", v) end end,
+                -- Row 2: the spell-id/name input + the Add Icon / Delete Icon button.
+                local input
+                input = ns.ui.CreateTextInput({
+                    parent = host, width = 200, height = 22, maxLetters = 64,
+                    text = spellText(),
+                    -- Enter resolves the spell AND adds the icon (same as "Add Icon").
+                    onEnter = function(v) if CC.SetSpellInput(id, v) then commitOrApply() end end,
                 })
-                wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-                local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
-                local hInput = ns.ui.CreateTextInput({
-                    parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                    text = tostring(CC.Get(id, "iconHeight") or 30),
-                    onEnter = function(v) if v and v > 0 then CC.Set(id, "iconHeight", v) end end,
+                input.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -26)
+
+                btn = ns.ui.CreateButton({
+                    parent = host, width = 100, height = 22,
+                    label = CC.IsDraft(id) and L["Add Icon"] or L["Delete Icon"],
+                    onClick = function()
+                        if CC.IsDraft(id) then
+                            if CC.SetSpellInput(id, input.GetText() or "") then commitOrApply() end
+                        else
+                            CC.ConfirmRemove(id)
+                        end
+                    end,
                 })
-                hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-                return { frame = host, height = 46, Refresh = function()
-                    wInput.SetText(tostring(CC.Get(id, "iconWidth") or 30))
-                    hInput.SetText(tostring(CC.Get(id, "iconHeight") or 30))
+                btn.frame:SetPoint("LEFT", input.frame, "RIGHT", 8, 0)
+                return { frame = host, height = 52, Refresh = function()
+                    showName()
+                    input.SetText(spellText())
+                    updateBtn()
                 end }
-              end },
+            end },
+    } end }
+end
+
+local function SoundGroup(id, LSM)
+    return { type = "group", title = L["Sound alert"], build = function() return {
+        { type = "sound", LSM = LSM, label = L["Sound on use"],
+          getKey    = function() return CC.Get(id, "soundKeyUse") end,
+          getEnable = function() return CC.Get(id, "soundOnUse") end,
+          onSelect  = function(key, path) CC.Set(id, "soundKeyUse", key); CC.Set(id, "soundPathUse", path) end,
+          onToggle  = function(v) CC.Set(id, "soundOnUse", v) end,
+          onTest    = function() CC.TestSound(id, "use") end },
+        { type = "sound", LSM = LSM, label = L["Sound when ready"],
+          getKey    = function() return CC.Get(id, "soundKeyReady") end,
+          getEnable = function() return CC.Get(id, "soundOnReady") end,
+          onSelect  = function(key, path) CC.Set(id, "soundKeyReady", key); CC.Set(id, "soundPathReady", path) end,
+          onToggle  = function(v) CC.Set(id, "soundOnReady", v) end,
+          onTest    = function() CC.TestSound(id, "ready") end },
+    } end }
+end
+
+local function BorderGroup(id, refresh, whenFn)
+    return { type = "group", title = L["Border"], when = whenFn, build = function() return {
+        { type = "checkbox", label = L["Show border"],
+          get = function() return CC.Get(id, "borderEnabled") == true end,
+          set = function(v) CC.Set(id, "borderEnabled", v); refresh() end },
+        { type = "textEditor", label = L["Border color"],
+          enabledBy = function() return CC.Get(id, "borderEnabled") == true end,
+          showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+          getColor = function() return CC.Get(id, "borderColor") end,
+          onColorChange = function(r, g, b, a) CC.Set(id, "borderColor", { r = r, g = g, b = b, a = a }) end },
+        { type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+          enabledBy = function() return CC.Get(id, "borderEnabled") == true end,
+          get = function() return CC.Get(id, "borderSize") or 1 end,
+          set = function(v) if v and v > 0 then CC.Set(id, "borderSize", v) end end },
+    } end }
+end
+
+local function TimerGroup(id, LSM, rebuild)
+    return { type = "group", title = L["Timer"],
+      gate = { enabled = function() return CC.Get(id, "showTimer") ~= false end, master = "showtimer" },
+      build = function() return {
+        { type = "checkbox", ref = "showtimer", label = L["Show timer"],
+          get = function() return CC.Get(id, "showTimer") ~= false end,
+          set = function(v) CC.Set(id, "showTimer", v) end },
+        StyleEditor(id, "timer", LSM),
+        TiersEntry(id, rebuild),
+    } end }
+end
+
+local function TitleGroup(id, LSM)
+    return { type = "group", title = L["Title"],
+      gate = { enabled = function() return CC.Get(id, "showTitle") == true end, master = "showtitle" },
+      build = function() return {
+        { type = "checkbox", ref = "showtitle", label = L["Show title"],
+          get = function() return CC.Get(id, "showTitle") == true end,
+          set = function(v) CC.Set(id, "showTitle", v) end },
+        { type = "textinput", label = L["Title text"], width = 240, maxLetters = 64,
+          get = function() return CC.Get(id, "titleText") or "" end,
+          set = function(v) CC.Set(id, "titleText", v or "") end },
+        AnchorOffsetEntry(id, "title"),
+        StyleEditor(id, "title", LSM),
+    } end }
+end
+
+local function StacksGroup(id, LSM)
+    return { type = "group", title = L["Stacks"],
+      gate = { enabled = function() return CC.Get(id, "showStack") ~= false end, master = "showstack" },
+      build = function() return {
+        { type = "checkbox", ref = "showstack", label = L["Show stacks"], height = 24,
+          get = function() return CC.Get(id, "showStack") ~= false end,
+          set = function(v) CC.Set(id, "showStack", v) end,
+          inline = {
+            { type = "checkbox", label = L["Show icon at 0 stacks"],
+              get = function() return CC.Get(id, "showAtZero") ~= false end,
+              set = function(v) CC.Set(id, "showAtZero", v) end,
+              point = { "LEFT", "LEFT", 150, 0 } },
+          } },
+        AnchorOffsetEntry(id, "stack"),
+        StyleEditor(id, "stack", LSM),
+    } end }
+end
+
+local function PlacementGroup(id, rebuild, refresh)
+    local pe   -- free-mode position editor widget (captured via onBuilt)
+    return { type = "group", title = L["Placement"], build = function() return {
+        { type = "checkbox", label = L["Include in cdm"],
+          disabled = function() return not ns.IsCDMEnabled() end,
+          get = function() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
+          set = function(v)
+              CC.Set(id, "includeInCdm", v)
+              rebuild()
+              if ns.RebuildActiveModule then ns.RebuildActiveModule() end
+          end },
+        { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
+          when = function() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
+          getList = function() return ns.CDMDestList() end,
+          getCurrentKey = function() return ns.CDMDestLabel(CC.Get(id, "cdmDest") or "belowPlayer") end,
+          onSelect = function(label)
+              CC.Set(id, "cdmDest", ns.CDMDestKeyFromLabel(label))
+              rebuild()
+              if ns.RebuildActiveModule then ns.RebuildActiveModule() end
+          end },
+        { type = "checkbox", label = L["Icon at the end of the row"],
+          when = function() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
+          get = function() return CC.Get(id, "cdmAtEnd") ~= false end,
+          set = function(v) CC.Set(id, "cdmAtEnd", v); if ns.RebuildActiveModule then ns.RebuildActiveModule() end end },
+        { type = "dropdown", label = L["Row"], width = 120, height = 50,
+          when = function() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
+          getList = function() return ns.CDMRowList(CC.Get(id, "cdmDest") or "belowPlayer") end,
+          getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(CC.Get(id, "cdmDest") or "belowPlayer", CC.Get(id, "cdmRow"))) end,
+          onSelect = function(label) CC.Set(id, "cdmRow", ns.CDMRowFromLabel(label)); if ns.RebuildActiveModule then ns.RebuildActiveModule() end end },
+        -- Free placement (only when NOT in the CDM): screen position + drag unlock.
+        { type = "position", ref = "pe",
+          when = function() return not ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
+          onBuilt = function(w) pe = w end,
+          label = L["Icon position (offset from screen center)"],
+          getX = function() return CC.Get(id, "posX") end,
+          getY = function() return CC.Get(id, "posY") end,
+          onApply = function(x, yv)
+              if x  then CC.Set(id, "posX", x)  end
+              if yv then CC.Set(id, "posY", yv) end
+          end,
+          onUnlock = function() CC.SetUnlocked(id, true) end,
+          onLock   = function() CC.SetUnlocked(id, false); if pe then pe.Refresh() end end,
+          isUnlocked = function() return CC.IsUnlocked(id) end },
+        -- Icon size — free icons only; a CDM-slotted icon keeps the native row size.
+        { type = "custom", height = 46,
+          when = function() return not ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
+          build = function(host)
+            local sLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
+            sLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); sLbl:SetText(L["Icon size"])
+            local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+            wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
+            local wInput = ns.ui.CreateTextInput({
+                parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+                text = tostring(CC.Get(id, "iconWidth") or 30),
+                onEnter = function(v) if v and v > 0 then CC.Set(id, "iconWidth", v) end end,
+            })
+            wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+            local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+            hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
+            local hInput = ns.ui.CreateTextInput({
+                parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+                text = tostring(CC.Get(id, "iconHeight") or 30),
+                onEnter = function(v) if v and v > 0 then CC.Set(id, "iconHeight", v) end end,
+            })
+            hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+            return { frame = host, height = 46, Refresh = function()
+                wInput.SetText(tostring(CC.Get(id, "iconWidth") or 30))
+                hInput.SetText(tostring(CC.Get(id, "iconHeight") or 30))
+            end }
+          end },
+        -- Border at the bottom of Placement, and ONLY for a free icon — in the CDM the
+        -- per-dest border (the dest panel's Border cadre) governs every icon there.
+        BorderGroup(id, refresh, function() return not ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end),
+    } end }
+end
+
+-- Build the option list for an icon. `refresh` re-syncs widgets; `rebuild` re-renders
+-- the whole menu (used after add/remove of a threshold row, or a placement change).
+-- Layout: Spell, then Sound alert, then an "Icon" cadre ("Show icon" toggle) wrapping
+-- Placement, Border, Timer, Title, Stacks.
+local function EditorOptions(id, LSM, refresh, rebuild)
+    return {
+        SpellGroup(id),
+        SoundGroup(id, LSM),
+        { type = "group", title = L["Icon"],
+          gate = { enabled = function() return CC.Get(id, "showIcon") ~= false end, master = "showicon" },
+          build = function() return {
+            { type = "checkbox", ref = "showicon", label = L["Show icon"],
+              get = function() return CC.Get(id, "showIcon") ~= false end,
+              set = function(v) CC.Set(id, "showIcon", v) end },
+            PlacementGroup(id, rebuild, refresh),
+            TimerGroup(id, LSM, rebuild),
+            TitleGroup(id, LSM),
+            StacksGroup(id, LSM),
         } end },
     }
 end
@@ -421,8 +477,14 @@ local function EnsureWindow()
     sb.track:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", 22, 0)
 
     f:HookScript("OnShow", function() C_Timer.After(0, function() sb.Update() end) end)
-    -- Re-lock any free-drag unlock when the editor closes (mirrors the main window).
-    f:HookScript("OnHide", function() if editingId then CC.SetUnlocked(editingId, false) end end)
+    -- Re-lock any free-drag unlock when the editor closes (mirrors the main window),
+    -- and drop an uncommitted draft (the "+" was clicked but "Add Icon" never was).
+    f:HookScript("OnHide", function()
+        if editingId then
+            CC.SetUnlocked(editingId, false)
+            if CC.IsDraft and CC.IsDraft(editingId) then CC.DiscardDraft(editingId) end
+        end
+    end)
 
     editor = { frame = f, scroll = scroll, content = content, sb = sb }
     return editor

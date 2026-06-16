@@ -347,6 +347,11 @@ local function CreateBLTrackerPanel(parent)
                                         BL.ApplyFont()
                                     end,
                                 },
+                                ns.ui.TiersEntry({
+                                    getTiers = function() return BL.CfgGet("timerTiers") end,
+                                    apply    = function() BL.ApplyVisuals() end,
+                                    rebuild  = function() if menu then menu.Rebuild() end end,
+                                }),
                             }
                         end,
                     },

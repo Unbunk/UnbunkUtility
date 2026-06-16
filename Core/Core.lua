@@ -112,9 +112,10 @@ local function BuildNavTree()
             { panel = L["Addon settings"] },
             { panel = L["Profiles"] },
             { cat = L["Cooldown Manager"], subs = {
-                { panel = L["Below player frame"] },
                 { panel = L["Essentials"] },
                 { panel = L["Utility"] },
+                { panel = L["Buffs"] },
+                { panel = L["Below player frame"] },
                 { panel = L["Free icons"] },
             } },
         } },
@@ -129,6 +130,7 @@ local function BuildNavTree()
                 { panel = L["Death alert anti-spam"] },
             } },
             { cat = L["Item/Spell Trackers"], subs = {
+                { panel = L["Defensive Tracker"] },
                 { panel = L["Trinket Tracker"] },
                 { panel = L["Potion Tracker"] },
                 { panel = L["Healthstone Tracker"] },
@@ -140,6 +142,7 @@ local function BuildNavTree()
             } },
         } },
         { name = L["Extra Utilities"], subs = {
+            { panel = L["Cast bar"] },
             { panel = L["Multi-alert combo"] },
             { panel = L["Player speed display"] },
             { panel = L["Death Anim"] },
@@ -486,6 +489,20 @@ function ns.NavigateToPanel(panelName)
             end
         end
     end
+end
+
+-- Public: drop a panel's cached frame so its createFn re-runs next time it is shown
+-- (e.g. the Defensive Tracker's per-spell section list after a spec change). If it is
+-- the active panel, recreate + show it now.
+function ns.InvalidatePanel(name)
+    local p = panels[name]
+    if not p or not p.frame then return end
+    local wasActive = (activeSub == name and p.frame:IsShown())
+    p.frame:Hide()
+    p.frame:SetParent(nil)
+    p.frame = nil
+    p.menu  = nil
+    if wasActive then ShowSubTab(name) end
 end
 
 local function BuildMainTabs()

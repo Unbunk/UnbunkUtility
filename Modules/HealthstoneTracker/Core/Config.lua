@@ -24,10 +24,13 @@ local DEFAULTS = {
     borderSize     = 1,
     timerFontKey   = "Fira Mono",
     timerFontPath  = nil,
-    timerFontSize  = 20,
+    timerFontSize  = 14,
     timerOutline   = "OUTLINE",
     timerColor     = { r = 1, g = 1, b = 1, a = 1 },
-    -- Stack count text below the icon — always shown (no toggle).
+    -- Stack count text — always shown (no toggle), anchored bottom-right inside by default.
+    stackAnchor    = "BOTTOMRIGHT",
+    stackOffsetX   = 0,
+    stackOffsetY   = 0,
     stackFontKey   = "Fira Mono",
     stackFontPath  = nil,
     stackFontSize  = 12,
@@ -47,10 +50,19 @@ local DEFAULTS = {
     },
 }
 
+-- Default urgency tiers (yellow @15s, red @5s — matching custom icons / defensives).
+-- Seeded if missing; never merged so deleting/editing tiers sticks.
+local DEFAULT_TIERS = {
+    { at = 15, scale = 1.2,  color = { r = 1, g = 0.82, b = 0, a = 1 } },
+    { at = 5,  scale = 1.45, color = { r = 1, g = 0,    b = 0, a = 1 } },
+}
+
 function HT.CfgInit()
     ns.db.profile.HealthstoneTracker = ns.db.profile.HealthstoneTracker or {}
     ns.MigrateSoundKeys(ns.db.profile.HealthstoneTracker)
     ns.MergeDefaults(ns.db.profile.HealthstoneTracker, DEFAULTS)
+    local t = ns.db.profile.HealthstoneTracker
+    if t.timerTiers == nil then t.timerTiers = ns.DeepCopy(DEFAULT_TIERS) end
 end
 ns.RegisterCfgInitHook(HT.CfgInit)
 

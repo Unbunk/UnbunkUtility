@@ -99,6 +99,58 @@ function ns.ResolveFontPath(path, key)
     return "Fonts\\FRIZQT__.TTF"
 end
 
+-- ── Text anchors (title / stack around an icon) ───────────────────────────────
+-- Single source of truth shared by every icon editor + core. The edge modes
+-- (TOP/BOTTOM/LEFT/RIGHT) sit just OUTSIDE the icon; the four corner modes sit
+-- INSIDE the icon (2px inset); CENTER is dead centre. Each entry is
+-- { fontStringPoint, frameRelativePoint, x, y }.
+ns.ANCHOR_MODES = {
+    "CENTER", "TOP", "BOTTOM", "LEFT", "RIGHT",
+    "BOTTOMRIGHT", "BOTTOMLEFT", "TOPRIGHT", "TOPLEFT",
+}
+ns.ANCHOR_POINTS = {
+    CENTER      = { "CENTER",      "CENTER",       0,  0 },
+    TOP         = { "BOTTOM",      "TOP",          0,  2 },
+    BOTTOM      = { "TOP",         "BOTTOM",       0, -2 },
+    LEFT        = { "RIGHT",       "LEFT",        -2,  0 },
+    RIGHT       = { "LEFT",        "RIGHT",        2,  0 },
+    TOPLEFT     = { "TOPLEFT",     "TOPLEFT",      2, -2 },
+    TOPRIGHT    = { "TOPRIGHT",    "TOPRIGHT",    -2, -2 },
+    BOTTOMLEFT  = { "BOTTOMLEFT",  "BOTTOMLEFT",   2,  2 },
+    BOTTOMRIGHT = { "BOTTOMRIGHT", "BOTTOMRIGHT", -2,  2 },
+}
+-- Place a FontString around `frame` per anchor mode, plus an optional nudge (ox, oy).
+function ns.AnchorFS(fs, frame, mode, ox, oy)
+    local a = ns.ANCHOR_POINTS[mode] or ns.ANCHOR_POINTS.CENTER
+    fs:ClearAllPoints()
+    fs:SetPoint(a[1], frame, a[2], a[3] + (ox or 0), a[4] + (oy or 0))
+end
+-- Localised dropdown label for an anchor mode (ns.L looked up lazily — the locale
+-- engine loads after this file, but these run only when a menu is built).
+function ns.AnchorLabel(mode)
+    local L = ns.L or {}
+    if mode == "TOP"         then return L["Above"]                or "Above"  end
+    if mode == "BOTTOM"      then return L["Below"]                or "Below"  end
+    if mode == "LEFT"        then return L["Left"]                 or "Left"   end
+    if mode == "RIGHT"       then return L["Right"]                or "Right"  end
+    if mode == "TOPLEFT"     then return L["Top-left (inside)"]     or "Top-left (inside)"     end
+    if mode == "TOPRIGHT"    then return L["Top-right (inside)"]    or "Top-right (inside)"    end
+    if mode == "BOTTOMLEFT"  then return L["Bottom-left (inside)"]  or "Bottom-left (inside)"  end
+    if mode == "BOTTOMRIGHT" then return L["Bottom-right (inside)"] or "Bottom-right (inside)" end
+    return L["Center"] or "Center"
+end
+function ns.AnchorFromLabel(label)
+    for _, m in ipairs(ns.ANCHOR_MODES) do
+        if ns.AnchorLabel(m) == label then return m end
+    end
+    return "CENTER"
+end
+function ns.AnchorList()
+    local t = {}
+    for _, m in ipairs(ns.ANCHOR_MODES) do t[#t + 1] = ns.AnchorLabel(m) end
+    return t
+end
+
 -- ── Brand title colour ───────────────────────────────────────────────────────
 -- Every config title/label renders in this blue (the same square the checkboxes
 -- use) instead of Blizzard's default gold. Two font objects clone GameFontNormal
@@ -589,6 +641,10 @@ local DEFAULTS_CDM_BELOW_ROW = {
     offsetY = 0,
     endOffsetX = 0, -- END  bucket nudge from PlayerFrame's BOTTOMRIGHT (manual only)
     endOffsetY = 0,
+    -- Shared border for every below-player icon (the panel's "Border" cadre).
+    borderEnabled = true,
+    borderColor   = { r = 0, g = 0, b = 0, a = 1 },
+    borderSize    = 1,
 }
 
 -- Debug "Console mode" options (account-wide). textEditor on by default (bottom
@@ -632,7 +688,7 @@ function ns.InitGlobalCfg()
     g.wipe        = g.wipe        or {}
     g.dpsSpam     = g.dpsSpam     or {}
     g.bossReset   = g.bossReset   or {}
-    g.cdmBelowRow = g.cdmBelowRow or {}
+    g.cdmBelowRow = g.cdmBelowRow or {}   -- legacy account-wide source for the migration below
 
     -- One-time migration: the debug-suite + appearance settings below used to be
     -- account-wide (db.global); they are now PER-PROFILE (db.profile). Fold the old
@@ -649,11 +705,41 @@ function ns.InitGlobalCfg()
     p.console     = p.console     or {}
     p.printUsage  = p.printUsage  or {}
     p.graphUsage  = p.graphUsage  or {}
+
+    -- CDM layout (below-player row + per-viewer placement/size) lives in the PROFILE so the
+    -- whole CDM setup travels with profile export/import/switch, alongside the icon data
+    -- (cdmCustom / cdmOrder / per-icon dest+row+atEnd) already kept per-profile.
+    p.cdmBelowRow = p.cdmBelowRow or {}
+    -- Migrate the old account-wide below-player config into the active profile ONCE (own
+    -- flag, so it runs even for accounts that passed the appearance migration above). The
+    -- global copy is left as a harmless backup.
+    if not g.__cdmBelowRowMigrated then
+        g.__cdmBelowRowMigrated = true
+        for k, v in pairs(g.cdmBelowRow) do
+            if p.cdmBelowRow[k] == nil then p.cdmBelowRow[k] = ns.DeepCopy(v) end
+        end
+    end
+    -- Per-viewer placement/size, seeded ONCE per profile with the default layout
+    -- (Essentials 0,-275 / Utility 0,-260; per-row icon size defaults to 44 in CDMAnchor).
+    -- The seed never re-applies, so a Reset (clearing x/y) persists across reloads.
+    p.cdmViewer = p.cdmViewer or {}
+    if not p.cdmViewer.__seeded then
+        p.cdmViewer.__seeded  = true
+        p.cdmViewer.essential = p.cdmViewer.essential or {}
+        p.cdmViewer.utility   = p.cdmViewer.utility   or {}
+        if p.cdmViewer.essential.x == nil then p.cdmViewer.essential.x, p.cdmViewer.essential.y = 0, -175 end
+        if p.cdmViewer.utility.x   == nil then p.cdmViewer.utility.x,   p.cdmViewer.utility.y   = 0, -260 end
+    end
+    -- Correct the earlier Essentials default (0,-275) -> (0,-175); a value the user
+    -- actually changed is left alone.
+    local ess = p.cdmViewer.essential
+    if ess and ess.x == 0 and ess.y == -275 then ess.y = -175 end
+
     ns.MergeDefaults(g.combo,       DEFAULTS_COMBO)
     ns.MergeDefaults(g.wipe,        DEFAULTS_WIPE)
     ns.MergeDefaults(g.dpsSpam,     DEFAULTS_DPS_SPAM)
     ns.MergeDefaults(g.bossReset,   DEFAULTS_BOSS_RESET)
-    ns.MergeDefaults(g.cdmBelowRow, DEFAULTS_CDM_BELOW_ROW)
+    ns.MergeDefaults(p.cdmBelowRow, DEFAULTS_CDM_BELOW_ROW)
     ns.MergeDefaults(p.console,     DEFAULTS_CONSOLE)
     ns.MergeDefaults(p.printUsage,  DEFAULTS_PRINT_USAGE)
     ns.MergeDefaults(p.graphUsage,  DEFAULTS_GRAPH_USAGE)

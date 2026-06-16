@@ -130,6 +130,103 @@ local function ComputeRows(viewer)
     return rows
 end
 
+-- These native helpers live above the file's main `ns.CDMAnchor = ns.CDMAnchor or {}`
+-- init, so ensure the table exists before assigning into it (the later init no-ops).
+ns.CDMAnchor = ns.CDMAnchor or {}
+
+-- A native CooldownViewer item frame's spell id. The item frame carries a
+-- `cooldownInfo` table (Blizzard's GetCooldownViewerCooldownInfo result); the DISPLAY
+-- spell is overrideTooltipSpellID -> overrideSpellID -> spellID (same precedence the
+-- native viewer + Ayije_CDM use). Returns nil when the frame has no cooldown info.
+function ns.CDMAnchor.NativeFrameSpellId(nf)
+    local ci = nf and nf.cooldownInfo
+    if type(ci) ~= "table" then return nil end
+    local id = ci.overrideTooltipSpellID or ci.overrideSpellID or ci.spellID
+    if id and (not issecretvalue or not issecretvalue(id)) and id > 0 then return id end
+    return nil
+end
+
+-- The native BUFF cooldown viewer's icon frames (BuffIconCooldownViewer). The Buff-groups
+-- module redistributes these into its own movable group containers (reusing the real native
+-- frames so Blizzard keeps rendering their cooldown / charges / combat state).
+--
+-- The viewer keeps one POOL frame per DISPLAYED buff and toggles each frame's shown state as
+-- the aura comes and goes — so we must NOT filter on IsShown (an inactive buff's frame is
+-- shown=false but still needs pre-positioning in its group; Blizzard reveals it in place when
+-- the buff procs). Every active pool frame is returned; the caller resolves the spell id.
+function ns.CDMAnchor.EnumBuffIcons()
+    local v = _G.BuffIconCooldownViewer
+    if not v then return {} end
+    local out = {}
+    local pool = v.itemFramePool
+    if pool and pool.EnumerateActive then
+        for f in pool:EnumerateActive() do
+            if f then out[#out + 1] = f end
+        end
+    end
+    if #out == 0 then
+        for _, c in ipairs({ v:GetChildren() }) do
+            if c and (c.cooldownInfo or c.GetCooldownInfo or c.GetSpellID) then
+                out[#out + 1] = c
+            end
+        end
+    end
+    return out
+end
+
+-- Per-row list of the native cooldowns currently shown in a dest's viewer, each
+-- { spellId, texture, name }, in visual order. Used by the "Native icons" config cadre.
+function ns.CDMAnchor.GetNativeRows(dest)
+    local viewer = ns.GetCDMViewer(dest)
+    if not viewer then return {} end
+    local out = {}
+    for ri, row in ipairs(ComputeRows(viewer)) do
+        local list = {}
+        for _, nf in ipairs(row) do
+            local sid = ns.CDMAnchor.NativeFrameSpellId(nf)
+            -- Skip natives the user has ADOPTED (customized) — those are listed by the
+            -- "Native icons" cadre from ns.NativeCDM.AdoptedForDest, not from the viewer.
+            if sid and not (ns.NativeCDM and ns.NativeCDM.IsAdopted and ns.NativeCDM.IsAdopted(sid)) then
+                local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
+                list[#list + 1] = {
+                    spellId = sid,
+                    texture = (nf.Icon and nf.Icon.GetTexture and nf.Icon:GetTexture())
+                              or (info and info.iconID) or (C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)),
+                    name    = info and info.name,
+                }
+            end
+        end
+        out[ri] = list
+    end
+    return out
+end
+
+-- Has the user adopted this native's spell AND is its replacement icon built? Adopted
+-- natives are replaced by our own TimerIcon, so the layout hides them and drops them
+-- from the grid — but only when a real replacement exists (else the cooldown vanishes).
+local function NativeAdopted(nf)
+    if not (ns.NativeCDM and ns.NativeCDM.ShouldHideNative) then return false end
+    local sid = ns.CDMAnchor.NativeFrameSpellId(nf)
+    return sid and ns.NativeCDM.ShouldHideNative(sid) or false
+end
+
+-- Synchronously hide any native frame matching this spell, used right after adopting so
+-- the native doesn't flash next to our replacement icon before the next layout pass.
+function ns.CDMAnchor.HideNativeForSpell(spellId)
+    for _, dest in ipairs({ "essential", "utility" }) do
+        local v = ns.GetCDMViewer(dest)
+        if v then
+            for _, nf in ipairs(EnumNativeIcons(v)) do
+                if ns.CDMAnchor.NativeFrameSpellId(nf) == spellId
+                    and nf.Hide and nf:IsShown()
+                    and not (InCombatLockdown() and nf.IsProtected and nf:IsProtected()) then
+                    nf:Hide()
+                end
+            end
+        end
+    end
+end
+
 -- Number of rows available for a destination's viewer (for the Row dropdown). >=1.
 function ns.CDMRowCount(dest)
     local v = ns.GetCDMViewer(dest)
@@ -208,7 +305,7 @@ local belowUnlocked = false   -- transient (per-session) manual-drag mode
 -- bucket stays flush under the frame (offset 0,0). side=="end" -> the end bucket's own
 -- offset (from BOTTOMRIGHT); otherwise the front bucket's (from BOTTOMLEFT).
 local function BelowOffset(side)
-    local c = ns.db and ns.db.global and ns.db.global.cdmBelowRow
+    local c = ns.db and ns.db.profile and ns.db.profile.cdmBelowRow
     if not (c and c.manualEnabled) then return 0, 0 end
     if side == "end" then return c.endOffsetX or 0, c.endOffsetY or 0 end
     return c.offsetX or 0, c.offsetY or 0
@@ -300,7 +397,7 @@ local function MakeBelowBucket(name, side)
     f:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
         local anchor = self.anchorFrame or _G["PlayerFrame"]
-        local c = ns.db and ns.db.global and ns.db.global.cdmBelowRow
+        local c = ns.db and ns.db.profile and ns.db.profile.cdmBelowRow
         if anchor and c and self:GetTop() and anchor:GetBottom() then
             if side == "end" then
                 if self:GetRight() and anchor:GetRight() then
@@ -391,7 +488,7 @@ end
 
 -- Account-wide size of the below-player row icons (configured in General Settings).
 local function BelowRowSize()
-    local c = ns.db and ns.db.global and ns.db.global.cdmBelowRow
+    local c = ns.db and ns.db.profile and ns.db.profile.cdmBelowRow
     return (c and c.width) or 36, (c and c.height) or 36
 end
 
@@ -450,7 +547,10 @@ end
 local function EffectiveRowCount(dest)
     local v = ns.GetCDMViewer(dest)
     if not v then return 1 end
-    local nNat = #EnumNativeIcons(v)
+    local nNat = 0
+    for _, nf in ipairs(EnumNativeIcons(v)) do
+        if not NativeAdopted(nf) then nNat = nNat + 1 end
+    end
     local nMine = 0
     for _, d in ipairs(appliers) do
         if d.frame and d.frame.IsShown and d.frame:IsShown() and d.getCfg
@@ -569,11 +669,15 @@ function ns.CDMAnchor.GetBucketIcons(dest, row, atEnd)
     local out = {}
     for _, d in ipairs(BucketList(dest, row, atEnd)) do
         local id = DescId(d)
-        out[#out + 1] = {
-            id      = id,
-            texture = d.getIcon and d.getIcon() or nil,
-            custom  = ns.CustomCDM and ns.CustomCDM.IsCustom(id) or nil,
-        }
+        -- Adopted native icons are managed in the "Native icons" cadre, not the Addon
+        -- Icons reorder strips, so keep them out of this list.
+        if not (ns.NativeCDM and ns.NativeCDM.IsNativeFrame and ns.NativeCDM.IsNativeFrame(id)) then
+            out[#out + 1] = {
+                id      = id,
+                texture = d.getIcon and d.getIcon() or nil,
+                custom  = ns.CustomCDM and ns.CustomCDM.IsCustom(id) or nil,
+            }
+        end
     end
     return out
 end
@@ -635,15 +739,215 @@ local RawClearAllPoints = _proxy.ClearAllPoints
 local containers     = {}     -- dest -> our container frame
 local editModeActive = false
 
+-- ── Per-viewer (essential / utility) placement + per-row icon size ────────────
+-- Per-profile override (ns.db.profile.cdmViewer[dest]) of the NATIVE CooldownViewer:
+--   * offsetX/offsetY nudge the whole viewer from its captured EditMode anchor;
+--   * rows[r] = { width, height } resize that row's icons (native AND ours).
+-- The addon only TAKES OVER a viewer once an override exists (or it is unlocked for
+-- dragging) — with no override Blizzard / EditMode keeps full ownership.
+local viewerUnlocked = {}     -- dest -> transient (per-session) manual-drag mode
+
+local function ViewerCfg(dest)
+    local p = ns.db and ns.db.profile
+    if not p then return nil end
+    p.cdmViewer = p.cdmViewer or {}
+    p.cdmViewer[dest] = p.cdmViewer[dest] or {}
+    return p.cdmViewer[dest]
+end
+ns.CDMAnchor.ViewerCfg = ViewerCfg
+
+-- Placed position of the viewer's TOP-centre, measured from the SCREEN centre (the same
+-- reference EditMode uses). nil on an axis = not placed -> fall back to the EditMode base.
+local function ViewerPos(dest)
+    local c = ViewerCfg(dest)
+    return c and c.x, c and c.y
+end
+
+-- Per-dest default icon size (the code-level fallback for any row with no explicit
+-- override) — Essentials / Utility default to 44x44.
+local DEFAULT_VIEWER_ICON = { essential = 44, utility = 44 }
+
+-- A row's icon size: the saved override if set (>0), else this dest's default (44 for
+-- essential/utility), else the native slot size nw/nh passed in.
+local function ViewerRowSize(dest, r, nw, nh)
+    local c = ViewerCfg(dest)
+    local rs = c and c.rows and c.rows[r]
+    local dw = DEFAULT_VIEWER_ICON[dest]
+    local w = (rs and rs.width  and rs.width  > 0) and rs.width  or dw or nw
+    local h = (rs and rs.height and rs.height > 0) and rs.height or dw or nh
+    return w, h
+end
+
+-- The size the layout would actually use for a row (override / default / native), so the
+-- config panel can show the current effective value (44 by default).
+function ns.CDMAnchor.EffectiveRowSize(dest, r)
+    local nw, nh = ns.CDMAnchor.NativeIconSize(dest)
+    return ViewerRowSize(dest, r, nw, nh)
+end
+
+-- ── Per-dest border (shared by EVERY icon that is IN that dest) ───────────────
+-- Stored on the dest's config (cdmViewer[dest] for essential/utility, cdmBelowRow for
+-- below-player); defaults to a 1px black border. TimerIcon.ApplyBorder reads this for any
+-- icon in the CDM, so the dest's Border cadre governs them all; free icons keep their own.
+local function DestBorderCfg(dest)
+    if dest == "belowPlayer" then
+        return ns.db and ns.db.profile and ns.db.profile.cdmBelowRow
+    end
+    return ViewerCfg(dest)
+end
+ns.CDMAnchor.DestBorderCfg = DestBorderCfg
+
+function ns.CDMAnchor.GetDestBorder(dest)
+    local c = DestBorderCfg(dest)
+    local enabled = (not c) or (c.borderEnabled ~= false)   -- default ON
+    local color   = (c and c.borderColor) or { r = 0, g = 0, b = 0, a = 1 }
+    local size    = (c and c.borderSize) or 1
+    return enabled, color, size
+end
+
+function ns.CDMAnchor.SetDestBorder(dest, key, val)
+    local c = DestBorderCfg(dest)
+    if not c then return end
+    c[key] = val
+    -- A forced refresh re-lays-out the dest, and each icon's setSize -> ApplyDerivedSizing
+    -- -> ApplyBorder then re-reads this border.
+    ns.CDMAnchor.RefreshAll(true)
+end
+
+-- Any reason to own this viewer (an offset, any row size, or an active unlock-drag)?
+-- Lets us take it over even when it hosts no icons of ours; with none, Blizzard keeps it.
+local function ViewerHasOverride(dest)
+    if viewerUnlocked[dest] then return true end
+    local c = ViewerCfg(dest)
+    if not c then return false end
+    if c.x ~= nil or c.y ~= nil then return true end
+    if c.rows then
+        for _, rs in pairs(c.rows) do
+            if (rs.width or 0) > 0 or (rs.height or 0) > 0 then return true end
+        end
+    end
+    return false
+end
+ns.CDMAnchor.ViewerHasOverride = ViewerHasOverride
+
+function ns.CDMAnchor.IsViewerUnlocked(dest) return viewerUnlocked[dest] == true end
+
+-- Position accessors for the config panel. Coordinates are the viewer's top-centre
+-- relative to the SCREEN centre. GetViewerPos reports the placed value, or (when unplaced)
+-- the current on-screen position so the inputs always show where it actually is.
+function ns.CDMAnchor.GetViewerPos(dest)
+    local c = ViewerCfg(dest)
+    if c and (c.x ~= nil or c.y ~= nil) then return c.x or 0, c.y or 0 end
+    local cont = containers[dest]
+    if cont and cont._uuBase then return cont._uuBase.x, cont._uuBase.y end
+    local v = ns.GetCDMViewer and ns.GetCDMViewer(dest)
+    if v and v.GetCenter then
+        local ucx, ucy = UIParent:GetCenter()
+        local cx, top = v:GetCenter(), v:GetTop()
+        if ucx and cx and top then return cx - ucx, top - ucy end
+    end
+    return 0, 0
+end
+-- Setting one axis pins BOTH (the other to its current value) so the viewer is "placed".
+function ns.CDMAnchor.SetViewerPos(dest, x, y)
+    local c = ViewerCfg(dest); if not c then return end
+    local curX, curY = ns.CDMAnchor.GetViewerPos(dest)
+    c.x = (x ~= nil) and x or (c.x ~= nil and c.x) or curX
+    c.y = (y ~= nil) and y or (c.y ~= nil and c.y) or curY
+end
+-- Clear the placement (and any legacy offset) -> hands the viewer back to Edit Mode.
+function ns.CDMAnchor.ResetViewerPos(dest)
+    local c = ViewerCfg(dest); if not c then return end
+    c.x, c.y, c.offsetX, c.offsetY = nil, nil, nil, nil
+    ns.CDMAnchor.RefreshAll(true)
+end
+
+-- Per-row size accessors for the config panel (0 = "use the native size").
+function ns.CDMAnchor.GetViewerRowSize(dest, r)
+    local c = ViewerCfg(dest)
+    local rs = c and c.rows and c.rows[r]
+    return (rs and rs.width) or 0, (rs and rs.height) or 0
+end
+function ns.CDMAnchor.SetViewerRowSize(dest, r, w, h)
+    local c = ViewerCfg(dest); if not c then return end
+    c.rows = c.rows or {}
+    c.rows[r] = c.rows[r] or {}
+    if w ~= nil then c.rows[r].width  = w end
+    if h ~= nil then c.rows[r].height = h end
+end
+
+-- The native CooldownViewer's current per-icon size, so the panel can show it as the
+-- starting point before any override. Falls back to the layout's 30x30 default.
+function ns.CDMAnchor.NativeIconSize(dest)
+    local v = ns.GetCDMViewer and ns.GetCDMViewer(dest)
+    if v and v.itemFramePool and v.itemFramePool.EnumerateActive then
+        for nf in v.itemFramePool:EnumerateActive() do
+            local w, h = nf:GetSize()
+            if w and w > 0 then return math.floor(w + 0.5), math.floor((h or w) + 0.5) end
+        end
+    end
+    return 30, 30
+end
+
 local function GetContainer(dest)
     local c = containers[dest]
     if not c then
         c = CreateFrame("Frame", "UnbunkUtilityCDM_" .. dest .. "_Container", UIParent)
         c:SetSize(80, 40)
+        c:SetMovable(true)
         if c.SetPreventSecretValues then pcall(c.SetPreventSecretValues, c, true) end
+
+        -- Unlock-drag overlay: hidden + click-through by default. When unlocked it sits
+        -- above the glued viewer to catch the drag; moving it moves the container (the
+        -- viewer follows its anchor) and the dragged delta is folded into the saved
+        -- offset on release, after which RefreshAll re-imposes base + offset.
+        local ovl = CreateFrame("Frame", nil, c)
+        ovl:SetAllPoints(c)
+        ovl:SetFrameStrata("DIALOG")
+        ovl:EnableMouse(false)
+        ovl:Hide()
+        ovl:RegisterForDrag("LeftButton")
+        local bg = ovl:CreateTexture(nil, "OVERLAY")
+        bg:SetAllPoints(ovl)
+        bg:SetColorTexture(0.20, 0.55, 1, 0.30)
+        ovl:SetScript("OnDragStart", function()
+            c._uuDragging = true   -- the layout leaves the anchor alone while we drag
+            c:StartMoving()
+        end)
+        ovl:SetScript("OnDragStop", function()
+            c:StopMovingOrSizing()
+            c._uuDragging = false
+            -- Store the ABSOLUTE top-centre relative to the screen centre (not a delta),
+            -- guarded so a momentarily-nil rect can't half-update one axis (the old delta
+            -- form errored after setting X, leaving Y stale).
+            local cfg = ViewerCfg(dest)
+            local ucx, ucy = UIParent:GetCenter()
+            local cx, top = c:GetCenter(), c:GetTop()
+            if cfg and ucx and cx and top then
+                cfg.x = cx - ucx
+                cfg.y = top - ucy
+            end
+            ns.CDMAnchor.RefreshAll(true)
+            if ns.OnViewerMoved and ns.OnViewerMoved[dest] then ns.OnViewerMoved[dest]() end
+        end)
+        c._uuDragOvl = ovl
+
         containers[dest] = c
     end
     return c
+end
+
+-- Unlock / lock a native viewer for manual dragging (Essentials / Utility panels).
+-- Unlocking forces a refresh so the addon takes the viewer over right away (even with
+-- no icons of ours); locking with a zeroed offset lets it release back to Blizzard.
+function ns.CDMAnchor.SetViewerUnlocked(dest, val)
+    viewerUnlocked[dest] = val and true or false
+    local c = GetContainer(dest)
+    if c._uuDragOvl then
+        c._uuDragOvl:EnableMouse(viewerUnlocked[dest])
+        c._uuDragOvl:SetShown(viewerUnlocked[dest])
+    end
+    ns.CDMAnchor.RefreshAll(true)
 end
 
 -- Capture the viewer's own (EditMode) anchor ONCE so the container can sit there
@@ -699,8 +1003,10 @@ local function CanWrite(f)
     return not (InCombatLockdown() and f.IsProtected and f:IsProtected())
 end
 
-local function PinNative(nf, viewer, x, y)
-    nf._uuPin = { viewer = viewer, x = x, y = y }
+-- x,y = TOPLEFT offset from the viewer; w,h (optional) = the row's icon-size override,
+-- re-imposed alongside the position so Blizzard's relayout can't reset it.
+local function PinNative(nf, viewer, x, y, w, h)
+    nf._uuPin = { viewer = viewer, x = x, y = y, w = w, h = h }
     if not CanWrite(nf) then return end
     if nf:GetScale() ~= 1 then nf:SetScale(1) end
     if not nf._uuPinHook then
@@ -711,6 +1017,7 @@ local function PinNative(nf, viewer, x, y)
             self._uuPinApplying = true
             RawClearAllPoints(self)
             RawSetPoint(self, "TOPLEFT", pin.viewer, "TOPLEFT", pin.x, pin.y)
+            if pin.w and pin.h then self:SetSize(pin.w, pin.h) end
             self._uuPinApplying = false
         end)
         hooksecurefunc(nf, "SetScale", function(self, s)
@@ -720,15 +1027,78 @@ local function PinNative(nf, viewer, x, y)
     nf._uuPinApplying = true
     RawClearAllPoints(nf)
     RawSetPoint(nf, "TOPLEFT", viewer, "TOPLEFT", x, y)
+    if w and h then nf:SetSize(w, h) end
     nf._uuPinApplying = false
+end
+
+-- Hide the addon-drawn CDM border edges on a native frame (used when it drops out of the
+-- active set so a stale border doesn't linger; ApplyNativeBorder re-shows it if re-pinned).
+local function HideNativeBorder(nf)
+    if nf._uuBorderEdges then
+        for _, t in pairs(nf._uuBorderEdges) do t:Hide() end
+    end
 end
 
 local function UnpinNatives(viewer)
     if viewer.itemFramePool and viewer.itemFramePool.EnumerateActive then
-        for nf in viewer.itemFramePool:EnumerateActive() do nf._uuPin = nil end
+        for nf in viewer.itemFramePool:EnumerateActive() do nf._uuPin = nil; HideNativeBorder(nf) end
     end
     -- Also clear any frame we pinned via the GetChildren fallback in EnumNativeIcons.
-    for _, c in ipairs({ viewer:GetChildren() }) do c._uuPin = nil end
+    for _, c in ipairs({ viewer:GetChildren() }) do c._uuPin = nil; HideNativeBorder(c) end
+end
+
+-- Draw 4 addon-owned border edge textures on a native frame (display-only regions — safe to
+-- create/show even on a protected frame in combat). Shared by the CDM rows (per-dest border)
+-- and the Buff-groups module (per-group border). enabled=false hides the edges.
+local function DrawFrameBorder(nf, enabled, color, size)
+    local edges = nf._uuBorderEdges
+    if not enabled then
+        if edges then for _, t in pairs(edges) do t:Hide() end end
+        return
+    end
+    if not edges then
+        edges = {
+            top    = nf:CreateTexture(nil, "OVERLAY", nil, 7),
+            bottom = nf:CreateTexture(nil, "OVERLAY", nil, 7),
+            left   = nf:CreateTexture(nil, "OVERLAY", nil, 7),
+            right  = nf:CreateTexture(nil, "OVERLAY", nil, 7),
+        }
+        nf._uuBorderEdges = edges
+    end
+    size = math.max(1, math.min(16, size or 1))
+    color = color or { r = 0, g = 0, b = 0, a = 1 }
+    local r, g, b, a = color.r, color.g, color.b, color.a or 1
+    edges.top:ClearAllPoints()
+    edges.top:SetPoint("TOPLEFT", nf, "TOPLEFT", 0, 0)
+    edges.top:SetPoint("TOPRIGHT", nf, "TOPRIGHT", 0, 0)
+    edges.top:SetHeight(size)
+    edges.bottom:ClearAllPoints()
+    edges.bottom:SetPoint("BOTTOMLEFT", nf, "BOTTOMLEFT", 0, 0)
+    edges.bottom:SetPoint("BOTTOMRIGHT", nf, "BOTTOMRIGHT", 0, 0)
+    edges.bottom:SetHeight(size)
+    edges.left:ClearAllPoints()
+    edges.left:SetPoint("TOPLEFT", nf, "TOPLEFT", 0, 0)
+    edges.left:SetPoint("BOTTOMLEFT", nf, "BOTTOMLEFT", 0, 0)
+    edges.left:SetWidth(size)
+    edges.right:ClearAllPoints()
+    edges.right:SetPoint("TOPRIGHT", nf, "TOPRIGHT", 0, 0)
+    edges.right:SetPoint("BOTTOMRIGHT", nf, "BOTTOMRIGHT", 0, 0)
+    edges.right:SetWidth(size)
+    for _, t in pairs(edges) do t:SetColorTexture(r, g, b, a); t:Show() end
+end
+ns.CDMAnchor.ApplyFrameBorder = DrawFrameBorder
+
+-- The dest's CDM border around a NON-adopted native row icon (every icon in the dest shares it).
+local function ApplyNativeBorder(nf, dest)
+    DrawFrameBorder(nf, ns.CDMAnchor.GetDestBorder(dest))
+end
+
+-- Pin a native frame to an ARBITRARY anchor (not just a CDM viewer) + release it again —
+-- used by the Buff-groups module to move native buff icons into its custom group containers,
+-- with the same re-impose hook so Blizzard's relayout can't pull them back.
+ns.CDMAnchor.PinNativeTo = PinNative
+function ns.CDMAnchor.ReleaseNativePin(nf)
+    if nf then nf._uuPin = nil; HideNativeBorder(nf) end
 end
 
 -- Hand the viewer back to Blizzard/EditMode (icons removed, or entering EditMode).
@@ -769,32 +1139,53 @@ local function LayoutCDMRow(viewer, dest, list)
     local padY = viewer.childYPadding or 3
     local rows = ComputeRows(viewer)
 
-    -- Flat native item frames in visual order (rows top->bottom, then L->R).
-    local natives = {}
+    -- Native SEQUENCE in visual order (top->bottom, L->R). A native whose spell the user
+    -- adopted AND kept in THIS viewer's CDM is replaced IN PLACE by its addon icon: we
+    -- hide the native and put the icon's descriptor at the native's own slot, so adopting
+    -- keeps the cooldown exactly where it sat. An adopted icon moved to another dest or
+    -- taken out of the CDM is not in `list`, so its native shows here normally.
+    local adoptedApplier = {}
+    for _, d in ipairs(list) do
+        local nm  = d.frame and d.frame.GetName and d.frame:GetName()
+        local sid = nm and ns.NativeCDM and ns.NativeCDM.IsNativeFrame and ns.NativeCDM.IsNativeFrame(nm)
+                    and ns.NativeCDM.SpellIdFromFrameName(nm)
+        if sid then adoptedApplier[sid] = d end
+    end
+    local natives = {}        -- sequence of { native = nf } | { d = applier }
+    local refW, refH, gotRef = 30, 30, false
     for _, row in ipairs(rows) do
-        for _, nf in ipairs(row) do natives[#natives + 1] = nf end
+        for _, nf in ipairs(row) do
+            local sid = ns.CDMAnchor.NativeFrameSpellId(nf)
+            local app = sid and adoptedApplier[sid]
+            if app then
+                if nf.Hide and nf:IsShown() and CanWrite(nf) then nf:Hide() end
+                natives[#natives + 1] = { d = app }
+            else
+                if not gotRef then
+                    local w, h = nf:GetSize()
+                    if w and w > 0 then refW, refH, gotRef = w, h, true end
+                end
+                natives[#natives + 1] = { native = nf }
+            end
+        end
     end
     local nNat = #natives
-
-    -- Reference (native) slot size.
-    local refW, refH = 30, 30
-    if natives[1] then
-        local w, h = natives[1]:GetSize()
-        refW = (w and w > 0) and w or 30
-        refH = (h and h > 0) and h or 30
-    end
 
     -- Per-row cap so our icons "count as slots" and push natives to the next row.
     local iconLimit = viewer.iconLimit or 0
     if iconLimit <= 0 then iconLimit = (rows[1] and #rows[1]) or math.max(nNat, 1) end
     if iconLimit < 1 then iconLimit = 1 end
 
-    -- Our shown icons with their desired (row, side).
+    -- Our shown icons with their desired (row, side). Adopted-native icons are EXCLUDED
+    -- here — they were placed at their native slot in the sequence above, not in a bucket.
     local mine = {}
     for _, d in ipairs(list) do
         if d.frame and d.frame:IsShown() then
-            mine[#mine + 1] = { d = d, row = math.max(1, d.getCfg("cdmRow") or 1),
-                                atEnd = (d.getCfg("cdmAtEnd") ~= false) }
+            local nm = d.frame.GetName and d.frame:GetName()
+            if not (nm and ns.NativeCDM and ns.NativeCDM.IsNativeFrame and ns.NativeCDM.IsNativeFrame(nm)) then
+                mine[#mine + 1] = { d = d, row = math.max(1, d.getCfg("cdmRow") or 1),
+                                    atEnd = (d.getCfg("cdmAtEnd") ~= false) }
+            end
         end
     end
 
@@ -846,33 +1237,46 @@ local function LayoutCDMRow(viewer, dest, list)
     for r = 1, nRows do
         for c = 1, iconLimit do
             if ni > nNat then break end
-            if not grid[r][c] then grid[r][c] = { native = natives[ni] }; ni = ni + 1 end
+            -- natives[ni] is already a descriptor ({ native = nf } | { d = applier }).
+            if not grid[r][c] then grid[r][c] = natives[ni]; ni = ni + 1 end
         end
     end
 
-    -- Build per-row item lists + measure content (max row width, all slots = refW).
-    local rowItems, rowW, contentW = {}, {}, 0
+    -- Build per-row item lists + measure content. Each row uses its own icon size
+    -- (the saved override for this dest/row, else the native slot refW/refH), so rows
+    -- can differ in height and the natives are resized to match in PinNative below.
+    local rowItems, rowW, rowSzW, rowSzH, contentW, contentH = {}, {}, {}, {}, 0, 0
     for r = 1, nRows do
         local items = {}
         for c = 1, iconLimit do if grid[r][c] then items[#items + 1] = grid[r][c] end end
         rowItems[r] = items
-        local w = #items * refW + math.max(0, #items - 1) * padX
+        local rw, rh = ViewerRowSize(dest, r, refW, refH)
+        rowSzW[r], rowSzH[r] = rw, rh
+        local w = #items * rw + math.max(0, #items - 1) * padX
         rowW[r] = w
         if w > contentW then contentW = w end
+        contentH = contentH + rh
     end
-    local contentH = nRows * refH + math.max(0, nRows - 1) * padY
+    contentH = contentH + math.max(0, nRows - 1) * padY
 
-    -- Take ownership: container at the viewer's anchor, sized to content, centred.
-    -- Capturing the anchor and gluing the viewer touch the protected viewer, so do
-    -- them out of combat only; the container resize/move (our frame) is always safe
+    -- Take ownership: container at the viewer's anchor (+ our placement offset), sized
+    -- to content. Capturing the anchor and gluing the viewer touch the protected viewer,
+    -- so do them out of combat only; the container resize/move (our frame) is always safe
     -- and the glued viewer follows it.
     local container = GetContainer(dest)
     if not incombat then CaptureBase(viewer, container) end
     if not container._uuBase then return end
     container:SetSize(math.max(1, contentW), math.max(1, contentH))
     local b = container._uuBase
-    container:ClearAllPoints()
-    container:SetPoint(b.p, b.rel, b.rp, b.x, b.y)
+    -- Anchor the top-centre at the placed screen-centre position (else the captured
+    -- EditMode base). b.rp is CENTER, so the saved x/y read straight off the screen
+    -- centre. Skipped only DURING an active unlock-drag (StartMoving owns it then); the
+    -- drag writes the absolute position on release, re-imposed here next pass.
+    if not container._uuDragging then
+        local px, py = ViewerPos(dest)
+        container:ClearAllPoints()
+        container:SetPoint(b.p, b.rel, b.rp, px or b.x, py or b.y)
+    end
     if not incombat then GlueViewer(viewer, container) end
 
     -- Clear every existing pin first, then re-pin only the current grid: a native
@@ -880,21 +1284,27 @@ local function LayoutCDMRow(viewer, dest, list)
     -- re-imposing its old offset and overlap our icon.
     UnpinNatives(viewer)
 
-    -- Place each row centred within contentW, anchored to the viewer's TOPLEFT.
+    -- Place each row centred within contentW, anchored to the viewer's TOPLEFT, using
+    -- the row's own icon size for both natives (resized in PinNative) and our icons.
+    local yTop = 0
     for r = 1, nRows do
         local items = rowItems[r]
+        local rw, rh = rowSzW[r], rowSzH[r]
         local x = (contentW - rowW[r]) / 2
-        local y = -(r - 1) * (refH + padY)
+        local y = -yTop
         for _, c in ipairs(items) do
             if c.native then
-                PinNative(c.native, viewer, x, y)
+                PinNative(c.native, viewer, x, y, rw, rh)
+                ApplyNativeBorder(c.native, dest)
+                if ns.NativeCDM and ns.NativeCDM.StyleNativeText then ns.NativeCDM.StyleNativeText(c.native) end
             elseif c.d and c.d.frame then
-                if c.d.setSize then c.d.setSize(refW, refH) end
+                if c.d.setSize then c.d.setSize(rw, rh) end
                 c.d.frame:ClearAllPoints()
                 c.d.frame:SetPoint("TOPLEFT", viewer, "TOPLEFT", x, y)
             end
-            x = x + refW + padX
+            x = x + rw + padX
         end
+        yTop = yTop + rh + padY
     end
 end
 
@@ -986,13 +1396,32 @@ local function ComputeSig()
         table.sort(mk)
         p[#p + 1] = "O" .. table.concat(mk, ",")
     end
-    local c = ns.db and ns.db.global and ns.db.global.cdmBelowRow
+    local c = ns.db and ns.db.profile and ns.db.profile.cdmBelowRow
     if c then
         p[#p + 1] = "B" .. tostring(c.width) .. "," .. tostring(c.height)
             .. "," .. tostring(c.offsetX) .. "," .. tostring(c.offsetY)
             .. "," .. tostring(c.endOffsetX) .. "," .. tostring(c.endOffsetY)
     end
     p[#p + 1] = belowUnlocked and "U1" or "U0"
+    -- Per-viewer (essential/utility) placement + size overrides + unlock state, so a
+    -- config edit (or unlock) re-lays-out — taking over or releasing the viewer.
+    local cv = ns.db and ns.db.profile and ns.db.profile.cdmViewer
+    for _, dn in ipairs({ "essential", "utility" }) do
+        local v = cv and cv[dn]
+        local s = dn .. (viewerUnlocked[dn] and "U" or "L")
+        if v then
+            s = s .. "=" .. tostring(v.x) .. "," .. tostring(v.y)
+            if v.rows then
+                local rk = {}
+                for r, rs in pairs(v.rows) do
+                    rk[#rk + 1] = r .. ":" .. tostring(rs.width) .. "x" .. tostring(rs.height)
+                end
+                table.sort(rk)
+                s = s .. ";" .. table.concat(rk, ",")
+            end
+        end
+        p[#p + 1] = s
+    end
     -- Whether the game's Cooldown Manager is on: toggling it in the options must
     -- change the signature so a (non-forced) refresh re-lays-out every icon.
     p[#p + 1] = ns.IsCDMEnabled() and "CDM1" or "CDM0"
@@ -1029,6 +1458,19 @@ local function DoRefresh(force)
         elseif d.apply then
             local ok, err = pcall(d.apply)
             if not ok then ns.Print("CDM anchor error: " .. tostring(err)) end
+        end
+    end
+    -- Take over essential/utility even with NO icons of ours when the user set a
+    -- placement offset / per-row size (or unlocked it to drag) — so those overrides
+    -- actually apply. With no override the viewer is left to Blizzard and released below.
+    if cdmOn then
+        for _, dest in ipairs({ "essential", "utility" }) do
+            if not groups[dest] and ns.CDMAnchor.ViewerHasOverride(dest) then
+                local v = ns.GetCDMViewer(dest)
+                if v and v.IsShown and v:IsShown() then
+                    groups[dest] = { viewer = v, list = {} }
+                end
+            end
         end
     end
     for dest, g in pairs(groups) do

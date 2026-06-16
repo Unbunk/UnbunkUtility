@@ -363,6 +363,11 @@ local function BuildTrinketOptions(prefix, LSM)
                                         if tracker then tracker.ApplyFont() end
                                     end,
                                 },
+                                ns.ui.TiersEntry({
+                                    getTiers = function() return GetCfg("timerTiers") end,
+                                    apply    = function() if tracker then tracker.ApplyVisuals() end end,
+                                    rebuild  = function() if TT.configMenu then TT.configMenu.Rebuild() end end,
+                                }),
                             }
                         end,
                     },

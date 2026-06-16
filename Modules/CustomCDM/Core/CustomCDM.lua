@@ -30,12 +30,14 @@ AceTimer:Embed(CC)
 local issecretvalue = issecretvalue or function() return false end
 
 local FALLBACK_ICON = 134400  -- question mark, shown when the spell texture can't resolve
+local GREEN = { r = 0, g = 1, b = 0 }  -- "active buff up" timer colour (shared, read-only)
 
 -- Per-icon config defaults. Visual blocks mirror the potion tracker; the title block
 -- is healthstone-styled with the text left empty + hidden by default. Timer urgency
 -- tiers are seeded separately (SeedTiers) so editing the list is never "merged back".
 local ICON_DEFAULTS = {
     spellId        = 0,
+    showIcon       = true,   -- off = keep the sound alerts but hide the icon
     includeInCdm   = true,
     cdmDest        = "belowPlayer",
     cdmAtEnd       = false,
@@ -52,7 +54,7 @@ local ICON_DEFAULTS = {
     showTimer      = true,
     timerFontKey   = "Fira Mono",
     timerFontPath  = nil,
-    timerFontSize  = 20,
+    timerFontSize  = 14,
     timerOutline   = "OUTLINE",
     timerColor     = { r = 1, g = 1, b = 1, a = 1 },
     -- Title (healthstone-styled, empty + hidden by default).
@@ -69,7 +71,7 @@ local ICON_DEFAULTS = {
     -- Stacks = spell charges (from potions) + a configurable anchor.
     showStack      = true,
     showAtZero     = true,
-    stackAnchor    = "BOTTOM",
+    stackAnchor    = "BOTTOMRIGHT",
     stackOffsetX   = 0,      -- manual nudge from the anchor
     stackOffsetY   = 0,
     stackFontKey   = "Fira Mono",
@@ -125,6 +127,18 @@ local function Entry(id)
     return s and s.icons[id]
 end
 
+-- An in-progress "draft" icon: created by the "+" but not committed until the editor's
+-- "Add Icon" button. Held outside the store + not rendered until committed.
+local _draft   -- { id = , entry = } or nil
+
+-- Like Entry but resolves the draft too — used by the editor's accessors. Rendering
+-- keeps using Entry (a draft is never built/listed until committed).
+local function EntryById(id)
+    if _draft and _draft.id == id then return _draft.entry end
+    return Entry(id)
+end
+function CC.IsDraft(id) return _draft ~= nil and _draft.id == id end
+
 -- ── Custom-icon identity (used by the reorder strip to show its X / pen) ──────
 function CC.IsCustom(name)
     return type(name) == "string" and name:match("^UnbunkUtilityCustomCDM%d+$") ~= nil
@@ -166,7 +180,7 @@ end
 CC.ResolveSpell = ResolveSpell
 
 function CC.SpellName(id)
-    local e = Entry(id)
+    local e = EntryById(id)
     local sid = e and e.spellId
     if not sid or sid == 0 then return "" end
     local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
@@ -183,12 +197,24 @@ local function GetCooldown(spellId)
     return start or 0, duration or 0
 end
 
--- Current / max charges for a charge-based spell, else nil.
+-- Current / max charges for a charge-based spell (plus the recharging charge's
+-- cooldown start + duration), else nil.
 local function GetCharges(spellId)
     if not spellId or spellId == 0 then return nil end
     if C_Spell and C_Spell.GetSpellCharges then
         local ci = C_Spell.GetSpellCharges(spellId)
-        if ci then return ci.currentCharges, ci.maxCharges end
+        if ci then
+            -- In combat these come back as SECRET values that cannot be compared (==/<)
+            -- without erroring. Drop any secret field to nil so the truthiness guards
+            -- downstream (cur and …, maxc and …) simply skip the charge logic in combat.
+            local cur, maxc = ci.currentCharges, ci.maxCharges
+            local cdS, cdD  = ci.cooldownStartTime, ci.cooldownDuration
+            if issecretvalue(cur)  then cur  = nil end
+            if issecretvalue(maxc) then maxc = nil end
+            if issecretvalue(cdS)  then cdS  = nil end
+            if issecretvalue(cdD)  then cdD  = nil end
+            return cur, maxc, cdS, cdD
+        end
     end
     return nil
 end
@@ -207,20 +233,9 @@ end
 function CC.TestSound(id, which) PlaySound(id, which) end
 
 -- ── Title + stack FontStrings (anchored around the icon) ──────────────────────
--- Maps an anchor mode to (fsPoint, framePoint, x, y): the title/stack can sit inside
--- the icon (centre) or just outside any of its four edges.
-local ANCHOR_POINTS = {
-    CENTER = { "CENTER", "CENTER",  0,  0 },
-    TOP    = { "BOTTOM", "TOP",     0,  2 },
-    BOTTOM = { "TOP",    "BOTTOM",  0, -2 },
-    LEFT   = { "RIGHT",  "LEFT",   -2,  0 },
-    RIGHT  = { "LEFT",   "RIGHT",   2,  0 },
-}
-local function AnchorFS(fs, frame, mode, ox, oy)
-    local a = ANCHOR_POINTS[mode] or ANCHOR_POINTS.CENTER
-    fs:ClearAllPoints()
-    fs:SetPoint(a[1], frame, a[2], a[3] + (ox or 0), a[4] + (oy or 0))
-end
+-- Anchor placement is centralised in ns (Core/Shared.lua): the title/stack can sit
+-- centred, just outside an edge, or inset into one of the four corners.
+local AnchorFS = ns.AnchorFS
 
 local function ApplyTitle(id)
     local d = live[id]
@@ -245,7 +260,7 @@ local function ApplyStack(id)
     fs:SetFont(ns.ResolveFontPath(e.stackFontPath, e.stackFontKey), e.stackFontSize or 12, e.stackOutline or "OUTLINE")
     local c = e.stackColor or { r = 1, g = 1, b = 1, a = 1 }
     fs:SetTextColor(c.r, c.g, c.b, c.a or 1)
-    AnchorFS(fs, d.icon.GetFrame(), e.stackAnchor or "BOTTOM", e.stackOffsetX, e.stackOffsetY)
+    AnchorFS(fs, d.icon.GetFrame(), e.stackAnchor or "BOTTOMRIGHT", e.stackOffsetX, e.stackOffsetY)
     local cur, maxc = GetCharges(e.spellId)
     if cur and maxc and maxc > 1 and (cur > 0 or e.showAtZero) then
         fs:SetText(tostring(cur))
@@ -265,18 +280,53 @@ local function ApplyOne(id)
     d.icon.SetIcon(SpellTexture(e.spellId))
     d.icon.ApplySize()
 
-    -- "Show icon at 0 stacks": for a charge spell at 0 charges, hide the icon when off.
-    local cur, maxc = GetCharges(e.spellId)
-    if cur and maxc and maxc > 1 and cur == 0 and not e.showAtZero then
+    -- Icon visibility = "Show icon" + the charge "show at 0" rule. The cooldown logic
+    -- below still runs when hidden, so a sound-only (Show icon off) icon still alerts.
+    local cur, maxc, cdStart, cdDur = GetCharges(e.spellId)
+    local hideForZero = cur and maxc and maxc > 1 and cur == 0 and not e.showAtZero
+    if e.showIcon ~= false and not hideForZero then
+        d.icon.Show()
+        ApplyStack(id)
+    else
         d.icon.Hide()
-        return
     end
-    d.icon.Show()
-    ApplyStack(id)
 
     local spellId = e.spellId
     if not spellId or spellId == 0 then d.icon.ClearTimer(); return end
 
+    -- 1) Green "active" timer while a positive self-buff (same spellId) is up — exactly
+    -- when readable (out of combat / never-secret), else an in-combat estimate from the
+    -- recorded cast + the learned aura length.
+    local foundBuff = false
+    local aura = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID and C_UnitAuras.GetPlayerAuraBySpellID(spellId)
+    if aura and ns.AuraTimerReadable and ns.AuraTimerReadable(spellId) then
+        foundBuff = true
+        if ns.LearnAuraDuration then ns.LearnAuraDuration(spellId, aura.duration) end
+        d.icon.SetTimer(aura.expirationTime, aura.duration, GREEN)
+        d.icon.HideCheck()
+    elseif d.lastUseAt and UnitAffectingCombat("player") then
+        local dur = ns.GetAuraDuration and ns.GetAuraDuration(spellId)
+        if dur and dur > 0 and GetTime() < d.lastUseAt + dur then
+            foundBuff = true
+            d.icon.SetTimer(d.lastUseAt + dur, dur, GREEN)
+            d.icon.HideCheck()
+        end
+    end
+
+    if foundBuff then return end
+
+    -- 2) Multi-charge: show the recharging charge's timer even while a charge remains.
+    if maxc and maxc > 1 and cur and cur < maxc and cdStart and not issecretvalue(cdStart)
+        and cdStart > 0 and cdDur and cdDur > 0 then
+        d.learnedCd   = cdDur
+        d.hasCooldown = true
+        d.lastExpiry  = cdStart + cdDur
+        d.icon.SetTimer(cdStart + cdDur, cdDur)
+        d.icon.HideCheck()
+        return
+    end
+
+    -- 3) Regular spell cooldown (non-charge spells, or a fully-charged one).
     local start, duration = GetCooldown(spellId)
     if issecretvalue(start) or issecretvalue(duration) then
         -- In combat the timing is secret: estimate from the recorded cast + learned length.
@@ -372,7 +422,7 @@ function CC.ApplyIcon(id)
     if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
 end
 
-function CC.GetEntry(id) return Entry(id) end
+function CC.GetEntry(id) return EntryById(id) end
 
 -- The custom icons NOT included in the Cooldown Manager (free-positioned), in the
 -- order they were added (ascending id). Each item id is the icon's FRAME NAME so the
@@ -382,7 +432,9 @@ function CC.GetFreeIcons()
     if not s then return {} end
     local ids = {}
     for id, e in pairs(s.icons) do
-        if not e.includeInCdm then ids[#ids + 1] = id end
+        -- Free icons, plus any whose icon is hidden ("Show icon" off) so they stay
+        -- manageable (they're absent from the CDM cadres' shown-only strips).
+        if not e.includeInCdm or not e.showIcon then ids[#ids + 1] = id end
     end
     table.sort(ids)
     local out = {}
@@ -404,14 +456,15 @@ end
 
 -- Read a config value with the per-icon default fallback (for the editor's getters).
 function CC.Get(id, key)
-    local e = Entry(id)
+    local e = EntryById(id)
     if e and e[key] ~= nil then return e[key] end
     return ICON_DEFAULTS[key]
 end
 
--- Write a config value and re-apply the icon (for the editor's setters).
+-- Write a config value and re-apply the icon (for the editor's setters). A draft has
+-- no live icon yet, so ApplyIcon is a no-op for it until committed.
 function CC.Set(id, key, val)
-    local e = Entry(id)
+    local e = EntryById(id)
     if not e then return end
     e[key] = val
     CC.ApplyIcon(id)
@@ -477,22 +530,55 @@ function CC.AddFree(spellId)
     return id
 end
 
+-- ── Draft (the editor's "Add Icon" flow) ──────────────────────────────────────
+-- Reserve an uncommitted icon for the editor. ctx: dest/row/atEnd/includeInCdm.
+local function NewDraft(ctx)
+    local s = Store(); if not s then return nil end
+    local id = s.nextId or 1            -- reserved; consumed only on commit
+    local e = {}
+    ns.MergeDefaults(e, ICON_DEFAULTS)
+    SeedTiers(e)
+    e.spellId      = 0
+    e.includeInCdm = ctx.includeInCdm and true or false
+    e.cdmDest      = ctx.dest or "belowPlayer"
+    e.cdmAtEnd     = ctx.atEnd and true or false
+    e.cdmRow       = ctx.row or 1
+    _draft = { id = id, entry = e }
+    return id
+end
+
+-- Commit the draft (editor "Add Icon"): validate the spell, move it into the store,
+-- build the icon. Returns true on success.
+function CC.CommitDraft(id)
+    if not (_draft and _draft.id == id) then return false end
+    local e = _draft.entry
+    if not (e.spellId and e.spellId ~= 0 and SpellValid(e.spellId)) then
+        ns.Print(L["Invalid spell ID or name:"] .. " " .. tostring(e.spellId))
+        return false
+    end
+    if e.includeInCdm and ns.CDMAnchor and ns.CDMAnchor.RowIconCount
+        and ns.CDMAnchor.RowIconCount(e.cdmDest or "belowPlayer", e.cdmRow or 1) >= ns.CDMAnchor.RowCap(e.cdmDest or "belowPlayer") then
+        ns.Print(L["This row is full."])
+        return false
+    end
+    local s = Store(); if not s then return false end
+    s.icons[id] = e
+    s.nextId    = math.max(s.nextId or 1, id + 1)
+    _draft = nil
+    BuildIcon(id)
+    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+    if ns.RebuildActiveModule then ns.RebuildActiveModule() end
+    return true
+end
+
+function CC.DiscardDraft(id)
+    if _draft and _draft.id == id then _draft = nil end
+end
+
+-- The "+" tile opens the editor on a fresh free draft; "Add Icon" inside commits it.
 function CC.PromptAddFree()
-    ns.ui.ShowPrompt({
-        title      = L["Add custom CDM icon"],
-        text       = L["Enter a spell ID or name:"],
-        default    = "",
-        maxLetters = 64,
-        acceptText = L["Add"],
-        onAccept   = function(value)
-            local spellId = ResolveSpell(value)
-            if not spellId then
-                ns.Print(L["Invalid spell ID or name:"] .. " " .. tostring(value))
-                return
-            end
-            CC.AddFree(spellId)
-        end,
-    })
+    local id = NewDraft({ includeInCdm = false })
+    if id and CC.OpenEditor then CC.OpenEditor(id) end
 end
 
 function CC.SetSpellId(id, spellId)
@@ -506,12 +592,18 @@ function CC.SetSpellId(id, spellId)
     if ns.RebuildActiveModule then ns.RebuildActiveModule() end
 end
 
--- Resolve a user input (ID or name) and set it as the icon's spell. Returns ok.
+-- Resolve a user input (ID or name) and set it as the icon's spell. Returns ok. For a
+-- draft it only records the spellId (committed later by "Add Icon").
 function CC.SetSpellInput(id, value)
     local sid = ResolveSpell(value)
     if not sid then
         ns.Print(L["Invalid spell ID or name:"] .. " " .. tostring(value))
         return false
+    end
+    if CC.IsDraft(id) then
+        local e = EntryById(id)
+        if e then e.spellId = sid end
+        return true
     end
     CC.SetSpellId(id, sid)
     return true
@@ -538,23 +630,26 @@ function CC.Remove(id)
     if ns.RebuildActiveModule then ns.RebuildActiveModule() end
 end
 
--- ── Add (quick prompt) / edit (full editor window) ────────────────────────────
-function CC.PromptAdd(dest, row, atEnd)
-    ns.ui.ShowPrompt({
-        title      = L["Add custom CDM icon"],
-        text       = L["Enter a spell ID or name to add to this row:"],
-        default    = "",
-        maxLetters = 64,
-        acceptText = L["Add"],
-        onAccept   = function(value)
-            local spellId = ResolveSpell(value)
-            if not spellId then
-                ns.Print(L["Invalid spell ID or name:"] .. " " .. tostring(value))
-                return
-            end
-            CC.Add(dest, row, atEnd, spellId)
-        end,
+-- Ask before deleting (the list crosses + the editor's "Delete Icon" both route here):
+-- a small dialog showing the icon + its spell name with Yes/No.
+function CC.ConfirmRemove(id)
+    local e = EntryById(id)
+    local sid = e and e.spellId
+    ns.ui.ShowConfirm({
+        title      = L["Delete custom icon"],
+        text       = L["Are you sure you want to delete this icon?"],
+        icon       = (sid and sid ~= 0) and SpellTexture(sid) or FALLBACK_ICON,
+        name       = CC.SpellName(id),
+        acceptText = L["Yes"],
+        cancelText = L["No"],
+        onAccept   = function() CC.Remove(id) end,
     })
+end
+
+-- ── Add (opens the editor on a draft) / edit (opens it on the committed icon) ──
+function CC.PromptAdd(dest, row, atEnd)
+    local id = NewDraft({ dest = dest, row = row, atEnd = atEnd, includeInCdm = true })
+    if id and CC.OpenEditor then CC.OpenEditor(id) end
 end
 
 -- The pen opens the full per-icon editor window (defined in UI/Editor.lua).
