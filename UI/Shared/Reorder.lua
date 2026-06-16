@@ -68,7 +68,8 @@ end
 -- Usage:
 --   local s = ns.ui.CreateIconReorderStrip({
 --       parent    = host,
---       getIcons  = function() return { { id = "...", texture = 12345, custom = true }, ... } end,
+--       getIcons  = function() return { { id = "...", texture = 12345, custom = true }, -- pen edits + X deletes
+--                                        { id = "...", texture = 99, nav = "Potion Tracker" }, ... } end, -- pen navigates
 --       setOrder  = function(idList) ... end,
 --       emptyText = L["No icons"],
 --       width     = 230,   -- optional: fixed width (else auto-sizes to the icons)
@@ -78,16 +79,17 @@ end
 --       noDrag         = true,                       -- optional: tiles are fixed (no reorder drag)
 --       wrap           = true,                        -- optional: wrap tiles into a grid (needs width)
 --       rows           = 10,                          -- optional: strip is this many rows tall
---       onIconClick    = function(item) ... end,      -- optional: click a tile body (e.g. navigate)
 --       onRemoveCustom = function(id) ... end,       -- optional: an X on custom items
 --       onEditCustom   = function(id) ... end,       -- optional: a pen on custom items
+--       onNavigate     = function(navTarget) ... end, -- optional: the pen on `nav` (addon) items
 --   })
 --   s.frame        -- the strip frame (position it / size handled by caller for fixed)
 --   s.Refresh()    -- re-read getIcons() and rebuild
 --
--- Items flagged `custom = true` get a delete (X, top-right) and edit (pen, top-left)
--- control — both white, tinting to the brand colour on hover like the main close
--- button. When onAdd is set a "+" tile (GreenPlus) trails the icons to add a new one.
+-- A `custom = true` item gets a pen (edit, top-left) + X (delete, top-right); an item
+-- with a `nav` target gets just the pen (navigate to its tab). Both glyphs are white,
+-- tinting to the brand colour on hover like the main close button. When onAdd is set a
+-- "+" tile (GreenPlus) trails the icons to add a new one.
 function ns.ui.CreateIconReorderStrip(opts)
     local parent   = opts.parent
     local getIcons = opts.getIcons or function() return {} end
@@ -178,10 +180,10 @@ function ns.ui.CreateIconReorderStrip(opts)
         setOrder(ids)
     end
 
-    -- A small corner control (X / pen) on a custom item's tile. White at rest; tints to
-    -- the brand colour on hover (white texture × colour = that colour), like the main
-    -- window's close cross. Reads b.item.id live so the pooled button can be reused.
-    local function makeOverlay(b, side, texture, getCallback)
+    -- A small corner control (X / pen) on a tile. White at rest; tints to the brand
+    -- colour on hover (white texture × colour = that colour), like the main window's
+    -- close cross. onClick reads b.item live so the pooled button can be reused.
+    local function makeOverlay(b, side, texture, onClick)
         local btn = CreateFrame("Button", nil, b)
         btn:SetSize(14, 14)
         btn:SetFrameLevel(b:GetFrameLevel() + 5)
@@ -203,10 +205,7 @@ function ns.ui.CreateIconReorderStrip(opts)
         glyph:SetTexture(texture)
         btn:SetScript("OnEnter", function() glyph:SetVertexColor(ns.GetBrandColor()) end)
         btn:SetScript("OnLeave", function() glyph:SetVertexColor(1, 1, 1) end)
-        btn:SetScript("OnClick", function()
-            local cb = getCallback()
-            if cb and b.item then cb(b.item.id) end
-        end)
+        btn:SetScript("OnClick", onClick)
         return btn
     end
 
@@ -259,9 +258,6 @@ function ns.ui.CreateIconReorderStrip(opts)
                     b:SetScript("OnDragStart", function(self) startDrag(self) end)
                     b:SetScript("OnDragStop",  function(self) stopDrag(self) end)
                 end
-                if opts.onIconClick then
-                    b:SetScript("OnClick", function(self) if self.item then opts.onIconClick(self.item) end end)
-                end
                 pool[i] = b
             end
             b.item = it
@@ -270,18 +266,25 @@ function ns.ui.CreateIconReorderStrip(opts)
             placeTile(i, b)
             b:Show()
 
-            -- Custom icons get a delete (X, top-right) + edit (pen, top-left) control.
-            if it.custom and (opts.onRemoveCustom or opts.onEditCustom) then
-                if not b.delBtn then
-                    b.delBtn  = makeOverlay(b, "right", UNBUNK_ICON_CROSS_WHITE, function() return opts.onRemoveCustom end)
-                    b.editBtn = makeOverlay(b, "left",  UNBUNK_ICON_PEN_WHITE,   function() return opts.onEditCustom end)
-                end
-                b.delBtn:SetShown(opts.onRemoveCustom ~= nil)
-                b.editBtn:SetShown(opts.onEditCustom ~= nil)
-            else
-                if b.delBtn  then b.delBtn:Hide()  end
-                if b.editBtn then b.editBtn:Hide() end
+            -- Pen (top-left): edits a CUSTOM icon, or navigates an ADDON icon (it.nav =
+            -- its panel name) to its own tab. X (top-right): deletes a custom icon only.
+            -- Both read b.item live (pooled). Created once per tile, shown per item.
+            if not b.editBtn then
+                b.editBtn = makeOverlay(b, "left", UNBUNK_ICON_PEN_WHITE, function()
+                    local it2 = b.item
+                    if not it2 then return end
+                    if it2.custom and opts.onEditCustom then opts.onEditCustom(it2.id)
+                    elseif it2.nav and opts.onNavigate then opts.onNavigate(it2.nav) end
+                end)
+                b.delBtn = makeOverlay(b, "right", UNBUNK_ICON_CROSS_WHITE, function()
+                    local it2 = b.item
+                    if it2 and it2.custom and opts.onRemoveCustom then opts.onRemoveCustom(it2.id) end
+                end)
             end
+            local showPen = (it.custom and opts.onEditCustom ~= nil) or (it.nav and opts.onNavigate ~= nil)
+            local showX   = it.custom and opts.onRemoveCustom ~= nil
+            b.editBtn:SetShown(showPen and true or false)
+            b.delBtn:SetShown(showX and true or false)
         end
 
         -- Trailing "+" tile (one slot past the last icon) when adding is enabled and

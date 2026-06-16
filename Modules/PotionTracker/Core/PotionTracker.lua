@@ -91,6 +91,9 @@ function PT.ApplyStackVisuals(prefix, tracker)
     fs:SetFont(fontPath, cfg.stackFontSize or 14, cfg.stackOutline or "OUTLINE")
     local c = cfg.stackColor or { r=1, g=1, b=1, a=1 }
     fs:SetTextColor(c.r, c.g, c.b, c.a or 1)
+    -- Re-anchor each pass so the configured anchor (default BOTTOM = below the icon,
+    -- the historical potion position) + nudge stays applied when the config changes.
+    ns.AnchorFS(fs, tracker.GetFrame(), cfg.stackAnchor or "BOTTOM", cfg.stackOffsetX, cfg.stackOffsetY)
 
     if not cfg.showStack then
         fs:Hide()

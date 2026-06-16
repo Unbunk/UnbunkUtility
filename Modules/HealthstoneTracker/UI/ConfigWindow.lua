@@ -381,6 +381,11 @@ local function CreateHealthstoneTrackerPanel(parent)
                                         HT.ApplyTimerVisuals()
                                     end,
                                 },
+                                ns.ui.TiersEntry({
+                                    getTiers = function() return HT.CfgGet("timerTiers") end,
+                                    apply    = function() HT.ApplyTimerVisuals() end,
+                                    rebuild  = function() if menu then menu.Rebuild() end end,
+                                }),
                             }
                         end,
                     },
@@ -391,6 +396,14 @@ local function CreateHealthstoneTrackerPanel(parent)
                         title = L["Stack text"],
                         build = function()
                             return {
+                                ns.ui.AnchorOffsetEntry({
+                                    getAnchor = function() return HT.CfgGet("stackAnchor") end,
+                                    setAnchor = function(m) HT.CfgSet("stackAnchor", m); HT.ApplyStackVisuals() end,
+                                    getX = function() return HT.CfgGet("stackOffsetX") end,
+                                    setX = function(v) HT.CfgSet("stackOffsetX", v); HT.ApplyStackVisuals() end,
+                                    getY = function() return HT.CfgGet("stackOffsetY") end,
+                                    setY = function(v) HT.CfgSet("stackOffsetY", v); HT.ApplyStackVisuals() end,
+                                }),
                                 {
                                     type            = "textEditor",
                                     LSM             = LSM,

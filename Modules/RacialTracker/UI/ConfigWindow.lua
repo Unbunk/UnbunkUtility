@@ -421,6 +421,11 @@ local function CreateRacialTrackerPanel(parent)
                                         RT.ApplyTimerVisuals()
                                     end,
                                 },
+                                ns.ui.TiersEntry({
+                                    getTiers = function() return RT.CfgGet("timerTiers") end,
+                                    apply    = function() RT.ApplyTimerVisuals() end,
+                                    rebuild  = function() if menu then menu.Rebuild() end end,
+                                }),
                             }
                         end,
                     },

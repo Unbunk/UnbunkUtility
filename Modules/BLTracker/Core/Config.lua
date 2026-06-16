@@ -21,7 +21,7 @@ local DEFAULTS = {
     posY            = -150,
     timerFontKey    = "Fira Mono",
     timerFontPath   = nil,
-    timerFontSize   = 20,
+    timerFontSize   = 14,
     timerOutline    = "OUTLINE",
     timerColor      = { r = 1.0, g = 1.0, b = 1.0, a = 1.0 },
     soundOnBL       = true,
@@ -38,10 +38,20 @@ local DEFAULTS = {
     },
 }
 
+-- Default urgency tiers (yellow @15s, red @5s — matching custom icons / defensives).
+-- Seeded if missing; never merged so deleting/editing tiers sticks.
+local DEFAULT_TIERS = {
+    { at = 15, scale = 1.2,  color = { r = 1, g = 0.82, b = 0, a = 1 } },
+    { at = 5,  scale = 1.45, color = { r = 1, g = 0,    b = 0, a = 1 } },
+}
+
 function BL.CfgInit()
     ns.db.profile.BLTracker = ns.db.profile.BLTracker or {}
     ns.MigrateSoundKeys(ns.db.profile.BLTracker)
     ns.MergeDefaults(ns.db.profile.BLTracker, DEFAULTS)
+    if ns.db.profile.BLTracker.timerTiers == nil then
+        ns.db.profile.BLTracker.timerTiers = ns.DeepCopy(DEFAULT_TIERS)
+    end
 end
 ns.RegisterCfgInitHook(BL.CfgInit)
 

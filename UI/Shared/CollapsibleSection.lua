@@ -39,6 +39,9 @@ function ns.ui.CreateCollapsibleSection(config)
     -- Assigned once contentFrame exists (below). Greys + mouse-blocks the body when
     -- the header checkbox is unchecked; the checkbox's onClick (built first) calls it.
     local ApplyEnabledVisual
+    -- Assigned after the collapse helpers exist; the checkbox onClick (built first) uses
+    -- it to auto-collapse on uncheck / expand on re-check.
+    local SetCollapsed
 
     local HEADER_HEIGHT = 28
 
@@ -98,6 +101,9 @@ function ns.ui.CreateCollapsibleSection(config)
             onClick = function(val)
                 if onCheck then onCheck(val) end
                 if ApplyEnabledVisual then ApplyEnabledVisual() end
+                -- Unchecking auto-folds the cadre (re-checking unfolds); it can still be
+                -- manually expanded while unchecked (it stays greyed).
+                if SetCollapsed then SetCollapsed(not val) end
             end,
         })
         checkbox.frame:SetPoint("LEFT", arrow, "RIGHT", 6, 0)
@@ -178,12 +184,19 @@ function ns.ui.CreateCollapsibleSection(config)
         result.height = container:GetHeight()
     end
 
-    headerBtn:SetScript("OnClick", function(self, btn)
-        if btn ~= "LeftButton" then return end
-        collapsed = not collapsed
+    -- Centralised collapse: the header click toggles it; the checkbox onClick (above)
+    -- drives it on check/uncheck. Re-measures the scroll height after the change.
+    SetCollapsed = function(state)
+        collapsed = state
         if onCollapse then onCollapse(collapsed) end
         ApplyCollapsedVisual()
         UpdateHeight()
+        if ns.ResizeActiveModule then ns.ResizeActiveModule() end
+    end
+
+    headerBtn:SetScript("OnClick", function(self, btn)
+        if btn ~= "LeftButton" then return end
+        SetCollapsed(not collapsed)
     end)
 
     ApplyCollapsedVisual()

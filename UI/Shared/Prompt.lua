@@ -109,3 +109,79 @@ function ns.ui.ShowPrompt(opts)
     f.input.editBox:SetFocus()
     f.input.editBox:HighlightText()
 end
+
+-- ── Confirm dialog (icon + name + Yes/No) ─────────────────────────────────────
+-- A small yes/no modal that can show an icon and a name (e.g. "delete this icon?").
+--   ns.ui.ShowConfirm({ title=, text=, icon=texture, name=, acceptText=, cancelText=,
+--                       onAccept=fn, onCancel=fn })
+local confirm  -- singleton
+
+local function EnsureConfirm()
+    if confirm then return confirm end
+    local f = CreateFrame("Frame", "UnbunkUtilityConfirm", UIParent, "BackdropTemplate")
+    f:SetSize(340, 210)
+    f:SetPoint("CENTER")
+    f:SetFrameStrata("FULLSCREEN_DIALOG")
+    f:SetToplevel(true)
+    f:EnableMouse(true)
+    f:SetBackdrop({
+        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
+        edgeFile = "Interface/Buttons/WHITE8X8",
+        edgeSize = 1,
+        insets   = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    f:SetBackdropColor(0.08, 0.08, 0.08, 0.97)
+    f:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+    f:Hide()
+    tinsert(UISpecialFrames, "UnbunkUtilityConfirm")   -- ESC = cancel
+
+    local title = f:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
+    title:SetPoint("TOP", f, "TOP", 0, -14)
+    f.title = title
+
+    local desc = f:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+    desc:SetPoint("TOP", f, "TOP", 0, -44)
+    desc:SetWidth(304); desc:SetJustifyH("CENTER")
+    f.desc = desc
+
+    local icon = f:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(40, 40)
+    icon:SetPoint("TOP", desc, "BOTTOM", 0, -12)
+    icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    f.icon = icon
+
+    local nameFs = f:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH4")
+    nameFs:SetPoint("TOP", icon, "BOTTOM", 0, -6)
+    f.nameFs = nameFs
+
+    local accept = ns.ui.CreateButton({ parent = f, label = L["Yes"], width = 100, height = 24 })
+    accept.frame:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -8, 16)
+    f.accept = accept
+
+    local cancel = ns.ui.CreateButton({ parent = f, label = L["No"], width = 100, height = 24 })
+    cancel.frame:SetPoint("BOTTOMLEFT", f, "BOTTOM", 8, 16)
+    f.cancel = cancel
+
+    confirm = f
+    return f
+end
+
+function ns.ui.ShowConfirm(opts)
+    opts = opts or {}
+    local f = EnsureConfirm()
+
+    f.title:SetText(opts.title or "")
+    f.desc:SetText(opts.text or "")
+    if opts.icon then f.icon:SetTexture(opts.icon); f.icon:Show() else f.icon:Hide() end
+    f.nameFs:SetText(opts.name or "")
+    f.accept.SetText(opts.acceptText or L["Yes"])
+    f.cancel.SetText(opts.cancelText or L["No"])
+
+    local closed = false
+    local function close() if closed then return end; closed = true; f:Hide() end
+    f.accept.frame:SetScript("OnClick", function() close(); if opts.onAccept then opts.onAccept() end end)
+    f.cancel.frame:SetScript("OnClick", function() close(); if opts.onCancel then opts.onCancel() end end)
+
+    f:Show()
+    f:Raise()
+end

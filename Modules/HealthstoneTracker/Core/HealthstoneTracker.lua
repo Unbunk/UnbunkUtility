@@ -202,6 +202,7 @@ local function ApplyStackVisualsFor(t)
     fs:SetFont(fontPath, HT.CfgGet("stackFontSize") or 12, HT.CfgGet("stackOutline") or "OUTLINE")
     local c = HT.CfgGet("stackColor") or { r = 1, g = 1, b = 1, a = 1 }
     fs:SetTextColor(c.r, c.g, c.b, c.a or 1)
+    ns.AnchorFS(fs, t.GetFrame(), HT.CfgGet("stackAnchor") or "BOTTOMRIGHT", HT.CfgGet("stackOffsetX"), HT.CfgGet("stackOffsetY"))
 
     local id = t.assignedId
     -- includeUses=true (3rd arg) so the count reflects healthstone CHARGES, not
