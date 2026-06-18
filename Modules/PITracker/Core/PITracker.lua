@@ -26,6 +26,7 @@ local firstSync    = true
 local piIcon = ns.ui.CreateTimerIcon({
     name    = "PITrackerFrame",
     getCfg  = function(key) return PI.CfgGet(key) end,
+    setCfg  = function(key, val) PI.CfgSet(key, val) end,   -- cdmAtEnd flip on a cross-strip drag
     onDragStop = function(x, y)
         PI.CfgSet("posX", x)
         PI.CfgSet("posY", y)

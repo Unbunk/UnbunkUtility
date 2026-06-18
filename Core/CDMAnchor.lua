@@ -715,6 +715,25 @@ function ns.CDMAnchor.SetBucketOrder(dest, row, atEnd, idList)
     ns.CDMAnchor.RefreshAll()
 end
 
+-- Move an icon (by its frame-name id) between the FRONT and END bucket of its row, by
+-- flipping the owning descriptor's cdmAtEnd config. Used by the config reorder strips when a
+-- tile is dragged from the Front strip to the End strip (or back) — bucket membership is
+-- driven by cdmAtEnd (RowBucketKey), so a cross-strip drag must flip it. Each module that can
+-- live in a CDM row registers a setCfg with its descriptor; modules that don't (e.g. native
+-- icons, which aren't in these strips) simply can't be flipped. Returns true on success.
+function ns.CDMAnchor.SetIconAtEnd(frameId, atEnd)
+    for _, d in ipairs(appliers) do
+        if d.frame and DescId(d) == frameId then
+            if d.setCfg then
+                d.setCfg("cdmAtEnd", atEnd and true or false)
+                return true
+            end
+            return false
+        end
+    end
+    return false
+end
+
 -- ── Native-row "slot" layout (essential / utility) — the reference addon-style takeover ─────
 -- A coexisting post-hook can't win: Blizzard re-anchors its item frames and self-
 -- sizes the viewer on every layout pass. So (like the reference CDM addon) we take ownership of

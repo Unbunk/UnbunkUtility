@@ -76,6 +76,7 @@ local function CreateTrinketTracker(prefix, frameName)
             end
             return GetCfg(key)
         end,
+        setCfg = SetCfg,   -- cdmAtEnd flip on a cross-strip drag (Front <-> End bucket)
         getItemId = function()
             local itemId = GetSlotInfo(GetCfg("slot"))
             return itemId

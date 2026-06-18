@@ -579,10 +579,54 @@ function CDMRowReorderEntry(dest)
                 local GAP, HALF, SIDE = 10, 245, 8
                 local rows = {}   -- pool: rows[r] = { container, label, front, endbox, frontStrip, endStrip }
 
+                -- The drop: move `itemId` from `fromStrip`'s bucket to `toStrip`'s bucket of the
+                -- SAME row at holeIndex. Each strip carries its bucket identity (dest/row/atEnd).
+                --   * Same bucket  -> reorder: drop itemId, re-insert it at the hole, persist.
+                --   * Front <-> End -> flip the icon's cdmAtEnd (its bucket membership), then write
+                --     the TARGET bucket order with itemId at the hole and the SOURCE bucket without
+                --     it. Both buckets are persisted via SetBucketOrder (front=false / end=true).
+                -- Driven entirely by our buckets — we never touch the native viewer (no taint).
+                local function doMove(itemId, fromStrip, toStrip, holeIndex)
+                    if not ns.CDMAnchor then return end
+                    local rr = toStrip.row
+                    -- Source bucket order, minus the moved id.
+                    local srcIds = {}
+                    for _, it in ipairs(ns.CDMAnchor.GetBucketIcons(fromStrip.dest, fromStrip.row, fromStrip.atEnd)) do
+                        if it.id ~= itemId then srcIds[#srcIds + 1] = it.id end
+                    end
+                    if fromStrip.atEnd == toStrip.atEnd then
+                        -- Same bucket: re-insert at the hole within the (de-duped) source list.
+                        local at = math.max(1, math.min(#srcIds + 1, (holeIndex or 0) + 1))
+                        table.insert(srcIds, at, itemId)
+                        ns.CDMAnchor.SetBucketOrder(fromStrip.dest, fromStrip.row, fromStrip.atEnd, srcIds)
+                    else
+                        -- Cross-bucket: flip the icon's end-of-row flag, then write both buckets.
+                        ns.CDMAnchor.SetIconAtEnd(itemId, toStrip.atEnd)
+                        local dstIds = {}
+                        for _, it in ipairs(ns.CDMAnchor.GetBucketIcons(toStrip.dest, rr, toStrip.atEnd)) do
+                            if it.id ~= itemId then dstIds[#dstIds + 1] = it.id end
+                        end
+                        local at = math.max(1, math.min(#dstIds + 1, (holeIndex or 0) + 1))
+                        table.insert(dstIds, at, itemId)
+                        ns.CDMAnchor.SetBucketOrder(toStrip.dest, rr, toStrip.atEnd, dstIds)
+                        ns.CDMAnchor.SetBucketOrder(fromStrip.dest, fromStrip.row, fromStrip.atEnd, srcIds)
+                    end
+                    -- Re-apply the live CDM (SetBucketOrder already calls RefreshAll, but the cross-
+                    -- bucket flip needs the layout re-bucketed). Defer the panel rebuild one frame so
+                    -- it runs AFTER the drag controller finishes re-laying its (about-to-be-replaced)
+                    -- strips — the rebuild swaps in fresh strips + dragGroup and refreshes the "+" gating.
+                    ns.CDMAnchor.RefreshAll(true)
+                    C_Timer.After(0, function() if ns.RebuildActiveModule then ns.RebuildActiveModule() end end)
+                end
+
                 local function ensureRow(r)
                     local rw = rows[r]
                     if rw then return rw end
                     rw = {}
+                    -- One drag group per ROW: the Front and End strips of this row swap tiles; other
+                    -- rows are separate groups (a cross-row move would change cdmRow, which these
+                    -- bucket APIs don't persist — handled on each icon's own tab instead).
+                    rw.dragGroup = { strips = {} }
                     rw.container = CreateFrame("Frame", nil, host)
                     rw.container:SetWidth(HALF * 2 + GAP)
 
@@ -624,14 +668,17 @@ function CDMRowReorderEntry(dest)
                         createContent = function(cf)
                             rw.frontStrip = ns.ui.CreateIconReorderStrip({
                                 parent = cf, width = HALF - 2 * SIDE, emptyText = L["No icons"],
+                                dragGroup = rw.dragGroup,   -- shares tiles with the End strip of this row
                                 getIcons = function() return bucketIcons(false) end,
                                 setOrder = function(ids) if ns.CDMAnchor then ns.CDMAnchor.SetBucketOrder(dest, r, false, ids) end end,
+                                onMove         = doMove,
                                 onAdd          = function() if ns.CustomCDM then ns.CustomCDM.PromptAdd(dest, r, false) end end,
                                 canAdd         = canAddToRow,
                                 onRemoveCustom = onRemoveCustom,
                                 onEditCustom   = onEditCustom,
                                 onNavigate     = onNavigate,
                             })
+                            rw.frontStrip.dest, rw.frontStrip.row, rw.frontStrip.atEnd = dest, r, false
                             rw.frontStrip.frame:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, 0)
                             return 40
                         end,
@@ -641,14 +688,17 @@ function CDMRowReorderEntry(dest)
                         createContent = function(cf)
                             rw.endStrip = ns.ui.CreateIconReorderStrip({
                                 parent = cf, width = HALF - 2 * SIDE, emptyText = L["No icons"],
+                                dragGroup = rw.dragGroup,   -- shares tiles with the Front strip of this row
                                 getIcons = function() return bucketIcons(true) end,
                                 setOrder = function(ids) if ns.CDMAnchor then ns.CDMAnchor.SetBucketOrder(dest, r, true, ids) end end,
+                                onMove         = doMove,
                                 onAdd          = function() if ns.CustomCDM then ns.CustomCDM.PromptAdd(dest, r, true) end end,
                                 canAdd         = canAddToRow,
                                 onRemoveCustom = onRemoveCustom,
                                 onEditCustom   = onEditCustom,
                                 onNavigate     = onNavigate,
                             })
+                            rw.endStrip.dest, rw.endStrip.row, rw.endStrip.atEnd = dest, r, true
                             rw.endStrip.frame:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, 0)
                             return 40
                         end,
@@ -931,6 +981,16 @@ local function CreateFreeIconsPanel(parent)
         local cid = ns.CustomCDM and ns.CustomCDM.IdFromFrameName(itemId)
         if cid then ns.CustomCDM.PromptEdit(cid) end
     end
+    -- Free icons are positioned independently on screen (each by its own posX/posY), so this
+    -- grid's order is purely a display preference. We persist it in the SAME per-frame order map
+    -- the CDM buckets use (ns.db.profile.cdmOrder) — keyed by each icon's unique frame id, and a
+    -- free icon is never in a bucket, so the bucket sorts never see these entries. Drag reflows
+    -- the grid fluidly (BuffGroups-style, multi-row) and commits the new order on release.
+    local function freeOrderMap()
+        if not (ns.db and ns.db.profile) then return nil end
+        ns.db.profile.cdmOrder = ns.db.profile.cdmOrder or {}
+        return ns.db.profile.cdmOrder
+    end
     local options = {
         H2(L["CDM: Free icons"]),
         { type = "label", font = "UnbunkUtilityH6", height = 36,
@@ -940,7 +1000,7 @@ local function CreateFreeIconsPanel(parent)
             height = 10,
             build  = function(host)
                 local s = ns.ui.CreateIconReorderStrip({
-                    parent = host, width = 500, rows = 10, wrap = true, noDrag = true, emptyText = L["No icons"],
+                    parent = host, width = 500, rows = 10, wrap = true, emptyText = L["No icons"],
                     getIcons = function()
                         local out = {}
                         if ns.CustomCDM then
@@ -952,7 +1012,25 @@ local function CreateFreeIconsPanel(parent)
                                 if nav then it.nav = nav; out[#out + 1] = it end
                             end
                         end
+                        -- Stable sort by the saved free order (add order is the fallback for any
+                        -- not-yet-dragged icon, so a fresh grid keeps its current look).
+                        local map = freeOrderMap()
+                        if map then
+                            local base = {}
+                            for i, it in ipairs(out) do base[it.id] = i end
+                            table.sort(out, function(a, b)
+                                local ao = map[a.id] or (1000 + base[a.id])
+                                local bo = map[b.id] or (1000 + base[b.id])
+                                if ao ~= bo then return ao < bo end
+                                return base[a.id] < base[b.id]
+                            end)
+                        end
                         return out
+                    end,
+                    -- Persist the dragged order into the shared per-frame map (display-only).
+                    setOrder = function(ids)
+                        local map = freeOrderMap()
+                        if map then for i, id in ipairs(ids) do map[id] = i end end
                     end,
                     onAdd          = function() if ns.CustomCDM then ns.CustomCDM.PromptAddFree() end end,
                     onRemoveCustom = function(itemId)

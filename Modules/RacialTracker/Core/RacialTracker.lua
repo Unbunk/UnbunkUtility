@@ -132,6 +132,7 @@ local TEST_DURATION = 8
 local racialIcon = ns.ui.CreateTimerIcon({
     name    = "RacialTrackerFrame",
     getCfg  = function(key) return RT.CfgGet(key) end,
+    setCfg  = function(key, val) RT.CfgSet(key, val) end,   -- cdmAtEnd flip on a cross-strip drag
     onDragStop = function(x, y)
         RT.CfgSet("posX", x)
         RT.CfgSet("posY", y)

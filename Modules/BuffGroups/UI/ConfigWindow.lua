@@ -735,9 +735,41 @@ function OpenIconEditor(sid, onChange)
     if ed.titleIconL then ed.titleIconL:SetTexture(tex) end
     if ed.titleIconR then ed.titleIconR:SetTexture(tex) end
 
+    -- Size the scroll child to the built menu so the scrollbar's range reaches the bottom cadre.
+    -- `ed.menu.height` is the SUM of each entry's declared height — but the self-sizing sub-cadres
+    -- (sound / textEditor / colour) can render slightly taller than they report, so the sum can fall
+    -- short and clip the last cadre. So we mirror the MAIN panel's ResizeContentArea: after a frame
+    -- lets WoW lay the stack out, measure the REAL extent from content-top down to the lowest child's
+    -- GetBottom and grow the scroll child to fit. The immediate menu.height set avoids a 1px window on
+    -- the first paint; the deferred GetBottom pass then refines it (and re-runs after every Rebuild).
+    local function measureContentBottom()
+        local top = ed.content:GetTop()
+        if not top then return nil end
+        local maxDepth = 0
+        for i = 1, ed.content:GetNumChildren() do
+            local child = select(i, ed.content:GetChildren())
+            local bottom = child and child.GetBottom and child:GetBottom()
+            if bottom then
+                local depth = top - bottom
+                if depth > maxDepth then maxDepth = depth end
+            end
+        end
+        return maxDepth
+    end
     local function syncHeight()
         if ed.menu then ed.content:SetHeight(math.max(1, ed.menu.height + 12)) end
         ed.sb.Update()
+        -- Defer one frame so the freshly-stacked cadres have a layout pass, then grow to the real
+        -- measured bottom (+12 bottom pad) if it exceeds the declared sum, and refresh the scroll range.
+        C_Timer.After(0, function()
+            if not (iconEditor and iconEditor.content == ed.content) then return end
+            local measured = measureContentBottom()
+            if measured then
+                local want = math.max(1, measured + 12, (ed.menu and ed.menu.height + 12) or 0)
+                if math.abs((ed.content:GetHeight() or 0) - want) > 0.5 then ed.content:SetHeight(want) end
+            end
+            ed.sb.Update()
+        end)
     end
     -- A Rebuild from a section's reset/toggle re-measures; keep height in sync after it.
     local rawBuild
@@ -1302,14 +1334,16 @@ local function CreateBuffsPanel(parent)
 
     local options = {
         { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["Buffs"] },
-        { type = "group", title = L["General"], build = function() return {
-            { type = "checkbox", label = L["Enable buff groups"],
-              get = function() return BG.Enabled() end,
-              set = function(v) BG.SetEnabled(v); touch(); if menu then menu.Refresh() end end },
-            { type = "label", font = "UnbunkUtilityH6", height = 30,
-              text = L["A custom layout built from the native buff Cooldown Manager. Drag buff icons between groups; each group has its own placement, border and icon size."] },
-        } end },
-        { type = "group", title = L["Buff groups"], build = function()
+        -- The module's global enable, OUTSIDE the cadre (just under the title). It greys the whole
+        -- cadre below (enabledBy) when off; Refresh() re-applies that on toggle.
+        { type = "checkbox", label = L["Enable custom CDM buffs"],
+          get = function() return BG.Enabled() end,
+          set = function(v) BG.SetEnabled(v); touch(); if menu then menu.Refresh() end end },
+        -- The module's global cadre: every group cadre + Create group + Unused live inside it. It
+        -- greys/blocks as a whole when the module is disabled.
+        { type = "group", title = L["Buff groups"],
+          enabledBy = function() return BG.Enabled() end,
+          build = function()
             wipe(strips)
             local entries = {}
             for _, g in ipairs(BG.GroupList()) do
