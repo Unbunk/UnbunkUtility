@@ -96,6 +96,7 @@ local moduleActive  = false  -- false until the first tracking pass (login / re-
 local blIcon = ns.ui.CreateTimerIcon({
     name    = "BLTrackerFrame",
     getCfg  = function(key) return BL.CfgGet(key) end,
+    setCfg  = function(key, val) BL.CfgSet(key, val) end,   -- cdmAtEnd flip on a cross-strip drag
     onDragStop = function(x, y)
         BL.CfgSet("posX", x)
         BL.CfgSet("posY", y)

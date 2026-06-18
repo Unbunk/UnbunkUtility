@@ -143,6 +143,7 @@ local function CreateTracker(index)
             end
             return HT.CfgGet(key)
         end,
+        setCfg  = function(key, val) HT.CfgSet(key, val) end,   -- cdmAtEnd flip on a cross-strip drag
         getItemId = function() return t.assignedId end,
         hasItem   = function(itemId)
             -- includeUses=true: count charges (a healthstone has several).

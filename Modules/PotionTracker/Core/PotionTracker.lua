@@ -36,6 +36,7 @@ local function CreatePotionTracker(prefix, frameName)
             end
             return GetCfg(key)
         end,
+        setCfg = SetCfg,   -- cdmAtEnd flip on a cross-strip drag (Front <-> End bucket)
         getItemId = function() return PT.GetActiveItemId(prefix) end,
         hasItem   = function(itemId) return itemId ~= nil and (GetItemCount(itemId) or 0) > 0 end,
         onDragStop = function(x, y)

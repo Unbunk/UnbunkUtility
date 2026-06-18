@@ -47,6 +47,7 @@ function ns.ui.CreateItemTracker(config)
     local icon = ns.ui.CreateTimerIcon({
         name    = frameName,
         getCfg  = getCfg,
+        setCfg  = config.setCfg,   -- optional: forwarded to the CDM descriptor (cdmAtEnd on drag)
         onDragStop = function(x, y)
             if onDragStop then onDragStop(x, y) end
         end,

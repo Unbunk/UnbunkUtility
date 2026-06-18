@@ -59,11 +59,143 @@ function ns.ui.CreateReorder(config)
     return result
 end
 
+-- ── Shared inter-strip drag controller ────────────────────────────────────────
+-- The BuffGroups-style drag (see Modules/BuffGroups/UI/ConfigWindow.lua), distilled into a
+-- self-contained controller so a SET of reorder strips can hand tiles BETWEEN each other —
+-- not just reorder within one strip. Strips that should accept each other's tiles share one
+-- "drag group" (a plain table passed as opts.dragGroup); each registers itself into it.
+--
+-- While dragging, the lifted tile is reparented onto a top-level layer and follows the cursor
+-- (one real moving icon — the others visibly slide); release is found by POLLING the mouse
+-- button (not OnDragStop, which is flaky once a frame is reparented). The hovered strip opens
+-- a one-slot gap at the insertion index; the others close theirs. On release the drop is
+-- reported through the group: a move (same-strip reorder OR cross-strip) calls the source
+-- strip's onMove(itemId, fromStrip, toStrip, holeIndex) when set, else its setOrder(idList)
+-- (the within-strip fallback, e.g. the Free-icons grid which has no cross-strip target).
+--
+-- Each strip publishes a small interface into the group (strip._drag): cursorOver(), slotAt(),
+-- relayout(dragId, hole), orderIds(). The controller is created lazily on the group and is the
+-- ONLY owner of the shared drag layer + poll driver, so any number of groups coexist cleanly.
+-- The drag layer + poll driver are MODULE-LEVEL singletons (created once, reused by every group).
+-- The per-group controllers are recreated on each panel rebuild, so they must NOT own WoW frames
+-- (frames are never GC'd → that leaked one driver+layer per row per rebuild). activeDragCtrl is the
+-- controller currently dragging (only one drag at a time); the shared driver dispatches to it.
+local sharedDragLayer, sharedDragDriver, activeDragCtrl
+
+-- Top-level layer the lifted tile rides on (no scroll/strip clip). No mouse: the hover tests are
+-- geometric, computed from the cursor position.
+local function ensureDragLayer()
+    if sharedDragLayer then return sharedDragLayer end
+    sharedDragLayer = CreateFrame("Frame", nil, UIParent)
+    sharedDragLayer:SetFrameStrata("TOOLTIP")
+    sharedDragLayer:SetAllPoints(UIParent)
+    return sharedDragLayer
+end
+
+-- The poll driver body: keeps firing even though the dragged tile is reparented. Moves the lifted
+-- tile to the cursor, finds the hovered strip across the active group, reflows every strip (gap on
+-- the hovered one only). Releasing the mouse ends the drag.
+local function dragOnUpdate()
+    local ctrl = activeDragCtrl
+    if not (ctrl and ctrl.tile) then return end
+    if not IsMouseButtonDown("LeftButton") then ctrl.stop(); return end
+    local scale = UIParent:GetEffectiveScale()
+    local mx, my = GetCursorPosition()
+    if scale and scale > 0 and mx then
+        ctrl.tile:ClearAllPoints()
+        ctrl.tile:SetPoint("CENTER", UIParent, "BOTTOMLEFT", mx / scale, my / scale)
+    end
+    local hovered, hole
+    for _, s in ipairs(ctrl.group.strips) do
+        local d = s._drag
+        if d and s.frame:IsVisible() and d.cursorOver() then
+            hovered = s; hole = d.slotAt(ctrl.dragId); break
+        end
+    end
+    ctrl.hovered, ctrl.hole = hovered, hole
+    for _, s in ipairs(ctrl.group.strips) do
+        local d = s._drag
+        if d then d.relayout(ctrl.dragId, (s == hovered) and hole or nil) end
+    end
+end
+
+local function ensureDragDriver()
+    if sharedDragDriver then return sharedDragDriver end
+    sharedDragDriver = CreateFrame("Frame")
+    sharedDragDriver:Hide()
+    sharedDragDriver:SetScript("OnUpdate", dragOnUpdate)
+    return sharedDragDriver
+end
+
+-- A drag group's controller: a cheap (GC-able) table that binds the SHARED layer/driver to THIS
+-- group's strips, so recreating it per panel rebuild leaks nothing.
+local function EnsureDragController(group)
+    if group._ctrl then return group._ctrl end
+    local ctrl = { group = group }
+    group._ctrl = ctrl
+
+    -- Begin a drag: lift `tile` (belonging to `strip`, item id `dragId`) onto the shared layer so
+    -- it floats above every panel and is never clipped.
+    function ctrl.start(strip, tile, dragId)
+        ctrl.tile, ctrl.dragId, ctrl.fromStrip, ctrl.hovered, ctrl.hole = tile, dragId, strip, nil, nil
+        tile._dragOrigParent = tile:GetParent()
+        tile._dragOrigStrata = tile:GetFrameStrata()   -- restore on drop (else it sticks at MEDIUM, behind the DIALOG window)
+        tile:SetParent(ensureDragLayer())
+        tile:SetFrameStrata("TOOLTIP")
+        tile:Raise()
+        activeDragCtrl = ctrl
+        ensureDragDriver():Show()
+    end
+
+    -- End a drag (idempotent — the poll can fire after a stray OnDragStop). Put the tile back under
+    -- its strip (restoring its original strata) so the rebuild reclaims it, then report the drop:
+    --   * dropped on a strip in the group  -> a cross-strip move (onMove) or a same-strip reorder
+    --                                          (setOrder) at the hovered slot;
+    --   * dropped into empty space          -> nothing moves (the rebuilds snap it home).
+    function ctrl.stop()
+        local tile = ctrl.tile
+        if not tile then return end
+        if sharedDragDriver then sharedDragDriver:Hide() end
+        tile:SetParent(tile._dragOrigParent or UIParent)
+        tile:SetFrameStrata(tile._dragOrigStrata or "MEDIUM")
+        local fromStrip, dragId, hovered, hole = ctrl.fromStrip, ctrl.dragId, ctrl.hovered, ctrl.hole
+        ctrl.tile, ctrl.dragId, ctrl.fromStrip, ctrl.hovered, ctrl.hole = nil, nil, nil, nil, nil
+        if activeDragCtrl == ctrl then activeDragCtrl = nil end
+        if dragId and hovered then
+            if hovered == fromStrip then
+                -- Same strip: reorder by removing the dragged id and re-inserting at the hole.
+                local d = fromStrip._drag
+                local ids, cur = d.orderIds(), nil
+                for i, v in ipairs(ids) do if v == dragId then cur = i break end end
+                if cur then
+                    table.remove(ids, cur)
+                    local at = math.max(1, math.min(#ids + 1, (hole or 0) + 1))
+                    table.insert(ids, at, dragId)
+                    if fromStrip._onMove then
+                        fromStrip._onMove(dragId, fromStrip, hovered, hole or 0)
+                    elseif fromStrip._setOrder then
+                        fromStrip._setOrder(ids)
+                    end
+                end
+            else
+                -- Cross-strip: ask the SOURCE strip to move its tile into the target at the hole.
+                if fromStrip._onMove then
+                    fromStrip._onMove(dragId, fromStrip, hovered, hole or 0)
+                end
+            end
+        end
+        -- Rebuild every strip in the group so they re-read their (possibly changed) order.
+        for _, s in ipairs(group.strips) do if s.RebuildStrip then s.RebuildStrip() end end
+    end
+
+    return ctrl
+end
+
 -- ── Drag-to-reorder icon strip ────────────────────────────────────────────────
--- A horizontal strip of icon tiles the user drags to reorder. While dragging, the
--- held tile follows the cursor (clamped inside the strip) and the others slide over
--- live; the order is committed to setOrder() on release. Empty -> a centred grey
--- "no icons" hint (when a fixed width is given) or a left-aligned one (auto width).
+-- A horizontal strip of icon tiles the user drags to reorder — and, when several strips share
+-- a `dragGroup`, to move tiles BETWEEN strips. While dragging, the held tile follows the cursor
+-- on a top-level layer and the others slide over live; release commits the order. Empty -> a
+-- centred grey "no icons" hint (when a fixed width is given) or a left-aligned one (auto width).
 --
 -- Usage:
 --   local s = ns.ui.CreateIconReorderStrip({
@@ -82,6 +214,8 @@ end
 --       onRemoveCustom = function(id) ... end,       -- optional: an X on custom items
 --       onEditCustom   = function(id) ... end,       -- optional: a pen on custom items
 --       onNavigate     = function(navTarget) ... end, -- optional: the pen on `nav` (addon) items
+--       dragGroup      = <table>,                     -- optional: shared by strips that may swap tiles
+--       onMove         = function(itemId, fromStrip, toStrip, holeIndex) ... end, -- the drop callback
 --   })
 --   s.frame        -- the strip frame (position it / size handled by caller for fixed)
 --   s.Refresh()    -- re-read getIcons() and rebuild
@@ -90,6 +224,12 @@ end
 -- with a `nav` target gets just the pen (navigate to its tab). Both glyphs are white,
 -- tinting to the brand colour on hover like the main close button. When onAdd is set a
 -- "+" tile (GreenPlus) trails the icons to add a new one.
+--
+-- DRAG GROUPS: pass the SAME `dragGroup` table to every strip that should accept each other's
+-- tiles (e.g. a tab's Front + End strips). A tile dropped on a sibling strip is moved via this
+-- strip's `onMove(itemId, fromStrip, toStrip, holeIndex)` callback; a tile dropped on its own
+-- strip reorders via `onMove` (if given) else `setOrder`. With no dragGroup the strip is its
+-- own group of one — the classic within-strip reorder, unchanged for existing callers.
 function ns.ui.CreateIconReorderStrip(opts)
     local parent   = opts.parent
     local getIcons = opts.getIcons or function() return {} end
@@ -122,7 +262,6 @@ function ns.ui.CreateIconReorderStrip(opts)
     emptyFs:Hide()
 
     local function slotX(i) return PAD + (i - 1) * (ICON + GAP) end
-    local function indexOf(it) for i, v in ipairs(items) do if v == it then return i end end end
 
     -- Tile placement: a wrapping grid (Free-icons list) when opts.wrap + a fixed width,
     -- else a single row by slotX. Index 1-based (tiles and the trailing "+").
@@ -141,44 +280,101 @@ function ns.ui.CreateIconReorderStrip(opts)
         end
     end
 
-    local dragBtn
-    local function placeButtons()
-        for _, b in ipairs(pool) do
-            if b:IsShown() and b ~= dragBtn and b.item then
-                local i = indexOf(b.item)
-                if i then b:ClearAllPoints(); b:SetPoint("LEFT", strip, "LEFT", slotX(i), 0) end
+    -- The trailing "+" tile (declared up here so the drag reflow can keep it past the gapped
+    -- tiles); built lazily by ensureAddBtn below.
+    local addBtn
+
+    -- ── Inter-strip drag wiring (shared controller, BuffGroups-style) ───────────
+    -- Every strip is in a drag group: its own `opts.dragGroup` when given, else a private
+    -- one-strip group (the classic within-strip reorder). The group owns the lifted-tile
+    -- layer + poll driver; the strip publishes the geometry/reflow hooks the driver calls.
+    local dragGroup = opts.dragGroup or { strips = {} }
+    dragGroup.strips = dragGroup.strips or {}
+    if not opts.noDrag then dragGroup.strips[#dragGroup.strips + 1] = result end
+    local dragCtrl = (not opts.noDrag) and EnsureDragController(dragGroup) or nil
+
+    result._setOrder = setOrder
+    result._onMove   = opts.onMove
+
+    -- The id list this strip currently shows, in order (the drop reorders a copy of it).
+    function result._dragOrderIds()
+        local ids = {}
+        for i, v in ipairs(items) do ids[i] = v.id end
+        return ids
+    end
+
+    -- Geometric "is the cursor inside this strip" (GetCursorPosition vs the strip rect) — the
+    -- same unit math slotAt uses; reliable while a drag has the mouse captured (unlike IsMouseOver).
+    local function cursorOver()
+        local l, b, w, h = strip:GetRect()
+        if not l then return false end
+        local s = strip:GetEffectiveScale()
+        if not (s and s > 0) then return false end
+        local mx, my = GetCursorPosition()
+        mx, my = mx / s, my / s
+        return mx >= l and mx < l + w and my >= b and my < b + h
+    end
+
+    -- Insertion index under the cursor (0 .. #non-dragged tiles), read from where the tiles
+    -- ACTUALLY sit (absolute coords) rather than a synthetic grid, so it is robust to the strip
+    -- being wider than its icons, to scroll offset, and to the wrap grid. Mirrors BuffGroups.slotAt.
+    local function slotAt(dragId)
+        local scale = strip:GetEffectiveScale()
+        if not (scale and scale > 0) then return 0 end
+        local mx, my = GetCursorPosition()
+        mx, my = mx / scale, my / scale
+        local pr = perRow()
+        local idx = 0
+        for _, it in ipairs(items) do
+            if it.id ~= dragId then
+                local b = it._tile
+                local tl, tb = b and b:GetLeft(), b and b:GetBottom()
+                if tl then
+                    local before
+                    if pr and tb then
+                        local tcy  = tb + ICON / 2
+                        local band = (ICON + GAP) / 2
+                        if tcy > my + band then        -- tile sits a row above the cursor
+                            before = true
+                        elseif tcy < my - band then    -- a row below the cursor
+                            before = false
+                        else                            -- same row: compare X
+                            before = (tl + ICON / 2) < mx
+                        end
+                    else
+                        before = (tl + ICON / 2) < mx
+                    end
+                    if not before then return idx end
+                end
+                idx = idx + 1
             end
         end
+        return idx
     end
-    local function onDragUpdate(b)
-        local scale = strip:GetEffectiveScale()
-        local left  = strip:GetLeft()
-        if not (scale and scale > 0 and left) then return end
-        local cx = (GetCursorPosition() / scale) - left - ICON / 2
-        cx = math.max(PAD, math.min(slotX(math.max(1, #items)), cx))
-        b:ClearAllPoints(); b:SetPoint("LEFT", strip, "LEFT", cx, 0)
-        local newIdx = math.max(1, math.min(#items, math.floor((cx - PAD) / (ICON + GAP) + 0.5) + 1))
-        local cur = indexOf(b.item)
-        if cur and newIdx ~= cur then
-            table.remove(items, cur); table.insert(items, newIdx, b.item); placeButtons()
+
+    -- Reflow: skip the lifted tile (it follows the cursor), place the rest in order, leaving a
+    -- one-slot gap at holeIndex (the hovered strip only; others pass nil → no gap). Index 1-based
+    -- for placeTile (tiles + trailing "+"); holeIndex is 0-based (count of tiles before the cursor).
+    local function relayout(dragId, holeIndex)
+        local seq = {}
+        for _, it in ipairs(items) do if it.id ~= dragId and it._tile then seq[#seq + 1] = it end end
+        local slot = 0
+        for i, it in ipairs(seq) do
+            if holeIndex and (i - 1) == holeIndex then slot = slot + 1 end
+            placeTile(slot + 1, it._tile); it._tile:Show()
+            slot = slot + 1
         end
+        if holeIndex and holeIndex >= #seq then slot = slot + 1 end
+        -- Keep the trailing "+" past the (possibly gapped) tiles while dragging.
+        if addBtn and addBtn:IsShown() then placeTile(slot + 1, addBtn) end
     end
-    local function startDrag(b)
-        dragBtn = b
-        b:SetFrameLevel(strip:GetFrameLevel() + 10)
-        b:SetScript("OnUpdate", function(self) onDragUpdate(self) end)
-    end
-    local function stopDrag(b)
-        b:SetScript("OnUpdate", nil)
-        b:SetFrameLevel(strip:GetFrameLevel() + 1)
-        dragBtn = nil
-        placeButtons()
-        local i = indexOf(b.item)
-        if i then b:ClearAllPoints(); b:SetPoint("LEFT", strip, "LEFT", slotX(i), 0) end
-        local ids = {}
-        for k, v in ipairs(items) do ids[k] = v.id end
-        setOrder(ids)
-    end
+
+    result._drag = {
+        cursorOver = cursorOver,
+        slotAt     = slotAt,
+        relayout   = relayout,
+        orderIds   = result._dragOrderIds,
+    }
 
     -- A small corner control (X / pen) on a tile. White at rest; tints to the brand
     -- colour on hover (white texture × colour = that colour), like the main window's
@@ -209,8 +405,8 @@ function ns.ui.CreateIconReorderStrip(opts)
         return btn
     end
 
-    -- The trailing "+" tile (GreenPlus) that opens the add-a-custom-icon flow.
-    local addBtn
+    -- The trailing "+" tile (GreenPlus) that opens the add-a-custom-icon flow. (`addBtn` is
+    -- declared above, near the drag wiring, so the reflow can keep it past the gapped tiles.)
     local function ensureAddBtn()
         if addBtn then return addBtn end
         addBtn = CreateFrame("Button", nil, strip)
@@ -253,14 +449,22 @@ function ns.ui.CreateIconReorderStrip(opts)
                 tex:SetAllPoints(b)
                 tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
                 b.tex = tex
-                if not opts.noDrag then
+                if not opts.noDrag and dragCtrl then
+                    -- Lift the pooled tile onto the shared layer; the poll driver then drives
+                    -- the move + release. Reads b.item live (the pool is reused across rebuilds),
+                    -- so a tile always drags the item it currently shows.
                     b:RegisterForDrag("LeftButton")
-                    b:SetScript("OnDragStart", function(self) startDrag(self) end)
-                    b:SetScript("OnDragStop",  function(self) stopDrag(self) end)
+                    b:SetScript("OnDragStart", function(self)
+                        if self.item then dragCtrl.start(result, self, self.item.id) end
+                    end)
+                    -- OnDragStop is a backup release path (the driver's IsMouseButtonDown poll is
+                    -- the primary one — it stays reliable after the tile is reparented).
+                    b:SetScript("OnDragStop", function() dragCtrl.stop() end)
                 end
                 pool[i] = b
             end
             b.item = it
+            it._tile = b                       -- back-link for slotAt / relayout
             b.tex:SetTexture(it.texture or "Interface\\Icons\\INV_Misc_QuestionMark")
             b:SetFrameLevel(strip:GetFrameLevel() + 1)
             placeTile(i, b)
@@ -305,7 +509,11 @@ function ns.ui.CreateIconReorderStrip(opts)
     end
     rebuild()
 
-    result.frame   = strip
-    result.Refresh = rebuild
+    result.frame       = strip
+    result.Refresh     = rebuild
+    -- The drag controller calls this on every group strip after a drop to re-read the new order.
+    -- It rebuilds THIS strip; the panel's own onMove/setOrder also fires a full panel rebuild
+    -- (which re-runs Refresh) so heights/labels stay correct — this just guarantees a live redraw.
+    result.RebuildStrip = rebuild
     return result
 end

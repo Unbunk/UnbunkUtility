@@ -559,6 +559,7 @@ L["Timer y offset"] = "Décalage Y du minuteur"
 -- ── Buff groups ──────────────────────────────────────────────────────────────
 L["Buff groups"] = "Groupes de buffs"
 L["Enable buff groups"] = "Activer les groupes de buffs"
+L["Enable custom CDM buffs"] = "Activer les buffs CDM personnalisés"
 L["Group name"] = "Nom du groupe"
 L["Group position (offset from screen center)"] = "Position du groupe (décalage depuis le centre de l'écran)"
 L["Unused"] = "Inutilisés"

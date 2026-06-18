@@ -383,6 +383,11 @@ local function EnsureIcon(spellId)
             if e[key] ~= nil then return e[key] end
             return DEFAULTS[key]
         end,
+        -- Lets the CDM reorder strips flip cdmAtEnd (Front <-> End bucket) on a cross-strip drag.
+        setCfg = function(key, val)
+            local e = SpellCfg(spellId)
+            if e then e[key] = val end
+        end,
         onDragStop = function(x, y)
             local e = SpellCfg(spellId)
             if e then e.posX = x; e.posY = y end

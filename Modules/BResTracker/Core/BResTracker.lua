@@ -291,6 +291,7 @@ if ns.CDMAnchor then
         apply   = BR.ApplyPosition,
         frame   = frame,
         getCfg  = BR.CfgGet,
+        setCfg  = function(key, val) BR.CfgSet(key, val) end,   -- cdmAtEnd flip on a cross-strip drag
         setSize = function(w, h) BR.SetSlotSize(w, h) end,
         getIcon = function() return ResolveIcon() end,
     })

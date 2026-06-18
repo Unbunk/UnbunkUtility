@@ -591,6 +591,7 @@ function ns.ui.CreateTimerIcon(config)
             apply   = result.ApplyPosition,
             frame   = frame,
             getCfg  = getCfg,
+            setCfg  = config.setCfg,   -- optional: lets the CDM reorder strips flip cdmAtEnd on drag
             setSize = result.SetSlotSize,
             getIcon = function() return curIcon end,
         })

@@ -445,6 +445,16 @@ local function FrameRemaining(nf)
     return (startMs + durationMs) / 1000 - GetTime()
 end
 
+-- Is a native pool frame currently VISIBLE? The viewer keeps one pool frame per displayed buff
+-- and toggles its shown state as the aura comes/goes — so "the buff is active" = its frame is
+-- present in frameOf AND IsShown() is true. Guarded (IsShown returns a bool, but stay safe vs a
+-- combat secret / a non-frame): a non-true result reads as inactive.
+local function FrameShown(nf)
+    if not nf then return false end
+    local ok, s = pcall(nf.IsShown, nf)
+    return ok and s and true or false
+end
+
 -- Most-urgent matching tier for `remaining` seconds: the entry with the SMALLEST `time`
 -- such that remaining <= time. Returns nil when none apply (→ base size/colour).
 local function MatchThreshold(list, remaining)
@@ -587,6 +597,19 @@ end
 local function AnchorTimerFS(fs, nf, pos, ox, oy)
     if not (fs and fs.SetPoint and ns.AnchorFS) then return end
     pcall(ns.AnchorFS, fs, nf, pos or "CENTER", ox, oy)
+end
+
+-- Re-impose OUR stack-text anchor whenever Blizzard re-anchors the native Applications FontString
+-- (it drifts the count a few px on stack updates). Reads the icon's CURRENT config (stored on the FS)
+-- so a per-icon position override sticks. The _uuReanchoring guard keeps the SetPoint hook from
+-- recursing into itself.
+local function ReanchorStack(appl)
+    local nf, sid = appl._uuStackNF, appl._uuStackSid
+    if not (nf and sid and ns.AnchorFS) then return end
+    appl._uuReanchoring = true
+    pcall(ns.AnchorFS, appl, nf, BG.IconGet(sid, "stackPos") or "BOTTOMRIGHT",
+        BG.IconGet(sid, "stackOffX"), BG.IconGet(sid, "stackOffY"))
+    appl._uuReanchoring = false
 end
 
 -- Re-font every FontString among a Cooldown's regions (the countdown number lives there),
@@ -760,8 +783,17 @@ local function StyleFrame(nf, spellId)
             local sc = BG.IconGet(spellId, "stackColor") or { r = 1, g = 1, b = 1, a = 1 }
             appl:SetTextColor(sc.r, sc.g, sc.b, sc.a or 1)
             appl:SetDrawLayer("OVERLAY", 7)
-            ns.AnchorFS(appl, nf, BG.IconGet(spellId, "stackPos") or "BOTTOMRIGHT",
-                BG.IconGet(spellId, "stackOffX"), BG.IconGet(spellId, "stackOffY"))
+            -- Blizzard re-anchors this native FontString on stack updates (drifting the count). Store
+            -- the icon's current config on the FS, anchor it now, and hook SetPoint ONCE to re-impose
+            -- our anchor whenever Blizzard moves it — so a per-icon position override stays put.
+            appl._uuStackNF, appl._uuStackSid = nf, spellId
+            ReanchorStack(appl)
+            if not appl._uuStackHooked then
+                appl._uuStackHooked = true
+                hooksecurefunc(appl, "SetPoint", function(self)
+                    if not self._uuReanchoring then ReanchorStack(self) end
+                end)
+            end
             appl:SetShown(true)
         else
             appl:Hide()
@@ -796,14 +828,8 @@ local function ReleaseNative(nf)
     if nf._uuGlow then nf._uuGlow:Hide() end
 end
 
-local function HideAll()
-    for _, nf in ipairs(ns.CDMAnchor and ns.CDMAnchor.EnumBuffIcons and ns.CDMAnchor.EnumBuffIcons() or {}) do
-        ReleaseNative(nf)
-    end
-    if BG.HideInactiveCustomFrames then BG.HideInactiveCustomFrames() end
-    for sid in pairs(placeholderActive) do ReleasePlaceholder(sid) end
-    for _, c in pairs(containers) do c:Hide() end
-end
+-- HideAll is defined just BELOW the placeholder pool (it releases placeholders), so its
+-- placeholderActive / ReleasePlaceholder upvalues resolve to the real locals, not nil globals.
 
 -- ── Placeholder frames (per-icon "Show placeholder") ───────────────────────────
 -- A minimal pool of addon-drawn frames, keyed by spellId, mirroring Ayije's
@@ -866,6 +892,18 @@ local function ReleasePlaceholder(spellId)
     if f:GetParent() ~= UIParent then f:SetParent(UIParent) end
     placeholderActive[spellId] = nil
     placeholderPool[#placeholderPool + 1] = f
+end
+
+-- Hide every container + drop every native/custom pin + release placeholders (module off /
+-- disabled). Native frames aren't ours to destroy; we just release our pin so Blizzard
+-- repositions them normally.
+local function HideAll()
+    for _, nf in ipairs(ns.CDMAnchor and ns.CDMAnchor.EnumBuffIcons and ns.CDMAnchor.EnumBuffIcons() or {}) do
+        ReleaseNative(nf)
+    end
+    if BG.HideInactiveCustomFrames then BG.HideInactiveCustomFrames() end
+    for sid in pairs(placeholderActive) do ReleasePlaceholder(sid) end
+    for _, c in pairs(containers) do c:Hide() end
 end
 
 -- ── Public refresh / layout ────────────────────────────────────────────────────
@@ -1024,6 +1062,12 @@ function BG.RefreshLayout()
         -- RIGHT/CENTER_H/DOWN/CENTER_V flow forward from the TOPLEFT corner; LEFT/UP fill the box but run
         -- in reverse (last member nearest the corner). The pin always writes TOPLEFT->container TOPLEFT.
         local reverse = (grow == "LEFT" or grow == "UP")
+        -- Cross-axis alignment for differently-sized icons in a horizontal group: line them up on the
+        -- BOTTOM edge of the group, EXCEPT when the group sits below its anchor (relPos below /
+        -- bottom-left / bottom-right) → line them up on the TOP, so a bigger icon always grows AWAY
+        -- from the anchor. (Cross axis = height here; equal-sized icons are unaffected.)
+        local rp = g.relPos or "above"
+        local alignTop = (rp == "below" or rp == "bottomleft" or rp == "bottomright")
         local cursor = reverse and sumMain or 0   -- distance of the next slot's leading edge
         for idx, sid in ipairs(layoutMembers) do
             local nf = frameOf[sid]
@@ -1031,7 +1075,7 @@ function BG.RefreshLayout()
             local main = horizontal and sz.w or sz.h
             if reverse then cursor = cursor - main end
             local x, y
-            if horizontal then x, y = cursor, 0 else x, y = 0, -cursor end
+            if horizontal then x, y = cursor, (alignTop and 0 or -(maxCross - sz.h)) else x, y = 0, -cursor end
             -- An inactive member's slot is reserved (the cursor still advances below) but nothing is
             -- pinned, leaving an empty gap so the active icons stay in fixed positions — UNLESS the icon
             -- has its per-icon `placeholder` flag on, in which case a dim placeholder fills the gap.
@@ -1048,6 +1092,16 @@ function BG.RefreshLayout()
                     -- our size on Blizzard's relayout (its built-in raw SetPoint hook). Pass the PER-ICON
                     -- effective size so a resized icon keeps its override.
                     ns.CDMAnchor.PinNativeTo(nf, container, x, y, sz.w, sz.h)
+                end
+                -- The native viewer keeps a pool frame for every DISPLAYED buff and only IsShown()s it
+                -- while the aura is up — so the frame is ALWAYS in frameOf, active or not. When the icon
+                -- has its `placeholder` flag on and the buff is currently INACTIVE (native frame present
+                -- but not shown), draw the ghost over the slot the (invisible) native frame occupies; when
+                -- the buff procs IsShown() flips true and the end-of-pass release loop drops the ghost.
+                -- Custom buffs are only ever in frameOf while ACTIVE, so they never want a ghost here.
+                if not nf.isCustomBuff and BG.IconGet(sid, "placeholder") == true and not FrameShown(nf) then
+                    placeholderNeeded[sid] = true
+                    ShowPlaceholderAt(sid, container, x, y, sz.w, sz.h)
                 end
             elseif BG.IconGet(sid, "placeholder") == true then
                 placeholderNeeded[sid] = true
@@ -1163,10 +1217,11 @@ local function HookNativeViewer()
     if not v or not v.RefreshLayout then return end
     refreshHooked = true
     hooksecurefunc(v, "RefreshLayout", function()
-        if not BG.Enabled() then return end
         -- The viewer just laid out -> its itemFramePool now reflects the displayed set. Flip the
-        -- readiness flag and replay a seed that had to wait for the pool to become real.
+        -- readiness flag ALWAYS (even when the module is disabled) so the config's displayed-set
+        -- detection works on any profile; the seed replay + our relayout stay gated on Enabled.
         viewerLaidOut = true
+        if not BG.Enabled() then return end
         if pendingSeed then BG.RefreshTracked() end
         BG.RefreshLayout()
     end)
@@ -1208,14 +1263,15 @@ ev:SetScript("OnUpdate", function(_, dt)
     accum = accum + dt
     if accum < 0.2 then return end
     accum = accum - 0.2
+    -- Keep the displayed set fresh on EVERY profile, even when the module is DISABLED: the config's
+    -- dynamic GroupOf + red flags read it, so a profile with the module off must still classify
+    -- Group 1 vs Unused correctly (otherwise the strip looks frozen/empty). Also catches EditMode
+    -- "Tracked Buffs" edits (which don't fire RefreshTracked); notify the config only on a real change.
+    if BG.RefreshDisplayedCache() and BG.onDisplayedChanged then BG.onDisplayedChanged() end
     if not BG.Enabled() then return end
     -- Replay a seed that had to defer (e.g. enabled mid-session after a disabled-at-login defer) once
     -- the viewer is ready; harmless no-op otherwise (pendingSeed clears after one successful seed).
     if pendingSeed and viewerLaidOut then BG.RefreshTracked() end
-    -- Catch EditMode edits to the CDM "Tracked Buffs" set (which don't fire RefreshTracked): recompute
-    -- the displayed cache and, only when it actually changed, notify the config so its red flags /
-    -- tooltips / the open editor's red message re-evaluate.
-    if BG.RefreshDisplayedCache() and BG.onDisplayedChanged then BG.onDisplayedChanged() end
     BG.RefreshLayout()
 end)
 
