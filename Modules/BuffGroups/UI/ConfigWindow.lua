@@ -103,6 +103,9 @@ end
 --   bundle.get(key)        -> the effective value (group: GGet; icon: IconGet -> group)
 --   bundle.set(key, val)   -> write it (group: GSet; icon: IconSet)
 --   bundle.reset(key)|nil  -> drop one override (icon: IconReset(sid,key)); nil for a group
+--   bundle.has(keys)|nil   -> true if ANY key in `keys` has a RAW icon override (icon only;
+--                             nil for a group). Drives the per-section "Override group
+--                             settings" checkbox + the inner controls' enabledBy gating.
 --   bundle.touch()         -> re-apply the live layout
 --   bundle.refresh()|nil   -> re-measure/redraw the host menu after a reset/toggle
 -- The KEY NAMES are identical in both worlds (showTimer, timerFontKey/Path/Size/Outline/
@@ -179,81 +182,259 @@ local function PosOffsetFor(bundle, prefix)
     }
 end
 
--- A "Reset to group" button that drops a set of keys back to the group (icon editor only;
--- a nil bundle.reset means the group panel, which has nothing above it to inherit -> no button).
-local function ResetButton(bundle, keys)
-    if not bundle.reset then return nil end
-    return { type = "button", label = L["Reset to group"], width = 140, hostHeight = 28,
-        onClick = function()
-            for _, key in ipairs(keys) do bundle.reset(key) end
-            bundle.touch()
-            if bundle.refresh then bundle.refresh() end
-        end }
-end
-
--- Append every non-nil entry of `extra` to `list` (skips the ResetButton when it's nil).
+-- Append every non-nil entry of `extra` to `list` (skips a nil entry, e.g. the override
+-- toggle in the group context).
 local function append(list, extra)
     if extra then list[#list + 1] = extra end
     return list
 end
 
--- Timer sub-cadre: show toggle + full font/size/colour/outline editor + position/offset.
+-- Recursive value clone: deep-copies tables (so an icon override never aliases/mutates the
+-- group's table — colours {r,g,b,a} or the timerThresholds list), passes scalars through.
+local function CloneVal(v)
+    if type(v) ~= "table" then return v end
+    local out = {}
+    for k, val in pairs(v) do out[k] = CloneVal(val) end
+    return out
+end
+
+-- "Override group settings" — the per-ICON, per-section checkbox shown at the TOP of each
+-- settings sub-cadre (icon editor only; nil in the group context where bundle.reset == nil,
+-- a group having nothing above it to inherit). Its checked-state = the section is currently
+-- overridden (ANY of `keys` has a raw icon override, via bundle.has — NOT bundle.get, which
+-- falls back to the group and would always look set). Checking it (false->true) STARTS
+-- overriding WITHOUT changing appearance: each key is seeded to the current EFFECTIVE (group)
+-- value, deep-cloned so a table value (colour / thresholds list) doesn't alias the group's.
+-- Unchecking it (true->false) RESETS the section: each key drops its override and inherits the
+-- group again. Either way it touch()es the layout then refresh()es so gating + values redraw.
+local function OverrideToggle(bundle, keys)
+    if not bundle.reset or not bundle.has then return nil end
+    return { type = "checkbox", label = L["Override group settings"],
+        get = function() return bundle.has(keys) end,
+        set = function(v)
+            if v then
+                for _, key in ipairs(keys) do bundle.set(key, CloneVal(bundle.get(key))) end
+            else
+                for _, key in ipairs(keys) do bundle.reset(key) end
+            end
+            bundle.touch()
+            if bundle.refresh then bundle.refresh() end
+        end }
+end
+
+-- "Copy group settings" — the per-ICON, per-section button shown just under the override
+-- checkbox (icon editor only; nil in the group context, same guard as OverrideToggle). It RE-SYNCS
+-- the section's override to the group: each key is written to the group's CURRENT value, deep-cloned
+-- so a table value (colour / thresholds list) doesn't alias the group's. Reads the group value via
+-- bundle.groupGet (the pure group read, unlike bundle.get which would return the icon's own override
+-- once the section is overriding). Gated by the section-override predicate so it's greyed/disabled
+-- while the section inherits the group — consistent with the rest of the greyed section.
+local function CopyGroupButton(bundle, keys, gated)
+    if not bundle.reset or not bundle.has then return nil end
+    local groupGet = bundle.groupGet or bundle.get
+    return { type = "button", label = L["Copy group settings"], width = 180, hostHeight = 30, enabledBy = gated,
+        onClick = function()
+            for _, key in ipairs(keys) do bundle.set(key, CloneVal(groupGet(key))) end
+            bundle.touch()
+            if bundle.refresh then bundle.refresh() end
+        end }
+end
+
+-- An enabledBy predicate (icon editor): a section's inner controls grey out while it INHERITS
+-- the group (no key overridden); they light up once the override toggle is checked. In the
+-- group context (no bundle.has) the controls are always live, so the group panel is unchanged.
+local function SectionOverridden(bundle, keys)
+    if not bundle.has then return nil end
+    return function() return bundle.has(keys) end
+end
+
+-- Time-thresholds list editor: one row per tier (At seconds / size mult / colour / remove)
+-- plus an "Add threshold" button. Reads the list through the bundle (group: GGet -> the
+-- shared DEFAULT_TIMER_THRESHOLDS when unset; icon: IconGet -> group). EVERY write CLONES the
+-- list first (bundle.set with a NEW table) so a per-icon edit never mutates the group's (or the
+-- shared default) list. Add/remove change the row count, so they bundle.refresh() to re-render.
+-- Gated on the enable checkbox via enabledBy.
+local function CloneThresholds(list)
+    local out = {}
+    for _, t in ipairs(list or {}) do
+        local c = t.color
+        out[#out + 1] = {
+            time  = t.time or 0,
+            size  = t.size or 1,
+            color = c and { r = c.r, g = c.g, b = c.b, a = c.a or 1 } or { r = 1, g = 1, b = 1, a = 1 },
+        }
+    end
+    return out
+end
+
+-- `sectionGate` (icon editor) ANDs the section-override gate onto the thresholds-enabled gate
+-- so the list greys both while the timer section inherits the group AND while thresholds are off.
+local function ThresholdsEditor(bundle, sectionGate)
+    return {
+        type   = "custom", height = 60,
+        enabledBy = function()
+            if sectionGate and not sectionGate() then return false end
+            return bundle.get("timerThresholdsEnabled") == true
+        end,
+        build  = function(host)
+            local list  = bundle.get("timerThresholds") or {}
+            local ROW_H = 30
+
+            local hdr = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+            hdr:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+            hdr:SetText(L["Time thresholds (size + colour as the timer drops)"])
+
+            local y = 22
+            for i, tier in ipairs(list) do
+                local atLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                atLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
+                atLbl:SetText(L["At (s)"])
+                local atInput = ns.ui.CreateTextInput({
+                    parent = host, width = 42, height = 22, numeric = true, min = 0, max = 3600, maxLetters = 4,
+                    text = tostring(tier.time or 0),
+                    onEnter = function(v)
+                        if v ~= nil then
+                            local nl = CloneThresholds(list); nl[i].time = v
+                            bundle.set("timerThresholds", nl); bundle.touch()
+                        end
+                    end,
+                })
+                atInput.frame:SetPoint("LEFT", atLbl, "RIGHT", 4, 0)
+
+                local szLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                szLbl:SetPoint("LEFT", atInput.frame, "RIGHT", 12, 0)
+                szLbl:SetText(L["Size x"])
+                local szInput = ns.ui.CreateTextInput({
+                    parent = host, width = 46, height = 22, numeric = true, min = 0, max = 10, maxLetters = 4,
+                    text = tostring(tier.size or 1),
+                    onEnter = function(v)
+                        if v and v > 0 then
+                            local nl = CloneThresholds(list); nl[i].size = v
+                            bundle.set("timerThresholds", nl); bundle.touch()
+                        end
+                    end,
+                })
+                szInput.frame:SetPoint("LEFT", szLbl, "RIGHT", 4, 0)
+
+                local swatch = ns.ui.CreateColorSwatch({
+                    parent = host, width = 24, height = 22,
+                    getColor = function() return tier.color end,
+                    onChange = function(r, g, b, a)
+                        local nl = CloneThresholds(list); nl[i].color = { r = r, g = g, b = b, a = a }
+                        bundle.set("timerThresholds", nl); bundle.touch()
+                    end,
+                })
+                swatch.frame:SetPoint("LEFT", szInput.frame, "RIGHT", 12, 0)
+
+                local rm = ns.ui.CreateButton({
+                    parent = host, label = "X", width = 24, height = 22,
+                    onClick = function()
+                        local nl = CloneThresholds(list); table.remove(nl, i)
+                        bundle.set("timerThresholds", nl); bundle.touch()
+                        if bundle.refresh then bundle.refresh() end
+                    end,
+                })
+                rm.frame:SetPoint("LEFT", swatch.frame, "RIGHT", 12, 0)
+
+                y = y + ROW_H
+            end
+
+            local add = ns.ui.CreateButton({
+                parent = host, label = L["Add threshold"], width = 140, height = 22,
+                onClick = function()
+                    local nl = CloneThresholds(list)
+                    nl[#nl + 1] = { time = 10, size = 1, color = { r = 1, g = 1, b = 1, a = 1 } }
+                    bundle.set("timerThresholds", nl); bundle.touch()
+                    if bundle.refresh then bundle.refresh() end
+                end,
+            })
+            add.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
+            y = y + 30
+
+            host:SetHeight(math.max(60, y))
+            return { frame = host, height = math.max(60, y) }
+        end,
+    }
+end
+
+-- Timer sub-cadre: show toggle + full font/size/colour/outline editor + position/offset +
+-- the time-thresholds toggle and list editor. In the icon editor a leading "Override group
+-- settings" checkbox seeds/resets these keys and gates the rest via enabledBy.
+local TIMER_KEYS = {
+    "showTimer", "timerFontKey", "timerFontPath", "timerFontSize", "timerOutline",
+    "timerColor", "timerPos", "timerOffX", "timerOffY",
+    "timerThresholdsEnabled", "timerThresholds",
+}
 local function TimerSection(bundle)
+    local gated = SectionOverridden(bundle, TIMER_KEYS)
     return { type = "group", title = L["Timer"],
-      gate = { enabled = function() return bundle.get("showTimer") ~= false end, master = "showtimer" },
+      -- Group context only: the "Show timer" checkbox greys the rest. In the icon context the
+      -- override toggle + enabledBy drive the gating instead, so the override box stays live.
+      gate = (not bundle.has) and { enabled = function() return bundle.get("showTimer") ~= false end, master = "showtimer" } or nil,
       build = function()
-        local e = {
-            { type = "checkbox", ref = "showtimer", label = L["Show timer"],
+        local e = {}
+        append(e, OverrideToggle(bundle, TIMER_KEYS))
+        append(e, CopyGroupButton(bundle, TIMER_KEYS, gated))
+        e[#e + 1] = { type = "checkbox", ref = "showtimer", label = L["Show timer"], enabledBy = gated,
               get = function() return bundle.get("showTimer") ~= false end,
-              set = function(v) bundle.set("showTimer", v); bundle.touch() end },
-            StyleEditorFor(bundle, "timer"),
-            PosOffsetFor(bundle, "timer"),
-        }
-        return append(e, ResetButton(bundle, {
-            "showTimer", "timerFontKey", "timerFontPath", "timerFontSize", "timerOutline",
-            "timerColor", "timerPos", "timerOffX", "timerOffY",
-        }))
+              set = function(v) bundle.set("showTimer", v); bundle.touch() end }
+        local style = StyleEditorFor(bundle, "timer"); style.enabledBy = gated; e[#e + 1] = style
+        local pos = PosOffsetFor(bundle, "timer"); pos.enabledBy = gated; e[#e + 1] = pos
+        e[#e + 1] = { type = "checkbox", label = L["Enable time thresholds"], enabledBy = gated,
+              get = function() return bundle.get("timerThresholdsEnabled") == true end,
+              set = function(v) bundle.set("timerThresholdsEnabled", v and true or false); bundle.touch()
+                  if bundle.refresh then bundle.refresh() end end }
+        local thr = ThresholdsEditor(bundle, gated); e[#e + 1] = thr
+        return e
       end }
 end
 
--- Title sub-cadre: show toggle + title text + full text editor + position/offset.
+-- Title sub-cadre: show toggle + title text + full text editor + position/offset. In the icon
+-- editor a leading "Override group settings" checkbox seeds/resets these keys and gates the rest.
+local TITLE_KEYS = {
+    "showTitle", "titleText", "titleFontKey", "titleFontPath", "titleFontSize",
+    "titleOutline", "titleColor", "titlePos", "titleOffX", "titleOffY",
+}
 local function TitleSection(bundle)
+    local gated = SectionOverridden(bundle, TITLE_KEYS)
     return { type = "group", title = L["Title"],
-      gate = { enabled = function() return bundle.get("showTitle") == true end, master = "showtitle" },
+      gate = (not bundle.has) and { enabled = function() return bundle.get("showTitle") == true end, master = "showtitle" } or nil,
       build = function()
-        local e = {
-            { type = "checkbox", ref = "showtitle", label = L["Show title"],
+        local e = {}
+        append(e, OverrideToggle(bundle, TITLE_KEYS))
+        append(e, CopyGroupButton(bundle, TITLE_KEYS, gated))
+        e[#e + 1] = { type = "checkbox", ref = "showtitle", label = L["Show title"], enabledBy = gated,
               get = function() return bundle.get("showTitle") == true end,
-              set = function(v) bundle.set("showTitle", v); bundle.touch() end },
-            { type = "textinput", label = L["Title text"], width = 240, maxLetters = 64,
+              set = function(v) bundle.set("showTitle", v); bundle.touch() end }
+        e[#e + 1] = { type = "textinput", label = L["Title text"], width = 240, maxLetters = 64, enabledBy = gated,
               get = function() return bundle.get("titleText") or "" end,
-              set = function(v) bundle.set("titleText", v or ""); bundle.touch() end },
-            StyleEditorFor(bundle, "title"),
-            PosOffsetFor(bundle, "title"),
-        }
-        return append(e, ResetButton(bundle, {
-            "showTitle", "titleText", "titleFontKey", "titleFontPath", "titleFontSize",
-            "titleOutline", "titleColor", "titlePos", "titleOffX", "titleOffY",
-        }))
+              set = function(v) bundle.set("titleText", v or ""); bundle.touch() end }
+        local style = StyleEditorFor(bundle, "title"); style.enabledBy = gated; e[#e + 1] = style
+        local pos = PosOffsetFor(bundle, "title"); pos.enabledBy = gated; e[#e + 1] = pos
+        return e
       end }
 end
 
--- Stacks sub-cadre: show toggle + full text editor + position/offset.
+-- Stacks sub-cadre: show toggle + full text editor + position/offset. In the icon editor a
+-- leading "Override group settings" checkbox seeds/resets these keys and gates the rest.
+local STACK_KEYS = {
+    "showStack", "showAtZero", "stackFontKey", "stackFontPath", "stackFontSize", "stackOutline",
+    "stackColor", "stackPos", "stackOffX", "stackOffY",
+}
 local function StacksSection(bundle)
+    local gated = SectionOverridden(bundle, STACK_KEYS)
     return { type = "group", title = L["Stacks/Charges"],
-      gate = { enabled = function() return bundle.get("showStack") ~= false end, master = "showstack" },
+      gate = (not bundle.has) and { enabled = function() return bundle.get("showStack") ~= false end, master = "showstack" } or nil,
       build = function()
-        local e = {
-            { type = "checkbox", ref = "showstack", label = L["Show stacks"],
+        local e = {}
+        append(e, OverrideToggle(bundle, STACK_KEYS))
+        append(e, CopyGroupButton(bundle, STACK_KEYS, gated))
+        e[#e + 1] = { type = "checkbox", ref = "showstack", label = L["Show stacks"], enabledBy = gated,
               get = function() return bundle.get("showStack") ~= false end,
-              set = function(v) bundle.set("showStack", v); bundle.touch() end },
-            StyleEditorFor(bundle, "stack"),
-            PosOffsetFor(bundle, "stack"),
-        }
-        return append(e, ResetButton(bundle, {
-            "showStack", "stackFontKey", "stackFontPath", "stackFontSize", "stackOutline",
-            "stackColor", "stackPos", "stackOffX", "stackOffY",
-        }))
+              set = function(v) bundle.set("showStack", v); bundle.touch() end }
+        local style = StyleEditorFor(bundle, "stack"); style.enabledBy = gated; e[#e + 1] = style
+        local pos = PosOffsetFor(bundle, "stack"); pos.enabledBy = gated; e[#e + 1] = pos
+        return e
       end }
 end
 
@@ -262,32 +443,95 @@ end
 -- ns.ui.BuildMenu scoped to ONE icon's sparse override. Border / icon size / glow write the
 -- ICON_OVERRIDE_KEYS subset; Timer / Title / Stacks now write ANY of their keys (IconSet
 -- accepts any key) so an icon can FULLY diverge from its group. Every read goes through
--- BG.IconGet so an unset key shows the inherited group value. A per-section "reset to group"
--- drops that section's overrides back to the group default.
+-- BG.IconGet so an unset key shows the inherited group value. Each section leads with an
+-- "Override group settings" checkbox: checked = the icon uses its OWN values for the section;
+-- unchecked = it inherits the group (the section's controls grey out). Each overriding section
+-- also has a "Copy group settings" button (re-sync that section to the group's current values).
+-- A single "Copy all group settings" button at the bottom makes the icon a full copy of the group.
 -- ════════════════════════════════════════════════════════════════════════════════
 local iconEditor       -- singleton { frame, scroll, content, sb, menu }
 local editingSid       -- the spell id currently shown
 local onIconEditChange -- set per-open: re-applies the layout + refreshes the panel strip
+local OpenIconEditor   -- fwd decl: the placeholder toggle re-opens to re-read its state-label
 
 local function IconOptions(sid)
     local function touch() BG.ApplyAll(); if onIconEditChange then onIconEditChange() end end
+    local function rebuildMenu() if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end
+    -- True if ANY of `keys` is a RAW icon override (not IconGet, which falls back to the group):
+    -- the "Override group settings" checkbox's checked-state + the inner controls' enabledBy.
+    local function sectionOverridden(keys)
+        return function()
+            for _, key in ipairs(keys) do if BG.IconHasOverride(sid, key) then return true end end
+            return false
+        end
+    end
     -- The icon accessor bundle for the shared Timer/Title/Stacks sub-cadres: reads inherit the
-    -- group (IconGet), writes override (IconSet), reset drops one key (IconReset), refresh
-    -- re-measures the popup after a section reset/toggle.
+    -- group (IconGet), writes override (IconSet), reset drops one key (IconReset), `has` reports
+    -- raw per-section override state, refresh re-measures the popup after a section reset/toggle.
     local iconBundle = {
         get   = function(key) return BG.IconGet(sid, key) end,
+        -- The PURE group value (no per-icon override), used by CopyGroupButton to re-sync the
+        -- section to the group even while it's overriding (bundle.get would return the override).
+        groupGet = function(key) return BG.GGet(BG.GroupOf(sid), key) end,
         set   = function(key, val) BG.IconSet(sid, key, val) end,
         reset = function(key) BG.IconReset(sid, key) end,
+        has   = function(keys) return sectionOverridden(keys)() end,
         touch = touch,
-        refresh = function() if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end,
+        refresh = rebuildMenu,
     }
-    return {
+    local entries = {
         { type = "label", font = "UnbunkUtilityH6", height = 30,
-          text = L["Overrides here win over the group; reset a section to inherit the group again."] },
+          text = L["Tick \"Override group settings\" in a section to give this icon its own values; untick it to inherit the group again."] },
 
-        -- Icon size (W / H).
-        { type = "group", title = L["Icon size"], build = function() return {
-            { type = "custom", height = 30, build = function(host)
+        -- Sound alert (PER-ICON ONLY — no group panel, no "Override group settings" box: it isn't
+        -- a group-inherited visual). Two rows reusing the shared "sound" widget (its bundled enable
+        -- checkbox IS the row's enable, and its built-in gate greys the picker while unchecked).
+        -- Bound to BG.IconGet/IconSet for the soundStart*/soundStop* keys; both off by default.
+        { type = "group", title = L["Sound alert"], build = function() return {
+            { type = "sound", LSM = LSM, label = L["Sound when buff start"],
+              getKey    = function() return BG.IconGet(sid, "soundStartSound") end,
+              getEnable = function() return BG.IconGet(sid, "soundStartEnabled") == true end,
+              onSelect  = function(key, path) BG.IconSet(sid, "soundStartSound", key); BG.IconSet(sid, "soundStartPath", path) end,
+              onToggle  = function(v) BG.IconSet(sid, "soundStartEnabled", v and true or false) end,
+              onTest    = function()
+                  local p = BG.IconGet(sid, "soundStartPath")
+                  if p then PlaySoundFile(p, "Master")
+                  else local k = BG.IconGet(sid, "soundStartSound"); local r = LSM and k and LSM:Fetch("sound", k); if r then PlaySoundFile(r, "Master") end end
+              end },
+            { type = "sound", LSM = LSM, label = L["Sound when buff stop"],
+              getKey    = function() return BG.IconGet(sid, "soundStopSound") end,
+              getEnable = function() return BG.IconGet(sid, "soundStopEnabled") == true end,
+              onSelect  = function(key, path) BG.IconSet(sid, "soundStopSound", key); BG.IconSet(sid, "soundStopPath", path) end,
+              onToggle  = function(v) BG.IconSet(sid, "soundStopEnabled", v and true or false) end,
+              onTest    = function()
+                  local p = BG.IconGet(sid, "soundStopPath")
+                  if p then PlaySoundFile(p, "Master")
+                  else local k = BG.IconGet(sid, "soundStopSound"); local r = LSM and k and LSM:Fetch("sound", k); if r then PlaySoundFile(r, "Master") end end
+              end },
+        } end },
+
+        -- Show/Hide placeholder (PER-ICON ONLY — flips the icon's `placeholder` boolean via IconSet,
+        -- default false via the GROUP_TEMPLATE fallback). When ON the icon ALWAYS reserves its slot:
+        -- active it shows its native frame, inactive a dim desaturated placeholder fills the gap. A plain
+        -- button's label is captured at build time, so on click we flip + touch() then re-open the editor
+        -- (re-running IconOptions) so the label re-reads its state — the same spell, same onChange.
+        { type = "button", width = 200, hostHeight = 30,
+          label = (BG.IconGet(sid, "placeholder") == true) and L["Hide placeholder"] or L["Show placeholder"],
+          onClick = function()
+              BG.IconSet(sid, "placeholder", BG.IconGet(sid, "placeholder") ~= true)
+              touch()
+              OpenIconEditor(sid, onIconEditChange)
+          end },
+
+        -- Icon size (W / H). Leading "Override group settings" checkbox seeds/resets iconW/iconH
+        -- and gates the W/H inputs (greyed while inheriting the group).
+        { type = "group", title = L["Icon size"], build = function()
+            local keys = { "iconW", "iconH" }
+            local gated = sectionOverridden(keys)
+            local e = {}
+            append(e, OverrideToggle(iconBundle, keys))
+            append(e, CopyGroupButton(iconBundle, keys, gated))
+            e[#e + 1] = { type = "custom", height = 30, enabledBy = gated, build = function(host)
                 local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                 wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); wLbl:SetText(L["W"])
                 local wInput = ns.ui.CreateTextInput({
@@ -308,67 +552,94 @@ local function IconOptions(sid)
                     wInput.SetText(tostring(BG.IconGet(sid, "iconW") or 32))
                     hInput.SetText(tostring(BG.IconGet(sid, "iconH") or 32))
                 end }
-            end },
-            { type = "button", label = L["Reset to group"], width = 140, hostHeight = 28,
-              onClick = function() BG.IconReset(sid, "iconW"); BG.IconReset(sid, "iconH"); touch()
-                  if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end },
-        } end },
+            end }
+            return e
+        end },
 
         -- Border (enable / colour / thickness).
-        { type = "group", title = L["Border"], build = function() return {
-            { type = "checkbox", label = L["Show border"],
+        { type = "group", title = L["Border"], build = function()
+            local keys = { "borderEnabled", "borderColor", "borderSize" }
+            local gated = sectionOverridden(keys)
+            local e = {}
+            append(e, OverrideToggle(iconBundle, keys))
+            append(e, CopyGroupButton(iconBundle, keys, gated))
+            e[#e + 1] = { type = "checkbox", label = L["Show border"], enabledBy = gated,
               get = function() return BG.IconGet(sid, "borderEnabled") ~= false end,
               set = function(v) BG.IconSet(sid, "borderEnabled", v); touch()
-                  if iconEditor and iconEditor.menu then iconEditor.menu.Refresh() end end },
-            { type = "textEditor", label = L["Border color"],
+                  if iconEditor and iconEditor.menu then iconEditor.menu.Refresh() end end }
+            e[#e + 1] = { type = "textEditor", label = L["Border color"],
               showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-              enabledBy = function() return BG.IconGet(sid, "borderEnabled") ~= false end,
+              enabledBy = function() return gated() and BG.IconGet(sid, "borderEnabled") ~= false end,
               getColor = function() return BG.IconGet(sid, "borderColor") end,
-              onColorChange = function(r, g, b, a) BG.IconSet(sid, "borderColor", { r = r, g = g, b = b, a = a }); touch() end },
-            { type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-              enabledBy = function() return BG.IconGet(sid, "borderEnabled") ~= false end,
+              onColorChange = function(r, g, b, a) BG.IconSet(sid, "borderColor", { r = r, g = g, b = b, a = a }); touch() end }
+            e[#e + 1] = { type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+              enabledBy = function() return gated() and BG.IconGet(sid, "borderEnabled") ~= false end,
               get = function() return BG.IconGet(sid, "borderSize") or 1 end,
-              set = function(v) if v and v > 0 then BG.IconSet(sid, "borderSize", v); touch() end end },
-            { type = "button", label = L["Reset to group"], width = 140, hostHeight = 28,
-              onClick = function() BG.IconReset(sid, "borderEnabled"); BG.IconReset(sid, "borderColor")
-                  BG.IconReset(sid, "borderSize"); touch()
-                  if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end },
-        } end },
+              set = function(v) if v and v > 0 then BG.IconSet(sid, "borderSize", v); touch() end end }
+            return e
+        end },
 
         -- Glow (enable / colour).
-        { type = "group", title = L["Glow"], build = function() return {
-            { type = "checkbox", label = L["Show glow"],
+        { type = "group", title = L["Glow"], build = function()
+            local keys = { "glowEnabled", "glowColor" }
+            local gated = sectionOverridden(keys)
+            local e = {}
+            append(e, OverrideToggle(iconBundle, keys))
+            append(e, CopyGroupButton(iconBundle, keys, gated))
+            e[#e + 1] = { type = "checkbox", label = L["Show glow"], enabledBy = gated,
               get = function() return BG.IconGet(sid, "glowEnabled") == true end,
               set = function(v) BG.IconSet(sid, "glowEnabled", v); touch()
-                  if iconEditor and iconEditor.menu then iconEditor.menu.Refresh() end end },
-            { type = "textEditor", label = L["Glow color"],
+                  if iconEditor and iconEditor.menu then iconEditor.menu.Refresh() end end }
+            e[#e + 1] = { type = "textEditor", label = L["Glow color"],
               showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-              enabledBy = function() return BG.IconGet(sid, "glowEnabled") == true end,
+              enabledBy = function() return gated() and BG.IconGet(sid, "glowEnabled") == true end,
               getColor = function() return BG.IconGet(sid, "glowColor") end,
-              onColorChange = function(r, g, b, a) BG.IconSet(sid, "glowColor", { r = r, g = g, b = b, a = a }); touch() end },
-            { type = "button", label = L["Reset to group"], width = 140, hostHeight = 28,
-              onClick = function() BG.IconReset(sid, "glowEnabled"); BG.IconReset(sid, "glowColor"); touch()
-                  if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end },
-        } end },
+              onColorChange = function(r, g, b, a) BG.IconSet(sid, "glowColor", { r = r, g = g, b = b, a = a }); touch() end }
+            return e
+        end },
 
         -- Timer / Title / Stacks: the FULL sub-cadres (show toggle + font/size/colour/outline
-        -- + position/offset) so an icon can fully override its group, each with a section
-        -- "Reset to group". Built from the SHARED builders bound to the icon accessor bundle.
+        -- + position/offset) so an icon can fully override its group, each with a leading
+        -- "Override group settings" checkbox. Built from the SHARED builders bound to the icon bundle.
         TimerSection(iconBundle),
         TitleSection(iconBundle),
         StacksSection(iconBundle),
 
-        { type = "button", label = L["Reset all overrides"], width = 180, hostHeight = 30,
-          onClick = function() BG.IconReset(sid); touch()
+        -- Make the icon a FULL copy of its group: copy every section's group values into the icon
+        -- overrides (deep-cloned, like each per-section Copy button), so all sections then override.
+        { type = "button", label = L["Copy all group settings"], width = 180, hostHeight = 30,
+          onClick = function()
+              local gid = BG.GroupOf(sid)
+              local function copySection(keys)
+                  for _, key in ipairs(keys) do BG.IconSet(sid, key, CloneVal(BG.GGet(gid, key))) end
+              end
+              copySection({ "iconW", "iconH" })
+              copySection({ "borderEnabled", "borderColor", "borderSize" })
+              copySection({ "glowEnabled", "glowColor" })
+              copySection(TIMER_KEYS)
+              copySection(TITLE_KEYS)
+              copySection(STACK_KEYS)
+              touch()
               if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end },
     }
+    -- For a buff not in the native Cooldown Manager (red in the strip), warn at the TOP of the editor,
+    -- between the spell title and the "Overrides..." line.
+    if BG.DisplayedKnown() and not BG.IsDisplayable(sid) then
+        table.insert(entries, 1, { type = "label", font = "UnbunkUtilityH6", height = 30,
+            color = { 1, 0.3, 0.3 },
+            text = L["Not in the Cooldown Manager's tracked buffs — it won't display."] })
+    end
+    return entries
 end
 
 local function EnsureIconEditor()
     if iconEditor then return iconEditor end
 
     local f = CreateFrame("Frame", "UnbunkUtilityBuffIconEditor", UIParent, "BackdropTemplate")
-    f:SetSize(560, 560)
+    -- Sized so the inner sub-cadres (which draw their content ~518px wide, like the main panel)
+    -- aren't clipped on the right: the scroll's visible width is f-width minus the 10px left +
+    -- 30px right insets (= 600-40 = 560), wider than the menu's 540 content + originX.
+    f:SetSize(600, 620)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
     f:SetToplevel(true)
@@ -392,6 +663,22 @@ local function EnsureIconEditor()
     title:SetPoint("TOP", f, "TOP", 0, -12)
     f.title = title
 
+    -- A small spell-icon texture flanking the (centred) title on each side, showing the
+    -- edited buff's icon. Set in OpenIconEditor to BG.SpellTexture(sid) with the same slight
+    -- TexCoord crop (0.07..0.93) the strip tiles use. ~20px (≈ the title height); anchored just
+    -- left of / right of the title FontString so they never overlap it or the close button.
+    local titleIconL = f:CreateTexture(nil, "OVERLAY")
+    titleIconL:SetSize(20, 20)
+    titleIconL:SetPoint("RIGHT", title, "LEFT", -8, 0)
+    titleIconL:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    f.titleIconL = titleIconL
+
+    local titleIconR = f:CreateTexture(nil, "OVERLAY")
+    titleIconR:SetSize(20, 20)
+    titleIconR:SetPoint("LEFT", title, "RIGHT", 8, 0)
+    titleIconR:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    f.titleIconR = titleIconR
+
     -- Close button (white cross tinting to the brand colour on hover, like the main window).
     local close = CreateFrame("Button", nil, f)
     close:SetSize(24, 24); close:SetPoint("TOPRIGHT", -6, -6)
@@ -408,7 +695,7 @@ local function EnsureIconEditor()
     scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -30, 12)
 
     local content = CreateFrame("Frame", nil, scroll)
-    content:SetSize(540, 10)
+    content:SetSize(560, 10)   -- tracks the wider window (scroll visible width) so nothing clips right
     scroll:SetScrollChild(content)
     scroll:EnableMouseWheel(true)
 
@@ -424,7 +711,8 @@ local function EnsureIconEditor()
 
     f:HookScript("OnShow", function() C_Timer.After(0, function() sb.Update() end) end)
 
-    iconEditor = { frame = f, title = title, scroll = scroll, content = content, sb = sb }
+    iconEditor = { frame = f, title = title, titleIconL = titleIconL, titleIconR = titleIconR,
+                   scroll = scroll, content = content, sb = sb }
     return iconEditor
 end
 
@@ -437,11 +725,15 @@ end
 
 -- Open the per-icon editor for `sid`. `onChange` (the panel's rebuild) refreshes the
 -- strip's pencil affordances after a reset/toggle so they reflect the override state.
-local function OpenIconEditor(sid, onChange)
+function OpenIconEditor(sid, onChange)
     local ed = EnsureIconEditor()
     editingSid = sid
     onIconEditChange = onChange
     ed.title:SetText(BG.SpellName(sid) or L["Edit icon"])
+    -- Flank the title with the buff's spell icon on both sides.
+    local tex = BG.SpellTexture(sid)
+    if ed.titleIconL then ed.titleIconL:SetTexture(tex) end
+    if ed.titleIconR then ed.titleIconR:SetTexture(tex) end
 
     local function syncHeight()
         if ed.menu then ed.content:SetHeight(math.max(1, ed.menu.height + 12)) end
@@ -451,7 +743,7 @@ local function OpenIconEditor(sid, onChange)
     local rawBuild
     ClearIconMenu(ed)
     ed.menu = ns.ui.BuildMenu(ed.content, IconOptions(sid), {
-        gap = 10, width = 518, originX = 8, originY = 0, autoHook = false, LSM = LSM,
+        gap = 10, width = 540, originX = 8, originY = 0, autoHook = false, LSM = LSM,
     })
     rawBuild = ed.menu.Rebuild
     ed.menu.Rebuild = function() rawBuild(); syncHeight() end
@@ -695,13 +987,14 @@ local function CreateBuffsPanel(parent)
                         bord:SetColorTexture(0.9, 0.15, 0.15, 1)
                         -- a tiny "Not displayed" label over the red icon (it can't render in-game)
                         local warn = b:CreateFontString(nil, "OVERLAY")
-                        warn:SetFont(STANDARD_TEXT_FONT, 8, "OUTLINE")
+                        warn:SetFont(STANDARD_TEXT_FONT, 9, "OUTLINE")
                         warn:SetPoint("CENTER", b, "CENTER", 0, 0)
-                        warn:SetWidth(ICON)
                         warn:SetWordWrap(true)
                         warn:SetJustifyH("CENTER")
                         warn:SetTextColor(1, 0.45, 0.45)
-                        warn:SetText(L["Not displayed"])
+                        -- one word per line (split on spaces, no fixed width) so a long word never
+                        -- clips; language-agnostic — a single-word translation just stays on one line.
+                        warn:SetText((L["Not displayed"]:gsub("%s+", "\n")))
                     end
 
                     -- Tooltip on hover: the spell tooltip, plus a red "won't display" warning when
@@ -716,7 +1009,7 @@ local function CreateBuffsPanel(parent)
                         if not shown then GameTooltip:SetText(BG.SpellName(spellId), 1, 1, 1) end
                         if undisplayable then
                             GameTooltip:AddLine(" ")
-                            GameTooltip:AddLine(L["Not in the Cooldown Manager's tracked buffs — it won't display here."], 1, 0.3, 0.3, true)
+                            GameTooltip:AddLine(L["Not in the Cooldown Manager's tracked buffs — it won't display."], 1, 0.3, 0.3, true)
                         end
                         GameTooltip:Show()
                     end)
@@ -727,7 +1020,7 @@ local function CreateBuffsPanel(parent)
                     -- carries any override, so the user can see which icons diverge.
                     if groupId ~= 0 then
                         local pb = CreateFrame("Button", nil, b)
-                        pb:SetSize(14, 14); pb:SetPoint("CENTER", b, "BOTTOMRIGHT", -7, 3)
+                        pb:SetSize(14, 14); pb:SetPoint("CENTER", b, "TOPLEFT", 4, -4)
                         pb:SetFrameLevel(b:GetFrameLevel() + 5)
                         local pbg = pb:CreateTexture(nil, "BACKGROUND"); pbg:SetAllPoints(); pbg:SetColorTexture(0, 0, 0, 0.6)
                         local pg = pb:CreateTexture(nil, "OVERLAY"); pg:SetPoint("CENTER"); pg:SetSize(10, 10)
@@ -855,15 +1148,17 @@ local function CreateBuffsPanel(parent)
     end
 
     -- The GROUP accessor bundle for the shared Timer/Title/Stacks sub-cadres: reads/writes the
-    -- group directly (GGet/GSet). No reset (a group has nothing above it to inherit), and the
-    -- panel's own menu.Refresh keeps the gate checkboxes in sync.
+    -- group directly (GGet/GSet). No reset (a group has nothing above it to inherit). refresh =
+    -- the panel's full rebuild: it re-applies the gate checkboxes AND re-measures every enclosing
+    -- fixed-height cadre, which the time-thresholds editor needs when its row count changes
+    -- (a plain menu.Refresh would leave the group box height stale).
     local function GroupBundle(id)
         return {
             get   = function(key) return BG.GGet(id, key) end,
             set   = function(key, val) BG.GSet(id, key, val) end,
             reset = nil,
             touch = touch,
-            refresh = function() if menu then menu.Refresh() end end,
+            refresh = rebuild,
         }
     end
 
@@ -1023,6 +1318,22 @@ local function CreateBuffsPanel(parent)
     }
 
     menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
+
+    -- When the user edits the CDM "Tracked Buffs" set in EditMode the engine's ticker detects the
+    -- DISPLAYED-set change and calls this. Rebuild the strip/panel so a tile's red flag + its tooltip's
+    -- red line re-evaluate (both derive from BG.DisplayedKnown()/BG.IsDisplayable), and rebuild the
+    -- per-icon editor if it's open so its red "won't display" message re-evaluates too. Cheap no-op when
+    -- the panel isn't built or shown (the engine only fires this on an actual change, never every tick).
+    BG.onDisplayedChanged = function()
+        if menu and parent and parent:IsShown() then rebuild() end
+        -- Re-open the editor for the SAME icon (rather than a plain menu Rebuild): the red "won't
+        -- display" line is decided in IconOptions(sid) at open time (a static top-level entry, not a
+        -- build closure), so only re-running IconOptions re-evaluates it. editingSid/onIconEditChange
+        -- are the open editor's current spell + the panel rebuild it was opened with.
+        if iconEditor and iconEditor.frame and iconEditor.frame:IsShown() and editingSid then
+            OpenIconEditor(editingSid, onIconEditChange)
+        end
+    end
 
     -- "Group settings" defaults to collapsed and re-collapses every time the user leaves
     -- the Buffs panel. On hide, force every group's persisted cfgCollapsed back to true

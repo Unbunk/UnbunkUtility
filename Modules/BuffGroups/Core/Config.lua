@@ -42,6 +42,11 @@ local GROUP_TEMPLATE = {
     staticDisplay = false,     -- false: only currently-active buffs take a slot (reflow); true: every member keeps its slot
     -- geometry
     iconW = 36, iconH = 36,
+    -- placeholder (PER-ICON only — the pencil editor toggles it via IconSet; no group panel
+    -- exposes it). When ON, the icon ALWAYS reserves its slot: its native frame shows when the
+    -- buff is active, else a dimmed desaturated placeholder fills the slot. Off by default so the
+    -- new key backfills harmlessly via MergeDefaults (no migration). IconGet falls back to here.
+    placeholder = false,
     -- border (our own child frame, the native DebuffBorder is hidden)
     borderEnabled = true,
     borderColor   = { r = 0, g = 0, b = 0, a = 1 },
@@ -51,9 +56,15 @@ local GROUP_TEMPLATE = {
     glowColor   = { r = 1, g = 1, b = 1, a = 1 },
     -- timer / countdown text (restyle of the native Cooldown countdown)
     showTimer     = true,
-    timerFontKey  = "Fira Mono", timerFontPath = nil, timerFontSize = 15, timerOutline = "OUTLINE",
+    timerFontKey  = "Fira Mono", timerFontPath = nil, timerFontSize = 12, timerOutline = "OUTLINE",
     timerColor    = { r = 1, g = 1, b = 1, a = 1 },
     timerPos      = "CENTER", timerOffX = 0, timerOffY = 0,
+    -- time thresholds: as the countdown drops, scale + recolour it from the most-urgent
+    -- matching tier. This scalar backfills safely via MergeDefaults; the LIST itself is
+    -- seeded separately (see DEFAULT_TIMER_THRESHOLDS / CfgInit) so MergeDefaults never
+    -- re-adds tiers the user deleted. Defaults OFF (the two tiers stay defined, just inactive
+    -- until the user opts in); existing groups are force-set false once by classifyResetV8.
+    timerThresholdsEnabled = false,
     -- title text (a free label over the icon)
     showTitle     = false, titleText = "",
     titleFontKey  = "Fira Mono", titleFontPath = nil, titleFontSize = 12, titleOutline = "OUTLINE",
@@ -61,13 +72,31 @@ local GROUP_TEMPLATE = {
     titlePos      = "TOP", titleOffX = 0, titleOffY = 0,
     -- stack count text (native Applications restyle)
     showStack     = true, showAtZero = false,
-    stackFontKey  = "Fira Mono", stackFontPath = nil, stackFontSize = 15, stackOutline = "OUTLINE",
+    stackFontKey  = "Fira Mono", stackFontPath = nil, stackFontSize = 8, stackOutline = "OUTLINE",
     stackColor    = { r = 1, g = 1, b = 1, a = 1 },
-    stackPos      = "BOTTOMRIGHT", stackOffX = 0, stackOffY = 0,
+    stackPos      = "BOTTOMRIGHT", stackOffX = 2, stackOffY = -2,
+    -- sound alert (PER-ICON only — the pencil editor writes these via IconSet; no group
+    -- panel exposes them, it's not a group-inherited visual). Both off by default so the
+    -- new keys backfill harmlessly via MergeDefaults (no migration). The sound keys are
+    -- LSM media names (registered in Media/Media.lua), resolved to a file at play time.
+    soundStartEnabled = false, soundStartSound = "UnbunkUtility: Trinket (High)",       soundStartPath = nil,
+    soundStopEnabled  = false, soundStopSound  = "UnbunkUtility: Trinket Ready (High)", soundStopPath  = nil,
     -- runtime
     unlocked      = false,
 }
 BG.GROUP_TEMPLATE = GROUP_TEMPLATE
+
+-- Default time-threshold tiers (yellow @15s, red @5s). `time` = remaining seconds at/below
+-- which the tier applies; `size` = MULTIPLIER of the base timerFontSize; `color` = countdown
+-- colour. Kept OUT of GROUP_TEMPLATE on purpose: MergeDefaults recurses into tables and would
+-- re-add tiers a user deleted. Each group's list is seeded once in CfgInit (only when absent),
+-- and GGet/IconGet fall back to THIS table for "timerThresholds" (which is not a template key).
+-- DeepCopy-d into every group so groups never share the table.
+local DEFAULT_TIMER_THRESHOLDS = {
+    { time = 15, size = 1.2,  color = { r = 1, g = 0.82, b = 0, a = 1 } },
+    { time = 5,  size = 1.45, color = { r = 1, g = 0,    b = 0, a = 1 } },
+}
+BG.DEFAULT_TIMER_THRESHOLDS = DEFAULT_TIMER_THRESHOLDS
 
 -- Group 1: the indelible default. Same template + its own id/name/position.
 local DEFAULT_GROUP1 = ns.DeepCopy(GROUP_TEMPLATE)
@@ -102,6 +131,11 @@ function BG.CfgInit()
     if not s.groups[1] then s.groups[1] = ns.DeepCopy(DEFAULT_GROUP1) end
     -- Backfill every group with any newly-added GROUP_TEMPLATE key (no per-key migration).
     for _, g in pairs(s.groups) do ns.MergeDefaults(g, GROUP_TEMPLATE) end
+    -- Seed the time-threshold LIST per group only when absent. Kept out of MergeDefaults
+    -- (which would re-add deleted tiers); DeepCopy so no two groups share the table.
+    for _, g in pairs(s.groups) do
+        if g.timerThresholds == nil then g.timerThresholds = ns.DeepCopy(DEFAULT_TIMER_THRESHOLDS) end
+    end
     if not s.nextId or s.nextId < 2 then s.nextId = 2 end
     -- One-shot reset: the model changed shape for the native-reuse rewrite — buffs are now
     -- keyed by the native FRAME spell id (the displayed set), customs carry a definition
@@ -144,6 +178,28 @@ function BG.CfgInit()
             g.staticDisplay = false
             g.posX = 0
             g.posY = 0
+        end
+    end
+    -- One-shot: smaller default timer (12) / stacks (8) fonts and the stacks offset (2,-2), applied
+    -- to existing groups (changed defaults don't retro-fill). Timer thresholds are NEW keys, so they
+    -- backfill onto existing groups via MergeDefaults above — no migration needed for those.
+    if not s.classifyResetV7 then
+        s.classifyResetV7 = true
+        for _, g in pairs(s.groups) do
+            g.timerFontSize = 12
+            g.stackFontSize = 8
+            g.stackOffX = 2
+            g.stackOffY = -2
+        end
+    end
+    -- One-shot: time thresholds now default OFF. The scalar backfilled onto existing groups as
+    -- TRUE (via MergeDefaults, when its default was true) and a changed default won't retro-apply,
+    -- so force it false ONCE on every existing group. The threshold LIST/tiers are left intact —
+    -- only the enable flag flips; per-icon overrides inherit the group via IconGet (no migration).
+    if not s.classifyResetV8 then
+        s.classifyResetV8 = true
+        for _, g in pairs(s.groups) do
+            g.timerThresholdsEnabled = false
         end
     end
 end
@@ -191,10 +247,14 @@ function BG.RemoveGroup(id)
     s.order[id] = nil
 end
 
--- Resolve a group key: the saved group value, else the template default.
+-- Resolve a group key: the saved group value, else the template default. The threshold
+-- LIST is not a template key (it's seeded separately), so it falls back to the shared
+-- DEFAULT_TIMER_THRESHOLDS — callers must treat the returned list as read-only / clone it
+-- before editing (the engine reads it; the UI clones on write).
 function BG.GGet(id, key)
     local g = BG.GetGroup(id)
     if g and g[key] ~= nil then return g[key] end
+    if key == "timerThresholds" then return DEFAULT_TIMER_THRESHOLDS end
     return GROUP_TEMPLATE[key]
 end
 function BG.GSet(id, key, val)
@@ -351,10 +411,16 @@ function BG.IconSet(spellId, key, val)
     s.iconCfg[spellId][key] = val
 end
 
--- True if the icon has any per-icon override (so the editor can show a "reset" affordance).
-function BG.IconHasOverride(spellId)
+-- True if the icon has a per-icon override. With no `key`, reports ANY override (so the
+-- strip can tint a diverging icon's pencil). With a `key`, reports whether THAT specific key
+-- is overridden (so the editor's per-section "Override group settings" checkbox can reflect
+-- the real override state without IconGet's group fallback making everything look "set").
+function BG.IconHasOverride(spellId, key)
     local s = Store()
-    return s and s.iconCfg and s.iconCfg[spellId] and next(s.iconCfg[spellId]) ~= nil or false
+    local ic = s and s.iconCfg and s.iconCfg[spellId]
+    if not ic then return false end
+    if key ~= nil then return ic[key] ~= nil end
+    return next(ic) ~= nil
 end
 
 -- Drop a single override key (val nil) or all of them (key nil) → back to group/defaults.

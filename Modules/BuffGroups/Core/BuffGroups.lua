@@ -32,6 +32,15 @@ local issecretvalue  = issecretvalue  or function() return false end
 local containers = {}   -- containers[groupId] = Frame (one movable anchor target per group)
 local trackedCache      -- array of the CDM TrackedBuff spellIds (refreshed on spec change)
 
+-- ── Per-icon sound alert (start / stop) state ───────────────────────────────────
+-- soundPrev[spellId] = was-active last pass. A buff is "active" when it has a live
+-- displayed frame this RefreshLayout (frameOf[sid] ~= nil — the native pool holds the
+-- ACTIVE buffs, like Ayije's BuildActiveSpellSet). On a CHANGE we fire the configured
+-- start/stop sound. soundSeeded gates the FIRST pass to SEED-only (no firing) so buffs
+-- already up at login/reload don't blast their start sound.
+local soundPrev   = {}
+local soundSeeded = false
+
 -- Seed readiness. The native buff viewer only fills its itemFramePool (= the buffs the user
 -- configured to DISPLAY, the EditMode "Tracked Buffs" section) after its first layout. Until then
 -- CollectTrackedSplit returns nil and RefreshTracked DEFERS, setting pendingSeed; the viewer's
@@ -182,6 +191,54 @@ function BG.IsDisplayed(sid) return displayedCache[sid] == true end
 function BG.DisplayedKnown() return displayedKnown end
 function BG.IsDisplayable(sid) return BG.IsCustom(sid) or displayedCache[sid] == true end
 
+-- Optional callback the config UI registers (nil-safe). Fired ONLY when the DISPLAYED set actually
+-- changes (the diff in BG.RefreshDisplayedCache), so the strip's red flags / tooltips / the open
+-- editor's red message re-evaluate after the user edits the CDM "Tracked Buffs" in EditMode.
+BG.onDisplayedChanged = nil
+
+-- Recompute the DISPLAYED set (the same pool ∩ category logic CollectTrackedSplit builds `displayed`
+-- from) straight into displayedCache, set displayedKnown, and return true if the set CHANGED vs the
+-- previous (cheap diff: count + keys). Standalone from CollectTrackedSplit so it never disturbs the
+-- seeding / defer logic — the ticker calls it to catch EditMode edits to the tracked-buff set.
+function BG.RefreshDisplayedCache()
+    local vw = _G.BuffIconCooldownViewer
+    if not (viewerLaidOut and vw and vw.itemFramePool and vw.itemFramePool.EnumerateActive) then
+        return false
+    end
+    local inPool, poolCount = {}, 0
+    for f in vw.itemFramePool:EnumerateActive() do
+        local sid = FrameSpellId(f)
+        if sid then inPool[sid] = true; poolCount = poolCount + 1 end
+    end
+    -- An empty pool right after a spec change usually means Blizzard hasn't rebuilt it yet — don't
+    -- clobber the known set with an empty one (matches CollectTrackedSplit's defer on poolCount == 0).
+    if poolCount == 0 then return false end
+    local newSet, newCount, seen = {}, 0, {}
+    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
+        and Enum and Enum.CooldownViewerCategory then
+        local full = C_CooldownViewer.GetCooldownViewerCategorySet(Enum.CooldownViewerCategory.TrackedBuff, true)
+        if type(full) == "table" then
+            for _, id in ipairs(full) do
+                local sid = CooldownInfoSpellId(id)
+                if sid and not seen[sid] and inPool[sid] then
+                    seen[sid] = true; newSet[sid] = true; newCount = newCount + 1
+                end
+            end
+        end
+    end
+    -- Diff vs the current cache: same size AND every new key already present == unchanged.
+    local oldCount = 0
+    for _ in pairs(displayedCache) do oldCount = oldCount + 1 end
+    local changed = (oldCount ~= newCount)
+    if not changed then
+        for sid in pairs(newSet) do if not displayedCache[sid] then changed = true; break end end
+    end
+    wipe(displayedCache)
+    for sid in pairs(newSet) do displayedCache[sid] = true end
+    displayedKnown = true
+    return changed
+end
+
 function BG.RefreshTracked(force)
     trackedCache = CollectTracked()
     -- Prune Group 1's saved order of AUTO-seeded ids that are no longer tracked (keeping
@@ -271,6 +328,37 @@ local function CountdownFont(spellId)
     local f = cdFonts[spellId] or _G[name] or CreateFont(name)
     cdFonts[spellId] = f
     return f, name
+end
+
+-- ── Time thresholds: scale + recolour the countdown as the buff's time drops ────
+-- Remaining seconds on a native (or custom-drawn) frame's Cooldown, read via
+-- GetCooldownTimes() (start/duration in MS). In combat the player's own cooldown fields
+-- can be "secret values": reading/comparing one taints, so wrap in pcall AND guard every
+-- numeric with canaccessvalue / issecretvalue. Returns nil on any failure → caller keeps
+-- the base style (no threshold applied).
+local function FrameRemaining(nf)
+    local cd = nf and nf.Cooldown
+    if not (cd and cd.GetCooldownTimes) then return nil end
+    local ok, startMs, durationMs = pcall(cd.GetCooldownTimes, cd)
+    if not ok then return nil end
+    if startMs == nil or durationMs == nil then return nil end
+    if issecretvalue(startMs) or issecretvalue(durationMs) then return nil end
+    if not (canaccessvalue(startMs) and canaccessvalue(durationMs)) then return nil end
+    if type(startMs) ~= "number" or type(durationMs) ~= "number" then return nil end
+    if durationMs <= 0 then return nil end
+    return (startMs + durationMs) / 1000 - GetTime()
+end
+
+-- Most-urgent matching tier for `remaining` seconds: the entry with the SMALLEST `time`
+-- such that remaining <= time. Returns nil when none apply (→ base size/colour).
+local function MatchThreshold(list, remaining)
+    if type(list) ~= "table" or remaining == nil then return nil end
+    local best
+    for _, t in ipairs(list) do
+        local at = t.time or 0
+        if remaining <= at and (not best or at < (best.time or 0)) then best = t end
+    end
+    return best
 end
 
 -- ── Custom (cast-triggered) buffs = frames DRAWN by the addon ───────────────────
@@ -533,19 +621,36 @@ local function StyleFrame(nf, spellId)
     local timerPos  = BG.IconGet(spellId, "timerPos") or "CENTER"
     local timerOffX = BG.IconGet(spellId, "timerOffX")
     local timerOffY = BG.IconGet(spellId, "timerOffY")
+
+    -- Time thresholds: when enabled, scale + recolour the countdown from the most-urgent
+    -- matching tier of remaining time. effSize/effColor default to the base values and only
+    -- diverge when a tier matches, so they feed the SAME styling below (font path / outline /
+    -- position unchanged). Any secret-value / read failure leaves them at the base style.
+    -- Re-evaluated every RefreshLayout (the 0.2s ticker + UNIT_AURA drive it), so the size/
+    -- colour update as the buff expires.
+    local effSize, effColor = fontSize, timerColor
+    if BG.IconGet(spellId, "timerThresholdsEnabled") then
+        local remaining = FrameRemaining(nf)
+        local tier = MatchThreshold(BG.IconGet(spellId, "timerThresholds") or BG.DEFAULT_TIMER_THRESHOLDS, remaining)
+        if tier then
+            effSize  = fontSize * (tier.size or 1)
+            effColor = tier.color or timerColor
+        end
+    end
+
     local cd = nf.Cooldown
     if cd then
         cd:ClearAllPoints()
         cd:SetAllPoints(nf)
         if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(not showTimer) end
         local fontObj, fontName = CountdownFont(spellId)
-        fontObj:SetFont(fontPath, fontSize, outline)
-        if timerColor then fontObj:SetTextColor(timerColor.r, timerColor.g, timerColor.b, timerColor.a or 1) end
+        fontObj:SetFont(fontPath, effSize, outline)
+        if effColor then fontObj:SetTextColor(effColor.r, effColor.g, effColor.b, effColor.a or 1) end
         if cd.SetCountdownFont then cd:SetCountdownFont(fontName) end
-        StyleCooldownRegions(cd, fontPath, fontSize, outline, timerColor, nf, timerPos, timerOffX, timerOffY)
+        StyleCooldownRegions(cd, fontPath, effSize, outline, effColor, nf, timerPos, timerOffX, timerOffY)
     end
-    if nf.Time     then StyleFontString(nf.Time,     fontPath, fontSize, outline, timerColor, true); AnchorTimerFS(nf.Time,     nf, timerPos, timerOffX, timerOffY) end
-    if nf.Duration then StyleFontString(nf.Duration, fontPath, fontSize, outline, timerColor, true); AnchorTimerFS(nf.Duration, nf, timerPos, timerOffX, timerOffY) end
+    if nf.Time     then StyleFontString(nf.Time,     fontPath, effSize, outline, effColor, true); AnchorTimerFS(nf.Time,     nf, timerPos, timerOffX, timerOffY) end
+    if nf.Duration then StyleFontString(nf.Duration, fontPath, effSize, outline, effColor, true); AnchorTimerFS(nf.Duration, nf, timerPos, timerOffX, timerOffY) end
 
     -- Stacks: the native Applications.Applications FontString, re-fonted + re-anchored per the
     -- stack config (group-level only; per-icon override is just showStack).
@@ -600,7 +705,71 @@ local function HideAll()
         ReleaseNative(nf)
     end
     if BG.HideInactiveCustomFrames then BG.HideInactiveCustomFrames() end
+    for sid in pairs(placeholderActive) do ReleasePlaceholder(sid) end
     for _, c in pairs(containers) do c:Hide() end
+end
+
+-- ── Placeholder frames (per-icon "Show placeholder") ───────────────────────────
+-- A minimal pool of addon-drawn frames, keyed by spellId, mirroring Ayije's
+-- BuffGroupPlaceholders but pared down: when an icon has its per-icon `placeholder` flag on
+-- and its buff is INACTIVE (no live frame this pass), we draw a dimmed, desaturated copy of
+-- the spell icon in the reserved slot (with OUR border if the group has one). Active buffs use
+-- their real native/custom frame instead, so a placeholder is only ever shown in an empty slot.
+local placeholderPool   = {}   -- released frames, ready to reuse
+local placeholderActive = {}   -- placeholderActive[spellId] = the frame currently shown
+local PLACEHOLDER_ALPHA = 0.35
+
+local function AcquirePlaceholder(spellId)
+    local f = placeholderActive[spellId]
+    if f then return f end
+    f = table.remove(placeholderPool)
+    if not f then
+        f = CreateFrame("Frame", nil, UIParent)
+        f.isPlaceholder = true
+        local icon = f:CreateTexture(nil, "ARTWORK")
+        icon:SetAllPoints(f)
+        f.Icon = icon
+    end
+    placeholderActive[spellId] = f
+    return f
+end
+
+-- Draw the dim icon + size + (optional) border into the slot, then anchor it.
+local function ShowPlaceholderAt(spellId, container, x, y, w, h)
+    local f = AcquirePlaceholder(spellId)
+    if f:GetParent() ~= container then f:SetParent(container) end
+    f:SetSize(w, h)
+    f:SetFrameLevel((container:GetFrameLevel() or 1) + 1)
+    local tex = f.Icon
+    tex:SetTexture(SpellTexture(spellId))
+    tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    tex:SetDesaturated(true)
+    tex:SetAlpha(PLACEHOLDER_ALPHA)
+    -- Our border (same CDMAnchor helper the native frames use), honouring the icon's effective
+    -- border config; a placeholder frame is plain (not protected) so this never taints. DrawFrameBorder
+    -- stores its edge textures on f._uuBorderEdges; dim them too so the whole placeholder reads faint.
+    if ns.CDMAnchor and ns.CDMAnchor.ApplyFrameBorder then
+        local enabled = BG.IconGet(spellId, "borderEnabled") ~= false
+        ns.CDMAnchor.ApplyFrameBorder(f, enabled,
+            BG.IconGet(spellId, "borderColor"), BG.IconGet(spellId, "borderSize") or 1, true)
+        if enabled and f._uuBorderEdges then
+            for _, t in pairs(f._uuBorderEdges) do t:SetAlpha(PLACEHOLDER_ALPHA) end
+        end
+    end
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", container, "TOPLEFT", x, y)
+    f:Show()
+end
+
+local function ReleasePlaceholder(spellId)
+    local f = placeholderActive[spellId]
+    if not f then return end
+    f:Hide()
+    f:ClearAllPoints()
+    if ns.CDMAnchor and ns.CDMAnchor.ApplyFrameBorder then ns.CDMAnchor.ApplyFrameBorder(f, false) end
+    if f:GetParent() ~= UIParent then f:SetParent(UIParent) end
+    placeholderActive[spellId] = nil
+    placeholderPool[#placeholderPool + 1] = f
 end
 
 -- ── Public refresh / layout ────────────────────────────────────────────────────
@@ -614,13 +783,50 @@ local OFFSCREEN = -10000
 local HORIZONTAL_GROW = { RIGHT = true, LEFT = true, CENTER_H = true }
 local function IsHorizontal(grow) return grow == nil or HORIZONTAL_GROW[grow] or false end
 
--- Whether a frame is currently shown (active). Guarded: IsShown is a boolean getter (not a secret
--- numeric), but pcall keeps a protected/odd frame from erroring. Drives the dynamic (non-static)
--- layout: only shown frames take a slot, so active buffs reflow / re-centre.
-local function FrameShown(nf)
-    if not nf then return false end
-    local ok, shown = pcall(nf.IsShown, nf)
-    return ok and shown and true or false
+-- Play a per-icon alert sound. Resolves the LSM "sound" key (icon override -> group ->
+-- default) to a file and PlaySoundFile(..., "Master") — the same path > LSM-key logic as
+-- ns.PlaySoundFromCfg, but reading through BG.IconGet rather than a flat cfg table. Guarded
+-- (never errors): a missing LSM / unresolved key is a silent no-op.
+local function PlayIconSound(spellId, pathKey, soundKey)
+    local path = BG.IconGet(spellId, pathKey)
+    if path then PlaySoundFile(path, "Master"); return end
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    if not LSM then return end
+    local key = BG.IconGet(spellId, soundKey)
+    local resolved = key and LSM:Fetch("sound", key)
+    if resolved then PlaySoundFile(resolved, "Master") end
+end
+
+-- Fire per-icon start/stop sounds off the buff's active transition. Called from RefreshLayout
+-- AFTER frameOf is built; `frameOf` keys are the currently-displayed (active) buffs, so a buff
+-- "becoming active" = its frame appearing. To stay cheap we only scan iconCfg entries that have
+-- a start/stop sound enabled (the common case is none). On the FIRST pass we only SEED soundPrev
+-- (no firing) so already-active buffs at login/reload don't blast their start sound.
+-- LIMITATION: this fires off the NATIVE displayed frame's active state, so it only works for
+-- buffs shown in a group (a buff parked in Unused / not displayed has no frame and is never seen
+-- as active). Wrapped so a bad config or a combat secret-value can never error.
+local function UpdateSounds(frameOf)
+    local s = BG.Store and BG.Store()
+    local iconCfg = s and s.iconCfg
+    if type(iconCfg) ~= "table" then return end
+    for spellId, ic in pairs(iconCfg) do
+        if type(ic) == "table" and (ic.soundStartEnabled or ic.soundStopEnabled) then
+            local active = frameOf[spellId] ~= nil
+            if soundSeeded and active ~= soundPrev[spellId] then
+                if active then
+                    if BG.IconGet(spellId, "soundStartEnabled") then
+                        pcall(PlayIconSound, spellId, "soundStartPath", "soundStartSound")
+                    end
+                else
+                    if BG.IconGet(spellId, "soundStopEnabled") then
+                        pcall(PlayIconSound, spellId, "soundStopPath", "soundStopSound")
+                    end
+                end
+            end
+            soundPrev[spellId] = active
+        end
+    end
+    soundSeeded = true
 end
 
 function BG.RefreshLayout()
@@ -640,6 +846,9 @@ function BG.RefreshLayout()
         for spellId, f in pairs(BG.EnumActiveCustomFrames()) do frameOf[spellId] = f end
     end
 
+    -- Per-icon start/stop sound alerts off the active transition (frameOf = the active set).
+    UpdateSounds(frameOf)
+
     -- Hide containers of deleted groups so a removed group's box doesn't linger.
     for gid, c in pairs(containers) do
         if not BG.GetGroup(gid) then c:Hide() end
@@ -650,6 +859,10 @@ function BG.RefreshLayout()
     -- relayout can't reveal them in place — the re-impose hook keeps fighting Blizzard, which
     -- is taint-free (item frames aren't protected). Their own visuals/border/glow go too.
     local placed = {}
+    -- Which spellIds want a dim placeholder this pass (effective `placeholder` on + inactive, in a
+    -- real shown group). Drawn in the per-slot walk; any active placeholder NOT in here is released
+    -- at the end (covers buffs that became active, lost the flag, moved to Unused or a deleted group).
+    local placeholderNeeded = {}
     for _, sid in ipairs(BG.GetGroupBuffs(0)) do
         local nf = frameOf[sid]
         if nf then
@@ -677,65 +890,72 @@ function BG.RefreshLayout()
         local grow    = g.growDir or "RIGHT"
         local horizontal = IsHorizontal(grow)
 
-        -- Lay out only the members that have a live frame right now (in member order). A
-        -- native buff that isn't currently up still has a pool frame, so it stays in slot
-        -- and Blizzard reveals it in place when it procs. Each frame's EFFECTIVE size is its
-        -- own per-icon override (-> group -> default), so differently-sized icons may share a
-        -- strip; we measure them up front to size the box and pack with a variable cursor.
-        -- Static Display reserves a slot for EVERY member (fixed positions, gaps for inactive); the
-        -- dynamic default packs only currently-shown (active) frames so the strip reflows / re-centres.
+        -- Default (reflow): lay out only members with a LIVE frame — the buffs the native viewer is
+        -- currently showing (its itemFramePool holds the ACTIVE buffs) plus active customs — packed by
+        -- grow direction so they reflow / re-centre as buffs proc & expire. Static Display: lay out
+        -- EVERY assigned member so each keeps a FIXED slot; an inactive member (no live frame) reserves
+        -- its slot but pins nothing, leaving an empty gap. A member with its per-icon `placeholder` flag
+        -- on ALWAYS reserves its slot too (even in reflow mode): inactive, it draws a dim placeholder.
+        -- Each frame's EFFECTIVE size is its own per-icon override (-> group -> default), so we measure
+        -- up front to size the box and pack a variable cursor.
         local staticDisplay = g.staticDisplay == true
-        local liveMembers, sizes = {}, {}
+        local layoutMembers, sizes = {}, {}
         for _, sid in ipairs(members) do
-            local nf = frameOf[sid]
-            if nf and (staticDisplay or FrameShown(nf)) then
-                liveMembers[#liveMembers + 1] = sid
+            if staticDisplay or frameOf[sid] or BG.IconGet(sid, "placeholder") == true then
+                layoutMembers[#layoutMembers + 1] = sid
                 sizes[sid] = { w = BG.IconGet(sid, "iconW") or 36, h = BG.IconGet(sid, "iconH") or 36 }
             end
         end
-        local count = #liveMembers
+        local count = #layoutMembers
 
-        -- Box = SUM of per-icon sizes along the flow axis (+ spacing between), the max of the
-        -- cross axis. The container is CENTER-anchored to the target, so sizing it to the whole
-        -- strip lets CENTER_H/CENTER_V centre the strip as a unit (the strip flows TOPLEFT).
+        -- Box = SUM of per-slot sizes along the flow axis (+ spacing between), the max of the cross
+        -- axis. The container is CENTER-anchored to the target, so sizing it to the whole strip lets
+        -- CENTER_H/CENTER_V centre the strip as a unit (the strip flows from the TOPLEFT corner).
         local sumMain, maxCross = 0, 0
-        for i, sid in ipairs(liveMembers) do
+        for i, sid in ipairs(layoutMembers) do
             local sz = sizes[sid]
             local main  = horizontal and sz.w or sz.h
             local cross = horizontal and sz.h or sz.w
             sumMain = sumMain + main + (i > 1 and spacing or 0)
             if cross > maxCross then maxCross = cross end
         end
-        if count == 0 then sumMain, maxCross = (g.iconW or 32), (g.iconH or 32) end
+        if count == 0 then sumMain, maxCross = (g.iconW or 36), (g.iconH or 36) end
         local boxW = horizontal and sumMain or maxCross
         local boxH = horizontal and maxCross or sumMain
         container:SetSize(math.max(1, boxW), math.max(1, boxH))
 
-        -- A running cursor advances by each frame's own (size + spacing) so resized icons
-        -- don't overlap. RIGHT/CENTER_H/DOWN/CENTER_V flow forward from the TOPLEFT corner;
-        -- LEFT/UP fill the box but run in reverse (last member nearest the corner) so the
-        -- visual grow direction reads right. The pin always writes TOPLEFT->container TOPLEFT.
+        -- A running cursor advances by each slot's own (size + spacing) so resized icons don't overlap.
+        -- RIGHT/CENTER_H/DOWN/CENTER_V flow forward from the TOPLEFT corner; LEFT/UP fill the box but run
+        -- in reverse (last member nearest the corner). The pin always writes TOPLEFT->container TOPLEFT.
         local reverse = (grow == "LEFT" or grow == "UP")
-        local cursor = reverse and sumMain or 0   -- distance of the next frame's leading edge
-        for idx, sid in ipairs(liveMembers) do
+        local cursor = reverse and sumMain or 0   -- distance of the next slot's leading edge
+        for idx, sid in ipairs(layoutMembers) do
             local nf = frameOf[sid]
             local sz = sizes[sid]
             local main = horizontal and sz.w or sz.h
-            placed[sid] = true
-            StyleFrame(nf, sid)
             if reverse then cursor = cursor - main end
             local x, y
             if horizontal then x, y = cursor, 0 else x, y = 0, -cursor end
-            if nf.isCustomBuff then
-                nf:ClearAllPoints()
-                nf:SetPoint("TOPLEFT", container, "TOPLEFT", x, y)
-                nf:SetSize(sz.w, sz.h)
-                nf:Show()
-            elseif ns.CDMAnchor and ns.CDMAnchor.PinNativeTo then
-                -- PinNativeTo anchors nf TOPLEFT->container TOPLEFT and re-imposes both the
-                -- point and our size on Blizzard's relayout (its built-in raw SetPoint hook).
-                -- Pass the PER-ICON effective size so a resized icon keeps its override.
-                ns.CDMAnchor.PinNativeTo(nf, container, x, y, sz.w, sz.h)
+            -- An inactive member's slot is reserved (the cursor still advances below) but nothing is
+            -- pinned, leaving an empty gap so the active icons stay in fixed positions — UNLESS the icon
+            -- has its per-icon `placeholder` flag on, in which case a dim placeholder fills the gap.
+            if nf then
+                placed[sid] = true
+                StyleFrame(nf, sid)
+                if nf.isCustomBuff then
+                    nf:ClearAllPoints()
+                    nf:SetPoint("TOPLEFT", container, "TOPLEFT", x, y)
+                    nf:SetSize(sz.w, sz.h)
+                    nf:Show()
+                elseif ns.CDMAnchor and ns.CDMAnchor.PinNativeTo then
+                    -- PinNativeTo anchors nf TOPLEFT->container TOPLEFT and re-imposes both the point and
+                    -- our size on Blizzard's relayout (its built-in raw SetPoint hook). Pass the PER-ICON
+                    -- effective size so a resized icon keeps its override.
+                    ns.CDMAnchor.PinNativeTo(nf, container, x, y, sz.w, sz.h)
+                end
+            elseif BG.IconGet(sid, "placeholder") == true then
+                placeholderNeeded[sid] = true
+                ShowPlaceholderAt(sid, container, x, y, sz.w, sz.h)
             end
             if reverse then cursor = cursor - spacing else cursor = cursor + main + spacing end
         end
@@ -748,6 +968,17 @@ function BG.RefreshLayout()
     for sid, nf in pairs(frameOf) do
         if not placed[sid] then ReleaseNative(nf) end
     end
+
+    -- Release placeholder frames no longer wanted (buff became active, lost the flag, moved to
+    -- Unused / a deleted group). Collect first, then release, so we don't mutate while iterating.
+    local toRelease
+    for sid in pairs(placeholderActive) do
+        if not placeholderNeeded[sid] then
+            toRelease = toRelease or {}
+            toRelease[#toRelease + 1] = sid
+        end
+    end
+    if toRelease then for _, sid in ipairs(toRelease) do ReleasePlaceholder(sid) end end
 end
 -- The config's touch() calls this after every edit.
 BG.ApplyAll = BG.RefreshLayout
@@ -885,6 +1116,10 @@ ev:SetScript("OnUpdate", function(_, dt)
     -- Replay a seed that had to defer (e.g. enabled mid-session after a disabled-at-login defer) once
     -- the viewer is ready; harmless no-op otherwise (pendingSeed clears after one successful seed).
     if pendingSeed and viewerLaidOut then BG.RefreshTracked() end
+    -- Catch EditMode edits to the CDM "Tracked Buffs" set (which don't fire RefreshTracked): recompute
+    -- the displayed cache and, only when it actually changed, notify the config so its red flags /
+    -- tooltips / the open editor's red message re-evaluate.
+    if BG.RefreshDisplayedCache() and BG.onDisplayedChanged then BG.onDisplayedChanged() end
     BG.RefreshLayout()
 end)
 
