@@ -183,6 +183,78 @@ local function CollectTrackedSplit(allowEmpty)
     return displayed, notDisplayed
 end
 
+-- The DISPLAYED native buffs in NATIVE ON-SCREEN ORDER (the user's EditMode "Tracked Buffs"
+-- arrangement). Authoritative source, matching the reference addon Ayije_CDM: each active
+-- itemFramePool frame carries a numeric `layoutIndex` Blizzard assigns from the EditMode layout;
+-- sorting the active frames by it ascending reproduces the on-screen order (Ayije's
+-- CompareByLayoutIndex / CompareIconPositionRecords). categorySet(TrackedBuff, true/false) order
+-- is NOT this order — that flag drives the spell-id set, not the displayed arrangement.
+-- Every native read is guarded (the API is nil while the CDM is disabled; layoutIndex/spell ids
+-- can be secret values in combat). Returns nil when the viewer hasn't laid out its pool yet, an
+-- empty table when laid out but holding nothing — so callers can tell "not ready" from "nothing".
+local function FrameLayoutIndex(nf)
+    local li = nf and nf.layoutIndex
+    if type(li) ~= "number" then return nil end
+    if issecretvalue(li) or not canaccessvalue(li) then return nil end
+    return li
+end
+
+function BG.NativeOrder()
+    local vw = _G.BuffIconCooldownViewer
+    if not (viewerLaidOut and vw and vw.itemFramePool and vw.itemFramePool.EnumerateActive) then
+        return nil
+    end
+    -- Collect the active pool frames with their (display spellId, layoutIndex). A frame without a
+    -- resolvable spell id is skipped; one without a usable layoutIndex falls to the end (huge key)
+    -- but keeps a stable order via its enumeration position so it never errors / shuffles randomly.
+    local entries, n = {}, 0
+    for f in vw.itemFramePool:EnumerateActive() do
+        local sid = FrameSpellId(f)
+        if sid then
+            n = n + 1
+            entries[n] = { sid = sid, li = FrameLayoutIndex(f) or math.huge, seq = n }
+        end
+    end
+    table.sort(entries, function(a, b)
+        if a.li ~= b.li then return a.li < b.li end
+        return a.seq < b.seq
+    end)
+    local out, seen = {}, {}
+    for _, e in ipairs(entries) do
+        if not seen[e.sid] then seen[e.sid] = true; out[#out + 1] = e.sid end
+    end
+    return out
+end
+
+-- Reorder ONE group's saved order so its NATIVE members follow BG.NativeOrder() and its CUSTOM
+-- members keep their current relative order AFTER all the natives. Operates ONLY on the group's
+-- CURRENT members (BG.GetGroupBuffs) — never adds, removes, or reassigns a buff (no cross-group
+-- move). A native member missing from NativeOrder (or read while the CDM is unavailable) keeps its
+-- current relative order among the natives. No-op (and harmless) when NativeOrder is unavailable.
+function BG.SortGroupNativeOrder(groupId)
+    local members = BG.GetGroupBuffs(groupId)
+    if #members == 0 then return end
+    local nativeRank, rank = {}, 0
+    for _, sid in ipairs(BG.NativeOrder() or {}) do
+        if nativeRank[sid] == nil then rank = rank + 1; nativeRank[sid] = rank end
+    end
+    -- Stable split: natives first (by native rank, then current relative order as the tiebreaker),
+    -- customs after (in their current relative order). Each member's current index is the tiebreaker.
+    local natives, customs = {}, {}
+    for i, sid in ipairs(members) do
+        if BG.IsCustom(sid) then customs[#customs + 1] = { sid = sid, idx = i }
+        else natives[#natives + 1] = { sid = sid, idx = i, rank = nativeRank[sid] or math.huge } end
+    end
+    table.sort(natives, function(a, b)
+        if a.rank ~= b.rank then return a.rank < b.rank end
+        return a.idx < b.idx
+    end)
+    local o = BG.GroupOrder(groupId)
+    wipe(o)
+    for _, e in ipairs(natives) do o[#o + 1] = e.sid end
+    for _, e in ipairs(customs) do o[#o + 1] = e.sid end
+end
+
 -- Can this buff actually render in a group? Customs are addon-drawn (always); a tracked buff renders
 -- only if it's in the native viewer's DISPLAYED pool (its EditMode "Tracked Buffs" section). The config
 -- uses these to flag a not-displayed buff dropped into a real group RED (no native frame -> never shows).
@@ -253,41 +325,65 @@ function BG.RefreshTracked(force)
             table.remove(o1, i)
         end
     end
-    -- Default seeding (only buffs never classified yet, RawAssign == nil; manual drags untouched):
-    --   * the DISPLAYED tracked buffs (native "Tracked Buffs") fill Group 1 in order up to
-    --     BG.GROUP_CAP; any DISPLAYED overflow past the cap goes to Unused (group 0);
-    --   * EVERY not-displayed buff goes straight to Unused.
+    -- Default seeding. Membership is no longer stored here: an UNASSIGNED buff (RawAssign == nil)
+    -- resolves its group DYNAMICALLY in BG.GroupOf (displayed -> Group 1, else Unused), self-healing
+    -- as the displayed set changes. So the seed's only remaining job is ORDER: append the DISPLAYED
+    -- tracked buffs (native "Tracked Buffs") into order[1] in native on-screen order so Group 1 shows
+    -- them in the user's EditMode arrangement. We never SetGroup(sid, 0) here any more — those sticky
+    -- writes parked still-loading procs in Unused permanently (the bug). With more displayed buffs
+    -- than GROUP_CAP they all simply default to Group 1 (the config strip still caps the visible row);
+    -- the user can move some out manually.
     -- CollectTrackedSplit returns nil until the native viewer's pool is ready; DEFER until then
-    -- (the RefreshLayout hook / a login fallback replay this) so we never seed a displayed buff
-    -- into Unused on a transient empty pool.
+    -- (the RefreshLayout hook / a login fallback replay this) so we don't seed order off a transient
+    -- empty pool.
     local displayed, notDisplayed = CollectTrackedSplit(force)
     if not displayed then pendingSeed = true; return trackedCache end
     pendingSeed = false
-    -- Group-1 room counts buffs already committed there (customs / explicit assign); a buff seeded
-    -- into Group 1 stays UNASSIGNED (it just defaults to 1), so the walk's own counter caps it.
-    local cap = BG.GROUP_CAP or 12
-    local count = 0
-    for _, sid in ipairs(BG.AllBuffs()) do
-        if BG.RawAssign(sid) ~= nil and BG.GroupOf(sid) == 1 then count = count + 1 end
+    -- Seed in the NATIVE ON-SCREEN order (the user's EditMode "Tracked Buffs" arrangement), not the
+    -- category-set order: re-sort `displayed` by BG.NativeOrder() (the displayed set ∩ the native
+    -- layout order). Any displayed buff missing from NativeOrder (or read while it's unavailable)
+    -- falls to the end in its existing relative order.
+    local nativeOrder = BG.NativeOrder()
+    if nativeOrder then
+        local rank, r = {}, 0
+        for _, sid in ipairs(nativeOrder) do if rank[sid] == nil then r = r + 1; rank[sid] = r end end
+        local ordered = {}
+        for i, sid in ipairs(displayed) do ordered[i] = { sid = sid, idx = i, rank = rank[sid] or math.huge } end
+        table.sort(ordered, function(a, b)
+            if a.rank ~= b.rank then return a.rank < b.rank end
+            return a.idx < b.idx
+        end)
+        local out = {}
+        for _, e in ipairs(ordered) do out[#out + 1] = e.sid end
+        displayed = out
     end
+    -- ORDER only: append each unassigned displayed buff to order[1] (idempotent — AppendOrder skips
+    -- duplicates) so Group 1 lists them in native order. Membership comes from the dynamic GroupOf,
+    -- so we never write an assignment here; not-displayed buffs default to Unused via GroupOf and
+    -- need no order seeding (Unused has no on-screen order). `notDisplayed` stays read here only so
+    -- CollectTrackedSplit's return contract is unchanged.
+    local _ = notDisplayed
     for _, sid in ipairs(displayed) do
-        if BG.RawAssign(sid) == nil then
-            if count < cap then
-                BG.AppendOrder(1, sid)
-                count = count + 1
-            else
-                BG.SetGroup(sid, 0)
-                BG.AppendOrder(0, sid)
-            end
-        end
+        if BG.RawAssign(sid) == nil then BG.AppendOrder(1, sid) end
     end
-    for _, sid in ipairs(notDisplayed) do
-        if BG.RawAssign(sid) == nil then
-            BG.SetGroup(sid, 0)
-            BG.AppendOrder(0, sid)
-        end
-    end
+    -- Run the deferred V10 native-order migration now that NativeOrder is readable (the pool is up).
+    BG.MigrateNativeOrder()
     return trackedCache
+end
+
+-- One-shot V10 migration (the flag is set in CfgInit; the reorder runs HERE because the native
+-- order isn't readable until the viewer's pool is laid out). Re-sort EVERY group's saved order so
+-- its natives follow BG.NativeOrder() with customs kept after — exactly BG.SortGroupNativeOrder per
+-- group, which only reorders within a group (never moves a buff between groups). Skips silently when
+-- there's nothing pending or NativeOrder is unavailable, and only flips classifyNativeOrderV10 (so
+-- it stops retrying) once it has actually run against a real native order.
+function BG.MigrateNativeOrder()
+    local s = BG.Store()
+    if not (s and s.classifyNativeOrderPending) then return end
+    if BG.NativeOrder() == nil then return end   -- pool not ready yet; retry on the next seed
+    for _, g in ipairs(BG.GroupList()) do BG.SortGroupNativeOrder(g.id) end
+    s.classifyNativeOrderPending = nil
+    s.classifyNativeOrderV10 = true
 end
 
 -- All buffs the config knows about: the tracked (CDM) buffs + user-added customs (deduped),
@@ -1133,58 +1229,3 @@ init:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
     DeferSeedUntilViewerReady()   -- wait for the viewer's first layout, then seed (forced after 3s)
 end)
-
--- ── TEMP seed diagnostic: /run UU_BuffSeed() ────────────────────────────────────
--- Compares the candidate "displayed" signals (native pool vs categorySet(false/true)) against
--- what Group 1 actually holds, so we know which signal == the EditMode "Tracked Buffs" section.
-function BG.SeedDebug()
-    local function p(...) print("|cff33ccff[UU seed]|r", ...) end
-    local function nm(sid)
-        local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
-        return (info and info.name) or "?"
-    end
-    local cat = Enum and Enum.CooldownViewerCategory and Enum.CooldownViewerCategory.TrackedBuff
-    local function setSids(arg)
-        local out, n = {}, 0
-        if C_CooldownViewer and cat then
-            local ok, t = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, arg)
-            if ok and type(t) == "table" then
-                for _, id in ipairs(t) do
-                    local sid = CooldownInfoSpellId(id)
-                    if sid then out[sid] = true; n = n + 1 end
-                end
-            end
-        end
-        return out, n
-    end
-    local falseSet, nFalse = setSids(false)
-    local trueSet,  nTrue  = setSids(true)
-    p(("categorySet(false)=%d  categorySet(true)=%d"):format(nFalse, nTrue))
-
-    local pool, nPool = {}, 0
-    local vw = _G.BuffIconCooldownViewer
-    if vw and vw.itemFramePool then
-        for f in vw.itemFramePool:EnumerateActive() do
-            local sid = FrameSpellId(f)
-            if sid then pool[sid] = true; nPool = nPool + 1 end
-        end
-    end
-    p(("native pool (itemFramePool active)=%d frames"):format(nPool))
-
-    local disp, notDisp = CollectTrackedSplit(true)
-    if not disp then
-        p("CollectTrackedSplit -> deferred (viewer not laid out yet)")
-    else
-        p(("CollectTrackedSplit -> displayed=%d  notDisplayed=%d"):format(#disp, #notDisp))
-    end
-
-    local g1 = BG.GetGroupBuffs(1)
-    p(("Group 1 holds %d buffs:"):format(#g1))
-    for _, sid in ipairs(g1) do
-        p(("   %d %s | pool=%s false=%s true=%s assign=%s"):format(
-            sid, nm(sid),
-            tostring(pool[sid] or false), tostring(falseSet[sid] or false),
-            tostring(trueSet[sid] or false), tostring(BG.RawAssign(sid))))
-    end
-end
-_G.UU_BuffSeed = BG.SeedDebug

@@ -564,6 +564,7 @@ L["Group position (offset from screen center)"] = "Position du groupe (décalage
 L["Unused"] = "Inutilisés"
 L["Delete group"] = "Supprimer le groupe"
 L["Create group"] = "Créer un groupe"
+L["Copy native CDM order"] = "Copier l'ordre du CDM natif"
 L["Add a buff"] = "Ajouter un buff"
 L["Enter a spell ID:"] = "Entrez un ID de sort :"
 L["Buffs here are hidden. Drag them onto a group to show them."] = "Les buffs ici sont masqués. Glissez-les sur un groupe pour les afficher."

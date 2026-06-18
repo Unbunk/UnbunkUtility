@@ -79,8 +79,8 @@ local GROUP_TEMPLATE = {
     -- panel exposes them, it's not a group-inherited visual). Both off by default so the
     -- new keys backfill harmlessly via MergeDefaults (no migration). The sound keys are
     -- LSM media names (registered in Media/Media.lua), resolved to a file at play time.
-    soundStartEnabled = false, soundStartSound = "UnbunkUtility: Trinket (High)",       soundStartPath = nil,
-    soundStopEnabled  = false, soundStopSound  = "UnbunkUtility: Trinket Ready (High)", soundStopPath  = nil,
+    soundStartEnabled = false, soundStartSound = nil, soundStartPath = nil,   -- nil sound key = "None"
+    soundStopEnabled  = false, soundStopSound  = nil, soundStopPath  = nil,   -- (custom buffs inherit this via IconGet)
     -- runtime
     unlocked      = false,
 }
@@ -202,6 +202,47 @@ function BG.CfgInit()
             g.timerThresholdsEnabled = false
         end
     end
+    -- One-shot: default the buff start/stop sounds to "None" (nil key) with their enable checkboxes
+    -- unchecked, on every existing group (the old default seeded a trinket sound via MergeDefaults).
+    -- Native + custom buff icons inherit this via IconGet; explicit per-icon sound overrides are kept.
+    if not s.classifyResetV9 then
+        s.classifyResetV9 = true
+        for _, g in pairs(s.groups) do
+            g.soundStartEnabled = false
+            g.soundStartSound   = nil
+            g.soundStartPath    = nil
+            g.soundStopEnabled  = false
+            g.soundStopSound    = nil
+            g.soundStopPath     = nil
+        end
+    end
+    -- One-shot: re-sort every EXISTING group's saved order so its NATIVE buffs follow the native
+    -- on-screen order (the EditMode "Tracked Buffs" arrangement, read via BG.NativeOrder), with the
+    -- CUSTOM buffs kept in their current relative order AFTER the natives. Earlier seeds ordered the
+    -- natives by the category-set, which is NOT the on-screen order. This only REORDERS within each
+    -- group (no buff moves between groups, none added/removed). The native order isn't readable yet
+    -- at CfgInit (the viewer's pool fills after its first layout), so the FLAG flips here and the
+    -- engine runs BG.MigrateNativeOrder once the pool is ready (then clears classifyNativeOrderV10).
+    if not s.classifyNativeOrderV10 then
+        s.classifyNativeOrderPending = true
+    end
+    -- One-shot: clear the polluted STICKY Unused assignments. The old seed wrote assign[sid] = 0
+    -- for every buff not in the viewer's pool at a single instant — but the pool fills incrementally
+    -- after the first layout, so procs (Brain Freeze / Fingers of Frost, etc.) whose frame hadn't
+    -- loaded yet got parked in Unused permanently. GroupOf now defaults UNASSIGNED buffs dynamically
+    -- from the live displayed set, so wiping these zero-assignments lets the wrongly-parked displayed
+    -- buffs re-derive to Group 1 and the genuinely not-displayed ones re-derive to Unused — without
+    -- storing anything. Preserve every NON-zero (manual) assignment; a user can still park a displayed
+    -- buff in Unused with a drag (explicit 0), which GroupOf keeps respecting. Also wipe order[0]
+    -- (Unused has no on-screen order; it was only ever written by the old seed).
+    if not s.classifyResetV11 then
+        s.classifyResetV11 = true
+        s.assign = s.assign or {}
+        for sid, gid in pairs(s.assign) do
+            if gid == 0 then s.assign[sid] = nil end
+        end
+        if s.order then s.order[0] = nil end
+    end
 end
 ns.RegisterCfgInitHook(BG.CfgInit)
 
@@ -263,14 +304,22 @@ function BG.GSet(id, key, val)
 end
 
 -- ── Buff → group assignment ───────────────────────────────────────────────────
--- nil -> Group 1 (default); 0 -> Unused; N -> group N. A group that no longer exists is
--- treated as Unused.
+-- An EXPLICIT assignment is authoritative: 0 -> Unused; N -> group N (a group that no longer
+-- exists -> Unused). An UNASSIGNED buff (assign[sid] == nil) defaults DYNAMICALLY, with no
+-- stored value: if the native CDM currently DISPLAYS it (BG.IsDisplayed, kept fresh by the
+-- 0.2s ticker's RefreshDisplayedCache) -> Group 1; otherwise -> Unused (0). So a displayed
+-- buff is never stranded in Unused and a not-displayed one never floods Group 1 — both
+-- self-heal as the displayed set changes (EditMode "Tracked Buffs" edits, spec change).
+-- Custom buffs always carry an explicit assign (AddCustom), so this default never sees them.
 function BG.GroupOf(spellId)
     local s = Store(); if not s then return 1 end
     local g = s.assign[spellId]
-    -- No explicit assignment: a displayed buff defaults to Group 1 (only the buffs the CDM
-    -- actually tracks ever reach here). Manual drags persist an explicit group (0 = Unused).
-    if g == nil then return 1 end
+    if g == nil then
+        -- Dynamic default. Guard: if IsDisplayed is unavailable (engine not loaded yet),
+        -- fall back to the old default of Group 1.
+        if BG.IsDisplayed then return BG.IsDisplayed(spellId) and 1 or 0 end
+        return 1
+    end
     if g ~= 0 and not s.groups[g] then return 0 end
     return g
 end
