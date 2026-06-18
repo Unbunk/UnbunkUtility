@@ -1,47 +1,89 @@
 -- Modules/BuffGroups/Core/Config.lua
--- Data model for the custom CDM "Buff groups": we take the native Buff cooldown viewer
--- (BuffIconCooldownViewer) as the SOURCE of which buffs to track, hide it, and re-draw
--- each tracked buff as our own icon inside a user-defined GROUP (a movable container).
+-- Data model for the custom CDM "Buff groups". We REUSE the native Buff cooldown viewer
+-- (BuffIconCooldownViewer) frames — re-sized, re-styled and re-anchored into user-defined
+-- GROUPS (movable containers), exactly like the reference addon Ayije_CDM. The native
+-- viewer is NOT hidden; we drive its frames. Custom (cast-triggered) buffs are the one
+-- exception: those are drawn by the addon and packed alongside the natives.
 --
 -- Per-profile (ns.db.profile.buffGroups):
---   groups[id] = { id, name, posX, posY, iconW, iconH, border*, unlocked }
+--   groups[id] = a GROUP: position + grow direction + geometry + border/glow + the
+--                native text restyle (timer / title / stacks). Applies to every icon in it.
 --   assign[spellId] = groupId   -- which group a buff belongs to:
 --                                --   nil  -> Group 1 (the default, indelible group)
---                                --   0    -> "Unused" (hidden, parked in the config)
+--                                --   0    -> "Unused" (hidden entirely, parked in config)
 --                                --   N>=1 -> that group
---   custom[spellId] = true       -- buffs the user added with the "+" (not from the native viewer)
--- Group 1 always exists and can't be deleted; any group (incl. 1) may hold zero icons.
+--   order[groupId]  = { spellId, ... }  -- display + in-game order within the group
+--   custom[spellId] = { duration, name, icon }  -- cast-triggered buffs the user "+"-added
+--   iconCfg[spellId] = SPARSE per-icon overrides (the pencil): a SUBSET of the group keys
+--                      (border*, iconW/H, showTimer/Title/Stack, glow*). Anything unset
+--                      inherits the buff's current GROUP, then the defaults.
+-- Group 1 always exists and can't be deleted (so native icons always have a home); any
+-- group (incl. 1) may hold zero icons. Group 0 ("Unused") has no group row — its icons hide.
 
 local _, ns = ...
 ns.BuffGroups = ns.BuffGroups or {}
 local BG = ns.BuffGroups
 
-local DEFAULT_GROUP1 = {
-    id = 1, name = "Group 1",
-    posX = 0, posY = -120,
-    iconW = 32, iconH = 32,
+-- Max icons per group: the config strip caps a group here (Unused wraps freely) and the
+-- default seeding fills Group 1 up to this before overflowing to Unused. Shared by the
+-- engine seed walk and the config UI so both agree.
+BG.GROUP_CAP = 12
+
+-- ── Per-group settings (the full set; every icon in the group inherits these) ──
+-- A freshly created group is GROUP_TEMPLATE + an id/name/position; Group 1 below is the
+-- same template with its own seeded position. GGet falls back to GROUP_TEMPLATE for any
+-- key a saved group predates (so adding a key here needs no data migration).
+local GROUP_TEMPLATE = {
+    -- placement
+    anchorTo = "essential",    -- "essential" | "utility" | "belowPlayer" | "screen"
+    relPos   = "above",        -- side/corner of the anchor: above|below|left|right|topleft|topright|bottomleft|bottomright
+    growDir  = "CENTER_H",     -- "RIGHT" | "LEFT" | "UP" | "DOWN" | "CENTER_H" | "CENTER_V"
+    spacing  = 1,
+    staticDisplay = false,     -- false: only currently-active buffs take a slot (reflow); true: every member keeps its slot
+    -- geometry
+    iconW = 36, iconH = 36,
+    -- border (our own child frame, the native DebuffBorder is hidden)
     borderEnabled = true,
     borderColor   = { r = 0, g = 0, b = 0, a = 1 },
     borderSize    = 1,
+    -- glow (LibCustomGlow-style highlight around an active icon)
+    glowEnabled = false,
+    glowColor   = { r = 1, g = 1, b = 1, a = 1 },
+    -- timer / countdown text (restyle of the native Cooldown countdown)
+    showTimer     = true,
+    timerFontKey  = "Fira Mono", timerFontPath = nil, timerFontSize = 15, timerOutline = "OUTLINE",
+    timerColor    = { r = 1, g = 1, b = 1, a = 1 },
+    timerPos      = "CENTER", timerOffX = 0, timerOffY = 0,
+    -- title text (a free label over the icon)
+    showTitle     = false, titleText = "",
+    titleFontKey  = "Fira Mono", titleFontPath = nil, titleFontSize = 12, titleOutline = "OUTLINE",
+    titleColor    = { r = 1, g = 1, b = 1, a = 1 },
+    titlePos      = "TOP", titleOffX = 0, titleOffY = 0,
+    -- stack count text (native Applications restyle)
+    showStack     = true, showAtZero = false,
+    stackFontKey  = "Fira Mono", stackFontPath = nil, stackFontSize = 15, stackOutline = "OUTLINE",
+    stackColor    = { r = 1, g = 1, b = 1, a = 1 },
+    stackPos      = "BOTTOMRIGHT", stackOffX = 0, stackOffY = 0,
+    -- runtime
     unlocked      = false,
 }
+BG.GROUP_TEMPLATE = GROUP_TEMPLATE
+
+-- Group 1: the indelible default. Same template + its own id/name/position.
+local DEFAULT_GROUP1 = ns.DeepCopy(GROUP_TEMPLATE)
+DEFAULT_GROUP1.id   = 1
+DEFAULT_GROUP1.name = "Group 1"
+DEFAULT_GROUP1.posX = 0
+DEFAULT_GROUP1.posY = 0
 
 local DEFAULTS = {
     enabled = true,
     nextId  = 2,
     groups  = { [1] = nil },  -- seeded below (deep-copied) so the shared table isn't mutated
     assign  = {},
-    custom  = {},
+    custom  = {},             -- custom[spellId] = { duration, name, icon }
     order   = {},             -- order[groupId] = { spellId, ... } (display + in-game order)
-}
-
--- Template for a freshly created group (everything but id/name/position).
-local GROUP_TEMPLATE = {
-    iconW = 32, iconH = 32,
-    borderEnabled = true,
-    borderColor   = { r = 0, g = 0, b = 0, a = 1 },
-    borderSize    = 1,
-    unlocked      = false,
+    iconCfg = {},             -- iconCfg[spellId] = sparse per-icon overrides (the pencil)
 }
 
 local function Store()
@@ -58,29 +100,67 @@ function BG.CfgInit()
     -- Group 1 is indelible: (re)seed it if missing, but never overwrite a saved one.
     s.groups = s.groups or {}
     if not s.groups[1] then s.groups[1] = ns.DeepCopy(DEFAULT_GROUP1) end
+    -- Backfill every group with any newly-added GROUP_TEMPLATE key (no per-key migration).
+    for _, g in pairs(s.groups) do ns.MergeDefaults(g, GROUP_TEMPLATE) end
     if not s.nextId or s.nextId < 2 then s.nextId = 2 end
-    -- One-shot: an earlier build PERSISTED a broken default classification (buffs the CDM
-    -- hides were forced into Group 1). The default is now derived dynamically from the
-    -- HideByDefault flag, so clear the stale assignment + order once (group definitions kept).
-    if not s.classifyResetV2 then
-        s.classifyResetV2 = true
+    -- One-shot reset: the model changed shape for the native-reuse rewrite — buffs are now
+    -- keyed by the native FRAME spell id (the displayed set), customs carry a definition
+    -- table (was a boolean), and per-icon overrides moved buffCfg -> iconCfg with a smaller
+    -- subset of keys. Old assignment/order/customs/overrides are stale; clear them once
+    -- (group definitions are kept and backfilled above). Bumped from the prior reset key.
+    if not s.classifyResetV4 then
+        s.classifyResetV4 = true
+        s.assign  = {}
+        s.order   = {}
+        s.custom  = {}
+        s.iconCfg = {}
+    end
+    -- One-shot reseed: the displayed / not-displayed split had been read from the wrong source
+    -- (the category-set flag returns far more than the user shows; the real displayed set is the
+    -- native viewer's frame pool). That polluted the auto-seeded assignments/order, leaving
+    -- "Not Displayed" buffs stuck in Group 1 and some displayed buffs stuck in Unused. Clear
+    -- assignments + order ONCE so the corrected pool-based seeding rebuilds the default placement
+    -- cleanly. User custom buffs and per-icon overrides are kept (still keyed by spell id).
+    if not s.classifyResetV5 then
+        s.classifyResetV5 = true
         s.assign = {}
         s.order  = {}
+    end
+    -- One-shot: apply the revised default placement/geometry (Essential + Above + centred + 36px +
+    -- the smaller timer/stack fonts) to EXISTING groups, which predate these defaults and would
+    -- otherwise keep the old values (MergeDefaults only fills MISSING keys). Sets only these keys, so
+    -- border / glow / title and per-icon overrides are left intact.
+    if not s.classifyResetV6 then
+        s.classifyResetV6 = true
+        for _, g in pairs(s.groups) do
+            g.anchorTo = "essential"
+            g.relPos   = "above"
+            g.growDir  = "CENTER_H"
+            g.spacing  = 1
+            g.iconW    = 36
+            g.iconH    = 36
+            g.timerFontSize = 15
+            g.stackFontSize = 15
+            g.staticDisplay = false
+            g.posX = 0
+            g.posY = 0
+        end
     end
 end
 ns.RegisterCfgInitHook(BG.CfgInit)
 
--- ── Group accessors ───────────────────────────────────────────────────────────
+-- ── Enable ─────────────────────────────────────────────────────────────────────
 function BG.Enabled() local s = Store(); return not s or s.enabled ~= false end
 function BG.SetEnabled(v) local s = Store(); if s then s.enabled = v and true or false end end
 
+-- ── Group accessors ─────────────────────────────────────────────────────────────
 function BG.Groups() local s = Store(); return s and s.groups or {} end
 
 -- Groups as an ordered array: Group 1 first, then created groups by ascending id.
 function BG.GroupList()
     local s = Store(); if not s then return {} end
     local list = {}
-    for id, g in pairs(s.groups) do list[#list + 1] = g end
+    for _, g in pairs(s.groups) do list[#list + 1] = g end
     table.sort(list, function(a, b) return (a.id or 0) < (b.id or 0) end)
     return list
 end
@@ -95,7 +175,7 @@ function BG.NewGroup()
     g.id   = id
     g.name = "Group " .. id
     g.posX = 0
-    g.posY = -120 - (id - 1) * 40   -- stagger new groups so they don't stack exactly
+    g.posY = 0   -- default at the anchor (relPos side); drag to reposition a new group
     s.groups[id] = g
     return id
 end
@@ -108,8 +188,10 @@ function BG.RemoveGroup(id)
     for spellId, gid in pairs(s.assign) do
         if gid == id then s.assign[spellId] = 0 end
     end
+    s.order[id] = nil
 end
 
+-- Resolve a group key: the saved group value, else the template default.
 function BG.GGet(id, key)
     local g = BG.GetGroup(id)
     if g and g[key] ~= nil then return g[key] end
@@ -121,16 +203,14 @@ function BG.GSet(id, key, val)
 end
 
 -- ── Buff → group assignment ───────────────────────────────────────────────────
--- nil -> Group 1 (default); 0 -> Unused; N -> group N. A group that no longer
--- exists is treated as Unused.
+-- nil -> Group 1 (default); 0 -> Unused; N -> group N. A group that no longer exists is
+-- treated as Unused.
 function BG.GroupOf(spellId)
     local s = Store(); if not s then return 1 end
     local g = s.assign[spellId]
-    if g == nil then
-        -- No explicit assignment: the default group follows the CDM's hidden flag — buffs the
-        -- CDM hides go to Unused (0), shown ones to Group 1. (Manual drags persist via assign.)
-        return (BG.IsHiddenByDefault and BG.IsHiddenByDefault(spellId)) and 0 or 1
-    end
+    -- No explicit assignment: a displayed buff defaults to Group 1 (only the buffs the CDM
+    -- actually tracks ever reach here). Manual drags persist an explicit group (0 = Unused).
+    if g == nil then return 1 end
     if g ~= 0 and not s.groups[g] then return 0 end
     return g
 end
@@ -164,14 +244,21 @@ end
 -- members). Drives both intra-group reorder and cross-group moves.
 function BG.MoveBuff(spellId, targetGroupId, insertIdx)
     local s = Store(); if not s then return end
+    -- Drop from the source group's order.
     local old = BG.GroupOf(spellId)
     local oo = BG.GroupOrder(old)
     for i = #oo, 1, -1 do if oo[i] == spellId then table.remove(oo, i) end end
+    -- Assign first, so GetGroupBuffs(targetGroupId) below includes spellId in the SAME index
+    -- space the config strip measured insertIdx against (the visible, filtered list).
     s.assign[spellId] = targetGroupId
-    local to = BG.GroupOrder(targetGroupId)
-    for i = #to, 1, -1 do if to[i] == spellId then table.remove(to, i) end end
-    local pos = math.max(1, math.min(#to + 1, (insertIdx or #to) + 1))
-    table.insert(to, pos, spellId)
+    -- Rebuild the target order FROM that visible sequence: the committed index space then
+    -- equals slotAt's (which counts visible tiles), so the icon lands exactly where the gap
+    -- opened. Also collapses order[] to the displayed set.
+    local vis = BG.GetGroupBuffs(targetGroupId)
+    for i = #vis, 1, -1 do if vis[i] == spellId then table.remove(vis, i) end end
+    local pos = math.max(1, math.min(#vis + 1, (insertIdx or #vis) + 1))
+    table.insert(vis, pos, spellId)
+    s.order[targetGroupId] = vis
 end
 
 -- Buffs assigned to a group (groupId 0 = Unused), in saved order; any assigned buff not yet
@@ -192,13 +279,22 @@ function BG.GetGroupBuffs(groupId)
     return out
 end
 
--- ── Custom (user-added) buffs ─────────────────────────────────────────────────
-function BG.AddCustom(spellId, groupId)
+-- ── Custom (cast-triggered) buffs ───────────────────────────────────────────────
+-- custom[spellId] = { duration, name, icon }: the addon DRAWS these (a cooldown swipe
+-- started by UNIT_SPELLCAST_SUCCEEDED on spellId, running for `duration` seconds), so they
+-- need no native frame. name/icon are display hints (resolved from the spell when nil).
+function BG.AddCustom(spellId, groupId, opts)
     local s = Store(); if not s or not spellId then return end
-    s.custom[spellId] = true
+    opts = opts or {}
+    s.custom[spellId] = {
+        duration = tonumber(opts.duration) or 0,
+        name     = opts.name,
+        icon     = opts.icon,
+    }
     s.assign[spellId] = groupId or 1
     BG.AppendOrder(groupId or 1, spellId)
 end
+
 function BG.RemoveCustom(spellId)
     local s = Store(); if not s then return end
     s.custom[spellId] = nil
@@ -208,13 +304,66 @@ function BG.RemoveCustom(spellId)
         local o = BG.GroupOrder(gid)
         for i = #o, 1, -1 do if o[i] == spellId then table.remove(o, i) end end
     end
+    s.iconCfg[spellId] = nil
 end
+
 function BG.IsCustom(spellId)
-    local s = Store(); return s and s.custom[spellId] == true or false
+    local s = Store(); return s and s.custom[spellId] ~= nil or false
 end
+
+-- The custom definition table { duration, name, icon } (nil for a non-custom buff).
+function BG.GetCustom(spellId)
+    local s = Store(); return s and s.custom and s.custom[spellId] or nil
+end
+
 function BG.CustomList()
     local s = Store(); if not s then return {} end
     local out = {}
     for spellId in pairs(s.custom) do out[#out + 1] = spellId end
     return out
+end
+
+-- ── Per-icon overrides (the pencil editor) ──────────────────────────────────────
+-- iconCfg[spellId] holds SPARSE overrides for the SUBSET of group keys a single icon may
+-- diverge on. IconGet resolves: per-icon override -> the buff's current GROUP -> default.
+-- Because it falls through to the group, IconGet is safe to call for ANY group key (the
+-- engine uses it as the single read for an icon's effective config); the editor only ever
+-- WRITES the subset below.
+local ICON_OVERRIDE_KEYS = {
+    borderEnabled = true, borderColor = true, borderSize = true,
+    iconW = true, iconH = true,
+    showTimer = true, showTitle = true, showStack = true,
+    glowEnabled = true, glowColor = true,
+}
+BG.ICON_OVERRIDE_KEYS = ICON_OVERRIDE_KEYS
+
+function BG.IconGet(spellId, key)
+    local s = Store()
+    local ic = s and s.iconCfg and s.iconCfg[spellId]
+    if ic and ic[key] ~= nil then return ic[key] end
+    return BG.GGet(BG.GroupOf(spellId), key)
+end
+
+function BG.IconSet(spellId, key, val)
+    local s = Store(); if not s then return end
+    s.iconCfg = s.iconCfg or {}
+    s.iconCfg[spellId] = s.iconCfg[spellId] or {}
+    s.iconCfg[spellId][key] = val
+end
+
+-- True if the icon has any per-icon override (so the editor can show a "reset" affordance).
+function BG.IconHasOverride(spellId)
+    local s = Store()
+    return s and s.iconCfg and s.iconCfg[spellId] and next(s.iconCfg[spellId]) ~= nil or false
+end
+
+-- Drop a single override key (val nil) or all of them (key nil) → back to group/defaults.
+function BG.IconReset(spellId, key)
+    local s = Store(); if not (s and s.iconCfg and s.iconCfg[spellId]) then return end
+    if key == nil then
+        s.iconCfg[spellId] = nil
+    else
+        s.iconCfg[spellId][key] = nil
+        if next(s.iconCfg[spellId]) == nil then s.iconCfg[spellId] = nil end
+    end
 end

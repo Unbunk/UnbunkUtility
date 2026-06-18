@@ -14,6 +14,13 @@ initMedia:SetScript("OnEvent", function(self, event, addonName)
         -- addon (ns.ResolveFontPath only falls back to FRIZQT when LSM is absent).
         LSM:Register("font", "Fira Mono", ADDON_PATH .. "Fonts\\FiraMono-Regular.ttf")
 
+        -- Bundled statusbar texture so the cast bar's "Better Blizzard" default resolves
+        -- without any external media pack. (Skips re-registering if another addon already
+        -- provided it, so we never stomp a user's existing copy.)
+        if not LSM:IsValid("statusbar", "Better Blizzard") then
+            LSM:Register("statusbar", "Better Blizzard", ADDON_PATH .. "Textures\\BetterBlizzard.blp")
+        end
+
         -- Sounds available in every loudness variant (High / Medium / Low /
         -- Loud). Every LSM key carries its loudness in parentheses so the
         -- picker reads e.g. "BL Ready (Loud)"; module defaults explicitly

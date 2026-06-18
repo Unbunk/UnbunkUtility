@@ -1,4 +1,4 @@
-## Interface: 120005
+## Interface: 120007
 ## Title: Unbunk Utility
 ## Notes: Utility addon
 ## Author: Unbunk
@@ -83,6 +83,7 @@ Modules/NativeCDM/Core/NativeCDM.lua
 Modules/NativeCDM/UI/Editor.lua
 Modules/BuffGroups/Core/Config.lua
 Modules/BuffGroups/Core/BuffGroups.lua
+Modules/BuffGroups/Core/CustomBuffs.lua
 Modules/BuffGroups/UI/ConfigWindow.lua
 Modules/PITracker/Core/Config.lua
 Modules/PITracker/Core/PITracker.lua

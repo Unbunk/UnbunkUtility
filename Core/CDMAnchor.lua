@@ -1023,6 +1023,21 @@ local function PinNative(nf, viewer, x, y, w, h)
         hooksecurefunc(nf, "SetScale", function(self, s)
             if (s or 1) ~= 1 and self._uuPin and CanWrite(self) then self:SetScale(1) end
         end)
+        -- Re-impose our pinned size whenever Blizzard resizes the frame (the viewer's relayout can
+        -- SetSize/SetWidth/SetHeight WITHOUT a SetPoint, which would otherwise leave some icons at
+        -- their larger native size while the rest are at ours).
+        local function reimposeSize(self)
+            local pin = self._uuPin
+            if not (pin and pin.w and pin.h) or self._uuPinSizing or not CanWrite(self) then return end
+            if self:GetWidth() ~= pin.w or self:GetHeight() ~= pin.h then
+                self._uuPinSizing = true
+                self:SetSize(pin.w, pin.h)
+                self._uuPinSizing = false
+            end
+        end
+        hooksecurefunc(nf, "SetSize", reimposeSize)
+        hooksecurefunc(nf, "SetWidth", reimposeSize)
+        hooksecurefunc(nf, "SetHeight", reimposeSize)
     end
     nf._uuPinApplying = true
     RawClearAllPoints(nf)
@@ -1050,7 +1065,7 @@ end
 -- Draw 4 addon-owned border edge textures on a native frame (display-only regions — safe to
 -- create/show even on a protected frame in combat). Shared by the CDM rows (per-dest border)
 -- and the Buff-groups module (per-group border). enabled=false hides the edges.
-local function DrawFrameBorder(nf, enabled, color, size)
+local function DrawFrameBorder(nf, enabled, color, size, outset)
     local edges = nf._uuBorderEdges
     if not enabled then
         if edges then for _, t in pairs(edges) do t:Hide() end end
@@ -1068,21 +1083,25 @@ local function DrawFrameBorder(nf, enabled, color, size)
     size = math.max(1, math.min(16, size or 1))
     color = color or { r = 0, g = 0, b = 0, a = 1 }
     local r, g, b, a = color.r, color.g, color.b, color.a or 1
+    -- outset: the edges sit just OUTSIDE the frame so the border frames the icon (used by the
+    -- buff groups, where an inset 1px border looked tiny / drawn inside the icon). Default (o=0)
+    -- keeps the legacy inset look on the native CDM rows.
+    local o = outset and size or 0
     edges.top:ClearAllPoints()
-    edges.top:SetPoint("TOPLEFT", nf, "TOPLEFT", 0, 0)
-    edges.top:SetPoint("TOPRIGHT", nf, "TOPRIGHT", 0, 0)
+    edges.top:SetPoint("TOPLEFT",  nf, "TOPLEFT",  -o,  o)
+    edges.top:SetPoint("TOPRIGHT", nf, "TOPRIGHT",  o,  o)
     edges.top:SetHeight(size)
     edges.bottom:ClearAllPoints()
-    edges.bottom:SetPoint("BOTTOMLEFT", nf, "BOTTOMLEFT", 0, 0)
-    edges.bottom:SetPoint("BOTTOMRIGHT", nf, "BOTTOMRIGHT", 0, 0)
+    edges.bottom:SetPoint("BOTTOMLEFT",  nf, "BOTTOMLEFT",  -o, -o)
+    edges.bottom:SetPoint("BOTTOMRIGHT", nf, "BOTTOMRIGHT",  o, -o)
     edges.bottom:SetHeight(size)
     edges.left:ClearAllPoints()
-    edges.left:SetPoint("TOPLEFT", nf, "TOPLEFT", 0, 0)
-    edges.left:SetPoint("BOTTOMLEFT", nf, "BOTTOMLEFT", 0, 0)
+    edges.left:SetPoint("TOPLEFT",    nf, "TOPLEFT",    -o,  o)
+    edges.left:SetPoint("BOTTOMLEFT", nf, "BOTTOMLEFT", -o, -o)
     edges.left:SetWidth(size)
     edges.right:ClearAllPoints()
-    edges.right:SetPoint("TOPRIGHT", nf, "TOPRIGHT", 0, 0)
-    edges.right:SetPoint("BOTTOMRIGHT", nf, "BOTTOMRIGHT", 0, 0)
+    edges.right:SetPoint("TOPRIGHT",    nf, "TOPRIGHT",     o,  o)
+    edges.right:SetPoint("BOTTOMRIGHT", nf, "BOTTOMRIGHT",  o, -o)
     edges.right:SetWidth(size)
     for _, t in pairs(edges) do t:SetColorTexture(r, g, b, a); t:Show() end
 end

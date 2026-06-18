@@ -5,7 +5,9 @@ local L = ns.L
 ns.ui = ns.ui or {}
 
 function ns.ui.CreatePositionEditor(parent, config)
-    local label      = config.label or L["Position (offset from screen center)"]
+    -- nil -> the default header; an explicit "" -> no header at all (callers that name the
+    -- section elsewhere, e.g. a group title + anchor dropdowns above it).
+    local label      = config.label == "" and "" or (config.label or L["Position (offset from screen center)"])
     local getX       = config.getX
     local getY       = config.getY
     local onApply    = config.onApply
@@ -20,12 +22,14 @@ function ns.ui.CreatePositionEditor(parent, config)
     local height = 0
     local result = {}
 
-    -- ── Label ─────────────────────────────────────────────────────────────────
+    -- ── Label (skipped when label == "") ───────────────────────────────────────
 
-    local sectionLabel = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-    sectionLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
-    sectionLabel:SetText(label)
-    height = height + 20
+    if label ~= "" then
+        local sectionLabel = container:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
+        sectionLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -height)
+        sectionLabel:SetText(label)
+        height = height + 20
+    end
 
     -- ── X offset ──────────────────────────────────────────────────────────────
 
