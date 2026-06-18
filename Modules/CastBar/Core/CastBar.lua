@@ -32,6 +32,48 @@ local cast = { active = false }       -- { active, channel(=fill down), startT, 
 
 local function C(key) return CB.CfgGet(key) end
 
+local testing = false                 -- preview loop driven by the "Test" button
+
+-- The saved statusbar key if it's actually registered, else "Blizzard" (LSM's always-present
+-- default). This keeps the saved default "Better Blizzard" — so it auto-activates once a media
+-- pack provides it — while users without that pack see/render "Blizzard".
+local function EffectiveTextureKey(key)
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    if LSM and key and LSM:IsValid("statusbar", key) then return key end
+    return "Blizzard"
+end
+CB.EffectiveTexture = EffectiveTextureKey
+
+-- LibSharedMedia statusbar texture for a key (via its effective key), else the bar default.
+local function ResolveTexture(key)
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    local p = LSM and LSM:Fetch("statusbar", EffectiveTextureKey(key), true)
+    return p or BAR_TEXTURE
+end
+
+-- The live frame a CDM destination anchors / sizes against (belowPlayer has no native
+-- viewer, so we use the PlayerFrame it sits under).
+local function AnchorDestFrame(dest)
+    if dest == "belowPlayer" then return _G.PlayerFrame end
+    return ns.GetCDMViewer(dest)
+end
+
+-- Container point + anchor-frame point for the saved "position relative to anchor".
+local function RelPoints()
+    local p = CB.REL_POINTS[C("positionRelative")] or CB.REL_POINTS.bottom
+    return p[1], p[2]
+end
+
+-- A frame's named point in absolute screen pixels (scale folded in), or nil.
+local function PointAbs(frame, point)
+    local l, b, w, h = frame:GetLeft(), frame:GetBottom(), frame:GetWidth(), frame:GetHeight()
+    local s = frame:GetEffectiveScale()
+    if not (l and b and s and s > 0) then return nil end
+    local x = point:find("LEFT") and l or (point:find("RIGHT") and (l + w) or (l + w / 2))
+    local y = point:find("BOTTOM") and b or (point:find("TOP") and (b + h) or (b + h / 2))
+    return x * s, y * s
+end
+
 -- ── Per-tick fill ─────────────────────────────────────────────────────────────
 local function OnUpdate()
     if not cast.active then return end
@@ -50,7 +92,10 @@ local function OnUpdate()
         if remaining < 0 then remaining = 0 end
         timeFS:SetFormattedText("%.1f", remaining)
     end
-    if now >= cast.endT then CB.StopCast() end
+    if now >= cast.endT then
+        if testing then cast.startT = now; cast.endT = now + 2.5   -- loop the preview
+        else CB.StopCast() end
+    end
 end
 
 -- ── Colour by cast state ──────────────────────────────────────────────────────
@@ -61,44 +106,75 @@ local function ApplyColor()
     bar:SetStatusBarColor(c.r, c.g, c.b, c.a or 1)
 end
 
--- ── Layout (size, icon split, fonts, text shown) ──────────────────────────────
+-- ── Layout (size, icon split, textures, per-text style + offsets, shown) ───────
 local function ApplyLayout()
     if not container then return end
-    local w, h = C("width") or 260, C("height") or 24
-    container:SetSize(math.max(20, w), math.max(6, h))
+    local h = math.max(6, C("height") or 40)
+    local w = math.max(20, C("width") or 255)
+    if C("adaptWidth") then
+        local af = AnchorDestFrame(C("adaptWidthTo") or "essential")
+        local aw = af and af.GetWidth and af:GetWidth()
+        if aw and aw > 0 then w = math.max(20, aw) end
+    end
+    container:SetSize(w, h)
 
+    -- Bar fill + background textures.
+    bar:SetStatusBarTexture(ResolveTexture(C("barTexture")))
+    bg:SetTexture(ResolveTexture(C("bgTexture")))
+    bg:SetVertexColor(0.12, 0.12, 0.12, 0.85)   -- darken so it reads as a background
+
+    -- Icon side + gap.
+    local gap = C("iconGap") or 1
+    icon:ClearAllPoints(); bar:ClearAllPoints()
     if C("showIcon") ~= false then
-        icon:ClearAllPoints()
-        icon:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
-        icon:SetSize(h, h)
-        icon:Show()
-        bar:ClearAllPoints()
-        bar:SetPoint("TOPLEFT", container, "TOPLEFT", h + 1, 0)
-        bar:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
+        icon:SetSize(h, h); icon:Show()
+        if C("iconPosition") == "right" then
+            icon:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, 0)
+            bar:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+            bar:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", -(h + gap), 0)
+        else
+            icon:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+            bar:SetPoint("TOPLEFT", container, "TOPLEFT", h + gap, 0)
+            bar:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
+        end
     else
         icon:Hide()
-        bar:ClearAllPoints()
         bar:SetAllPoints(container)
     end
 
-    local fp  = ns.ResolveFontPath(C("fontPath"), C("fontKey"))
-    local fs  = C("fontSize") or 12
-    local out = C("outline") or "OUTLINE"
-    local tc  = C("textColor") or { r = 1, g = 1, b = 1, a = 1 }
-    nameFS:SetFont(fp, fs, out); nameFS:SetTextColor(tc.r, tc.g, tc.b, tc.a or 1)
-    timeFS:SetFont(fp, fs, out); timeFS:SetTextColor(tc.r, tc.g, tc.b, tc.a or 1)
-    nameFS:ClearAllPoints(); nameFS:SetPoint("LEFT",  bar, "LEFT",   3, 0)
-    timeFS:ClearAllPoints(); timeFS:SetPoint("RIGHT", bar, "RIGHT", -3, 0)
+    -- Spell-name style + offset.
+    local nfp = ns.ResolveFontPath(C("nameFontPath"), C("nameFontKey"))
+    local nc  = C("nameColor") or { r = 1, g = 1, b = 1, a = 1 }
+    nameFS:SetFont(nfp, C("nameFontSize") or 12, C("nameOutline") or "OUTLINE")
+    nameFS:SetTextColor(nc.r, nc.g, nc.b, nc.a or 1)
+    nameFS:ClearAllPoints()
+    nameFS:SetPoint("LEFT", bar, "LEFT", C("nameXOffset") or 3, C("nameYOffset") or 0)
     nameFS:SetShown(C("showSpellName") ~= false)
+
+    -- Timer style + offset.
+    local tfp = ns.ResolveFontPath(C("timerFontPath"), C("timerFontKey"))
+    local tc  = C("timerColor") or { r = 1, g = 1, b = 1, a = 1 }
+    timeFS:SetFont(tfp, C("timerFontSize") or 12, C("timerOutline") or "OUTLINE")
+    timeFS:SetTextColor(tc.r, tc.g, tc.b, tc.a or 1)
+    timeFS:ClearAllPoints()
+    timeFS:SetPoint("RIGHT", bar, "RIGHT", C("timerXOffset") or -3, C("timerYOffset") or 0)
     timeFS:SetShown(C("showTimer") ~= false)
-    spark:SetSize(20, h * 1.8)
+
+    spark:SetSize(C("sparkThickness") or 20, h * 1.8)
     spark:SetShown(C("showSpark") ~= false)
 end
 
 function CB.ApplyPosition()
     if not container or CB.IsUnlocked() then return end
     container:ClearAllPoints()
-    container:SetPoint("CENTER", UIParent, "CENTER", C("posX") or 0, C("posY") or 0)
+    local af = AnchorDestFrame(C("anchorTo") or "essential")
+    local sp, ap = RelPoints()
+    local px, py = C("posX") or 0, C("posY") or 0
+    if af then
+        container:SetPoint(sp, af, ap, px, py)
+    else
+        container:SetPoint(sp, UIParent, "CENTER", px, py)   -- CDM off / viewer absent
+    end
 end
 
 -- ── Start / stop a cast ───────────────────────────────────────────────────────
@@ -180,8 +256,12 @@ local function EnsureFrames()
     icon = container:CreateTexture(nil, "ARTWORK")
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
-    nameFS = container:CreateFontString(nil, "OVERLAY")
-    timeFS = container:CreateFontString(nil, "OVERLAY")
+    -- Text is parented to the BAR (a child frame, above the container) at a high OVERLAY
+    -- sublevel, so it always draws on top of the advancing fill and the spark.
+    nameFS = bar:CreateFontString(nil, "OVERLAY")
+    timeFS = bar:CreateFontString(nil, "OVERLAY")
+    nameFS:SetDrawLayer("OVERLAY", 7)
+    timeFS:SetDrawLayer("OVERLAY", 7)
 
     spark = bar:CreateTexture(nil, "OVERLAY")
     spark:SetTexture(SPARK_TEXTURE)
@@ -221,6 +301,32 @@ function CB.ApplyConfig()
     if cast.active then ApplyColor() end
 end
 
+-- ── Test preview (the "Test" toggle under Enable cast bar) ─────────────────────
+-- Drives a looping fake cast so the current styling is visible; works even while the
+-- module is disabled. OnUpdate restarts the timer instead of stopping while `testing`.
+-- (Defined down here so EnsureFrames is already in scope.)
+function CB.IsTesting() return testing end
+function CB.StartTest()
+    EnsureFrames()
+    testing      = true
+    cast.active  = true
+    cast.channel = false
+    cast.notInt  = false
+    cast.startT  = GetTime()
+    cast.endT    = GetTime() + 2.5
+    ApplyLayout()
+    if C("showIcon") ~= false then icon:SetTexture(PREVIEW_ICON); icon:Show() end
+    if C("showSpellName") ~= false then nameFS:SetText((ns.L and ns.L["Cast bar"]) or "Cast bar") end
+    bar:SetMinMaxValues(0, 1); bar:SetValue(0)
+    ApplyColor()
+    container:SetScript("OnUpdate", OnUpdate)
+    container:Show()
+end
+function CB.StopTest()
+    testing = false
+    CB.StopCast()
+end
+
 -- ── Hide / restore Blizzard's native player cast bar ──────────────────────────
 local blizzHooked, blizzHidden = false, false
 function CB.ApplyBlizzard()
@@ -256,15 +362,20 @@ function CB.SetUnlocked(val)
         container:SetScript("OnDragStart", function(self) self:StartMoving() end)
         container:SetScript("OnDragStop", function(self)
             self:StopMovingOrSizing()
-            local es, ues = self:GetEffectiveScale(), UIParent:GetEffectiveScale()
-            local fx, fy = self:GetCenter()
-            local ux, uy = UIParent:GetCenter()
-            if not (fx and ux and es > 0) then return end
-            local x = floor((fx * es - ux * ues) / es)
-            local y = floor((fy * es - uy * ues) / es)
-            self:ClearAllPoints()
-            self:SetPoint("CENTER", UIParent, "CENTER", x, y)
+            -- Store the drop as an offset from the chosen anchor point, so it reproduces
+            -- under SetPoint(selfPoint, anchorFrame, anchorPoint, posX, posY).
+            local af = AnchorDestFrame(C("anchorTo") or "essential") or UIParent
+            local sp, ap = RelPoints()
+            if af == UIParent then ap = "CENTER" end
+            local sx, sy = PointAbs(self, sp)
+            local ax, ay = PointAbs(af, ap)
+            local cs = self:GetEffectiveScale()
+            if not (sx and ax and cs and cs > 0) then return end
+            local x = floor((sx - ax) / cs)
+            local y = floor((sy - ay) / cs)
             CB.CfgSet("posX", x); CB.CfgSet("posY", y)
+            self:ClearAllPoints()
+            self:SetPoint(sp, af, ap, x, y)
             if CB.pe then CB.pe.Refresh() end
         end)
         container:SetBackdrop({ edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
