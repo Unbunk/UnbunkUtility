@@ -1277,6 +1277,11 @@ local function CreateBuffsPanel(parent)
                   get = function() return BG.GGet(id, "name") or "" end,
                   set = function(v) BG.GSet(id, "name", v or ""); rebuild() end },
                 BuffStripEntry(id),
+                -- Re-sort this group's strip so its NATIVE buffs follow the native on-screen order
+                -- (the EditMode "Tracked Buffs" arrangement); CUSTOM buffs keep their relative order
+                -- AFTER the natives. Reorders within the group only (no add/remove/reassign).
+                { type = "button", label = L["Copy native CDM order"], width = 200, hostHeight = 30,
+                  onClick = function() BG.SortGroupNativeOrder(id); touch(); rebuild() end },
                 GroupSettingsSection(id),
             }
             if id ~= 1 then
@@ -1310,9 +1315,9 @@ local function CreateBuffsPanel(parent)
             for _, g in ipairs(BG.GroupList()) do
                 entries[#entries + 1] = GroupCadre(g.id)
             end
-            entries[#entries + 1] = UnusedCadre()
             entries[#entries + 1] = { type = "button", label = L["Create group"], width = 160, hostHeight = 30,
                 onClick = function() BG.NewGroup(); touch(); rebuild() end }
+            entries[#entries + 1] = UnusedCadre()
             return entries
         end },
     }
