@@ -148,6 +148,7 @@ local function BuildChild(entry, host, defaultRel, refs, refreshers)
         local fontObj = entry.font or (t == "header" and "UnbunkUtilityH4" or "UnbunkUtilityBody")
         local fs = host:CreateFontString(nil, "ARTWORK", fontObj)
         fs:SetText(entry.text or "")
+        if entry.color then fs:SetTextColor(entry.color[1], entry.color[2], entry.color[3], entry.color[4] or 1) end
         widget = { frame = fs, fontString = fs }
 
     else
@@ -530,6 +531,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                 local fs = hostFrame:CreateFontString(nil, "ARTWORK", fontObj)
                 fs:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", 0, 0)
                 fs:SetText(entry.text or "")
+                if entry.color then fs:SetTextColor(entry.color[1], entry.color[2], entry.color[3], entry.color[4] or 1) end
                 widget = { frame = hostFrame, fontString = fs }
 
             elseif t == "dropdown" then
