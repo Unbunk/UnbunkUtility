@@ -201,6 +201,23 @@ function ns.CDMAnchor.NativeFrameSpellId(nf)
     return nil
 end
 
+-- The STABLE BASE spell id of a native CooldownViewer item frame: cooldownInfo.spellID, the spell that
+-- does NOT change when the cooldown transforms (Frostbolt 116 <-> Glacial Spike 199786 keep base 116).
+-- Unlike NativeFrameSpellId (the DISPLAY resolver, which follows override(Tooltip)SpellID), this returns
+-- ONLY the base, so the groups engine can key a transforming cooldown by an identity that survives the
+-- transform. Reads are guarded for nil / secret (issecretvalue/canaccessvalue/pcall) and > 0, mirroring
+-- NativeFrameSpellId; returns nil when the base is unreadable so the caller falls back to display.
+function ns.CDMAnchor.NativeFrameBaseSpellId(nf)
+    local ci = nf and nf.cooldownInfo
+    if type(ci) ~= "table" then return nil end
+    local ok, id = pcall(function() return ci.spellID end)
+    if not ok or id == nil then return nil end
+    if issecretvalue and issecretvalue(id) then return nil end
+    if canaccessvalue and not canaccessvalue(id) then return nil end
+    if type(id) ~= "number" or id <= 0 then return nil end
+    return id
+end
+
 -- The native BUFF cooldown viewer's icon frames (BuffIconCooldownViewer). The Buff-groups
 -- module redistributes these into its own movable group containers (reusing the real native
 -- frames so Blizzard keeps rendering their cooldown / charges / combat state).
@@ -255,98 +272,6 @@ function ns.CDMAnchor.GetNativeRows(dest)
     end
     return out
 end
-
--- ── TEMP diagnostic: /run UU_CDMWhy("essential")  (or "utility") ────────────────
--- Answers the ONE runtime unknown for rebuilding Essential/Utility as Buff-style groups: does a
--- cooldown viewer's itemFramePool hold ALL configured cooldowns (toggling IsShown, like the Buff
--- viewer) or only the currently-ACTIVE ones — and do Enum.CooldownViewerCategory.Essential/.Utility
--- + the category set behave like TrackedBuff. Run it with a mix of abilities on cooldown and ready.
-function ns.CDMAnchor.WhyDebug(dest)
-    dest = dest or "essential"
-    local function p(...) print("|cff33ccff[UU cdm]|r", ...) end
-    local issec = _G.issecretvalue or function() return false end
-    local function nm(sid)
-        local i = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
-        return (i and i.name) or ("?" .. tostring(sid))
-    end
-    local catName = (dest == "utility") and "Utility"
-        or ((dest == "buff" or dest == "buffs") and "TrackedBuff" or "Essential")
-    local cat = Enum and Enum.CooldownViewerCategory and Enum.CooldownViewerCategory[catName]
-    p(("dest=%s  category=%s (%s)"):format(dest, catName, tostring(cat)))
-    if C_CooldownViewer and cat then
-        local function setN(arg)
-            local ok, t = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, arg)
-            return (ok and type(t) == "table") and #t or ("err:" .. tostring(t))
-        end
-        p(("categorySet  false=%s  true=%s"):format(tostring(setN(false)), tostring(setN(true))))
-        -- Resolve a category set (the cooldown-info IDs) to DISPLAY spellId names so the user can
-        -- eyeball which set equals what they actually track in the native CDM. categorySet(cat,false)
-        -- = the NON-hidden (DISPLAYED / user-tracked) set; (cat,true) = ALL category cooldowns.
-        local function nameList(arg)
-            local ok, t = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, arg)
-            if not (ok and type(t) == "table") then return "err:" .. tostring(t) end
-            local names, seen = {}, {}
-            for _, id in ipairs(t) do
-                local sid
-                if C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                    local ci = C_CooldownViewer.GetCooldownViewerCooldownInfo(id)
-                    if type(ci) == "table" then
-                        sid = ci.overrideTooltipSpellID or ci.overrideSpellID or ci.spellID
-                    end
-                end
-                if sid and not (issec and issec(sid)) and not seen[sid] then
-                    seen[sid] = true
-                    names[#names + 1] = nm(sid)
-                end
-            end
-            return (#names > 0) and table.concat(names, ", ") or "(none)"
-        end
-        p("DISPLAYED (false): " .. nameList(false))
-        p("ALL (true): " .. nameList(true))
-        -- Discover which C_CooldownViewer API yields the user's full DISPLAYED set (rows 1+2, incl.
-        -- greyed not-learned) — categorySet(false) under-reports it. Dump every function name to probe.
-        local fns = {}
-        for k, vv in pairs(C_CooldownViewer) do if type(vv) == "function" then fns[#fns + 1] = k end end
-        table.sort(fns)
-        p("C_CooldownViewer fns: " .. table.concat(fns, ", "))
-        -- The native viewer lays out its displayed cooldownIDs in `.cooldownIDs` / `.orderedCooldownIDs`
-        -- on many builds — print whichever exists, resolved to names (this IS the section the user sees).
-        local vv = ns.GetCDMViewer and ns.GetCDMViewer(dest)
-        for _, field in ipairs({ "cooldownIDs", "orderedCooldownIDs", "cooldownInfo" }) do
-            local t = vv and vv[field]
-            if type(t) == "table" then
-                local names = {}
-                for _, id in ipairs(t) do
-                    local ci = C_CooldownViewer.GetCooldownViewerCooldownInfo and C_CooldownViewer.GetCooldownViewerCooldownInfo(id)
-                    local sid = type(ci) == "table" and (ci.overrideTooltipSpellID or ci.overrideSpellID or ci.spellID) or (type(id) == "number" and id)
-                    if sid and not (issec and issec(sid)) then names[#names + 1] = nm(sid) end
-                end
-                p(("viewer.%s [%d]: %s"):format(field, #t, (#names > 0) and table.concat(names, ", ") or "(unresolved)"))
-            end
-        end
-    else
-        p("Enum.CooldownViewerCategory." .. catName .. " or C_CooldownViewer MISSING")
-    end
-    local v = ns.GetCDMViewer and ns.GetCDMViewer(dest)
-    if not v then p("viewer nil for dest=" .. dest); return end
-    p(("viewer=%s  iconLimit=%s"):format(tostring(v.GetName and v:GetName()), tostring(v.iconLimit)))
-    local pool = v.itemFramePool
-    if not (pool and pool.EnumerateActive) then p("no itemFramePool:EnumerateActive"); return end
-    local n, shownN = 0, 0
-    for f in pool:EnumerateActive() do
-        n = n + 1
-        local sid = ns.CDMAnchor.NativeFrameSpellId and ns.CDMAnchor.NativeFrameSpellId(f)
-        local li = f.layoutIndex
-        if issec(li) then li = "<secret>" end
-        local okShown, shown = pcall(f.IsShown, f)
-        if okShown and shown then shownN = shownN + 1 end
-        p(("  %-22s li=%s shown=%s ci=%s"):format(
-            (sid and nm(sid):sub(1, 22)) or "?", tostring(li),
-            tostring(okShown and shown), tostring(f.cooldownInfo ~= nil)))
-    end
-    p(("pool active=%d  shown=%d  rows=%d"):format(n, shownN, #ComputeRows(v)))
-end
-_G.UU_CDMWhy = ns.CDMAnchor.WhyDebug
 
 -- Has the user adopted this native's spell AND is its replacement icon built? Adopted
 -- natives are replaced by our own TimerIcon, so the layout hides them and drops them

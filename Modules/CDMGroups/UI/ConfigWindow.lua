@@ -1,7 +1,7 @@
 -- Modules/CDMGroups/UI/ConfigWindow.lua
--- "Essential (groups)" panel — a GENERALIZED, dest-parameterized clone of
+-- "Essential (groups)" / "Utility (groups)" panel — a GENERALIZED, dest-parameterized clone of
 -- Modules/BuffGroups/UI/ConfigWindow.lua. CreatePanel(I) builds the panel bound to ONE Config
--- instance (ns.CDMGroups.essential now), so a later phase reuses it for "utility" with one call.
+-- instance (ns.CDMGroups.essential + ns.CDMGroups.utility each get one CreatePanel call).
 --
 -- Layout (same template as Buffs): an enable checkbox under the title (DEFAULT OFF — the new engine
 -- only takes over the native Essential viewer when this is ON; until then the OLD bucket system runs),
@@ -63,6 +63,25 @@ local function GrowFromLabel(label)
         if GrowLabel(k) == label then return k end
     end
     return "RIGHT"
+end
+
+local GLOWTYPE_ORDER = { "pixel", "autocast", "button", "proc" }
+local function GlowTypeLabel(key)
+    if key == "autocast" then return L["Autocast Glow"] end
+    if key == "button"   then return L["Button Glow"]   end
+    if key == "proc"     then return L["Proc Glow"]     end
+    return L["Pixel Glow"]
+end
+local function GlowTypeList()
+    local t = {}
+    for _, k in ipairs(GLOWTYPE_ORDER) do t[#t + 1] = GlowTypeLabel(k) end
+    return t
+end
+local function GlowTypeFromLabel(label)
+    for _, k in ipairs(GLOWTYPE_ORDER) do
+        if GlowTypeLabel(k) == label then return k end
+    end
+    return "pixel"
 end
 
 local RELPOS_ORDER = { "above", "below", "left", "right", "topleft", "topright", "bottomleft", "bottomright" }
@@ -487,17 +506,27 @@ local function IconOptions(I, sid)
         end },
 
         { type = "group", title = L["Glow"], build = function()
-            local keys = { "glowEnabled", "glowColor" }
+            local keys = { "glowEnabled", "glowType", "glowColor" }
             local gated = sectionOverridden(keys)
             local e = {}
             append(e, OverrideToggle(iconBundle, keys))
             append(e, CopyGroupButton(iconBundle, keys, gated))
-            e[#e + 1] = { type = "checkbox", label = L["Show glow"], enabledBy = gated,
+            e[#e + 1] = { type = "checkbox", label = L["Show glow on proc"], enabledBy = gated,
               get = function() return I.IconGet(sid, "glowEnabled") == true end,
               set = function(v) I.IconSet(sid, "glowEnabled", v); touch()
                   if iconEditor and iconEditor.menu then iconEditor.menu.Refresh() end end }
+            e[#e + 1] = { type = "dropdown", label = L["Glow type"], width = 180, height = 50,
+              getList = GlowTypeList,
+              enabledBy = function() return gated() and I.IconGet(sid, "glowEnabled") == true end,
+              getCurrentKey = function() return GlowTypeLabel(I.IconGet(sid, "glowType")) end,
+              -- Rebuild (NOT Refresh) so the Glow color picker's `when` re-evaluates: Refresh only re-runs
+              -- value refreshers, not the show/hide gates, so the picker wouldn't hide on a type change.
+              onSelect = function(label) I.IconSet(sid, "glowType", GlowTypeFromLabel(label)); touch()
+                  if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end }
             e[#e + 1] = { type = "textEditor", label = L["Glow color"],
               showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+              -- The proc + button glows use the NATIVE (uncolored) look, so the color picker doesn't apply.
+              when = function() local gt = I.IconGet(sid, "glowType"); return gt ~= "proc" and gt ~= "button" end,
               enabledBy = function() return gated() and I.IconGet(sid, "glowEnabled") == true end,
               getColor = function() return I.IconGet(sid, "glowColor") end,
               onColorChange = function(r, g, b, a) I.IconSet(sid, "glowColor", { r = r, g = g, b = b, a = a }); touch() end }
@@ -516,7 +545,7 @@ local function IconOptions(I, sid)
               end
               copySection({ "iconW", "iconH" })
               copySection({ "borderEnabled", "borderColor", "borderSize" })
-              copySection({ "glowEnabled", "glowColor" })
+              copySection({ "glowEnabled", "glowType", "glowColor" })
               copySection(TIMER_KEYS)
               copySection(TITLE_KEYS)
               copySection(STACK_KEYS)
@@ -885,10 +914,18 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
             b:SetScript("OnEnter", function(self)
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 local shown = false
+                -- A tile keys on the STABLE BASE spellId; resolve the CURRENT display form (keyToDisplay)
+                -- so the tooltip matches the tile's live icon/name (Glacial Spike while transformed). Falls
+                -- back to the base when the cooldown isn't currently in the pool. Tracker keys (strings) are
+                -- untouched.
+                local dispSid = spellId
+                if type(spellId) == "number" and I.KeyToDisplay and I.KeyToDisplay[spellId] then
+                    dispSid = I.KeyToDisplay[spellId]
+                end
                 -- Skip the spell tooltip for a CUSTOM and a TRACKER (a tracker's key is a frame name, not
                 -- a spellId — SetSpellByID would be wrong/error). Both show just the display name instead.
-                if not isCustom and not isTracker and C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellId) then
-                    shown = pcall(GameTooltip.SetSpellByID, GameTooltip, spellId)
+                if not isCustom and not isTracker and C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(dispSid) then
+                    shown = pcall(GameTooltip.SetSpellByID, GameTooltip, dispSid)
                 end
                 if not shown then GameTooltip:SetText(I.SpellName(spellId), 1, 1, 1) end
                 if isCustom then
@@ -1349,11 +1386,21 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
 
         local function GlowGroup(id)
             return { type = "group", title = L["Glow"], build = function() return {
-                { type = "checkbox", label = L["Show glow"],
+                { type = "checkbox", label = L["Show glow on proc"],
                   get = function() return I.GGet(id, "glowEnabled") == true end,
                   set = function(v) I.GSet(id, "glowEnabled", v); touch(); if menu then menu.Refresh() end end },
+                { type = "dropdown", label = L["Glow type"], width = 180, height = 50,
+                  getList = GlowTypeList,
+                  enabledBy = function() return I.GGet(id, "glowEnabled") == true end,
+                  getCurrentKey = function() return GlowTypeLabel(I.GGet(id, "glowType")) end,
+                  -- Rebuild (NOT Refresh) so the Glow color picker's `when` re-evaluates (Refresh only
+                  -- re-runs value refreshers, not the show/hide gates).
+                  onSelect = function(label) I.GSet(id, "glowType", GlowTypeFromLabel(label)); touch()
+                      if menu then menu.Rebuild() end end },
                 { type = "textEditor", label = L["Glow color"],
                   showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                  -- The proc + button glows use the NATIVE (uncolored) look, so the color picker doesn't apply.
+                  when = function() local gt = I.GGet(id, "glowType"); return gt ~= "proc" and gt ~= "button" end,
                   enabledBy = function() return I.GGet(id, "glowEnabled") == true end,
                   getColor = function() return I.GGet(id, "glowColor") end,
                   onColorChange = function(r, g, b, a) I.GSet(id, "glowColor", { r = r, g = g, b = b, a = a }); touch() end },
@@ -1375,6 +1422,7 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
 
         local function GroupSettingsSection(id)
             return { type = "section", label = L["Group settings"], showCheckbox = false,
+              headerExtra = ns.ui.SettingsHeaderIcon,
               getCollapsed = function() return I.GGet(id, "cfgCollapsed") ~= false end,
               onCollapse   = function(c)
                   I.GSet(id, "cfgCollapsed", c and true or false)
@@ -1482,11 +1530,25 @@ local initCDG = CreateFrame("Frame")
 initCDG:RegisterEvent("ADDON_LOADED")
 initCDG:SetScript("OnEvent", function(self, _, addon)
     if addon ~= "UnbunkUtility" then return end
-    local I = ns.CDMGroups and ns.CDMGroups.essential
-    if I then
+    local E = ns.CDMGroups and ns.CDMGroups.essential
+    if E then
+        -- ESSENTIAL groups tab: registered as L["Essential"] (distinct from the OLD bucket panel's
+        -- L["Essentials"], so no clash) — the nav points its single "Essential" entry here.
         UnbunkUtility.RegisterModule(
             L["Essential"], nil,
-            CreatePanel(I, L["Essential"], L["Enable custom CDM Essential"], L["Cooldown groups"]))
+            CreatePanel(E, L["Essential"], L["Enable custom CDM Essential"], L["Cooldown groups"]))
+    end
+    local U = ns.CDMGroups and ns.CDMGroups.utility
+    if U then
+        -- UTILITY groups tab. Unlike Essential there's no spare plural to avoid the name clash with the
+        -- OLD bucket panel (also L["Utility"]). CDMGroups loads AFTER GeneralSettings (see the .toc), so
+        -- registering under L["Utility"] here SUPERSEDES the old bucket panel in the registry — exactly
+        -- the intent: the nav's single { panel = L["Utility"] } entry now resolves to THIS groups panel
+        -- (the old bucket createFn is harmlessly dropped; nothing else references it). The CDMGroups
+        -- engine OwnsDest("utility") so the old CDMAnchor utility bucket yields automatically.
+        UnbunkUtility.RegisterModule(
+            L["Utility"], nil,
+            CreatePanel(U, L["Utility"], L["Enable custom CDM Utility"], L["Cooldown groups"]))
     end
     self:UnregisterEvent("ADDON_LOADED")
 end)

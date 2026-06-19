@@ -219,3 +219,15 @@ function ns.ui.CreateCollapsibleSection(config)
 
     return result
 end
+
+-- A brand-coloured settings (gear) glyph pinned to the FAR RIGHT of a collapsible section's header.
+-- Pass it directly as a section's `headerExtra` (headerExtra = ns.ui.SettingsHeaderIcon): the white .tga
+-- is re-tinted to the LIVE brand colour (ns.SetBrandVertex registers it for live re-tints). Returns nil
+-- so CollapsibleSection doesn't treat it as a header-update closure.
+function ns.ui.SettingsHeaderIcon(headerBtn)
+    local icon = headerBtn:CreateTexture(nil, "OVERLAY")
+    icon:SetSize(16, 16)
+    icon:SetPoint("RIGHT", headerBtn, "RIGHT", -8, 0)
+    icon:SetTexture("Interface\\AddOns\\UnbunkUtility\\Media\\Icons\\WhiteSettings.tga")
+    if ns.SetBrandVertex then ns.SetBrandVertex(icon) end
+end

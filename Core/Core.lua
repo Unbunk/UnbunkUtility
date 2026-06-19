@@ -116,6 +116,9 @@ local function BuildNavTree()
                 -- The panel stays REGISTERED (not unregistered) — just removed from the tree.
                 -- { panel = L["Essentials"] },
                 { panel = L["Essential"] },
+                -- L["Utility"] resolves to the NEW CDMGroups Utility panel: CDMGroups loads after
+                -- GeneralSettings (see the .toc), so its RegisterModule(L["Utility"], …) supersedes the
+                -- OLD bucket panel under the same name. One "Utility" nav entry → the new groups panel.
                 { panel = L["Utility"] },
                 { panel = L["Buffs"] },
                 { panel = L["Below player frame"] },
