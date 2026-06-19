@@ -433,6 +433,12 @@ local function BelowBucketLayout(bucket)
            (c and c.growDir) or "RIGHT", (c and c.staticDisplay) == true
 end
 
+-- Whether an icon's cdmAtEnd value puts it in the END-of-row bucket: nil/true -> end, false -> front.
+-- Single source of truth for that sentinel — the layout bucketing, the reorder strips, the grid
+-- metadata (here) and TimerIcon.CfgDest all route through it so they can never disagree.
+local function IsAtEnd(atEnd) return atEnd ~= false end
+ns.CDMAnchor.IsAtEnd = IsAtEnd
+
 -- Account-wide manual offset of a bucket. Only honoured in manual mode; otherwise the
 -- bucket stays flush under the frame (offset 0,0). side=="end" -> the end bucket's own
 -- offset (from BOTTOMRIGHT); otherwise the front bucket's (from BOTTOMLEFT).
@@ -628,7 +634,7 @@ local function LayoutBelowPlayer(list)
     -- we no longer normalize the combined list to one contiguous run).
     local front, tail = {}, {}
     for _, d in ipairs(list) do
-        if d.getCfg and d.getCfg("cdmAtEnd") ~= false then tail[#tail + 1] = d
+        if d.getCfg and IsAtEnd(d.getCfg("cdmAtEnd")) then tail[#tail + 1] = d
         else front[#front + 1] = d end
     end
     local frontRow, endRow = EnsureBelowBuckets()
@@ -716,7 +722,7 @@ end
 local function RowBucketKey(d, nRows)
     local ri = d.getCfg("cdmRow") or 1
     if nRows and nRows > 0 then ri = math.max(1, math.min(nRows, ri)) end
-    local atEnd = d.getCfg("cdmAtEnd") ~= false
+    local atEnd = IsAtEnd(d.getCfg("cdmAtEnd"))
     return ri .. (atEnd and "E" or "S")
 end
 
@@ -959,13 +965,11 @@ end
 -- Stored on the dest's config (cdmViewer[dest] for essential/utility, cdmBelowRow.front / .end
 -- for the below-player buckets); defaults to a 1px black border. TimerIcon.ApplyBorder reads this
 -- for any icon in the CDM, so the dest's Border cadre governs them all; free icons keep their own.
--- "belowFront"/"belowEnd" route to the matching bucket; "belowPlayer" (flat) is kept for back-compat.
+-- The below-player row is two buckets: "belowFront"/"belowEnd" route to cdmBelowRow.front / .end
+-- (the icon's bucket is resolved by TimerIcon.CfgDest from cdmAtEnd before it reaches here).
 local function DestBorderCfg(dest)
     if dest == "belowFront" then return BelowBucketCfg("front") end
     if dest == "belowEnd"   then return BelowBucketCfg("end") end
-    if dest == "belowPlayer" then
-        return ns.db and ns.db.profile and ns.db.profile.cdmBelowRow
-    end
     return ViewerCfg(dest)
 end
 ns.CDMAnchor.DestBorderCfg = DestBorderCfg
@@ -991,16 +995,11 @@ end
 -- Per-dest opt-in (default OFF), stored alongside the dest's config. Read by TimerIcon for an icon
 -- pinned in that dest. Only the BELOW-PLAYER buckets use this store (their own "CDM settings" cadres,
 -- one per bucket); essential/utility groups read their GROUP's per-icon flags via the CDMGroups engine
--- instead. "belowFront"/"belowEnd" route to the matching bucket; "belowPlayer" (flat) is back-compat.
+-- instead. The below-player row is two buckets: "belowFront"/"belowEnd" route to cdmBelowRow.front /
+-- .end (the icon's bucket is resolved by TimerIcon.CfgDest from cdmAtEnd before it reaches here).
 local function DestFlagCfg(dest)
     if dest == "belowFront" then return BelowBucketCfg("front") end
     if dest == "belowEnd"   then return BelowBucketCfg("end") end
-    if dest == "belowPlayer" then
-        local p = ns.db and ns.db.profile
-        if not p then return nil end
-        p.cdmBelowRow = p.cdmBelowRow or {}
-        return p.cdmBelowRow
-    end
     return ViewerCfg(dest)
 end
 
@@ -1446,7 +1445,7 @@ local function LayoutCDMRow(viewer, dest, list)
             local nm = d.frame.GetName and d.frame:GetName()
             if not (nm and ns.NativeCDM and ns.NativeCDM.IsNativeFrame and ns.NativeCDM.IsNativeFrame(nm)) then
                 mine[#mine + 1] = { d = d, row = math.max(1, d.getCfg("cdmRow") or 1),
-                                    atEnd = (d.getCfg("cdmAtEnd") ~= false) }
+                                    atEnd = IsAtEnd(d.getCfg("cdmAtEnd")) }
             end
         end
     end
