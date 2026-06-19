@@ -411,100 +411,97 @@ local editingI, editingSid
 local onIconEditChange
 local OpenIconEditor   -- fwd decl
 
-local function IconOptions(I, sid)
-    local function touch() I.ApplyAll(); if onIconEditChange then onIconEditChange() end end
-    local function rebuildMenu() if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end
-    local function sectionOverridden(keys)
+-- The icon's option tree, fully parameterised over a `bundle` (config get/set/reset/has/groupGet +
+-- touch/refresh) and a `ctx` (editor-frame coupling). This SHARED body backs both the per-icon override
+-- editor (the pencil, below) and the standalone CustomCDM editor — each supplies its own bundle + ctx.
+-- A control is editable when its section is overridden (bundle.has) OR when the bundle has no override
+-- mechanism at all (standalone: bundle.has nil -> always editable). `bundle.refresh` is the full menu
+-- re-render the shared section helpers expect; `ctx.refresh`/`ctx.rebuild` are the editor's light/full
+-- re-renders and `ctx.reopen` re-opens it. `I`/`sid` are carried for sections that need them in later
+-- increments (spell/item resolution); the body reads config only through the bundle.
+local function IconSections(I, sid, bundle, ctx)
+    local function gatedFor(keys)
         return function()
-            for _, key in ipairs(keys) do if I.IconHasOverride(sid, key) then return true end end
-            return false
+            if bundle.has then return bundle.has(keys) end
+            return true
         end
     end
-    local iconBundle = {
-        get      = function(key) return I.IconGet(sid, key) end,
-        groupGet = function(key) return I.GGet(I.GroupOf(sid), key) end,
-        set      = function(key, val) I.IconSet(sid, key, val) end,
-        reset    = function(key) I.IconReset(sid, key) end,
-        has      = function(keys) return sectionOverridden(keys)() end,
-        touch    = touch,
-        refresh  = rebuildMenu,
-    }
     local entries = {
         { type = "label", font = "UnbunkUtilityH6", height = 30,
           text = L["Tick \"Override group settings\" in a section to give this icon its own values; untick it to inherit the group again."] },
 
         { type = "group", title = L["Sound alert"], build = function() return {
             { type = "sound", LSM = LSM, label = L["Sound on use"],
-              getKey    = function() return I.IconGet(sid, "soundStartSound") end,
-              getEnable = function() return I.IconGet(sid, "soundStartEnabled") == true end,
-              onSelect  = function(key, path) I.IconSet(sid, "soundStartSound", key); I.IconSet(sid, "soundStartPath", path) end,
-              onToggle  = function(v) I.IconSet(sid, "soundStartEnabled", v and true or false) end,
+              getKey    = function() return bundle.get("soundStartSound") end,
+              getEnable = function() return bundle.get("soundStartEnabled") == true end,
+              onSelect  = function(key, path) bundle.set("soundStartSound", key); bundle.set("soundStartPath", path) end,
+              onToggle  = function(v) bundle.set("soundStartEnabled", v and true or false) end,
               onTest    = function()
-                  local p = I.IconGet(sid, "soundStartPath")
+                  local p = bundle.get("soundStartPath")
                   if p then PlaySoundFile(p, "Master")
-                  else local k = I.IconGet(sid, "soundStartSound"); local r = LSM and k and LSM:Fetch("sound", k); if r then PlaySoundFile(r, "Master") end end
+                  else local k = bundle.get("soundStartSound"); local r = LSM and k and LSM:Fetch("sound", k); if r then PlaySoundFile(r, "Master") end end
               end },
             { type = "sound", LSM = LSM, label = L["Sound when ready"],
-              getKey    = function() return I.IconGet(sid, "soundStopSound") end,
-              getEnable = function() return I.IconGet(sid, "soundStopEnabled") == true end,
-              onSelect  = function(key, path) I.IconSet(sid, "soundStopSound", key); I.IconSet(sid, "soundStopPath", path) end,
-              onToggle  = function(v) I.IconSet(sid, "soundStopEnabled", v and true or false) end,
+              getKey    = function() return bundle.get("soundStopSound") end,
+              getEnable = function() return bundle.get("soundStopEnabled") == true end,
+              onSelect  = function(key, path) bundle.set("soundStopSound", key); bundle.set("soundStopPath", path) end,
+              onToggle  = function(v) bundle.set("soundStopEnabled", v and true or false) end,
               onTest    = function()
-                  local p = I.IconGet(sid, "soundStopPath")
+                  local p = bundle.get("soundStopPath")
                   if p then PlaySoundFile(p, "Master")
-                  else local k = I.IconGet(sid, "soundStopSound"); local r = LSM and k and LSM:Fetch("sound", k); if r then PlaySoundFile(r, "Master") end end
+                  else local k = bundle.get("soundStopSound"); local r = LSM and k and LSM:Fetch("sound", k); if r then PlaySoundFile(r, "Master") end end
               end },
         } end },
 
         { type = "button", width = 200, hostHeight = 30,
-          label = (I.IconGet(sid, "placeholder") == true) and L["Hide placeholder"] or L["Show placeholder"],
+          label = (bundle.get("placeholder") == true) and L["Hide placeholder"] or L["Show placeholder"],
           onClick = function()
-              I.IconSet(sid, "placeholder", I.IconGet(sid, "placeholder") ~= true)
-              touch()
-              OpenIconEditor(I, sid, onIconEditChange)
+              bundle.set("placeholder", bundle.get("placeholder") ~= true)
+              bundle.touch()
+              ctx.reopen()
           end },
 
         { type = "group", title = L["CDM settings"], build = function()
             local keys = { "showPressOverlay", "showKeybinds" }
-            local gated = sectionOverridden(keys)
+            local gated = gatedFor(keys)
             local e = {}
-            append(e, OverrideToggle(iconBundle, keys, L["Override CDM settings"]))
-            append(e, CopyGroupButton(iconBundle, keys, gated))
+            append(e, OverrideToggle(bundle, keys, L["Override CDM settings"]))
+            append(e, CopyGroupButton(bundle, keys, gated))
             e[#e + 1] = { type = "checkbox", label = L["Show press overlay"], enabledBy = gated,
-              get = function() return I.IconGet(sid, "showPressOverlay") == true end,
-              set = function(v) I.IconSet(sid, "showPressOverlay", v and true or false); touch() end }
+              get = function() return bundle.get("showPressOverlay") == true end,
+              set = function(v) bundle.set("showPressOverlay", v and true or false); bundle.touch() end }
             e[#e + 1] = { type = "checkbox", label = L["Show Keybinds"], enabledBy = gated,
-              get = function() return I.IconGet(sid, "showKeybinds") == true end,
-              set = function(v) I.IconSet(sid, "showKeybinds", v and true or false); touch() end }
+              get = function() return bundle.get("showKeybinds") == true end,
+              set = function(v) bundle.set("showKeybinds", v and true or false); bundle.touch() end }
             return e
         end },
 
         { type = "group", title = L["Icon size"], build = function()
             local keys = { "iconW", "iconH" }
-            local gated = sectionOverridden(keys)
+            local gated = gatedFor(keys)
             local e = {}
-            append(e, OverrideToggle(iconBundle, keys))
-            append(e, CopyGroupButton(iconBundle, keys, gated))
+            append(e, OverrideToggle(bundle, keys))
+            append(e, CopyGroupButton(bundle, keys, gated))
             e[#e + 1] = { type = "custom", height = 30, enabledBy = gated, build = function(host)
                 local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                 wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); wLbl:SetText(L["W"])
                 local wInput = ns.ui.CreateTextInput({
                     parent = host, width = 46, height = 22, numeric = true, min = 8, max = 256, maxLetters = 3,
-                    text = tostring(I.IconGet(sid, "iconW") or 44),
-                    onEnter = function(v) if v and v > 0 then I.IconSet(sid, "iconW", v); touch() end end,
+                    text = tostring(bundle.get("iconW") or 44),
+                    onEnter = function(v) if v and v > 0 then bundle.set("iconW", v); bundle.touch() end end,
                 })
                 wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
                 local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                 hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
                 local hInput = ns.ui.CreateTextInput({
                     parent = host, width = 46, height = 22, numeric = true, min = 8, max = 256, maxLetters = 3,
-                    text = tostring(I.IconGet(sid, "iconH") or 44),
-                    onEnter = function(v) if v and v > 0 then I.IconSet(sid, "iconH", v); touch() end end,
+                    text = tostring(bundle.get("iconH") or 44),
+                    onEnter = function(v) if v and v > 0 then bundle.set("iconH", v); bundle.touch() end end,
                 })
                 hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
                 return { frame = host, height = 30, Refresh = function()
-                    wInput.SetText(tostring(I.IconGet(sid, "iconW") or 44))
-                    hInput.SetText(tostring(I.IconGet(sid, "iconH") or 44))
+                    wInput.SetText(tostring(bundle.get("iconW") or 44))
+                    hInput.SetText(tostring(bundle.get("iconH") or 44))
                 end }
             end }
             return e
@@ -512,63 +509,59 @@ local function IconOptions(I, sid)
 
         { type = "group", title = L["Border"], build = function()
             local keys = { "borderEnabled", "borderColor", "borderSize" }
-            local gated = sectionOverridden(keys)
+            local gated = gatedFor(keys)
             local e = {}
-            append(e, OverrideToggle(iconBundle, keys))
-            append(e, CopyGroupButton(iconBundle, keys, gated))
+            append(e, OverrideToggle(bundle, keys))
+            append(e, CopyGroupButton(bundle, keys, gated))
             e[#e + 1] = { type = "checkbox", label = L["Show border"], enabledBy = gated,
-              get = function() return I.IconGet(sid, "borderEnabled") ~= false end,
-              set = function(v) I.IconSet(sid, "borderEnabled", v); touch()
-                  if iconEditor and iconEditor.menu then iconEditor.menu.Refresh() end end }
+              get = function() return bundle.get("borderEnabled") ~= false end,
+              set = function(v) bundle.set("borderEnabled", v); bundle.touch(); ctx.refresh() end }
             e[#e + 1] = { type = "textEditor", label = L["Border color"],
               showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-              enabledBy = function() return gated() and I.IconGet(sid, "borderEnabled") ~= false end,
-              getColor = function() return I.IconGet(sid, "borderColor") end,
-              onColorChange = function(r, g, b, a) I.IconSet(sid, "borderColor", { r = r, g = g, b = b, a = a }); touch() end }
+              enabledBy = function() return gated() and bundle.get("borderEnabled") ~= false end,
+              getColor = function() return bundle.get("borderColor") end,
+              onColorChange = function(r, g, b, a) bundle.set("borderColor", { r = r, g = g, b = b, a = a }); bundle.touch() end }
             e[#e + 1] = { type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-              enabledBy = function() return gated() and I.IconGet(sid, "borderEnabled") ~= false end,
-              get = function() return I.IconGet(sid, "borderSize") or 1 end,
-              set = function(v) if v and v > 0 then I.IconSet(sid, "borderSize", v); touch() end end }
+              enabledBy = function() return gated() and bundle.get("borderEnabled") ~= false end,
+              get = function() return bundle.get("borderSize") or 1 end,
+              set = function(v) if v and v > 0 then bundle.set("borderSize", v); bundle.touch() end end }
             return e
         end },
 
         { type = "group", title = L["Glow"], build = function()
             local keys = { "glowEnabled", "glowType", "glowColor" }
-            local gated = sectionOverridden(keys)
+            local gated = gatedFor(keys)
             local e = {}
-            append(e, OverrideToggle(iconBundle, keys))
-            append(e, CopyGroupButton(iconBundle, keys, gated))
+            append(e, OverrideToggle(bundle, keys))
+            append(e, CopyGroupButton(bundle, keys, gated))
             e[#e + 1] = { type = "checkbox", label = L["Show glow on proc"], enabledBy = gated,
-              get = function() return I.IconGet(sid, "glowEnabled") == true end,
-              set = function(v) I.IconSet(sid, "glowEnabled", v); touch()
-                  if iconEditor and iconEditor.menu then iconEditor.menu.Refresh() end end }
+              get = function() return bundle.get("glowEnabled") == true end,
+              set = function(v) bundle.set("glowEnabled", v); bundle.touch(); ctx.refresh() end }
             e[#e + 1] = { type = "dropdown", label = L["Glow type"], width = 180, height = 50,
               getList = GlowTypeList,
-              enabledBy = function() return gated() and I.IconGet(sid, "glowEnabled") == true end,
-              getCurrentKey = function() return GlowTypeLabel(I.IconGet(sid, "glowType")) end,
-              -- Rebuild (NOT Refresh) so the Glow color picker's `when` re-evaluates: Refresh only re-runs
+              enabledBy = function() return gated() and bundle.get("glowEnabled") == true end,
+              getCurrentKey = function() return GlowTypeLabel(bundle.get("glowType")) end,
+              -- Rebuild (NOT refresh) so the Glow color picker's `when` re-evaluates: refresh only re-runs
               -- value refreshers, not the show/hide gates, so the picker wouldn't hide on a type change.
-              onSelect = function(label) I.IconSet(sid, "glowType", GlowTypeFromLabel(label)); touch()
-                  if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end }
+              onSelect = function(label) bundle.set("glowType", GlowTypeFromLabel(label)); bundle.touch(); ctx.rebuild() end }
             e[#e + 1] = { type = "textEditor", label = L["Glow color"],
               showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
               -- The proc + button glows use the NATIVE (uncolored) look, so the color picker doesn't apply.
-              when = function() local gt = I.IconGet(sid, "glowType"); return gt ~= "proc" and gt ~= "button" end,
-              enabledBy = function() return gated() and I.IconGet(sid, "glowEnabled") == true end,
-              getColor = function() return I.IconGet(sid, "glowColor") end,
-              onColorChange = function(r, g, b, a) I.IconSet(sid, "glowColor", { r = r, g = g, b = b, a = a }); touch() end }
+              when = function() local gt = bundle.get("glowType"); return gt ~= "proc" and gt ~= "button" end,
+              enabledBy = function() return gated() and bundle.get("glowEnabled") == true end,
+              getColor = function() return bundle.get("glowColor") end,
+              onColorChange = function(r, g, b, a) bundle.set("glowColor", { r = r, g = g, b = b, a = a }); bundle.touch() end }
             return e
         end },
 
-        TimerSection(iconBundle),
-        TitleSection(iconBundle),
-        StacksSection(iconBundle),
+        TimerSection(bundle),
+        TitleSection(bundle),
+        StacksSection(bundle),
 
         { type = "button", label = L["Copy all group settings"], width = 180, hostHeight = 30,
           onClick = function()
-              local gid = I.GroupOf(sid)
               local function copySection(keys)
-                  for _, key in ipairs(keys) do I.IconSet(sid, key, CloneVal(I.GGet(gid, key))) end
+                  for _, key in ipairs(keys) do bundle.set(key, CloneVal(bundle.groupGet(key))) end
               end
               copySection({ "showPressOverlay", "showKeybinds" })
               copySection({ "iconW", "iconH" })
@@ -577,10 +570,35 @@ local function IconOptions(I, sid)
               copySection(TIMER_KEYS)
               copySection(TITLE_KEYS)
               copySection(STACK_KEYS)
-              touch()
-              if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end },
+              bundle.touch()
+              ctx.rebuild()
+          end },
     }
     return entries
+end
+ns.CDMGroups.IconSections = IconSections
+
+-- The per-icon override editor's option tree: binds IconSections to the Config instance `I` + the
+-- singleton pencil editor. bundle.* reads/writes the per-icon override store; bundle.refresh is the full
+-- Rebuild the shared section helpers expect (the override gates use `when`); ctx routes the editor's own
+-- light refresh / full rebuild / reopen.
+local function IconOptions(I, sid)
+    local function menuRefresh() if iconEditor and iconEditor.menu then iconEditor.menu.Refresh() end end
+    local function menuRebuild() if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end
+    local bundle = {
+        get      = function(key) return I.IconGet(sid, key) end,
+        groupGet = function(key) return I.GGet(I.GroupOf(sid), key) end,
+        set      = function(key, val) I.IconSet(sid, key, val) end,
+        reset    = function(key) I.IconReset(sid, key) end,
+        has      = function(keys)
+            for _, key in ipairs(keys) do if I.IconHasOverride(sid, key) then return true end end
+            return false
+        end,
+        touch    = function() I.ApplyAll(); if onIconEditChange then onIconEditChange() end end,
+        refresh  = menuRebuild,   -- shared helpers (OverrideToggle/Copy/Timer…) re-render via a full Rebuild
+    }
+    local ctx = { refresh = menuRefresh, rebuild = menuRebuild, reopen = function() OpenIconEditor(I, sid, onIconEditChange) end }
+    return IconSections(I, sid, bundle, ctx)
 end
 
 local function EnsureIconEditor()
