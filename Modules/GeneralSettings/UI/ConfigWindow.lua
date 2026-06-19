@@ -398,9 +398,40 @@ end
 local function CreateBelowPlayerPanel(parent)
     local function Row() return ns.db.profile.cdmBelowRow end
     local belowMenu   -- fwd: the manual-mode checkbox re-applies its gate via belowMenu.Refresh
-    -- Per-dest icon config accessors (Title / Stacks cadres → cdmBelowRow; TimerIcon reads them back).
+    -- Per-dest icon config accessors (Timer/Title/Stacks sections → cdmBelowRow; TimerIcon reads back).
     local function GDC(key, default) return (ns.CDMAnchor and ns.CDMAnchor.GetDestCfg and ns.CDMAnchor.GetDestCfg("belowPlayer", key, default)) or default end
     local function SDC(key, val) if ns.CDMAnchor then ns.CDMAnchor.SetDestCfg("belowPlayer", key, val) end end
+
+    -- Seed the below-player icon config with essential's Timer/Title/Stacks defaults (missing keys only,
+    -- additive) so the REUSED essential sections + TimerIcon read correct values: Stacks on/10/Bottom-right,
+    -- Title off/12/Above, Timer on/14/Center + the 10s×1.2 / 3s×1.45 thresholds.
+    do
+        local r = Row()
+        local GT = ns.CDMGroups and ns.CDMGroups.GROUP_TEMPLATE
+        if r and GT then
+            for _, k in ipairs({
+                "showTimer","timerFontKey","timerFontPath","timerFontSize","timerOutline","timerColor","timerPos","timerOffX","timerOffY","timerThresholdsEnabled",
+                "showTitle","titleText","titleFontKey","titleFontPath","titleFontSize","titleOutline","titleColor","titlePos","titleOffX","titleOffY",
+                "showStack","showAtZero","stackFontKey","stackFontPath","stackFontSize","stackOutline","stackColor","stackPos","stackOffX","stackOffY",
+            }) do
+                if r[k] == nil and GT[k] ~= nil then
+                    r[k] = (type(GT[k]) == "table") and ns.DeepCopy(GT[k]) or GT[k]
+                end
+            end
+            if r.timerThresholds == nil and ns.CDMGroups.DEFAULT_TIMER_THRESHOLDS then
+                r.timerThresholds = ns.DeepCopy(ns.CDMGroups.DEFAULT_TIMER_THRESHOLDS)
+            end
+        end
+    end
+
+    -- Bundle for the REUSED essential Timer/Title/Stacks sections. No has/reset → no "Override" toggle;
+    -- the section's own `gate` greys its controls on the show checkbox; touch/refresh re-render the menu.
+    local bpBundle = {
+        get     = function(key) return GDC(key, nil) end,
+        set     = function(key, val) SDC(key, val) end,
+        touch   = function() if belowMenu then belowMenu.Refresh() end end,
+        refresh = function() if belowMenu then belowMenu.Refresh() end end,
+    }
 
     local options = {
         H2(L["CDM: Below player frame"]),
@@ -430,6 +461,16 @@ local function CreateBelowPlayerPanel(parent)
             { type = "checkbox", label = L["Show Keybinds"],
               get = function() return ns.CDMAnchor and ns.CDMAnchor.GetDestCdmFlag("belowPlayer", "showKeybinds") or false end,
               set = function(v) if ns.CDMAnchor then ns.CDMAnchor.SetDestCdmFlag("belowPlayer", "showKeybinds", v) end end },
+            { type = "dropdown", label = L["Grow direction"], width = 180, height = 50,
+              getList = (ns.CDMGroups and ns.CDMGroups.GrowList) or function() return {} end,
+              getCurrentKey = function() return (ns.CDMGroups and ns.CDMGroups.GrowLabel(GDC("growDir", "RIGHT"))) or "" end,
+              onSelect = function(label) if ns.CDMGroups then SDC("growDir", ns.CDMGroups.GrowFromLabel(label)) end end },
+            { type = "checkbox", label = L["Static Display"],
+              get = function() return GDC("staticDisplay", false) and true or false end,
+              set = function(v) SDC("staticDisplay", v and true or false) end },
+            { type = "textinput", label = L["Spacing"], width = 46, numeric = true, min = 0, max = 64, maxLetters = 2,
+              get = function() return GDC("spacing", 1) end,
+              set = function(v) if v ~= nil then SDC("spacing", v) end end },
         } end },
 
         -- ════════════ Manual mode ════════════
@@ -557,7 +598,7 @@ local function CreateBelowPlayerPanel(parent)
         -- Per-dest glow: a LibCustomGlow halo on a tracker while it is ACTIVE (green/buff-up). Types
         -- pixel/autocast/button (proc is N/A for trackers).
         { type = "group", title = L["Glow"], build = function() return {
-            { type = "checkbox", label = L["Show glow"],
+            { type = "checkbox", label = L["Show glow on proc"],
               get = function() return ns.CDMAnchor and (select(1, ns.CDMAnchor.GetDestGlow("belowPlayer"))) or false end,
               set = function(v)
                   if ns.CDMAnchor then ns.CDMAnchor.SetDestGlow("belowPlayer", "glowEnabled", v and true or false) end
@@ -624,67 +665,12 @@ local function CreateBelowPlayerPanel(parent)
                 end,
             },
 
-            -- Timer (per-dest): overrides the timer text colour / size / position / show for below-player
-            -- icons; unset keys fall back to each tracker's own timer config.
-            { type = "group", title = L["Timer"], build = function() return {
-                { type = "checkbox", label = L["Show timer"],
-                  get = function() return GDC("showTimer", true) and true or false end,
-                  set = function(v) SDC("showTimer", v and true or false); if belowMenu then belowMenu.Refresh() end end },
-                { type = "textEditor", label = L["Timer color"],
-                  showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                  getColor = function() return GDC("timerColor", nil) end,
-                  onColorChange = function(r, g, b, a) SDC("timerColor", { r = r, g = g, b = b, a = a }) end },
-                { type = "textinput", label = L["Size"], width = 46, numeric = true, min = 6, max = 40, maxLetters = 2,
-                  get = function() return GDC("timerFontSize", 14) end,
-                  set = function(v) if v and v > 0 then SDC("timerFontSize", v) end end },
-                { type = "dropdown", label = L["Position"], width = 180, height = 50,
-                  getList = ns.AnchorList,
-                  getCurrentKey = function() return ns.AnchorLabel(GDC("timerPos", "CENTER")) end,
-                  onSelect = function(label) SDC("timerPos", ns.AnchorFromLabel(label)) end },
-            } end },
-
-            -- Title = the tracked spell/item NAME (per-dest styled). May overflow a small icon — use the
-            -- Position dropdown (e.g. below the icon) to place it.
-            { type = "group", title = L["Title"], build = function() return {
-                { type = "checkbox", label = L["Show title"],
-                  get = function() return GDC("titleShow", false) and true or false end,
-                  set = function(v) SDC("titleShow", v and true or false); if belowMenu then belowMenu.Refresh() end end },
-                { type = "textEditor", label = L["Title color"],
-                  showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                  enabledBy = function() return GDC("titleShow", false) and true or false end,
-                  getColor = function() return GDC("titleColor", nil) end,
-                  onColorChange = function(r, g, b, a) SDC("titleColor", { r = r, g = g, b = b, a = a }) end },
-                { type = "textinput", label = L["Size"], width = 46, numeric = true, min = 6, max = 40, maxLetters = 2,
-                  enabledBy = function() return GDC("titleShow", false) and true or false end,
-                  get = function() return GDC("titleSize", 10) end,
-                  set = function(v) if v and v > 0 then SDC("titleSize", v) end end },
-                { type = "dropdown", label = L["Position"], width = 180, height = 50,
-                  getList = ns.AnchorList,
-                  enabledBy = function() return GDC("titleShow", false) and true or false end,
-                  getCurrentKey = function() return ns.AnchorLabel(GDC("titlePos", "BOTTOM")) end,
-                  onSelect = function(label) SDC("titlePos", ns.AnchorFromLabel(label)) end },
-            } end },
-
-            -- Stacks / charges = the tracked spell's charges, or the item count in bags.
-            { type = "group", title = L["Stacks/Charges"], build = function() return {
-                { type = "checkbox", label = L["Show stacks"],
-                  get = function() return GDC("stackShow", false) and true or false end,
-                  set = function(v) SDC("stackShow", v and true or false); if belowMenu then belowMenu.Refresh() end end },
-                { type = "textEditor", label = L["Stacks color"],
-                  showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                  enabledBy = function() return GDC("stackShow", false) and true or false end,
-                  getColor = function() return GDC("stackColor", nil) end,
-                  onColorChange = function(r, g, b, a) SDC("stackColor", { r = r, g = g, b = b, a = a }) end },
-                { type = "textinput", label = L["Size"], width = 46, numeric = true, min = 6, max = 40, maxLetters = 2,
-                  enabledBy = function() return GDC("stackShow", false) and true or false end,
-                  get = function() return GDC("stackSize", 12) end,
-                  set = function(v) if v and v > 0 then SDC("stackSize", v) end end },
-                { type = "dropdown", label = L["Position"], width = 180, height = 50,
-                  getList = ns.AnchorList,
-                  enabledBy = function() return GDC("stackShow", false) and true or false end,
-                  getCurrentKey = function() return ns.AnchorLabel(GDC("stackPos", "BOTTOMRIGHT")) end,
-                  onSelect = function(label) SDC("stackPos", ns.AnchorFromLabel(label)) end },
-            } end },
+            -- Timer / Title / Stacks: the SAME shared sections as essential, fed the per-dest bundle
+            -- (writes to cdmBelowRow, defaults seeded above). Pixel-identical to essential; the section's
+            -- own `gate` greys its controls on the Show checkbox.
+            ns.CDMGroups.TimerSection(bpBundle),
+            ns.CDMGroups.TitleSection(bpBundle),
+            ns.CDMGroups.StacksSection(bpBundle),
         } end },
 
             } end },   -- close: Below player frame settings section

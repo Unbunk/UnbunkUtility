@@ -614,29 +614,50 @@ local function LayoutBelowPlayer(list)
     local w, h = BelowRowSize()
     local frontRow, endRow = EnsureBelowBuckets()
 
-    -- Lay a bucket's shown icons left->right inside its frame, then size the frame to
-    -- bound them. The front frame is left-anchored, so icons grow rightward from the
-    -- frame's left; the end frame is right-anchored and sized to its content, so the
-    -- same left->right placement makes the group hug the player frame's right edge
-    -- (saved order still reads left->right, matching the reorder strip).
+    -- Per-dest layout options (the below-player CDM settings cadre): spacing, grow direction, static
+    -- display. Defaults: gap 1, grow RIGHT, static off.
+    local p = ns.db and ns.db.profile and ns.db.profile.cdmBelowRow
+    local gap      = (p and p.spacing) or 1
+    local grow     = (p and p.growDir) or "RIGHT"
+    local static   = (p and p.staticDisplay) == true
+    local vertical = (grow == "UP" or grow == "DOWN" or grow == "CENTER_V")
+    local reverse  = (grow == "LEFT" or grow == "UP")
+
+    -- Lay a bucket's members along the grow axis with `gap` between them, then size the frame to bound
+    -- them. Static display also reserves a slot for HIDDEN members (positioned but left invisible) so the
+    -- shown icons keep their absolute slots; otherwise only shown icons take a slot (reflow).
     local function place(bucket, row)
-        local prev, count = nil, 0
+        local members = {}
         for _, d in ipairs(bucket) do
             local f = d.frame
-            if f and f:IsShown() then
-                if d.setSize then d.setSize(w, h) end
-                f:ClearAllPoints()
-                if prev then
-                    f:SetPoint("LEFT", prev, "RIGHT", BELOW_GAP, 0)
-                else
-                    f:SetPoint("LEFT", row, "LEFT", 0, 0)
-                end
-                prev = f
-                count = count + 1
+            if f and (static or f:IsShown()) then members[#members + 1] = d end
+        end
+        if reverse then
+            for i = 1, math.floor(#members / 2) do
+                members[i], members[#members - i + 1] = members[#members - i + 1], members[i]
             end
         end
-        local totalW = count * w + math.max(0, count - 1) * BELOW_GAP
-        row:SetSize(math.max(1, totalW), math.max(1, h))
+        local prev, count = nil, 0
+        for _, d in ipairs(members) do
+            local f = d.frame
+            if d.setSize then d.setSize(w, h) end
+            f:ClearAllPoints()
+            if prev then
+                if vertical then f:SetPoint("TOP", prev, "BOTTOM", 0, -gap)
+                else f:SetPoint("LEFT", prev, "RIGHT", gap, 0) end
+            elseif vertical then
+                f:SetPoint("TOP", row, "TOP", 0, 0)
+            else
+                f:SetPoint("LEFT", row, "LEFT", 0, 0)
+            end
+            prev = f
+            count = count + 1
+        end
+        if vertical then
+            row:SetSize(math.max(1, w), math.max(1, count * h + math.max(0, count - 1) * gap))
+        else
+            row:SetSize(math.max(1, count * w + math.max(0, count - 1) * gap), math.max(1, h))
+        end
         if row.dragBG then
             if belowUnlocked then row.dragBG:Show() else row.dragBG:Hide() end
         end
@@ -978,7 +999,7 @@ end
 -- the icon while it is ACTIVE (green/buff-up) when enabled. Stored on cdmBelowRow. Default OFF.
 function ns.CDMAnchor.GetDestGlow(dest)
     local c = DestFlagCfg(dest)
-    local enabled = (c and c.glowEnabled == true) or false
+    local enabled = (not c) or (c.glowEnabled ~= false)   -- default ON; OFF only when explicitly unchecked
     local gtype   = (c and c.glowType) or "pixel"
     local color   = (c and c.glowColor) or { r = 0.96, g = 1, b = 0, a = 1 }
     return enabled, gtype, color
