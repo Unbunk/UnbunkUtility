@@ -246,13 +246,21 @@ function ns.ui.CreateTimerIcon(config)
     end
     result.CDMActive = CDMActive
 
+    -- The CONFIG dest for a below-player icon: which bucket's settings it reads. The PLACEMENT dest
+    -- stays "belowPlayer" (CDMActive / cdmDest checks are unchanged); only the config SOURCE splits by
+    -- the icon's "Icon at the end of the row" flag (cdmAtEnd) — the same bucketing LayoutBelowPlayer
+    -- uses (cdmAtEnd ~= false -> end bucket). So a front icon reads cdmBelowRow.front, an end icon .end.
+    local function CfgDest()
+        return (getCfg("cdmAtEnd") ~= false) and "belowEnd" or "belowFront"
+    end
+
     -- Effective timer config for THIS icon: the per-dest below-player value (when set) overrides the
     -- tracker's own config; everything else (and any unset below-player key) falls back to getCfg, then
     -- `default`. So a below-player Timer cadre value governs below-player icons with ZERO change to
     -- essential/utility/free trackers (they always hit the getCfg fallback).
     local function TimerCfg(key, default)
         if getCfg("cdmDest") == "belowPlayer" and CDMActive() and ns.CDMAnchor and ns.CDMAnchor.GetDestCfg then
-            local v = ns.CDMAnchor.GetDestCfg("belowPlayer", key, nil)
+            local v = ns.CDMAnchor.GetDestCfg(CfgDest(), key, nil)
             if v ~= nil then return v end
         end
         local g = getCfg(key)
@@ -265,8 +273,9 @@ function ns.ui.CreateTimerIcon(config)
     -- base colour only). Other dests keep their own timerTiers (nil → the built-in yellow@15 / red@5).
     local function TimerTiers()
         if getCfg("cdmDest") == "belowPlayer" and CDMActive() and ns.CDMAnchor and ns.CDMAnchor.GetDestCfg then
-            if ns.CDMAnchor.GetDestCfg("belowPlayer", "timerThresholdsEnabled", false) then
-                local thr = ns.CDMAnchor.GetDestCfg("belowPlayer", "timerThresholds", nil)
+            local cd = CfgDest()
+            if ns.CDMAnchor.GetDestCfg(cd, "timerThresholdsEnabled", false) then
+                local thr = ns.CDMAnchor.GetDestCfg(cd, "timerThresholds", nil)
                 if thr then
                     local t = {}
                     for _, x in ipairs(thr) do t[#t + 1] = { at = x.time, scale = x.size, color = x.color } end
@@ -589,7 +598,10 @@ function ns.ui.CreateTimerIcon(config)
                 enabled, c, size = getCfg("borderEnabled"), getCfg("borderColor"), getCfg("borderSize")
             end
         elseif CDMActive() and ns.CDMAnchor and ns.CDMAnchor.GetDestBorder then
-            enabled, c, size = ns.CDMAnchor.GetDestBorder(getCfg("cdmDest") or "essential")
+            -- Below-player icons read their bucket's border (front/end); other dests by their own name.
+            local bd = getCfg("cdmDest") or "essential"
+            if bd == "belowPlayer" then bd = CfgDest() end
+            enabled, c, size = ns.CDMAnchor.GetDestBorder(bd)
         else
             enabled, c, size = getCfg("borderEnabled"), getCfg("borderColor"), getCfg("borderSize")
         end
@@ -640,7 +652,7 @@ function ns.ui.CreateTimerIcon(config)
             if I and I.IconGet and fn then return I.IconGet(fn, key) == true end
         elseif CDMActive() and getCfg("cdmDest") == "belowPlayer" then
             if ns.CDMAnchor and ns.CDMAnchor.GetDestCdmFlag then
-                return ns.CDMAnchor.GetDestCdmFlag("belowPlayer", key) == true
+                return ns.CDMAnchor.GetDestCdmFlag(CfgDest(), key) == true
             end
         end
         return false
@@ -722,7 +734,7 @@ function ns.ui.CreateTimerIcon(config)
     function result.ApplyDestGlow()
         local wantType, colorArr
         if CDMActive() and getCfg("cdmDest") == "belowPlayer" and ns.CDMAnchor and ns.CDMAnchor.GetDestGlow then
-            local enabled, gt, c = ns.CDMAnchor.GetDestGlow("belowPlayer")
+            local enabled, gt, c = ns.CDMAnchor.GetDestGlow(CfgDest())
             if enabled and frame._procced then
                 wantType = gt or "pixel"
                 colorArr = { c.r or 1, c.g or 1, c.b or 1, c.a or 1 }
@@ -769,7 +781,7 @@ function ns.ui.CreateTimerIcon(config)
         return nil
     end
     local function DCfg(key, default)
-        return (ns.CDMAnchor and ns.CDMAnchor.GetDestCfg and ns.CDMAnchor.GetDestCfg("belowPlayer", key, default)) or default
+        return (ns.CDMAnchor and ns.CDMAnchor.GetDestCfg and ns.CDMAnchor.GetDestCfg(CfgDest(), key, default)) or default
     end
     -- Render the per-dest Title + Stacks for a below-player icon (other dests: hide both).
     function result.ApplyDestExtras()

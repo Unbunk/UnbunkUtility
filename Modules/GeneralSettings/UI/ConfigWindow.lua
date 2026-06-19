@@ -397,87 +397,168 @@ end
 -- ── Below player frame (CDM row) ──────────────────────────────────────────────
 local function CreateBelowPlayerPanel(parent)
     local function Row() return ns.db.profile.cdmBelowRow end
-    local belowMenu   -- fwd: the manual-mode checkbox re-applies its gate via belowMenu.Refresh
-    -- Per-dest icon config accessors (Timer/Title/Stacks sections → cdmBelowRow; TimerIcon reads back).
-    local function GDC(key, default) return (ns.CDMAnchor and ns.CDMAnchor.GetDestCfg and ns.CDMAnchor.GetDestCfg("belowPlayer", key, default)) or default end
-    local function SDC(key, val) if ns.CDMAnchor then ns.CDMAnchor.SetDestCfg("belowPlayer", key, val) end end
+    local belowMenu   -- fwd: section refreshes + the manual-mode checkbox re-apply via belowMenu.Refresh
 
-    -- Seed the below-player icon config with essential's Timer/Title/Stacks defaults (missing keys only,
-    -- additive) so the REUSED essential sections + TimerIcon read correct values: Stacks on/10/Bottom-right,
-    -- Title off/12/Above, Timer on/14/Center + the 10s×1.2 / 3s×1.45 thresholds.
-    do
-        local r = Row()
-        local GT = ns.CDMGroups and ns.CDMGroups.GROUP_TEMPLATE
-        if r and GT then
-            for _, k in ipairs({
-                "showTimer","timerFontKey","timerFontPath","timerFontSize","timerOutline","timerColor","timerPos","timerOffX","timerOffY","timerThresholdsEnabled",
-                "showTitle","titleText","titleFontKey","titleFontPath","titleFontSize","titleOutline","titleColor","titlePos","titleOffX","titleOffY",
-                "showStack","showAtZero","stackFontKey","stackFontPath","stackFontSize","stackOutline","stackColor","stackPos","stackOffX","stackOffY",
-            }) do
-                if r[k] == nil and GT[k] ~= nil then
-                    r[k] = (type(GT[k]) == "table") and ns.DeepCopy(GT[k]) or GT[k]
-                end
-            end
-            if r.timerThresholds == nil and ns.CDMGroups.DEFAULT_TIMER_THRESHOLDS then
-                r.timerThresholds = ns.DeepCopy(ns.CDMGroups.DEFAULT_TIMER_THRESHOLDS)
-            end
-        end
+    -- Per-bucket config sub-table (front / end). Delegates to the single source of truth in CDMAnchor
+    -- (auto-creates + routes the same way the per-dest accessors do), so the two never diverge.
+    local function BucketTbl(bucket)
+        return ns.CDMAnchor and ns.CDMAnchor.BelowBucketCfg and ns.CDMAnchor.BelowBucketCfg(bucket) or nil
     end
 
-    -- Bundle for the REUSED essential Timer/Title/Stacks sections. No has/reset → no "Override" toggle;
-    -- the section's own `gate` greys its controls on the show checkbox; touch/refresh re-render the menu.
-    local bpBundle = {
-        get     = function(key) return GDC(key, nil) end,
-        set     = function(key, val) SDC(key, val) end,
-        touch   = function() if belowMenu then belowMenu.Refresh() end end,
-        refresh = function() if belowMenu then belowMenu.Refresh() end end,
-    }
+    -- One collapsible "<Front|End> of the row settings" section governing ONLY its half of the row. Every
+    -- cadre inside reads/writes the bucket's OWN config via the dest "belowFront"/"belowEnd" (routed by
+    -- ns.CDMAnchor to cdmBelowRow.front / .end), so the two sections are fully independent. `bucket` is the
+    -- sub-table key ("front"/"end"); `dest` the routed config dest; `title` the section header.
+    local function BelowSettingsSection(bucket, dest, title)
+        -- Ensure this bucket's Timer/Title/Stacks defaults exist (CfgInit seeds them too; this also covers
+        -- a panel opened before CDMGroups finished loading). Additive, missing-keys-only.
+        ns.SeedBelowBucketDefaults(BucketTbl(bucket))
+
+        -- Per-bucket icon config accessors for the Timer/Title/Stacks sections + CDM grow/static/spacing.
+        local function GDC(key, default) return (ns.CDMAnchor and ns.CDMAnchor.GetDestCfg and ns.CDMAnchor.GetDestCfg(dest, key, default)) or default end
+        local function SDC(key, val) if ns.CDMAnchor then ns.CDMAnchor.SetDestCfg(dest, key, val) end end
+
+        -- Bundle for the REUSED essential Timer/Title/Stacks sections. No has/reset → no "Override" toggle;
+        -- the section's own `gate` greys its controls on the show checkbox; touch/refresh re-render the menu.
+        local bundle = {
+            get     = function(key) return GDC(key, nil) end,
+            set     = function(key, val) SDC(key, val) end,
+            touch   = function() if belowMenu then belowMenu.Refresh() end end,
+            refresh = function() if belowMenu then belowMenu.Refresh() end end,
+        }
+
+        return { type = "section", label = title, showCheckbox = false,
+          headerExtra = ns.ui.SettingsHeaderIcon,
+          -- Collapsed by DEFAULT (and re-folded on each tab show via the OnHide/OnShow hooks below):
+          -- expanded only while the user has explicitly opened it this visit (settingsCollapsed == false).
+          getCollapsed = function() local b = BucketTbl(bucket); return not b or b.settingsCollapsed ~= false end,
+          onCollapse   = function(c) local b = BucketTbl(bucket); if b then b.settingsCollapsed = c and true or false end end,
+          build = function() return {
+
+            -- ════════════ CDM settings ════════════
+            -- Per-bucket "Show press overlay" / "Show Keybinds" (TimerIcon reads these via
+            -- ns.CDMAnchor.GetDestCdmFlag for any icon in this bucket) + grow/static/spacing. Flags default OFF.
+            { type = "group", title = L["CDM settings"], build = function() return {
+                { type = "checkbox", label = L["Show press overlay"],
+                  get = function() return ns.CDMAnchor and ns.CDMAnchor.GetDestCdmFlag(dest, "showPressOverlay") or false end,
+                  set = function(v) if ns.CDMAnchor then ns.CDMAnchor.SetDestCdmFlag(dest, "showPressOverlay", v) end end },
+                { type = "checkbox", label = L["Show Keybinds"],
+                  get = function() return ns.CDMAnchor and ns.CDMAnchor.GetDestCdmFlag(dest, "showKeybinds") or false end,
+                  set = function(v) if ns.CDMAnchor then ns.CDMAnchor.SetDestCdmFlag(dest, "showKeybinds", v) end end },
+                { type = "dropdown", label = L["Grow direction"], width = 180, height = 50,
+                  getList = (ns.CDMGroups and ns.CDMGroups.GrowList) or function() return {} end,
+                  getCurrentKey = function() return (ns.CDMGroups and ns.CDMGroups.GrowLabel(GDC("growDir", "RIGHT"))) or "" end,
+                  onSelect = function(label) if ns.CDMGroups then SDC("growDir", ns.CDMGroups.GrowFromLabel(label)) end end },
+                { type = "checkbox", label = L["Static Display"],
+                  get = function() return GDC("staticDisplay", false) and true or false end,
+                  set = function(v) SDC("staticDisplay", v and true or false) end },
+                { type = "textinput", label = L["Spacing"], width = 46, numeric = true, min = 0, max = 64, maxLetters = 2,
+                  get = function() return GDC("spacing", 1) end,
+                  set = function(v) if v ~= nil then SDC("spacing", v) end end },
+            } end },
+
+            -- Border for every icon in this bucket (the CDM manages it; free icons use their own).
+            DestBorderEntry(dest),
+
+            -- ════════════ Glow ════════════
+            -- Per-bucket glow: a LibCustomGlow halo on a tracker while the tracked spell is PROCCED.
+            -- Types pixel/autocast/button.
+            { type = "group", title = L["Glow"], build = function() return {
+                { type = "checkbox", label = L["Show glow on proc"],
+                  get = function() return ns.CDMAnchor and (select(1, ns.CDMAnchor.GetDestGlow(dest))) or false end,
+                  set = function(v)
+                      if ns.CDMAnchor then ns.CDMAnchor.SetDestGlow(dest, "glowEnabled", v and true or false) end
+                      if belowMenu then belowMenu.Refresh() end
+                  end },
+                { type = "dropdown", label = L["Glow type"], width = 180, height = 50,
+                  getList = BPGlowList,
+                  enabledBy = function() return ns.CDMAnchor and (select(1, ns.CDMAnchor.GetDestGlow(dest))) or false end,
+                  getCurrentKey = function() return BPGlowLabel(ns.CDMAnchor and (select(2, ns.CDMAnchor.GetDestGlow(dest))) or "pixel") end,
+                  onSelect = function(label) if ns.CDMAnchor then ns.CDMAnchor.SetDestGlow(dest, "glowType", BPGlowFromLabel(label)) end end },
+                { type = "textEditor", label = L["Glow color"],
+                  showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                  enabledBy = function() return ns.CDMAnchor and (select(1, ns.CDMAnchor.GetDestGlow(dest))) or false end,
+                  getColor = function() return ns.CDMAnchor and (select(3, ns.CDMAnchor.GetDestGlow(dest))) or nil end,
+                  onColorChange = function(r, g, b, a) if ns.CDMAnchor then ns.CDMAnchor.SetDestGlow(dest, "glowColor", { r = r, g = g, b = b, a = a }) end end },
+            } end },
+
+            -- ════════════ Icons (icon size + Timer / Title / Stacks) ════════════
+            { type = "group", title = L["Icons"], build = function() return {
+                { type = "label", font = "UnbunkUtilityH6", height = 18, text = L["Icon size"] },
+                {
+                    type   = "custom",
+                    height = 28,
+                    build  = function(host)
+                        local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                        wLbl:SetPoint("LEFT", host, "LEFT", 0, 0)
+                        wLbl:SetText(L["W"])
+                        local wInput = ns.ui.CreateTextInput({
+                            parent = host, width = 46, height = 22,
+                            numeric = true, min = 8, max = 512, maxLetters = 3,
+                            text = tostring((BucketTbl(bucket) and BucketTbl(bucket).width) or 36),
+                            onEnter = function(val)
+                                local b = BucketTbl(bucket)
+                                if val and val > 0 and b then
+                                    b.width = val
+                                    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll(true) end
+                                end
+                            end,
+                        })
+                        wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+
+                        local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                        hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
+                        hLbl:SetText(L["H"])
+                        local hInput = ns.ui.CreateTextInput({
+                            parent = host, width = 46, height = 22,
+                            numeric = true, min = 8, max = 512, maxLetters = 3,
+                            text = tostring((BucketTbl(bucket) and BucketTbl(bucket).height) or 36),
+                            onEnter = function(val)
+                                local b = BucketTbl(bucket)
+                                if val and val > 0 and b then
+                                    b.height = val
+                                    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll(true) end
+                                end
+                            end,
+                        })
+                        hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+
+                        return {
+                            frame = host, height = 28,
+                            Refresh = function()
+                                local b = BucketTbl(bucket)
+                                wInput.SetText(tostring((b and b.width)  or 36))
+                                hInput.SetText(tostring((b and b.height) or 36))
+                            end,
+                        }
+                    end,
+                },
+
+                -- Timer / Title / Stacks: the SAME shared sections as essential, fed THIS bucket's bundle
+                -- (writes to cdmBelowRow.<bucket>, defaults seeded above). Pixel-identical to essential.
+                ns.CDMGroups.TimerSection(bundle),
+                ns.CDMGroups.TitleSection(bundle),
+                ns.CDMGroups.StacksSection(bundle),
+            } end },
+
+          } end }
+    end
 
     local options = {
         H2(L["CDM: Below player frame"]),
 
         -- ════════════ Row icon order (Front / End of the row, drag to reorder) ══════
-        -- The per-icon "Icon at the end of the row" checkbox decides which cadre each icon
-        -- lands in; the below-player destination is a single row, so exactly one pair shows
-        -- (no "Row N" label).
+        -- The per-icon "Icon at the end of the row" checkbox decides which bucket — and so which
+        -- "<Front|End> of the row settings" section below — governs each icon.
         CDMRowReorderEntry("belowPlayer"),
 
-        -- ════════════ Below player frame settings (collapsible section, gear icon) ════════════
-        -- Mirrors the essential group's "settings" section: a gear (ns.ui.SettingsHeaderIcon) on the
-        -- right, holding the per-dest cadres. Defaults expanded (the whole tab is settings).
-        { type = "section", label = L["Below player frame settings"], showCheckbox = false,
-          headerExtra = ns.ui.SettingsHeaderIcon,
-          getCollapsed = function() local r = Row(); return r and r.settingsCollapsed == true end,
-          onCollapse   = function(c) local r = Row(); if r then r.settingsCollapsed = c and true or false end end,
-          build = function() return {
-
-        -- ════════════ CDM settings ════════════
-        -- Per-dest "Show press overlay" / "Show Keybinds" for the below-player icons (TimerIcon reads
-        -- these via ns.CDMAnchor.GetDestCdmFlag for any icon pinned below the player). Both default OFF.
-        { type = "group", title = L["CDM settings"], build = function() return {
-            { type = "checkbox", label = L["Show press overlay"],
-              get = function() return ns.CDMAnchor and ns.CDMAnchor.GetDestCdmFlag("belowPlayer", "showPressOverlay") or false end,
-              set = function(v) if ns.CDMAnchor then ns.CDMAnchor.SetDestCdmFlag("belowPlayer", "showPressOverlay", v) end end },
-            { type = "checkbox", label = L["Show Keybinds"],
-              get = function() return ns.CDMAnchor and ns.CDMAnchor.GetDestCdmFlag("belowPlayer", "showKeybinds") or false end,
-              set = function(v) if ns.CDMAnchor then ns.CDMAnchor.SetDestCdmFlag("belowPlayer", "showKeybinds", v) end end },
-            { type = "dropdown", label = L["Grow direction"], width = 180, height = 50,
-              getList = (ns.CDMGroups and ns.CDMGroups.GrowList) or function() return {} end,
-              getCurrentKey = function() return (ns.CDMGroups and ns.CDMGroups.GrowLabel(GDC("growDir", "RIGHT"))) or "" end,
-              onSelect = function(label) if ns.CDMGroups then SDC("growDir", ns.CDMGroups.GrowFromLabel(label)) end end },
-            { type = "checkbox", label = L["Static Display"],
-              get = function() return GDC("staticDisplay", false) and true or false end,
-              set = function(v) SDC("staticDisplay", v and true or false) end },
-            { type = "textinput", label = L["Spacing"], width = 46, numeric = true, min = 0, max = 64, maxLetters = 2,
-              get = function() return GDC("spacing", 1) end,
-              set = function(v) if v ~= nil then SDC("spacing", v) end end },
-        } end },
-
-        -- ════════════ Manual mode ════════════
-        -- OFF (default): both buckets stay flush under the PlayerFrame (front bottom-left,
-        -- end bottom-right) at 0,0. ON: the per-bucket offsets / drag take effect. The
-        -- group gate greys the position controls while the checkbox is off; the checkbox
-        -- itself stays live.
+        -- ════════════ Manual mode (shared placement of BOTH buckets) ════════════
+        -- Placement is a single concern: the enable toggle + unlock-to-drag apply to both buckets, and
+        -- the front/end offsets sit together so the parts can be positioned relative to each other.
+        -- Per-bucket APPEARANCE/layout lives in the two "… of the row settings" sections below instead.
+        -- OFF (default): both buckets stay flush under the PlayerFrame (front bottom-left, end bottom-
+        -- right) at 0,0. ON: the per-bucket offsets / drag take effect. The group gate greys the
+        -- position controls while the checkbox is off; the checkbox itself stays live.
         { type = "group", title = L["Manual mode"],
           gate = { enabled = function() return Row() and Row().manualEnabled == true end, master = "enable" },
           build = function() return {
@@ -488,13 +569,16 @@ local function CreateBelowPlayerPanel(parent)
                 get    = function() return Row() and Row().manualEnabled == true end,
                 set    = function(val)
                     if Row() then Row().manualEnabled = val end
-                    -- Leaving manual mode: re-lock any active drag; RefreshAll then snaps
-                    -- both buckets back to their flush 0,0 positions (BelowOffset -> 0,0).
+                    -- Leaving manual mode: re-lock any active drag; the FORCED RefreshAll then snaps
+                    -- both buckets back to their flush 0,0 positions (BelowOffset -> 0,0). Forced because
+                    -- manualEnabled is not in the layout signature and the stored offset VALUES don't
+                    -- change — only their meaning (honoured vs ignored) — so a non-forced refresh would
+                    -- early-out on an unchanged signature and leave the buckets at their manual offsets.
                     if not val and ns.CDMAnchor and ns.CDMAnchor.IsBelowUnlocked
                         and ns.CDMAnchor.IsBelowUnlocked() then
                         ns.CDMAnchor.SetBelowUnlocked(false)
                     end
-                    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+                    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll(true) end
                     if belowMenu then belowMenu.Refresh() end
                 end,
             },
@@ -591,91 +675,26 @@ local function CreateBelowPlayerPanel(parent)
             },
         } end },
 
-        -- Border for every below-player icon (the CDM manages it; free icons use their own).
-        DestBorderEntry("belowPlayer"),
-
-        -- ════════════ Glow ════════════
-        -- Per-dest glow: a LibCustomGlow halo on a tracker while it is ACTIVE (green/buff-up). Types
-        -- pixel/autocast/button (proc is N/A for trackers).
-        { type = "group", title = L["Glow"], build = function() return {
-            { type = "checkbox", label = L["Show glow on proc"],
-              get = function() return ns.CDMAnchor and (select(1, ns.CDMAnchor.GetDestGlow("belowPlayer"))) or false end,
-              set = function(v)
-                  if ns.CDMAnchor then ns.CDMAnchor.SetDestGlow("belowPlayer", "glowEnabled", v and true or false) end
-                  if belowMenu then belowMenu.Refresh() end
-              end },
-            { type = "dropdown", label = L["Glow type"], width = 180, height = 50,
-              getList = BPGlowList,
-              enabledBy = function() return ns.CDMAnchor and (select(1, ns.CDMAnchor.GetDestGlow("belowPlayer"))) or false end,
-              getCurrentKey = function() return BPGlowLabel(ns.CDMAnchor and (select(2, ns.CDMAnchor.GetDestGlow("belowPlayer"))) or "pixel") end,
-              onSelect = function(label) if ns.CDMAnchor then ns.CDMAnchor.SetDestGlow("belowPlayer", "glowType", BPGlowFromLabel(label)) end end },
-            { type = "textEditor", label = L["Glow color"],
-              showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-              enabledBy = function() return ns.CDMAnchor and (select(1, ns.CDMAnchor.GetDestGlow("belowPlayer"))) or false end,
-              getColor = function() return ns.CDMAnchor and (select(3, ns.CDMAnchor.GetDestGlow("belowPlayer"))) or nil end,
-              onColorChange = function(r, g, b, a) if ns.CDMAnchor then ns.CDMAnchor.SetDestGlow("belowPlayer", "glowColor", { r = r, g = g, b = b, a = a }) end end },
-        } end },
-
-        -- ════════════ Icons (icon size; Timer / Title / Stacks added in the next increment) ════════════
-        { type = "group", title = L["Icons"], build = function() return {
-            { type = "label", font = "UnbunkUtilityH6", height = 18, text = L["Icon size"] },
-            {
-                type   = "custom",
-                height = 28,
-                build  = function(host)
-                    local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                    wLbl:SetPoint("LEFT", host, "LEFT", 0, 0)
-                    wLbl:SetText(L["W"])
-                    local wInput = ns.ui.CreateTextInput({
-                        parent = host, width = 46, height = 22,
-                        numeric = true, min = 8, max = 512, maxLetters = 3,
-                        text = tostring((Row() and Row().width) or 36),
-                        onEnter = function(val)
-                            if val and val > 0 and Row() then
-                                Row().width = val
-                                if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
-                            end
-                        end,
-                    })
-                    wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-
-                    local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                    hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
-                    hLbl:SetText(L["H"])
-                    local hInput = ns.ui.CreateTextInput({
-                        parent = host, width = 46, height = 22,
-                        numeric = true, min = 8, max = 512, maxLetters = 3,
-                        text = tostring((Row() and Row().height) or 36),
-                        onEnter = function(val)
-                            if val and val > 0 and Row() then
-                                Row().height = val
-                                if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
-                            end
-                        end,
-                    })
-                    hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-
-                    return {
-                        frame = host, height = 28,
-                        Refresh = function()
-                            wInput.SetText(tostring((Row() and Row().width)  or 36))
-                            hInput.SetText(tostring((Row() and Row().height) or 36))
-                        end,
-                    }
-                end,
-            },
-
-            -- Timer / Title / Stacks: the SAME shared sections as essential, fed the per-dest bundle
-            -- (writes to cdmBelowRow, defaults seeded above). Pixel-identical to essential; the section's
-            -- own `gate` greys its controls on the Show checkbox.
-            ns.CDMGroups.TimerSection(bpBundle),
-            ns.CDMGroups.TitleSection(bpBundle),
-            ns.CDMGroups.StacksSection(bpBundle),
-        } end },
-
-            } end },   -- close: Below player frame settings section
+        -- ════════════ Front / End of the row settings (one collapsible section per bucket) ════════════
+        -- Each governs ONLY its half of the row, routed by the dest "belowFront"/"belowEnd".
+        BelowSettingsSection("front", "belowFront", L["Front of the row settings"]),
+        BelowSettingsSection("end",   "belowEnd",   L["End of the row settings"]),
     }
     belowMenu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
+
+    -- Both "… of the row settings" sections start collapsed AND re-fold whenever the user leaves &
+    -- returns to this tab: on hide, persist collapsed = true for each bucket; on show, Rebuild re-reads
+    -- getCollapsed so the sections fold again. (Same idiom as the CDMGroups group sections.)
+    parent:HookScript("OnHide", function()
+        for _, bucket in ipairs({ "front", "end" }) do
+            local b = BucketTbl(bucket)
+            if b then b.settingsCollapsed = true end
+        end
+    end)
+    parent:HookScript("OnShow", function()
+        if belowMenu then belowMenu.Rebuild() end
+    end)
+
     return belowMenu
 end
 
