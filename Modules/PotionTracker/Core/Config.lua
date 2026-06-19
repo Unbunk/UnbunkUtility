@@ -128,6 +128,16 @@ function PT.CfgInit()
     ns.MergeDefaults(ns.db.profile.PotionTracker, DEFAULTS)
     SeedTiers(ns.db.profile.PotionTracker.health)
     SeedTiers(ns.db.profile.PotionTracker.combat)
+    -- Default below-player FRONT order: Racial (0) < Potions (1,2) < Healthstone (3+).
+    -- Seed the potion frames' order ONCE if absent so they sort after the racial and
+    -- before the healthstone; the "Move in row" arrows can still reorder afterwards.
+    ns.db.profile.cdmOrder = ns.db.profile.cdmOrder or {}
+    if ns.db.profile.cdmOrder["PotionTrackerHealth"] == nil then
+        ns.db.profile.cdmOrder["PotionTrackerHealth"] = 1
+    end
+    if ns.db.profile.cdmOrder["PotionTrackerCombat"] == nil then
+        ns.db.profile.cdmOrder["PotionTrackerCombat"] = 2
+    end
 end
 ns.RegisterCfgInitHook(PT.CfgInit)
 

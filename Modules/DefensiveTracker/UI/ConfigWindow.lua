@@ -160,17 +160,13 @@ local function PlacementGroup(sid)
         { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
           when = function() return ns.CDMIncludedVal(DT.Get(sid, "includeInCdm")) end,
           getList = function() return ns.CDMDestList() end,
-          getCurrentKey = function() return ns.CDMDestLabel(DT.Get(sid, "cdmDest") or "belowPlayer") end,
-          onSelect = function(label) DT.Set(sid, "cdmDest", ns.CDMDestKeyFromLabel(label)); panelRebuild(); if ns.RebuildActiveModule then ns.RebuildActiveModule() end end },
-        { type = "checkbox", label = L["Icon at the end of the row"],
-          when = function() return ns.CDMIncludedVal(DT.Get(sid, "includeInCdm")) end,
-          get = function() return DT.Get(sid, "cdmAtEnd") ~= false end,
-          set = function(v) DT.Set(sid, "cdmAtEnd", v); if ns.RebuildActiveModule then ns.RebuildActiveModule() end end },
-        { type = "dropdown", label = L["Row"], width = 120, height = 50,
-          when = function() return ns.CDMIncludedVal(DT.Get(sid, "includeInCdm")) end,
-          getList = function() return ns.CDMRowList(DT.Get(sid, "cdmDest") or "belowPlayer") end,
-          getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(DT.Get(sid, "cdmDest") or "belowPlayer", DT.Get(sid, "cdmRow"))) end,
-          onSelect = function(label) DT.Set(sid, "cdmRow", ns.CDMRowFromLabel(label)); if ns.RebuildActiveModule then ns.RebuildActiveModule() end end },
+          -- DT.Get/Set take an extra `sid`; adapt them to the (key)/(key,val) signatures
+          -- the central choice helpers expect.
+          getCurrentKey = function() return ns.CDMDestChoiceLabel(function(k) return DT.Get(sid, k) end) end,
+          onSelect = function(label)
+              ns.CDMApplyDestChoice(label, function(k, v) DT.Set(sid, k, v) end)
+              panelRebuild(); if ns.RebuildActiveModule then ns.RebuildActiveModule() end
+          end },
         { type = "position", ref = "pe",
           when = function() return not ns.CDMIncludedVal(DT.Get(sid, "includeInCdm")) end,
           onBuilt = function(w) pe = w end,

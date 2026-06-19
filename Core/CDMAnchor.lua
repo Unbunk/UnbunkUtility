@@ -30,17 +30,72 @@ function ns.CDMDestLabel(key)
     return L["Cooldown Manager: Essential"]
 end
 
-function ns.CDMDestList()
-    local t = {}
-    for _, k in ipairs(ns.CDM_DEST_ORDER) do t[#t + 1] = ns.CDMDestLabel(k) end
-    return t
-end
-
 function ns.CDMDestKeyFromLabel(label)
     for _, k in ipairs(ns.CDM_DEST_ORDER) do
         if ns.CDMDestLabel(k) == label then return k end
     end
     return "essential"
+end
+
+-- Plain 3-option dest-key label list (essential / utility / below player). Callers
+-- that store a raw cdmDest key WITHOUT the front/end split (e.g. the Cast bar's
+-- "anchor to" picker) use this with CDMDestLabel/CDMDestKeyFromLabel; the per-tracker
+-- placement dropdowns instead use the 4-option choice list below.
+function ns.CDMDestKeyList()
+    local t = {}
+    for _, k in ipairs(ns.CDM_DEST_ORDER) do t[#t + 1] = ns.CDMDestLabel(k) end
+    return t
+end
+
+-- ── Destination CHOICE (the 4-option dropdown shown in every tracker) ─────────
+-- The data model stays (cdmDest ∈ essential/utility/belowPlayer + cdmAtEnd bool),
+-- but the below-player destination is presented as TWO virtual options encoding
+-- front/end into cdmAtEnd, so the dropdown has 4 entries:
+--   "Cooldown Manager: Essential" → cdmDest=essential,  cdmAtEnd=true (after natives)
+--   "Cooldown Manager: Utility"   → cdmDest=utility,    cdmAtEnd=true (after natives)
+--   "Below player frame (front)"  → cdmDest=belowPlayer, cdmAtEnd=false
+--   "Below player frame (end)"    → cdmDest=belowPlayer, cdmAtEnd=true
+-- No new dest values and no migration: the bucket layout reads cdmDest/cdmAtEnd
+-- exactly as before.
+function ns.CDMDestChoiceList()
+    local L = ns.L
+    return {
+        ns.CDMDestLabel("essential"),
+        ns.CDMDestLabel("utility"),
+        L["Below player frame (front)"],
+        L["Below player frame (end)"],
+    }
+end
+
+-- The dropdown still calls ns.CDMDestList in legacy spots; alias it to the 4-option
+-- choice list so every dropdown shows the same options.
+function ns.CDMDestList()
+    return ns.CDMDestChoiceList()
+end
+
+-- Current virtual label for a tracker, derived from its (cdmDest, cdmAtEnd).
+function ns.CDMDestChoiceLabel(getCfg)
+    local L = ns.L
+    local dest = getCfg("cdmDest") or "essential"
+    if dest == "belowPlayer" then
+        if getCfg("cdmAtEnd") == true then return L["Below player frame (end)"] end
+        return L["Below player frame (front)"]
+    end
+    return ns.CDMDestLabel(dest)
+end
+
+-- Apply a chosen virtual label back to (cdmDest, cdmAtEnd) via setCfg.
+function ns.CDMApplyDestChoice(label, setCfg)
+    local L = ns.L
+    if label == L["Below player frame (front)"] then
+        setCfg("cdmDest", "belowPlayer"); setCfg("cdmAtEnd", false)
+    elseif label == L["Below player frame (end)"] then
+        setCfg("cdmDest", "belowPlayer"); setCfg("cdmAtEnd", true)
+    elseif label == ns.CDMDestLabel("utility") then
+        setCfg("cdmDest", "utility");     setCfg("cdmAtEnd", true)
+    else
+        setCfg("cdmDest", "essential");   setCfg("cdmAtEnd", true)
+    end
 end
 
 -- Live viewer frame for a destination, or nil (belowPlayer / CDM off / not loaded).
@@ -201,6 +256,98 @@ function ns.CDMAnchor.GetNativeRows(dest)
     return out
 end
 
+-- ── TEMP diagnostic: /run UU_CDMWhy("essential")  (or "utility") ────────────────
+-- Answers the ONE runtime unknown for rebuilding Essential/Utility as Buff-style groups: does a
+-- cooldown viewer's itemFramePool hold ALL configured cooldowns (toggling IsShown, like the Buff
+-- viewer) or only the currently-ACTIVE ones — and do Enum.CooldownViewerCategory.Essential/.Utility
+-- + the category set behave like TrackedBuff. Run it with a mix of abilities on cooldown and ready.
+function ns.CDMAnchor.WhyDebug(dest)
+    dest = dest or "essential"
+    local function p(...) print("|cff33ccff[UU cdm]|r", ...) end
+    local issec = _G.issecretvalue or function() return false end
+    local function nm(sid)
+        local i = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
+        return (i and i.name) or ("?" .. tostring(sid))
+    end
+    local catName = (dest == "utility") and "Utility"
+        or ((dest == "buff" or dest == "buffs") and "TrackedBuff" or "Essential")
+    local cat = Enum and Enum.CooldownViewerCategory and Enum.CooldownViewerCategory[catName]
+    p(("dest=%s  category=%s (%s)"):format(dest, catName, tostring(cat)))
+    if C_CooldownViewer and cat then
+        local function setN(arg)
+            local ok, t = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, arg)
+            return (ok and type(t) == "table") and #t or ("err:" .. tostring(t))
+        end
+        p(("categorySet  false=%s  true=%s"):format(tostring(setN(false)), tostring(setN(true))))
+        -- Resolve a category set (the cooldown-info IDs) to DISPLAY spellId names so the user can
+        -- eyeball which set equals what they actually track in the native CDM. categorySet(cat,false)
+        -- = the NON-hidden (DISPLAYED / user-tracked) set; (cat,true) = ALL category cooldowns.
+        local function nameList(arg)
+            local ok, t = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, arg)
+            if not (ok and type(t) == "table") then return "err:" .. tostring(t) end
+            local names, seen = {}, {}
+            for _, id in ipairs(t) do
+                local sid
+                if C_CooldownViewer.GetCooldownViewerCooldownInfo then
+                    local ci = C_CooldownViewer.GetCooldownViewerCooldownInfo(id)
+                    if type(ci) == "table" then
+                        sid = ci.overrideTooltipSpellID or ci.overrideSpellID or ci.spellID
+                    end
+                end
+                if sid and not (issec and issec(sid)) and not seen[sid] then
+                    seen[sid] = true
+                    names[#names + 1] = nm(sid)
+                end
+            end
+            return (#names > 0) and table.concat(names, ", ") or "(none)"
+        end
+        p("DISPLAYED (false): " .. nameList(false))
+        p("ALL (true): " .. nameList(true))
+        -- Discover which C_CooldownViewer API yields the user's full DISPLAYED set (rows 1+2, incl.
+        -- greyed not-learned) — categorySet(false) under-reports it. Dump every function name to probe.
+        local fns = {}
+        for k, vv in pairs(C_CooldownViewer) do if type(vv) == "function" then fns[#fns + 1] = k end end
+        table.sort(fns)
+        p("C_CooldownViewer fns: " .. table.concat(fns, ", "))
+        -- The native viewer lays out its displayed cooldownIDs in `.cooldownIDs` / `.orderedCooldownIDs`
+        -- on many builds — print whichever exists, resolved to names (this IS the section the user sees).
+        local vv = ns.GetCDMViewer and ns.GetCDMViewer(dest)
+        for _, field in ipairs({ "cooldownIDs", "orderedCooldownIDs", "cooldownInfo" }) do
+            local t = vv and vv[field]
+            if type(t) == "table" then
+                local names = {}
+                for _, id in ipairs(t) do
+                    local ci = C_CooldownViewer.GetCooldownViewerCooldownInfo and C_CooldownViewer.GetCooldownViewerCooldownInfo(id)
+                    local sid = type(ci) == "table" and (ci.overrideTooltipSpellID or ci.overrideSpellID or ci.spellID) or (type(id) == "number" and id)
+                    if sid and not (issec and issec(sid)) then names[#names + 1] = nm(sid) end
+                end
+                p(("viewer.%s [%d]: %s"):format(field, #t, (#names > 0) and table.concat(names, ", ") or "(unresolved)"))
+            end
+        end
+    else
+        p("Enum.CooldownViewerCategory." .. catName .. " or C_CooldownViewer MISSING")
+    end
+    local v = ns.GetCDMViewer and ns.GetCDMViewer(dest)
+    if not v then p("viewer nil for dest=" .. dest); return end
+    p(("viewer=%s  iconLimit=%s"):format(tostring(v.GetName and v:GetName()), tostring(v.iconLimit)))
+    local pool = v.itemFramePool
+    if not (pool and pool.EnumerateActive) then p("no itemFramePool:EnumerateActive"); return end
+    local n, shownN = 0, 0
+    for f in pool:EnumerateActive() do
+        n = n + 1
+        local sid = ns.CDMAnchor.NativeFrameSpellId and ns.CDMAnchor.NativeFrameSpellId(f)
+        local li = f.layoutIndex
+        if issec(li) then li = "<secret>" end
+        local okShown, shown = pcall(f.IsShown, f)
+        if okShown and shown then shownN = shownN + 1 end
+        p(("  %-22s li=%s shown=%s ci=%s"):format(
+            (sid and nm(sid):sub(1, 22)) or "?", tostring(li),
+            tostring(okShown and shown), tostring(f.cooldownInfo ~= nil)))
+    end
+    p(("pool active=%d  shown=%d  rows=%d"):format(n, shownN, #ComputeRows(v)))
+end
+_G.UU_CDMWhy = ns.CDMAnchor.WhyDebug
+
 -- Has the user adopted this native's spell AND is its replacement icon built? Adopted
 -- natives are replaced by our own TimerIcon, so the layout hides them and drops them
 -- from the grid — but only when a real replacement exists (else the cooldown vanishes).
@@ -286,6 +433,37 @@ function ns.CDMAnchor.GetIconFrames(dest)
         if d.frame and d.getCfg and ns.CDMIncludedVal(d.getCfg("includeInCdm"))
             and (d.getCfg("cdmDest") or "essential") == dest then
             out[#out + 1] = d.frame
+        end
+    end
+    return out
+end
+
+-- Descriptors (not just frames) for every registered tracker icon that opted into the CDM
+-- (includeInCdm) and targets `dest`. The NEW "Cooldown groups" engine consumes this to discover
+-- the tracker icons it must fold into its group layout as full members (a member key = the frame's
+-- global NAME, the same DescId the reorder map uses). Each entry exposes just what the engine needs:
+--   name    = the frame's global name (the string member key)
+--   frame   = the tracker's icon frame (the engine SetPoint/SIZES it; the module owns Show/Hide)
+--   getIcon = the icon texture getter (the config strip draws the tile from this)
+--   setSize = the descriptor's size hook (w,h) — the engine sizes the frame to the group's iconW/H
+--   getCfg  = the tracker's config getter (so the engine can read the dest, etc.)
+-- Unlike GetIconFrames this ignores the Cooldown-Manager-enabled CVar gate: the groups engine has
+-- its own enable + OwnsDest gate, and an owned dest positions trackers regardless of that legacy CVar.
+function ns.CDMAnchor.GetIconDescriptors(dest)
+    local out = {}
+    for _, d in ipairs(appliers) do
+        if d.frame and d.getCfg and d.getCfg("includeInCdm")
+            and (d.getCfg("cdmDest") or "essential") == dest then
+            -- The member key is the frame's global name (DescId is declared later in the file, so
+            -- this closure can't capture that local — inline the same frame:GetName() resolution).
+            local name = (d.frame.GetName and d.frame:GetName()) or tostring(d.frame)
+            out[#out + 1] = {
+                name    = name,
+                frame   = d.frame,
+                getIcon = d.getIcon,
+                setSize = d.setSize,
+                getCfg  = d.getCfg,
+            }
         end
     end
     return out
@@ -1159,6 +1337,13 @@ local function ReleaseAll()
 end
 
 local function LayoutCDMRow(viewer, dest, list)
+    -- OWNERSHIP GUARD (defensive): when the new "Cooldown groups" engine owns this dest it drives the
+    -- viewer's native frames itself — never lay out the old bucket grid here. DoRefresh already keeps
+    -- an owned dest out of `groups`, so this is normally unreached; it protects any direct caller.
+    if ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest) then
+        for _, d in ipairs(list) do if d.apply then pcall(d.apply) end end
+        return
+    end
     if not viewer.IsShown or not viewer:IsShown() then
         for _, d in ipairs(list) do if d.apply then pcall(d.apply) end end
         return
@@ -1484,12 +1669,29 @@ local function DoRefresh(force)
     -- so they all fall to the d.apply free-placement branch and any owned viewer is
     -- released below. Evaluated once per pass.
     local cdmOn = ns.IsCDMEnabled()
+    -- OWNERSHIP GUARD: when the NEW "Cooldown groups" engine is enabled for a dest
+    -- (ns.CDMGroups.OwnsDest), it takes over that native viewer (e.g. EssentialCooldownViewer)
+    -- and drives its frames into movable group containers. The OLD bucket system here must then
+    -- NOT also route icons into that viewer or take it over: an icon destined for an owned dest
+    -- falls through to free placement (d.apply), and the override-takeover below skips it. The
+    -- release loop further down still gives a one-time clean handoff (UnpinNatives) the first time
+    -- ownership flips, after which the viewer is no longer _uuGlued and the loop is inert.
+    local function owned(dest)
+        return ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest) or false
+    end
     for _, d in ipairs(appliers) do
         local inc  = cdmOn and d.getCfg and d.getCfg("includeInCdm")
         local dest = (d.getCfg and d.getCfg("cdmDest")) or "essential"
-        if d.frame and inc and dest == "belowPlayer" then
+        if d.frame and d.getCfg and d.getCfg("includeInCdm") and owned(dest) then
+            -- The NEW groups engine OWNS this dest and folds this opted-in tracker into its group
+            -- layout as a full member (it SetPoints/SIZES the frame in RefreshLayout). So SKIP it
+            -- entirely here: do NOT route it to d.apply free placement (which would re-anchor it to
+            -- a free CENTER point and fight the engine 2x/sec). The engine positions it; out of that
+            -- ownership it falls through to the branches below exactly as before. (Tested against
+            -- includeInCdm directly, not cdmOn — the engine ignores the legacy CDM-enabled CVar.)
+        elseif d.frame and inc and not owned(dest) and dest == "belowPlayer" then
             hasBelow = true
-        elseif d.frame and inc and ns.GetCDMViewer(dest) then
+        elseif d.frame and inc and not owned(dest) and ns.GetCDMViewer(dest) then
             local g = groups[dest]
             if not g then g = { viewer = ns.GetCDMViewer(dest), list = {} }; groups[dest] = g end
             g.list[#g.list + 1] = d
@@ -1501,9 +1703,10 @@ local function DoRefresh(force)
     -- Take over essential/utility even with NO icons of ours when the user set a
     -- placement offset / per-row size (or unlocked it to drag) — so those overrides
     -- actually apply. With no override the viewer is left to Blizzard and released below.
+    -- Skipped for a dest the new groups engine owns (it manages that viewer itself).
     if cdmOn then
         for _, dest in ipairs({ "essential", "utility" }) do
-            if not groups[dest] and ns.CDMAnchor.ViewerHasOverride(dest) then
+            if not groups[dest] and not owned(dest) and ns.CDMAnchor.ViewerHasOverride(dest) then
                 local v = ns.GetCDMViewer(dest)
                 if v and v.IsShown and v:IsShown() then
                     groups[dest] = { viewer = v, list = {} }

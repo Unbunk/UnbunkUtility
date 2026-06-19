@@ -272,27 +272,8 @@ local function BuildPotionSectionOptions(prefix, LSM)
                                     type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
                                     when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
                                     getList = function() return ns.CDMDestList() end,
-                                    getCurrentKey = function() return ns.CDMDestLabel(GetCfg("cdmDest") or "essential") end,
-                                    onSelect = function(label) SetCfg("cdmDest", ns.CDMDestKeyFromLabel(label)); tracker.ApplySize(); tracker.ApplyPosition(); if PT.configMenu then PT.configMenu.Refresh() end end,
-                                },
-                                {
-                                    type = "checkbox", label = L["Icon at the end of the row"],
-                                    when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                                    get = function() return GetCfg("cdmAtEnd") ~= false end,
-                                    set = function(v) SetCfg("cdmAtEnd", v); tracker.ApplyPosition(); if PT.configMenu then PT.configMenu.Refresh() end end,
-                                },
-                                {
-                                    type = "dropdown", label = L["Row"], width = 120, height = 50,
-                                    when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                                    getList = function() return ns.CDMRowList(GetCfg("cdmDest") or "essential") end,
-                                    getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(GetCfg("cdmDest") or "essential", GetCfg("cdmRow"))) end,
-                                    onSelect = function(label) SetCfg("cdmRow", ns.CDMRowFromLabel(label)); tracker.ApplyPosition(); if PT.configMenu then PT.configMenu.Refresh() end end,
-                                },
-                                {
-                                    type = "reorder", label = L["Move in row"],
-                                    when = function() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
-                                    getState = function() return ns.CDMAnchor.GetMoveState(tracker.GetFrame()) end,
-                                    onMove = function(dir) ns.CDMAnchor.Move(tracker.GetFrame(), dir) end,
+                                    getCurrentKey = function() return ns.CDMDestChoiceLabel(GetCfg) end,
+                                    onSelect = function(label) ns.CDMApplyDestChoice(label, SetCfg); tracker.ApplySize(); tracker.ApplyPosition(); if PT.configMenu then PT.configMenu.Refresh() end end,
                                 },
                                 -- Free icon position (only when NOT in the CDM)
                                 {
@@ -381,35 +362,37 @@ local function BuildPotionSectionOptions(prefix, LSM)
                                         }
                                     end,
                                 },
-                            }
-                        end,
-                    },
-
-                    -- ── Border (sub-box) ──────────────────────────────────────────────────
-                    {
-                        type  = "group",
-                        title = L["Border"],
-                        build = function()
-                            return {
+                                -- ── Border (sub-box) ──────────────────────────────────────
+                                -- At the bottom of Placement, and ONLY for a free icon — in the
+                                -- CDM the per-dest border governs every icon there.
                                 {
-                                    type = "checkbox", label = L["Show border"],
-                                    get = function() return GetCfg("borderEnabled") == true end,
-                                    set = function(v) SetCfg("borderEnabled", v); tracker.ApplyBorder(); if PT.configMenu then PT.configMenu.Refresh() end end,
-                                },
-                                {
-                                    type = "textEditor", label = L["Border color"],
-                                    enabledBy = function() return GetCfg("borderEnabled") == true end,
-                                    showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                                    getColor = function() return GetCfg("borderColor") end,
-                                    onColorChange = function(r, g, b, a)
-                                        SetCfg("borderColor", { r = r, g = g, b = b, a = a }); tracker.ApplyBorder()
+                                    type  = "group",
+                                    title = L["Border"],
+                                    when  = function() return not ns.CDMIncludedVal(GetCfg("includeInCdm")) end,
+                                    build = function()
+                                        return {
+                                            {
+                                                type = "checkbox", label = L["Show border"],
+                                                get = function() return GetCfg("borderEnabled") == true end,
+                                                set = function(v) SetCfg("borderEnabled", v); tracker.ApplyBorder(); if PT.configMenu then PT.configMenu.Refresh() end end,
+                                            },
+                                            {
+                                                type = "textEditor", label = L["Border color"],
+                                                enabledBy = function() return GetCfg("borderEnabled") == true end,
+                                                showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                                                getColor = function() return GetCfg("borderColor") end,
+                                                onColorChange = function(r, g, b, a)
+                                                    SetCfg("borderColor", { r = r, g = g, b = b, a = a }); tracker.ApplyBorder()
+                                                end,
+                                            },
+                                            {
+                                                type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+                                                enabledBy = function() return GetCfg("borderEnabled") == true end,
+                                                get = function() return GetCfg("borderSize") or 1 end,
+                                                set = function(v) if v and v > 0 then SetCfg("borderSize", v); tracker.ApplyBorder() end end,
+                                            },
+                                        }
                                     end,
-                                },
-                                {
-                                    type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-                                    enabledBy = function() return GetCfg("borderEnabled") == true end,
-                                    get = function() return GetCfg("borderSize") or 1 end,
-                                    set = function(v) if v and v > 0 then SetCfg("borderSize", v); tracker.ApplyBorder() end end,
                                 },
                             }
                         end,

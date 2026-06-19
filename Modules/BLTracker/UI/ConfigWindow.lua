@@ -146,35 +146,8 @@ local function CreateBLTrackerPanel(parent)
                                     height = 50,
                                     when = function() return ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
                                     getList = function() return ns.CDMDestList() end,
-                                    getCurrentKey = function() return ns.CDMDestLabel(BL.CfgGet("cdmDest") or "essential") end,
-                                    -- Row is clamped for DISPLAY only (getCurrentKey below); never written
-                                    -- back here — LayoutCDMRow already clamps an out-of-range row at layout
-                                    -- time, so a Row 2 saved for Essential is preserved when toggling anchor.
-                                    onSelect = function(label) BL.CfgSet("cdmDest", ns.CDMDestKeyFromLabel(label)); BL.ApplySize(); BL.ApplyPosition(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type = "checkbox",
-                                    label = L["Icon at the end of the row"],
-                                    when = function() return ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
-                                    get = function() return BL.CfgGet("cdmAtEnd") ~= false end,
-                                    set = function(v) BL.CfgSet("cdmAtEnd", v); BL.ApplyPosition(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type = "dropdown",
-                                    label = L["Row"],
-                                    width = 120,
-                                    height = 50,
-                                    when = function() return ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
-                                    getList = function() return ns.CDMRowList(BL.CfgGet("cdmDest") or "essential") end,
-                                    getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(BL.CfgGet("cdmDest") or "essential", BL.CfgGet("cdmRow"))) end,
-                                    onSelect = function(label) BL.CfgSet("cdmRow", ns.CDMRowFromLabel(label)); BL.ApplyPosition(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type = "reorder",
-                                    label = L["Move in row"],
-                                    when = function() return ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
-                                    getState = function() return ns.CDMAnchor.GetMoveState(BL.GetFrame()) end,
-                                    onMove = function(dir) ns.CDMAnchor.Move(BL.GetFrame(), dir) end,
+                                    getCurrentKey = function() return ns.CDMDestChoiceLabel(BL.CfgGet) end,
+                                    onSelect = function(label) ns.CDMApplyDestChoice(label, BL.CfgSet); BL.ApplySize(); BL.ApplyPosition(); if menu then menu.Refresh() end end,
                                 },
                                 -- ── Position editor (named ref for the onLock self-refresh) ───────────
                                 {
@@ -261,48 +234,49 @@ local function CreateBLTrackerPanel(parent)
                                         }
                                     end,
                                 },
-                            }
-                        end,
-                    },
-
-                    -- ── Border (sub-box) ──────────────────────────────────────────────────
-                    {
-                        type  = "group",
-                        title = L["Border"],
-                        build = function()
-                            return {
+                                -- ── Border (sub-box) — only for a free icon; in the CDM the per-dest
+                                -- border governs every icon there. ───────────────────────────────────
                                 {
-                                    type  = "checkbox",
-                                    label = L["Show border"],
-                                    get   = function() return BL.CfgGet("borderEnabled") == true end,
-                                    set   = function(v) BL.CfgSet("borderEnabled", v); BL.ApplyBorder(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type          = "textEditor",
-                                    label         = L["Border color"],
-                                    enabledBy     = function() return BL.CfgGet("borderEnabled") == true end,
-                                    showText      = false,
-                                    showFont      = false,
-                                    showSize      = false,
-                                    showOutline   = false,
-                                    showColor     = true,
-                                    getColor      = function() return BL.CfgGet("borderColor") end,
-                                    onColorChange = function(r, g, b, a)
-                                        BL.CfgSet("borderColor", { r = r, g = g, b = b, a = a })
-                                        BL.ApplyBorder()
+                                    type  = "group",
+                                    title = L["Border"],
+                                    when  = function() return not ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
+                                    build = function()
+                                        return {
+                                            {
+                                                type  = "checkbox",
+                                                label = L["Show border"],
+                                                get   = function() return BL.CfgGet("borderEnabled") == true end,
+                                                set   = function(v) BL.CfgSet("borderEnabled", v); BL.ApplyBorder(); if menu then menu.Refresh() end end,
+                                            },
+                                            {
+                                                type          = "textEditor",
+                                                label         = L["Border color"],
+                                                enabledBy     = function() return BL.CfgGet("borderEnabled") == true end,
+                                                showText      = false,
+                                                showFont      = false,
+                                                showSize      = false,
+                                                showOutline   = false,
+                                                showColor     = true,
+                                                getColor      = function() return BL.CfgGet("borderColor") end,
+                                                onColorChange = function(r, g, b, a)
+                                                    BL.CfgSet("borderColor", { r = r, g = g, b = b, a = a })
+                                                    BL.ApplyBorder()
+                                                end,
+                                            },
+                                            {
+                                                type       = "textinput",
+                                                label      = L["Border thickness"],
+                                                enabledBy  = function() return BL.CfgGet("borderEnabled") == true end,
+                                                width      = 46,
+                                                numeric    = true,
+                                                min        = 1,
+                                                max        = 16,
+                                                maxLetters = 2,
+                                                get        = function() return BL.CfgGet("borderSize") or 1 end,
+                                                set        = function(v) if v and v > 0 then BL.CfgSet("borderSize", v); BL.ApplyBorder() end end,
+                                            },
+                                        }
                                     end,
-                                },
-                                {
-                                    type       = "textinput",
-                                    label      = L["Border thickness"],
-                                    enabledBy  = function() return BL.CfgGet("borderEnabled") == true end,
-                                    width      = 46,
-                                    numeric    = true,
-                                    min        = 1,
-                                    max        = 16,
-                                    maxLetters = 2,
-                                    get        = function() return BL.CfgGet("borderSize") or 1 end,
-                                    set        = function(v) if v and v > 0 then BL.CfgSet("borderSize", v); BL.ApplyBorder() end end,
                                 },
                             }
                         end,

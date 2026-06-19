@@ -112,7 +112,10 @@ local function BuildNavTree()
             { panel = L["Addon settings"] },
             { panel = L["Profiles"] },
             { cat = L["Cooldown Manager"], subs = {
-                { panel = L["Essentials"] },
+                -- TEMP: old Essentials tab hidden from the nav while the new groups engine is validated.
+                -- The panel stays REGISTERED (not unregistered) — just removed from the tree.
+                -- { panel = L["Essentials"] },
+                { panel = L["Essential"] },
                 { panel = L["Utility"] },
                 { panel = L["Buffs"] },
                 { panel = L["Below player frame"] },

@@ -242,33 +242,14 @@ local function CreateRacialTrackerPanel(parent)
                                     type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
                                     when = function() return ns.CDMIncludedVal(RT.CfgGet("includeInCdm")) end,
                                     getList = function() return ns.CDMDestList() end,
-                                    getCurrentKey = function() return ns.CDMDestLabel(RT.CfgGet("cdmDest") or "belowPlayer") end,
+                                    getCurrentKey = function() return ns.CDMDestChoiceLabel(RT.CfgGet) end,
                                     onSelect = function(label)
-                                        RT.CfgSet("cdmDest", ns.CDMDestKeyFromLabel(label))
+                                        ns.CDMApplyDestChoice(label, RT.CfgSet)
                                         RT.ApplySize()
                                         RT.ApplyPosition()
                                         RT.ApplyAll()
                                         if menu then menu.Refresh() end
                                     end,
-                                },
-                                {
-                                    type = "checkbox", label = L["Icon at the end of the row"],
-                                    when = function() return ns.CDMIncludedVal(RT.CfgGet("includeInCdm")) end,
-                                    get = function() return RT.CfgGet("cdmAtEnd") ~= false end,
-                                    set = function(v) RT.CfgSet("cdmAtEnd", v); RT.ApplyPosition(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type = "dropdown", label = L["Row"], width = 120, height = 50,
-                                    when = function() return ns.CDMIncludedVal(RT.CfgGet("includeInCdm")) end,
-                                    getList = function() return ns.CDMRowList(RT.CfgGet("cdmDest") or "belowPlayer") end,
-                                    getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(RT.CfgGet("cdmDest") or "belowPlayer", RT.CfgGet("cdmRow"))) end,
-                                    onSelect = function(label) RT.CfgSet("cdmRow", ns.CDMRowFromLabel(label)); RT.ApplyPosition(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type = "reorder", label = L["Move in row"],
-                                    when = function() return ns.CDMIncludedVal(RT.CfgGet("includeInCdm")) end,
-                                    getState = function() return ns.CDMAnchor.GetMoveState(RT.GetFrame()) end,
-                                    onMove = function(dir) ns.CDMAnchor.Move(RT.GetFrame(), dir) end,
                                 },
 
                                 -- ── Free icon position (only when NOT in the CDM) ─────────────────────
@@ -350,33 +331,35 @@ local function CreateRacialTrackerPanel(parent)
                                         }
                                     end,
                                 },
-                            }
-                        end,
-                    },
 
-                    -- ── Border (sub-box) ──────────────────────────────────────────────────
-                    {
-                        type  = "group",
-                        title = L["Border"],
-                        build = function()
-                            return {
+                                -- ── Border (sub-box) — only for a free icon; in the CDM the
+                                --    per-dest border governs every icon there. ────────────────────────
                                 {
-                                    type = "checkbox", label = L["Show border"],
-                                    get = function() return RT.CfgGet("borderEnabled") == true end,
-                                    set = function(v) RT.CfgSet("borderEnabled", v); RT.ApplyBorder(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type = "textEditor", label = L["Border color"],
-                                    enabledBy = function() return RT.CfgGet("borderEnabled") == true end,
-                                    showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                                    getColor = function() return RT.CfgGet("borderColor") end,
-                                    onColorChange = function(r, g, b, a) RT.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); RT.ApplyBorder() end,
-                                },
-                                {
-                                    type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-                                    enabledBy = function() return RT.CfgGet("borderEnabled") == true end,
-                                    get = function() return RT.CfgGet("borderSize") or 1 end,
-                                    set = function(v) if v and v > 0 then RT.CfgSet("borderSize", v); RT.ApplyBorder() end end,
+                                    type  = "group",
+                                    title = L["Border"],
+                                    when  = function() return not ns.CDMIncludedVal(RT.CfgGet("includeInCdm")) end,
+                                    build = function()
+                                        return {
+                                            {
+                                                type = "checkbox", label = L["Show border"],
+                                                get = function() return RT.CfgGet("borderEnabled") == true end,
+                                                set = function(v) RT.CfgSet("borderEnabled", v); RT.ApplyBorder(); if menu then menu.Refresh() end end,
+                                            },
+                                            {
+                                                type = "textEditor", label = L["Border color"],
+                                                enabledBy = function() return RT.CfgGet("borderEnabled") == true end,
+                                                showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                                                getColor = function() return RT.CfgGet("borderColor") end,
+                                                onColorChange = function(r, g, b, a) RT.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); RT.ApplyBorder() end,
+                                            },
+                                            {
+                                                type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+                                                enabledBy = function() return RT.CfgGet("borderEnabled") == true end,
+                                                get = function() return RT.CfgGet("borderSize") or 1 end,
+                                                set = function(v) if v and v > 0 then RT.CfgSet("borderSize", v); RT.ApplyBorder() end end,
+                                            },
+                                        }
+                                    end,
                                 },
                             }
                         end,

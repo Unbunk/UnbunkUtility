@@ -49,7 +49,9 @@ local function CreateCastBarPanel(parent)
     -- A CDM-destination dropdown (essential / utility / below player) for a config key.
     local function cdmDestDropdown(label, key, onChange, whenFn)
         return { type = "dropdown", label = label, width = 220, height = 50, when = whenFn,
-            getList       = function() return ns.CDMDestList() end,
+            -- Plain 3-way dest picker (no front/end split): the cast bar stores a raw
+            -- cdmDest key, so use the key list rather than the per-tracker 4-option choices.
+            getList       = function() return ns.CDMDestKeyList() end,
             getCurrentKey = function() return ns.CDMDestLabel(CB.CfgGet(key) or "essential") end,
             onSelect      = function(lbl) CB.CfgSet(key, ns.CDMDestKeyFromLabel(lbl)); if onChange then onChange() end end }
     end
