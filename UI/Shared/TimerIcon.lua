@@ -251,7 +251,7 @@ function ns.ui.CreateTimerIcon(config)
     -- the icon's "Icon at the end of the row" flag (cdmAtEnd) — the same bucketing LayoutBelowPlayer
     -- uses (cdmAtEnd ~= false -> end bucket). So a front icon reads cdmBelowRow.front, an end icon .end.
     local function CfgDest()
-        return (getCfg("cdmAtEnd") ~= false) and "belowEnd" or "belowFront"
+        return ns.CDMAnchor.IsAtEnd(getCfg("cdmAtEnd")) and "belowEnd" or "belowFront"
     end
 
     -- Effective timer config for THIS icon: the per-dest below-player value (when set) overrides the
