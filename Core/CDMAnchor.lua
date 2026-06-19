@@ -402,10 +402,36 @@ end
 --   * FRONT — anchored to the frame's BOTTOM-LEFT, icons laid left->right;
 --   * END   — anchored to the frame's BOTTOM-RIGHT, the whole group right-aligned
 --             so its last icon touches the frame's right edge.
--- Each bucket has its own manual offset; the icon size is shared between them.
+-- Each bucket has its own manual offset AND its own appearance/layout config (size, grow,
+-- static, spacing, border, glow, CDM flags, Timer/Title/Stacks) on cdmBelowRow.front / .end.
 local BELOW_GAP = 0   -- icons placed flush against each other (no spacing)
 local belowFront, belowEnd
 local belowUnlocked = false   -- transient (per-session) manual-drag mode
+
+-- Per-bucket config sub-table for the below-player row (bucket = "front" | "end"). Auto-creates
+-- the sub-table. The dests "belowFront"/"belowEnd" route here, so every per-dest accessor
+-- (GetDestCfg/Border/Glow/CdmFlag) reads/writes the right bucket without signature changes.
+local function BelowBucketCfg(bucket)
+    local p = ns.db and ns.db.profile
+    if not p then return nil end
+    p.cdmBelowRow = p.cdmBelowRow or {}
+    p.cdmBelowRow[bucket] = p.cdmBelowRow[bucket] or {}
+    return p.cdmBelowRow[bucket]
+end
+ns.CDMAnchor.BelowBucketCfg = BelowBucketCfg
+
+-- Effective per-bucket layout (icon size, gap, grow, static) WITH defaults applied. Read-only (does
+-- not auto-create the sub-table) and nil-safe so it can run from the change-signature. Shared by
+-- LayoutBelowPlayer.place and ComputeSig so both see the SAME effective values — and honours spacing=0
+-- (the UI's minimum) instead of folding it to the default via an `or 1` falsy-zero trap.
+local function BelowBucketLayout(bucket)
+    local p = ns.db and ns.db.profile
+    local c = p and p.cdmBelowRow and p.cdmBelowRow[bucket]
+    local gap = c and c.spacing
+    if gap == nil then gap = 1 end
+    return (c and c.width) or 36, (c and c.height) or 36, gap,
+           (c and c.growDir) or "RIGHT", (c and c.staticDisplay) == true
+end
 
 -- Account-wide manual offset of a bucket. Only honoured in manual mode; otherwise the
 -- bucket stays flush under the frame (offset 0,0). side=="end" -> the end bucket's own
@@ -592,12 +618,6 @@ local function BelowList()
     return SortByOrder(list)
 end
 
--- Account-wide size of the below-player row icons (configured in General Settings).
-local function BelowRowSize()
-    local c = ns.db and ns.db.profile and ns.db.profile.cdmBelowRow
-    return (c and c.width) or 36, (c and c.height) or 36
-end
-
 local function LayoutBelowPlayer(list)
     -- Split the (order-sorted) below list into front / end-of-row buckets by the
     -- per-icon "Icon at the end of the row" flag (cdmAtEnd), then lay the front
@@ -611,22 +631,19 @@ local function LayoutBelowPlayer(list)
         if d.getCfg and d.getCfg("cdmAtEnd") ~= false then tail[#tail + 1] = d
         else front[#front + 1] = d end
     end
-    local w, h = BelowRowSize()
     local frontRow, endRow = EnsureBelowBuckets()
 
-    -- Per-dest layout options (the below-player CDM settings cadre): spacing, grow direction, static
-    -- display. Defaults: gap 1, grow RIGHT, static off.
-    local p = ns.db and ns.db.profile and ns.db.profile.cdmBelowRow
-    local gap      = (p and p.spacing) or 1
-    local grow     = (p and p.growDir) or "RIGHT"
-    local static   = (p and p.staticDisplay) == true
-    local vertical = (grow == "UP" or grow == "DOWN" or grow == "CENTER_V")
-    local reverse  = (grow == "LEFT" or grow == "UP")
+    -- Lay a bucket's members along its grow axis with `gap` between them, then size the frame to bound
+    -- them. Every layout option (icon size, spacing, grow direction, static display) is read PER-BUCKET
+    -- from cdmBelowRow.front / .end (the "Front/End of the row settings" cadres). Defaults: size 36,
+    -- gap 1, grow RIGHT, static off. Static display also reserves a slot for HIDDEN members (positioned
+    -- but left invisible) so the shown icons keep their absolute slots; otherwise only shown icons take
+    -- a slot (reflow).
+    local function place(bucket, row, side)
+        local w, h, gap, grow, static = BelowBucketLayout(side)
+        local vertical = (grow == "UP" or grow == "DOWN" or grow == "CENTER_V")
+        local reverse  = (grow == "LEFT" or grow == "UP")
 
-    -- Lay a bucket's members along the grow axis with `gap` between them, then size the frame to bound
-    -- them. Static display also reserves a slot for HIDDEN members (positioned but left invisible) so the
-    -- shown icons keep their absolute slots; otherwise only shown icons take a slot (reflow).
-    local function place(bucket, row)
         local members = {}
         for _, d in ipairs(bucket) do
             local f = d.frame
@@ -663,8 +680,8 @@ local function LayoutBelowPlayer(list)
         end
     end
 
-    place(front, frontRow)
-    place(tail,  endRow)
+    place(front, frontRow, "front")
+    place(tail,  endRow,   "end")
 end
 
 -- Effective number of rows the layout will actually render for a destination,
@@ -939,10 +956,13 @@ function ns.CDMAnchor.EffectiveRowSize(dest, r)
 end
 
 -- ── Per-dest border (shared by EVERY icon that is IN that dest) ───────────────
--- Stored on the dest's config (cdmViewer[dest] for essential/utility, cdmBelowRow for
--- below-player); defaults to a 1px black border. TimerIcon.ApplyBorder reads this for any
--- icon in the CDM, so the dest's Border cadre governs them all; free icons keep their own.
+-- Stored on the dest's config (cdmViewer[dest] for essential/utility, cdmBelowRow.front / .end
+-- for the below-player buckets); defaults to a 1px black border. TimerIcon.ApplyBorder reads this
+-- for any icon in the CDM, so the dest's Border cadre governs them all; free icons keep their own.
+-- "belowFront"/"belowEnd" route to the matching bucket; "belowPlayer" (flat) is kept for back-compat.
 local function DestBorderCfg(dest)
+    if dest == "belowFront" then return BelowBucketCfg("front") end
+    if dest == "belowEnd"   then return BelowBucketCfg("end") end
     if dest == "belowPlayer" then
         return ns.db and ns.db.profile and ns.db.profile.cdmBelowRow
     end
@@ -969,9 +989,12 @@ end
 
 -- ── Per-dest CDM display flags: "Show press overlay" / "Show Keybinds" ────────
 -- Per-dest opt-in (default OFF), stored alongside the dest's config. Read by TimerIcon for an icon
--- pinned in that dest. Only the BELOW-PLAYER frame uses this store (its own "CDM settings" cadre);
--- essential/utility groups read their GROUP's per-icon flags via the CDMGroups engine instead.
+-- pinned in that dest. Only the BELOW-PLAYER buckets use this store (their own "CDM settings" cadres,
+-- one per bucket); essential/utility groups read their GROUP's per-icon flags via the CDMGroups engine
+-- instead. "belowFront"/"belowEnd" route to the matching bucket; "belowPlayer" (flat) is back-compat.
 local function DestFlagCfg(dest)
+    if dest == "belowFront" then return BelowBucketCfg("front") end
+    if dest == "belowEnd"   then return BelowBucketCfg("end") end
     if dest == "belowPlayer" then
         local p = ns.db and ns.db.profile
         if not p then return nil end
@@ -1636,9 +1659,15 @@ local function ComputeSig()
     end
     local c = ns.db and ns.db.profile and ns.db.profile.cdmBelowRow
     if c then
-        p[#p + 1] = "B" .. tostring(c.width) .. "," .. tostring(c.height)
-            .. "," .. tostring(c.offsetX) .. "," .. tostring(c.offsetY)
+        -- Bucket-agnostic placement (manual offsets), then each bucket's layout-affecting keys
+        -- (size / spacing / grow / static) so a per-bucket edit re-lays-out on a non-forced refresh.
+        p[#p + 1] = "B" .. tostring(c.offsetX) .. "," .. tostring(c.offsetY)
             .. "," .. tostring(c.endOffsetX) .. "," .. tostring(c.endOffsetY)
+        for _, bucket in ipairs({ "front", "end" }) do
+            local w, h, gap, grow, static = BelowBucketLayout(bucket)
+            p[#p + 1] = bucket:sub(1, 1) .. tostring(w) .. "x" .. tostring(h)
+                .. "," .. tostring(gap) .. "," .. tostring(grow) .. "," .. tostring(static)
+        end
     end
     p[#p + 1] = belowUnlocked and "U1" or "U0"
     -- Per-viewer (essential/utility) placement + size overrides + unlock state, so a

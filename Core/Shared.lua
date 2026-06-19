@@ -630,8 +630,8 @@ local DEFAULTS_BOSS_RESET = {
 -- CDM row (cdmDest = "belowPlayer"). Configured in General Settings; applied to
 -- every below-player icon by ns.CDMAnchor (so they share one consistent size).
 local DEFAULTS_CDM_BELOW_ROW = {
-    width   = 36,   -- shared icon size for BOTH buckets (front + end)
-    height  = 36,
+    width   = 36,   -- default icon size; copied into each bucket (front/end) by the per-bucket
+    height  = 36,   -- migration, after which each bucket carries its OWN width/height
     -- Manual mode: OFF -> both buckets stay flush under the PlayerFrame (front at the
     -- bottom-LEFT, end at the bottom-RIGHT) at offset 0,0 (offsets ignored, dragging
     -- disabled). ON -> the per-bucket offsets / drag take effect so each bucket can be
@@ -677,6 +677,31 @@ local DEFAULTS_GRAPH_USAGE = {
     mem      = {},
     win      = {},   -- per-metric saved window size: win.cpu / win.mem = { w = , h = }
 }
+
+-- Seed ONE below-player bucket sub-table (cdmBelowRow.front / .end) with essential's
+-- Timer/Title/Stacks defaults (missing keys only, additive) so the REUSED essential
+-- sections + TimerIcon read correct values even on a fresh install that never opened the
+-- panel: Stacks on/10/Bottom-right, Title off/12/Above, Timer on/14/Center + the 10s×1.2 /
+-- 3s×1.45 thresholds. Sourced from CDMGroups' GROUP_TEMPLATE (resolved at call time, so load
+-- order is irrelevant); a no-op until CDMGroups is present.
+local BELOW_SEED_KEYS = {
+    "showTimer","timerFontKey","timerFontPath","timerFontSize","timerOutline","timerColor","timerPos","timerOffX","timerOffY","timerThresholdsEnabled",
+    "showTitle","titleText","titleFontKey","titleFontPath","titleFontSize","titleOutline","titleColor","titlePos","titleOffX","titleOffY",
+    "showStack","showAtZero","stackFontKey","stackFontPath","stackFontSize","stackOutline","stackColor","stackPos","stackOffX","stackOffY",
+}
+function ns.SeedBelowBucketDefaults(tbl)
+    if not tbl then return end
+    local GT = ns.CDMGroups and ns.CDMGroups.GROUP_TEMPLATE
+    if not GT then return end
+    for _, k in ipairs(BELOW_SEED_KEYS) do
+        if tbl[k] == nil and GT[k] ~= nil then
+            tbl[k] = (type(GT[k]) == "table") and ns.DeepCopy(GT[k]) or GT[k]
+        end
+    end
+    if tbl.timerThresholds == nil and ns.CDMGroups.DEFAULT_TIMER_THRESHOLDS then
+        tbl.timerThresholds = ns.DeepCopy(ns.CDMGroups.DEFAULT_TIMER_THRESHOLDS)
+    end
+end
 
 function ns.InitGlobalCfg()
     if not ns.db then return end
@@ -740,6 +765,42 @@ function ns.InitGlobalCfg()
     ns.MergeDefaults(g.dpsSpam,     DEFAULTS_DPS_SPAM)
     ns.MergeDefaults(g.bossReset,   DEFAULTS_BOSS_RESET)
     ns.MergeDefaults(p.cdmBelowRow, DEFAULTS_CDM_BELOW_ROW)
+
+    -- ── Below-player per-bucket split (front / end) ──────────────────────────────
+    -- The below-player row is two buckets ("front of the row" / "end of the row"); their
+    -- appearance + layout settings (CDM flags, grow/static/spacing, border, glow, icon size,
+    -- Timer/Title/Stacks) are PER-BUCKET, stored on cdmBelowRow.front and cdmBelowRow.end.
+    -- The flat keys on cdmBelowRow are kept untouched as a harmless backup and still hold the
+    -- bucket-agnostic ones (manualEnabled / offsets / settingsCollapsed).
+    do
+        local r = p.cdmBelowRow
+        r.front  = r.front  or {}
+        r["end"] = r["end"] or {}
+        -- One-time: copy the pre-split flat per-bucket keys into BOTH buckets so an existing
+        -- setup keeps its look on both halves. Runs after the flat MergeDefaults above, so a
+        -- fresh install seeds the bucket width/height/border from the flat defaults too.
+        if not r.__perBucketV1 then
+            r.__perBucketV1 = true
+            local FLAT_KEEP = {
+                manualEnabled = true, offsetX = true, offsetY = true,
+                endOffsetX = true, endOffsetY = true, settingsCollapsed = true,
+                front = true, ["end"] = true, __perBucketV1 = true,
+            }
+            for _, bucket in ipairs({ "front", "end" }) do
+                local b = r[bucket]
+                for k, v in pairs(r) do
+                    if not FLAT_KEEP[k] and b[k] == nil then
+                        b[k] = ns.DeepCopy(v)
+                    end
+                end
+            end
+        end
+        -- Backfill each bucket's Timer/Title/Stacks defaults (missing keys only) for fresh
+        -- installs that never opened the panel.
+        ns.SeedBelowBucketDefaults(r.front)
+        ns.SeedBelowBucketDefaults(r["end"])
+    end
+
     ns.MergeDefaults(p.console,     DEFAULTS_CONSOLE)
     ns.MergeDefaults(p.printUsage,  DEFAULTS_PRINT_USAGE)
     ns.MergeDefaults(p.graphUsage,  DEFAULTS_GRAPH_USAGE)
