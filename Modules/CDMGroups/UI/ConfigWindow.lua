@@ -186,9 +186,9 @@ local function PosOffsetFor(bundle, prefix)
     }
 end
 
-local function OverrideToggle(bundle, keys)
+local function OverrideToggle(bundle, keys, label)
     if not bundle.reset or not bundle.has then return nil end
-    return { type = "checkbox", label = L["Override group settings"],
+    return { type = "checkbox", label = label or L["Override group settings"],
         get = function() return bundle.has(keys) end,
         set = function(v)
             if v then
@@ -452,6 +452,21 @@ local function IconOptions(I, sid)
               OpenIconEditor(I, sid, onIconEditChange)
           end },
 
+        { type = "group", title = L["CDM settings"], build = function()
+            local keys = { "showPressOverlay", "showKeybinds" }
+            local gated = sectionOverridden(keys)
+            local e = {}
+            append(e, OverrideToggle(iconBundle, keys, L["Override CDM settings"]))
+            append(e, CopyGroupButton(iconBundle, keys, gated))
+            e[#e + 1] = { type = "checkbox", label = L["Show press overlay"], enabledBy = gated,
+              get = function() return I.IconGet(sid, "showPressOverlay") == true end,
+              set = function(v) I.IconSet(sid, "showPressOverlay", v and true or false); touch() end }
+            e[#e + 1] = { type = "checkbox", label = L["Show Keybinds"], enabledBy = gated,
+              get = function() return I.IconGet(sid, "showKeybinds") == true end,
+              set = function(v) I.IconSet(sid, "showKeybinds", v and true or false); touch() end }
+            return e
+        end },
+
         { type = "group", title = L["Icon size"], build = function()
             local keys = { "iconW", "iconH" }
             local gated = sectionOverridden(keys)
@@ -543,6 +558,7 @@ local function IconOptions(I, sid)
               local function copySection(keys)
                   for _, key in ipairs(keys) do I.IconSet(sid, key, CloneVal(I.GGet(gid, key))) end
               end
+              copySection({ "showPressOverlay", "showKeybinds" })
               copySection({ "iconW", "iconH" })
               copySection({ "borderEnabled", "borderColor", "borderSize" })
               copySection({ "glowEnabled", "glowType", "glowColor" })
@@ -1338,22 +1354,18 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                 isUnlocked = function() return I.IsGroupUnlocked(id) end }
         end
 
-        -- The Rows sub-cadre (ABOVE Position): "Max icon per row" → the group's maxPerRow. Changing it
-        -- re-chunks the strip + the in-game layout (rebuild re-derives I.GroupRows). 1..20.
-        local function RowsGroup(id)
-            return { type = "group", title = L["Rows"], build = function() return {
-                { type = "textinput", label = L["Max icon per row"], width = 46, numeric = true, min = 1, max = 20, maxLetters = 2,
-                  get = function() return I.GGet(id, "maxPerRow") or 6 end,
-                  set = function(v) if v and v >= 1 then I.GSet(id, "maxPerRow", math.floor(v)); touch(); rebuild() end end },
-            } end }
-        end
-
-        -- The Position sub-cadre: X/Y(/Unlock) at the TOP, then Grow direction, Static Display, Spacing.
-        -- NO "Anchor to" dropdown (groups are screen-center) and NO Placement dropdown (relPos is
-        -- irrelevant under screen-center).
-        local function PositionGroup(id)
-            return { type = "group", title = L["Position"], build = function() return {
-                PositionBlock(id),
+        -- The CDM settings sub-cadre (FIRST in Group settings): the two CDM-display toggles (press overlay
+        -- + keybinds), then the group LAYOUT controls (grow direction, static display, spacing). Those
+        -- three are per-GROUP (the engine reads them per group in RefreshLayout), so they live here, not in
+        -- the per-icon override editor.
+        local function CDMSettingsGroup(id)
+            return { type = "group", title = L["CDM settings"], build = function() return {
+                { type = "checkbox", label = L["Show press overlay"],
+                  get = function() return I.GGet(id, "showPressOverlay") == true end,
+                  set = function(v) I.GSet(id, "showPressOverlay", v and true or false); touch() end },
+                { type = "checkbox", label = L["Show Keybinds"],
+                  get = function() return I.GGet(id, "showKeybinds") == true end,
+                  set = function(v) I.GSet(id, "showKeybinds", v and true or false); touch() end },
                 { type = "dropdown", label = L["Grow direction"], width = 180, height = 50,
                   getList = GrowList,
                   getCurrentKey = function() return GrowLabel(I.GGet(id, "growDir")) end,
@@ -1364,6 +1376,24 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                 { type = "textinput", label = L["Spacing"], width = 46, numeric = true, min = 0, max = 64, maxLetters = 2,
                   get = function() return I.GGet(id, "spacing") or 1 end,
                   set = function(v) if v ~= nil then I.GSet(id, "spacing", v); touch() end end },
+            } end }
+        end
+
+        -- The Rows sub-cadre: "Max icon per row" → the group's maxPerRow. Changing it re-chunks the strip
+        -- + the in-game layout (rebuild re-derives I.GroupRows). 1..20.
+        local function RowsGroup(id)
+            return { type = "group", title = L["Rows"], build = function() return {
+                { type = "textinput", label = L["Max icon per row"], width = 46, numeric = true, min = 1, max = 20, maxLetters = 2,
+                  get = function() return I.GGet(id, "maxPerRow") or 6 end,
+                  set = function(v) if v and v >= 1 then I.GSet(id, "maxPerRow", math.floor(v)); touch(); rebuild() end end },
+            } end }
+        end
+
+        -- The Position sub-cadre: just X/Y(/Unlock). Grow direction / Static Display / Spacing moved up to
+        -- the CDM settings sub-cadre. NO "Anchor to" / Placement dropdowns (groups are screen-center).
+        local function PositionGroup(id)
+            return { type = "group", title = L["Position"], build = function() return {
+                PositionBlock(id),
             } end }
         end
 
@@ -1429,6 +1459,7 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                   if C_Timer and C_Timer.After then C_Timer.After(0, rebuild) else rebuild() end
               end,
               build = function() return {
+                CDMSettingsGroup(id),
                 RowsGroup(id),
                 PositionGroup(id),
                 BorderGroup(id),

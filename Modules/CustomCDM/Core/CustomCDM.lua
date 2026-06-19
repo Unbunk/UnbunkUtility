@@ -492,10 +492,11 @@ end
 function CC.Add(dest, row, atEnd, spellId)
     local s = Store()
     if not s then return end
-    -- Respect the per-row cap (front + end combined). The "+" tile already hides when
-    -- the row is full; this guards the programmatic path too.
-    if ns.CDMAnchor and ns.CDMAnchor.RowIconCount
-        and ns.CDMAnchor.RowIconCount(dest or "belowPlayer", row or 1) >= ns.CDMAnchor.RowCap(dest or "belowPlayer") then
+    -- Respect the per-BUCKET cap (front / end each, 4 below-player). The "+" tile already hides when the
+    -- target bucket is full; this guards the programmatic path too.
+    if ns.CDMAnchor and ns.CDMAnchor.BucketIconCount
+        and ns.CDMAnchor.BucketIconCount(dest or "belowPlayer", row or 1, atEnd and true or false)
+            >= ns.CDMAnchor.BucketCap(dest or "belowPlayer") then
         ns.Print(L["This row is full."])
         return
     end
@@ -561,8 +562,9 @@ function CC.CommitDraft(id)
         ns.Print(L["Invalid spell ID or name:"] .. " " .. tostring(e.spellId))
         return false
     end
-    if e.includeInCdm and ns.CDMAnchor and ns.CDMAnchor.RowIconCount
-        and ns.CDMAnchor.RowIconCount(e.cdmDest or "belowPlayer", e.cdmRow or 1) >= ns.CDMAnchor.RowCap(e.cdmDest or "belowPlayer") then
+    if e.includeInCdm and ns.CDMAnchor and ns.CDMAnchor.BucketIconCount
+        and ns.CDMAnchor.BucketIconCount(e.cdmDest or "belowPlayer", e.cdmRow or 1, e.cdmAtEnd and true or false)
+            >= ns.CDMAnchor.BucketCap(e.cdmDest or "belowPlayer") then
         ns.Print(L["This row is full."])
         return false
     end

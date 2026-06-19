@@ -861,6 +861,13 @@ local function EngineFor(I)
         return fs
     end
 
+    local function FrameKeybind(nf)
+        if nf.Keybind then return nf.Keybind end
+        local fs = nf:CreateFontString(nil, "OVERLAY", nil, 7)
+        nf.Keybind = fs
+        return fs
+    end
+
     local function ApplyBorder(nf, spellId)
         if not ns.CDMAnchor or not ns.CDMAnchor.ApplyFrameBorder then return end
         local enabled = I.IconGet(spellId, "borderEnabled") ~= false
@@ -1026,6 +1033,28 @@ local function EngineFor(I)
             titleFS:Hide()
         end
 
+        local showKeybind = I.IconGet(spellId, "showKeybinds") == true
+        local kbFS = FrameKeybind(nf)
+        if showKeybind and ns.CDGKeybinds then
+            kbFS:SetFont(ns.ResolveFontPath(I.IconGet(spellId, "keybindFontPath"), I.IconGet(spellId, "keybindFontKey")),
+                I.IconGet(spellId, "keybindFontSize") or 12, I.IconGet(spellId, "keybindOutline") or "OUTLINE")
+            local kc = I.IconGet(spellId, "keybindColor") or { r = 1, g = 1, b = 1, a = 1 }
+            kbFS:SetTextColor(kc.r, kc.g, kc.b, kc.a or 1)
+            kbFS:SetDrawLayer("OVERLAY", 7)
+            ns.AnchorFS(kbFS, nf, I.IconGet(spellId, "keybindPos") or "TOPLEFT",
+                I.IconGet(spellId, "keybindOffX"), I.IconGet(spellId, "keybindOffY"))
+            -- spellId is the stable BASE; the action slot holds the base action (the bar shows the live
+            -- form), so resolve by base first, then fall back to the live display id.
+            local txt = ns.CDGKeybinds.GetKeybindText(spellId)
+            if not txt then
+                local liveId = keyToDisplay[spellId]
+                if liveId and liveId ~= spellId then txt = ns.CDGKeybinds.GetKeybindText(liveId) end
+            end
+            if txt and txt ~= "" then kbFS:SetText(txt); kbFS:Show() else kbFS:Hide() end
+        else
+            kbFS:Hide()
+        end
+
         ApplyBorder(nf, spellId)
         ApplyGlow(nf, spellId)
     end
@@ -1044,6 +1073,8 @@ local function EngineFor(I)
         if ns.CDMAnchor and ns.CDMAnchor.ReleaseNativePin then ns.CDMAnchor.ReleaseNativePin(nf) end
         StopGlow(nf)
         if nf.Title then nf.Title:Hide() end
+        if nf.Keybind then nf.Keybind:Hide() end
+        if nf.PressOverlay then nf.PressOverlay:Hide() end
         pinnedFrames[nf] = nil
     end
 
@@ -1129,6 +1160,76 @@ local function EngineFor(I)
     end
     I.RestoreNativeViewer = RestoreNativeViewer
 
+    -- ── Press overlay: tint a native while its action-bar keybind is physically HELD ────────────────
+    -- A light poll (running ONLY while the feature is enabled somewhere in this dest) reads the cached
+    -- raw key combos from ns.CDGKeybinds and tints the icon while held. Taint-free: only IsKeyDown / the
+    -- modifier getters, and a plain texture on the (unprotected) native frame.
+    local PRESS_FALLBACK = { r = 1, g = 1, b = 1, a = 0.35 }
+    local function FrameOverlay(nf)
+        if nf.PressOverlay then return nf.PressOverlay end
+        local tex = nf:CreateTexture(nil, "OVERLAY", nil, 1)   -- above the icon, below the text (sublevel 7)
+        tex:SetAllPoints(nf)
+        tex:Hide()
+        nf.PressOverlay = tex
+        return tex
+    end
+
+    local function ComboDown(c)
+        if c.shift ~= IsShiftKeyDown() then return false end
+        if c.ctrl  ~= IsControlKeyDown() then return false end
+        if c.alt   ~= IsAltKeyDown() then return false end
+        return IsKeyDown(c.key)
+    end
+    local function AnyComboDown(combos)
+        for _, c in ipairs(combos) do if ComboDown(c) then return true end end
+        return false
+    end
+
+    -- Is the press overlay enabled anywhere in this dest (a group flag OR a per-icon override)? Gates the
+    -- poller so it never runs idle while every group has the feature off (the default).
+    local function AnyPressOverlay()
+        for _, g in ipairs(I.GroupList()) do
+            if I.GGet(g.id, "showPressOverlay") == true then return true end
+        end
+        local s = I.Store and I.Store()
+        local iconCfg = s and s.iconCfg
+        if type(iconCfg) == "table" then
+            for _, ic in pairs(iconCfg) do
+                if type(ic) == "table" and ic.showPressOverlay == true then return true end
+            end
+        end
+        return false
+    end
+
+    local pollEnabled, pollAccum = false, 0
+    local pollFrame = CreateFrame("Frame")
+    pollFrame:Hide()
+    pollFrame:SetScript("OnUpdate", function(_, dt)
+        pollAccum = pollAccum + dt
+        if pollAccum < 0.05 then return end
+        pollAccum = 0
+        local typing = GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()   -- don't flash while typing
+        for nf in pairs(pinnedFrames) do
+            local want, sid = false, (not typing) and FrameKey(nf) or nil
+            if sid and ns.CDGKeybinds and I.IconGet(sid, "showPressOverlay") == true then
+                local combos = ns.CDGKeybinds.GetRawCombos(sid)
+                if not combos then
+                    local liveId = keyToDisplay[sid]
+                    if liveId and liveId ~= sid then combos = ns.CDGKeybinds.GetRawCombos(liveId) end
+                end
+                if combos and AnyComboDown(combos) then want = true end
+            end
+            if want then
+                local ov = FrameOverlay(nf)
+                local pc = I.IconGet(sid, "pressOverlayColor") or PRESS_FALLBACK
+                ov:SetColorTexture(pc.r, pc.g, pc.b, pc.a or 0.35)
+                ov:Show()
+            elseif nf.PressOverlay then
+                nf.PressOverlay:Hide()
+            end
+        end
+    end)
+
     -- Release ONLY the natives WE pinned (so a disabled engine, or one that's just been toggled off,
     -- never clears the OLD bucket system's pins on shared Essential frames), hide our placeholders +
     -- containers. Collect first so we don't mutate pinnedFrames while iterating. If we actually
@@ -1147,6 +1248,7 @@ local function EngineFor(I)
         -- every 0.2s tick while the engine sits disabled (HideAll runs from RefreshLayout's
         -- disabled-early-return on each tick, but pinnedFrames is empty after the first pass).
         if toRelease then RestoreNativeViewer() end
+        pollFrame:Hide(); pollEnabled = false
     end
     I.HideAll = HideAll
 
@@ -1258,6 +1360,8 @@ local function EngineFor(I)
                     nf:Hide()
                 else
                     if nf.Title then nf.Title:Hide() end
+                    if nf.Keybind then nf.Keybind:Hide() end
+                    if nf.PressOverlay then nf.PressOverlay:Hide() end
                     StopGlow(nf)
                     if ns.CDMAnchor and ns.CDMAnchor.ApplyFrameBorder then ns.CDMAnchor.ApplyFrameBorder(nf, false) end
                     PinNative(nf, UIParent, OFFSCREEN, OFFSCREEN)
@@ -1407,6 +1511,13 @@ local function EngineFor(I)
             end
         end
         if toRelease then for _, sid in ipairs(toRelease) do ReleasePlaceholder(sid) end end
+
+        -- Run the press-overlay poller only while the feature is enabled somewhere in this dest.
+        local wantPoll = AnyPressOverlay()
+        if wantPoll ~= pollEnabled then
+            pollEnabled = wantPoll
+            pollFrame:SetShown(wantPoll)
+        end
     end
     I.ApplyAll = I.RefreshLayout
 
@@ -1511,6 +1622,16 @@ local function EngineFor(I)
     end
     I.HookNativeViewer = HookNativeViewer
 
+    -- Repaint on a keybind change (rebind / bar swap / spec) without waiting for the 0.2s tick. Chain so
+    -- BOTH the essential + utility engines stay subscribed to the shared resolver's single invalidation.
+    if ns.CDGKeybinds then
+        local prevInvalidate = ns.CDGKeybinds.onInvalidate
+        ns.CDGKeybinds.onInvalidate = function()
+            if prevInvalidate then prevInvalidate() end
+            if I.Enabled() then ScheduleRelayout() end
+        end
+    end
+
     -- ── Events ──────────────────────────────────────────────────────────────────
     local ev = CreateFrame("Frame")
     ev:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
@@ -1520,13 +1641,17 @@ local function EngineFor(I)
     ev:RegisterUnitEvent("UNIT_AURA", "player")
     ev:RegisterEvent("PLAYER_REGEN_ENABLED")
     ev:SetScript("OnEvent", function(_, event)
-        if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "TRAIT_CONFIG_UPDATED" then
-            -- New spec / talent layout: the accumulated displayed set is stale — clear it AND re-arm the
-            -- settle window so the universe re-fills from the NEW (settled) layout, not its load transient.
+        if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "TRAIT_CONFIG_UPDATED"
+            or event == "COOLDOWN_VIEWER_DATA_LOADED" then
+            -- A spec/talent change OR a CDM layout EDIT (hiding / moving a cooldown in EditMode fires
+            -- COOLDOWN_VIEWER_DATA_LOADED) makes the accumulated set stale — clear it AND re-arm the settle
+            -- window so the universe re-derives fresh from the NEW layout. THIS is what purges a cooldown the
+            -- user just hid / moved to another viewer (it won't re-accumulate). DATA_LOADED is a data/layout
+            -- signal (not per-tick cooldown progress = SPELL_UPDATE_COOLDOWN), so it doesn't churn in combat.
             I.ResetAccumDisplayed()
-        elseif event == "COOLDOWN_VIEWER_DATA_LOADED" or event == "PLAYER_ENTERING_WORLD" then
-            -- Arm the settle window ONCE: accumulation begins SETTLE seconds later, after the viewer has
-            -- applied the user's EditMode layout (skipping the full-category load transient).
+        elseif event == "PLAYER_ENTERING_WORLD" then
+            -- Arm the settle window once (login / zone change): accumulation begins SETTLE seconds later,
+            -- after the viewer has applied the user's EditMode layout (skipping the full-category transient).
             I.ArmSettle()
         end
         HookNativeViewer()

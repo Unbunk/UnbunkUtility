@@ -998,6 +998,19 @@ local function CreateBuffsPanel(parent)
                 addb:SetScript("OnClick", function() promptAddCustom(groupId) end)
                 obj.addBtn = addb
 
+                -- Red "Row is full" caption over the strip on a high overlay, shown when a (non-wrap)
+                -- group is at GROUP_CAP. The "+" already hides at the cap (relayout) and drops into a full
+                -- group are rejected, so nothing shifts — this mirrors the CDMGroups full-row feedback.
+                obj.fullOverlay = CreateFrame("Frame", nil, frame)
+                obj.fullOverlay:SetAllPoints(frame)
+                obj.fullOverlay:SetFrameLevel(frame:GetFrameLevel() + 20)
+                obj.fullOverlay:Hide()
+                local bfull = obj.fullOverlay:CreateFontString(nil, "OVERLAY")
+                bfull:SetFont(STANDARD_TEXT_FONT, 15, "OUTLINE")
+                bfull:SetTextColor(1, 0.45, 0.45)
+                bfull:SetText(L["Row is full"])
+                bfull:SetPoint("CENTER", obj.fullOverlay, "CENTER", 0, 0)
+
                 for _, sid in ipairs(BG.GetGroupBuffs(groupId)) do
                     local spellId = sid
                     local b = CreateFrame("Button", nil, frame)
@@ -1133,8 +1146,12 @@ local function CreateBuffsPanel(parent)
                     if holeIndex and holeIndex >= #seq then slot = slot + 1 end
                     if wrap or (#seq < (cap or math.huge)) then
                         placeAt(addb, slot); addb:Show()
+                        if obj.fullOverlay then obj.fullOverlay:Hide() end
                     else
                         addb:Hide()
+                        -- Transient: show "Row is full" ONLY while a foreign icon is dragged over the full
+                        -- group (holeIndex set). At rest — relayout(nil, nil) — it stays hidden.
+                        if obj.fullOverlay then obj.fullOverlay:SetShown(holeIndex ~= nil) end
                     end
                 end
 
