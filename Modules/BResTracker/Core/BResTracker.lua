@@ -262,7 +262,19 @@ function BR.ApplyFont()
     countText:SetFont(resolved, countSize, outline)
 end
 
+-- True when the NEW "Cooldown groups" engine OWNS this tracker's dest: it then folds this frame into
+-- its group layout and drives SetPoint/SetSize itself. The frame must YIELD its own placement/sizing
+-- so the engine isn't stomped (the engine still calls SetSlotSize directly, so that does NOT yield).
+function BR.EngineOwns()
+    if not BR.CfgGet("includeInCdm") then return false end
+    local dest = BR.CfgGet("cdmDest") or "essential"   -- match GetIconDescriptors' nil→essential fold
+    return ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest) or false
+end
+
 function BR.ApplyPosition()
+    -- The NEW groups engine owns this dest: it positions + sizes the frame in its own RefreshLayout
+    -- (2x/sec). Do NOTHING here — re-anchoring it would fight the engine's SetPoint/SetSize.
+    if BR.EngineOwns() then return end
     -- Cooldown Manager integration: ns.CDMAnchor owns this frame's position (and,
     -- for native-row destinations, its size). The below-player artificial row is
     -- always available; the essential/utility rows only when their viewer exists.
@@ -298,6 +310,10 @@ if ns.CDMAnchor then
 end
 
 function BR.ApplySize()
+    -- The NEW groups engine owns this dest: it sizes the frame via SetSlotSize (below) to the group's
+    -- iconW/iconH. The module's own ApplySize must NOT impose the configured size (it would fight the
+    -- engine 2x/sec) — yield entirely. SetSlotSize (the engine's direct call) still applies the size.
+    if BR.EngineOwns() then return end
     -- A native-row destination (essential/utility) is sized to the native icons by
     -- ns.CDMAnchor, so do NOT override it with the configured size (just refresh
     -- font/border). Below-player and free icons use the configured size.

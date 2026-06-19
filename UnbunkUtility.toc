@@ -85,6 +85,10 @@ Modules/BuffGroups/Core/Config.lua
 Modules/BuffGroups/Core/BuffGroups.lua
 Modules/BuffGroups/Core/CustomBuffs.lua
 Modules/BuffGroups/UI/ConfigWindow.lua
+Modules/CDMGroups/Core/Config.lua
+Modules/CDMGroups/Core/Engine.lua
+Modules/CDMGroups/Core/CustomCooldowns.lua
+Modules/CDMGroups/UI/ConfigWindow.lua
 Modules/PITracker/Core/Config.lua
 Modules/PITracker/Core/PITracker.lua
 Modules/PITracker/UI/ConfigWindow.lua

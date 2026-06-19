@@ -57,12 +57,26 @@ local DEFAULT_TIERS = {
     { at = 5,  scale = 1.45, color = { r = 1, g = 0,    b = 0, a = 1 } },
 }
 
+-- Max healthstone sub-trackers (HealthstoneTrackerFrame1..N) — mirrors MAX_TRACKERS
+-- in HealthstoneTracker.lua so the default below-player order can seed each frame.
+local MAX_TRACKERS = 8
+
 function HT.CfgInit()
     ns.db.profile.HealthstoneTracker = ns.db.profile.HealthstoneTracker or {}
     ns.MigrateSoundKeys(ns.db.profile.HealthstoneTracker)
     ns.MergeDefaults(ns.db.profile.HealthstoneTracker, DEFAULTS)
     local t = ns.db.profile.HealthstoneTracker
     if t.timerTiers == nil then t.timerTiers = ns.DeepCopy(DEFAULT_TIERS) end
+    -- Default below-player FRONT order: Racial (0) < Potions (1,2) < Healthstone (3+).
+    -- Seed each healthstone frame's order ONCE if absent so the stones sort after the
+    -- racial + potions; the "Move in row" arrows can still reorder afterwards.
+    ns.db.profile.cdmOrder = ns.db.profile.cdmOrder or {}
+    for i = 1, MAX_TRACKERS do
+        local name = "HealthstoneTrackerFrame" .. i
+        if ns.db.profile.cdmOrder[name] == nil then
+            ns.db.profile.cdmOrder[name] = 2 + i   -- 3, 4, 5, …
+        end
+    end
 end
 ns.RegisterCfgInitHook(HT.CfgInit)
 

@@ -1210,6 +1210,23 @@ local function DeferSeedUntilViewerReady()
     end
 end
 
+-- Coalesced, DEFERRED relayout. The RefreshLayout hook below runs INSIDE Blizzard's
+-- CooldownViewer:RefreshData; doing the read-heavy relayout (which touches the pool's secret
+-- cooldownInfo / layoutIndex) synchronously there taints that secure execution and makes Blizzard's
+-- own aura/totem secret comparisons error ("tainted by UnbunkUtility"). So the hook only flips the
+-- readiness bool + schedules this, which runs in a fresh, untainted timer execution.
+local bgRelayoutScheduled = false
+local function ScheduleRelayout()
+    if bgRelayoutScheduled then return end
+    bgRelayoutScheduled = true
+    C_Timer.After(0, function()
+        bgRelayoutScheduled = false
+        if not BG.Enabled() then return end
+        if pendingSeed then BG.RefreshTracked() end
+        BG.RefreshLayout()
+    end)
+end
+
 local refreshHooked = false
 local function HookNativeViewer()
     if refreshHooked then return end
@@ -1217,13 +1234,11 @@ local function HookNativeViewer()
     if not v or not v.RefreshLayout then return end
     refreshHooked = true
     hooksecurefunc(v, "RefreshLayout", function()
-        -- The viewer just laid out -> its itemFramePool now reflects the displayed set. Flip the
-        -- readiness flag ALWAYS (even when the module is disabled) so the config's displayed-set
-        -- detection works on any profile; the seed replay + our relayout stay gated on Enabled.
+        -- Flip the readiness flag ALWAYS (a plain bool, taint-safe) so the config's displayed-set
+        -- detection works on any profile. The read-heavy relayout MUST be DEFERRED (ScheduleRelayout) —
+        -- running it synchronously here taints Blizzard's RefreshData (see the note above).
         viewerLaidOut = true
-        if not BG.Enabled() then return end
-        if pendingSeed then BG.RefreshTracked() end
-        BG.RefreshLayout()
+        if BG.Enabled() then ScheduleRelayout() end
     end)
     -- Lock the viewer's scale to 1 so native frame offsets match our coordinate space
     -- (EditMode can apply a scale ~= 1). Our containers/pins assume scale 1.

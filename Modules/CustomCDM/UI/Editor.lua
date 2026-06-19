@@ -333,21 +333,14 @@ local function PlacementGroup(id, rebuild, refresh)
         { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
           when = function() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
           getList = function() return ns.CDMDestList() end,
-          getCurrentKey = function() return ns.CDMDestLabel(CC.Get(id, "cdmDest") or "belowPlayer") end,
+          -- CC.Get/Set take an extra `id`; adapt them to the (key)/(key,val) signatures
+          -- the central choice helpers expect.
+          getCurrentKey = function() return ns.CDMDestChoiceLabel(function(k) return CC.Get(id, k) end) end,
           onSelect = function(label)
-              CC.Set(id, "cdmDest", ns.CDMDestKeyFromLabel(label))
+              ns.CDMApplyDestChoice(label, function(k, v) CC.Set(id, k, v) end)
               rebuild()
               if ns.RebuildActiveModule then ns.RebuildActiveModule() end
           end },
-        { type = "checkbox", label = L["Icon at the end of the row"],
-          when = function() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
-          get = function() return CC.Get(id, "cdmAtEnd") ~= false end,
-          set = function(v) CC.Set(id, "cdmAtEnd", v); if ns.RebuildActiveModule then ns.RebuildActiveModule() end end },
-        { type = "dropdown", label = L["Row"], width = 120, height = 50,
-          when = function() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
-          getList = function() return ns.CDMRowList(CC.Get(id, "cdmDest") or "belowPlayer") end,
-          getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(CC.Get(id, "cdmDest") or "belowPlayer", CC.Get(id, "cdmRow"))) end,
-          onSelect = function(label) CC.Set(id, "cdmRow", ns.CDMRowFromLabel(label)); if ns.RebuildActiveModule then ns.RebuildActiveModule() end end },
         -- Free placement (only when NOT in the CDM): screen position + drag unlock.
         { type = "position", ref = "pe",
           when = function() return not ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,

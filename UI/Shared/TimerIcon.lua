@@ -121,6 +121,17 @@ function ns.ui.CreateTimerIcon(config)
 
     -- ── Drag ──────────────────────────────────────────────────────────────────
 
+    -- True when the NEW "Cooldown groups" engine OWNS this icon's dest: it then folds this tracker
+    -- into its group layout and drives the frame's SetPoint/SetSize itself (2x/sec via RefreshLayout).
+    -- When this is true the icon must YIELD its own placement/sizing so the engine isn't stomped — the
+    -- engine still calls SetSlotSize directly to size the frame, so SetSlotSize itself does NOT yield.
+    local function EngineOwns()
+        if not getCfg("includeInCdm") then return false end
+        local dest = getCfg("cdmDest") or "essential"   -- match GetIconDescriptors' nil→essential fold
+        return ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest) or false
+    end
+    result.EngineOwns = EngineOwns
+
     -- True when this icon is currently managed by the Cooldown Manager integration
     -- (a native-row slot, or the below-player row). When true, ns.CDMAnchor owns the
     -- position/size and the icon is not free-draggable.
@@ -359,6 +370,10 @@ function ns.ui.CreateTimerIcon(config)
         -- drag. Leave placement to the user until Lock; OnDragStop saves the drop
         -- position and the next locked tick re-anchors from it.
         if unlocked then return end
+        -- The NEW groups engine owns this icon's dest: it positions + sizes the frame in its own
+        -- RefreshLayout (2x/sec). Do NOTHING here — re-anchoring it (even to CDMAnchor) would fight
+        -- the engine's SetPoint/SetSize. Mirror of the CDMActive short-circuit below.
+        if EngineOwns() then return end
         -- When the Cooldown Manager integration is active, ns.CDMAnchor owns this
         -- icon's position AND size (native-row slot or below-player row); just ask
         -- for a refresh. Otherwise it's free — positioned on screen by posX/posY.
@@ -391,6 +406,10 @@ function ns.ui.CreateTimerIcon(config)
     end
 
     function result.ApplySize()
+        -- The NEW groups engine owns this dest: it sizes the frame via SetSlotSize (below) to the
+        -- group's iconW/iconH and re-derives the look there. The module's own 0.5s ApplySize must NOT
+        -- impose the configured size (it would fight the engine 2x/sec) — yield entirely.
+        if EngineOwns() then return end
         -- In any CDM mode the size is owned by ns.CDMAnchor via SetSlotSize:
         -- essential/utility use the per-row size override (default 44); below-player uses
         -- the per-profile cdmBelowRow size. Only a FREE icon uses its configured size.
@@ -417,7 +436,9 @@ function ns.ui.CreateTimerIcon(config)
         -- Below player frame panels) governs every icon of that dest, so they all share one
         -- border. A free icon (not in the CDM) uses its own border config.
         local enabled, c, size
-        if CDMActive() and ns.CDMAnchor and ns.CDMAnchor.GetDestBorder then
+        -- When the groups engine owns this dest the tracker keeps its OWN look (the engine never
+        -- restyles its border), so use the icon's own border config — NOT the old per-dest CDM border.
+        if not EngineOwns() and CDMActive() and ns.CDMAnchor and ns.CDMAnchor.GetDestBorder then
             enabled, c, size = ns.CDMAnchor.GetDestBorder(getCfg("cdmDest") or "essential")
         else
             enabled, c, size = getCfg("borderEnabled"), getCfg("borderColor"), getCfg("borderSize")
@@ -578,6 +599,14 @@ function ns.ui.CreateTimerIcon(config)
     -- only while visible, and our own visibility changes don't trigger a native
     -- viewer relayout, so nudge ns.CDMAnchor ourselves.
     local function SlotRepack()
+        -- When the groups engine owns this dest, a tracker occupies a group slot only WHILE shown, and
+        -- our own show/hide doesn't trigger the engine's viewer hook — so nudge the engine to reflow.
+        if EngineOwns() then
+            local dest = getCfg("cdmDest") or "essential"
+            local I = ns.CDMGroups and ns.CDMGroups.instances and ns.CDMGroups.instances[dest]
+            if I and I.ScheduleRelayout then I.ScheduleRelayout() end
+            return
+        end
         if ns.CDMAnchor and CDMActive() then ns.CDMAnchor.RefreshAll() end
     end
     frame:HookScript("OnShow", SlotRepack)

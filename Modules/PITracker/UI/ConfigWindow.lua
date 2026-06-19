@@ -132,32 +132,8 @@ local function CreatePITrackerPanel(parent)
                                     height = 50,
                                     when = function() return ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
                                     getList = function() return ns.CDMDestList() end,
-                                    getCurrentKey = function() return ns.CDMDestLabel(PI.CfgGet("cdmDest") or "essential") end,
-                                    onSelect = function(label) PI.CfgSet("cdmDest", ns.CDMDestKeyFromLabel(label)); PI.ApplySize(); PI.ApplyPosition(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type = "checkbox",
-                                    label = L["Icon at the end of the row"],
-                                    when = function() return ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
-                                    get = function() return PI.CfgGet("cdmAtEnd") ~= false end,
-                                    set = function(v) PI.CfgSet("cdmAtEnd", v); PI.ApplyPosition(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type = "dropdown",
-                                    label = L["Row"],
-                                    width = 120,
-                                    height = 50,
-                                    when = function() return ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
-                                    getList = function() return ns.CDMRowList(PI.CfgGet("cdmDest") or "essential") end,
-                                    getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(PI.CfgGet("cdmDest") or "essential", PI.CfgGet("cdmRow"))) end,
-                                    onSelect = function(label) PI.CfgSet("cdmRow", ns.CDMRowFromLabel(label)); PI.ApplyPosition(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type = "reorder",
-                                    label = L["Move in row"],
-                                    when = function() return ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
-                                    getState = function() return ns.CDMAnchor.GetMoveState(PI.GetFrame()) end,
-                                    onMove = function(dir) ns.CDMAnchor.Move(PI.GetFrame(), dir) end,
+                                    getCurrentKey = function() return ns.CDMDestChoiceLabel(PI.CfgGet) end,
+                                    onSelect = function(label) ns.CDMApplyDestChoice(label, PI.CfgSet); PI.ApplySize(); PI.ApplyPosition(); if menu then menu.Refresh() end end,
                                 },
                                 -- Free icon position (only when NOT in the CDM)
                                 {
@@ -246,48 +222,49 @@ local function CreatePITrackerPanel(parent)
                                         }
                                     end,
                                 },
-                            }
-                        end,
-                    },
-
-                    -- ── Border (sub-box) ──────────────────────────────────────────────────
-                    {
-                        type  = "group",
-                        title = L["Border"],
-                        build = function()
-                            return {
+                                -- Border at the bottom of Placement, and ONLY for a free icon —
+                                -- in the CDM the per-dest border governs every icon there.
                                 {
-                                    type  = "checkbox",
-                                    label = L["Show border"],
-                                    get   = function() return PI.CfgGet("borderEnabled") == true end,
-                                    set   = function(v) PI.CfgSet("borderEnabled", v); PI.ApplyBorder(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type          = "textEditor",
-                                    label         = L["Border color"],
-                                    enabledBy     = function() return PI.CfgGet("borderEnabled") == true end,
-                                    showText      = false,
-                                    showFont      = false,
-                                    showSize      = false,
-                                    showOutline   = false,
-                                    showColor     = true,
-                                    getColor      = function() return PI.CfgGet("borderColor") end,
-                                    onColorChange = function(r, g, b, a)
-                                        PI.CfgSet("borderColor", { r = r, g = g, b = b, a = a })
-                                        PI.ApplyBorder()
+                                    type  = "group",
+                                    title = L["Border"],
+                                    when  = function() return not ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
+                                    build = function()
+                                        return {
+                                            {
+                                                type  = "checkbox",
+                                                label = L["Show border"],
+                                                get   = function() return PI.CfgGet("borderEnabled") == true end,
+                                                set   = function(v) PI.CfgSet("borderEnabled", v); PI.ApplyBorder(); if menu then menu.Refresh() end end,
+                                            },
+                                            {
+                                                type          = "textEditor",
+                                                label         = L["Border color"],
+                                                enabledBy     = function() return PI.CfgGet("borderEnabled") == true end,
+                                                showText      = false,
+                                                showFont      = false,
+                                                showSize      = false,
+                                                showOutline   = false,
+                                                showColor     = true,
+                                                getColor      = function() return PI.CfgGet("borderColor") end,
+                                                onColorChange = function(r, g, b, a)
+                                                    PI.CfgSet("borderColor", { r = r, g = g, b = b, a = a })
+                                                    PI.ApplyBorder()
+                                                end,
+                                            },
+                                            {
+                                                type       = "textinput",
+                                                label      = L["Border thickness"],
+                                                enabledBy  = function() return PI.CfgGet("borderEnabled") == true end,
+                                                width      = 46,
+                                                numeric    = true,
+                                                min        = 1,
+                                                max        = 16,
+                                                maxLetters = 2,
+                                                get        = function() return PI.CfgGet("borderSize") or 1 end,
+                                                set        = function(v) if v and v > 0 then PI.CfgSet("borderSize", v); PI.ApplyBorder() end end,
+                                            },
+                                        }
                                     end,
-                                },
-                                {
-                                    type       = "textinput",
-                                    label      = L["Border thickness"],
-                                    enabledBy  = function() return PI.CfgGet("borderEnabled") == true end,
-                                    width      = 46,
-                                    numeric    = true,
-                                    min        = 1,
-                                    max        = 16,
-                                    maxLetters = 2,
-                                    get        = function() return PI.CfgGet("borderSize") or 1 end,
-                                    set        = function(v) if v and v > 0 then PI.CfgSet("borderSize", v); PI.ApplyBorder() end end,
                                 },
                             }
                         end,

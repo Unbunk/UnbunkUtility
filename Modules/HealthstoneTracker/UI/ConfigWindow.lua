@@ -182,39 +182,14 @@ local function CreateHealthstoneTrackerPanel(parent)
                                     type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
                                     when = function() return ns.CDMIncludedVal(HT.CfgGet("includeInCdm")) end,
                                     getList = function() return ns.CDMDestList() end,
-                                    getCurrentKey = function() return ns.CDMDestLabel(HT.CfgGet("cdmDest") or "essential") end,
+                                    getCurrentKey = function() return ns.CDMDestChoiceLabel(HT.CfgGet) end,
                                     onSelect = function(label)
-                                        HT.CfgSet("cdmDest", ns.CDMDestKeyFromLabel(label))
+                                        ns.CDMApplyDestChoice(label, HT.CfgSet)
                                         local t = HT.GetTracker()
                                         if t and t.ApplySize then t.ApplySize() end
                                         HT.ApplyPosition()
                                         HT.ApplyAll()
                                         if menu then menu.Refresh() end
-                                    end,
-                                },
-                                {
-                                    type = "checkbox", label = L["Icon at the end of the row"],
-                                    when = function() return ns.CDMIncludedVal(HT.CfgGet("includeInCdm")) end,
-                                    get = function() return HT.CfgGet("cdmAtEnd") ~= false end,
-                                    set = function(v) HT.CfgSet("cdmAtEnd", v); HT.ApplyPosition(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type = "dropdown", label = L["Row"], width = 120, height = 50,
-                                    when = function() return ns.CDMIncludedVal(HT.CfgGet("includeInCdm")) end,
-                                    getList = function() return ns.CDMRowList(HT.CfgGet("cdmDest") or "essential") end,
-                                    getCurrentKey = function() return ns.CDMRowLabel(ns.CDMClampRow(HT.CfgGet("cdmDest") or "essential", HT.CfgGet("cdmRow"))) end,
-                                    onSelect = function(label) HT.CfgSet("cdmRow", ns.CDMRowFromLabel(label)); HT.ApplyPosition(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type = "reorder", label = L["Move in row"],
-                                    when = function() return ns.CDMIncludedVal(HT.CfgGet("includeInCdm")) end,
-                                    getState = function()
-                                        local t = HT.GetTracker()
-                                        return ns.CDMAnchor.GetMoveState(t and t.GetFrame())
-                                    end,
-                                    onMove = function(dir)
-                                        local t = HT.GetTracker()
-                                        ns.CDMAnchor.Move(t and t.GetFrame(), dir)
                                     end,
                                 },
 
@@ -310,33 +285,36 @@ local function CreateHealthstoneTrackerPanel(parent)
                                         }
                                     end,
                                 },
-                            }
-                        end,
-                    },
 
-                    -- ── Border (sub-box) ──────────────────────────────────────────────────
-                    {
-                        type  = "group",
-                        title = L["Border"],
-                        build = function()
-                            return {
+                                -- ── Border (sub-box) ──────────────────────────────────────────────────
+                                -- At the bottom of Placement, and ONLY for a free icon — in the CDM the
+                                -- per-dest border (the dest panel's Border cadre) governs every icon there.
                                 {
-                                    type = "checkbox", label = L["Show border"],
-                                    get = function() return HT.CfgGet("borderEnabled") == true end,
-                                    set = function(v) HT.CfgSet("borderEnabled", v); HT.ApplyBorder(); if menu then menu.Refresh() end end,
-                                },
-                                {
-                                    type = "textEditor", label = L["Border color"],
-                                    enabledBy = function() return HT.CfgGet("borderEnabled") == true end,
-                                    showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                                    getColor = function() return HT.CfgGet("borderColor") end,
-                                    onColorChange = function(r, g, b, a) HT.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); HT.ApplyBorder() end,
-                                },
-                                {
-                                    type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-                                    enabledBy = function() return HT.CfgGet("borderEnabled") == true end,
-                                    get = function() return HT.CfgGet("borderSize") or 1 end,
-                                    set = function(v) if v and v > 0 then HT.CfgSet("borderSize", v); HT.ApplyBorder() end end,
+                                    type  = "group",
+                                    title = L["Border"],
+                                    when  = function() return not ns.CDMIncludedVal(HT.CfgGet("includeInCdm")) end,
+                                    build = function()
+                                        return {
+                                            {
+                                                type = "checkbox", label = L["Show border"],
+                                                get = function() return HT.CfgGet("borderEnabled") == true end,
+                                                set = function(v) HT.CfgSet("borderEnabled", v); HT.ApplyBorder(); if menu then menu.Refresh() end end,
+                                            },
+                                            {
+                                                type = "textEditor", label = L["Border color"],
+                                                enabledBy = function() return HT.CfgGet("borderEnabled") == true end,
+                                                showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                                                getColor = function() return HT.CfgGet("borderColor") end,
+                                                onColorChange = function(r, g, b, a) HT.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); HT.ApplyBorder() end,
+                                            },
+                                            {
+                                                type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+                                                enabledBy = function() return HT.CfgGet("borderEnabled") == true end,
+                                                get = function() return HT.CfgGet("borderSize") or 1 end,
+                                                set = function(v) if v and v > 0 then HT.CfgSet("borderSize", v); HT.ApplyBorder() end end,
+                                            },
+                                        }
+                                    end,
                                 },
                             }
                         end,
