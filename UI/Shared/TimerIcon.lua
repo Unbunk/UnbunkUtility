@@ -260,6 +260,24 @@ function ns.ui.CreateTimerIcon(config)
         return default
     end
 
+    -- Effective timer urgency tiers: below-player maps its per-dest timerThresholds {time,size,color}
+    -- (essential's shape) to the tracker's {at,scale,color}; thresholds OFF → {} (no built-in urgency,
+    -- base colour only). Other dests keep their own timerTiers (nil → the built-in yellow@15 / red@5).
+    local function TimerTiers()
+        if getCfg("cdmDest") == "belowPlayer" and CDMActive() and ns.CDMAnchor and ns.CDMAnchor.GetDestCfg then
+            if ns.CDMAnchor.GetDestCfg("belowPlayer", "timerThresholdsEnabled", false) then
+                local thr = ns.CDMAnchor.GetDestCfg("belowPlayer", "timerThresholds", nil)
+                if thr then
+                    local t = {}
+                    for _, x in ipairs(thr) do t[#t + 1] = { at = x.time, scale = x.size, color = x.color } end
+                    return t
+                end
+            end
+            return {}
+        end
+        return getCfg("timerTiers")
+    end
+
     frame:SetMovable(true)
     frame:EnableMouse(false)
     frame:RegisterForDrag("LeftButton")
@@ -295,8 +313,8 @@ function ns.ui.CreateTimerIcon(config)
     -- base every tick and it would flicker.
     local function SetTimerFont()
         if not baseFontSize then return end
-        local path    = ns.ResolveFontPath(getCfg("timerFontPath"), getCfg("timerFontKey"))
-        local outline = getCfg("timerOutline") or ""
+        local path    = ns.ResolveFontPath(TimerCfg("timerFontPath", nil), TimerCfg("timerFontKey", nil))
+        local outline = TimerCfg("timerOutline", nil) or ""
         timerText:SetFont(path, math.max(8, math.floor(baseFontSize * sizeScale)), outline)
     end
 
@@ -327,7 +345,7 @@ function ns.ui.CreateTimerIcon(config)
                 -- Custom configurable urgency tiers (e.g. the user's custom CDM icons).
                 -- When present they REPLACE the hardcoded yellow@15 / red@5 thresholds;
                 -- absent (every built-in tracker) -> the original behaviour is untouched.
-                local tiers = getCfg and getCfg("timerTiers")
+                local tiers = TimerTiers()
                 local scale = 1
                 if result._timerColor then
                     -- Active positive buff (green / PI yellow): keep its colour
@@ -697,14 +715,15 @@ function ns.ui.CreateTimerIcon(config)
         end
     end
 
-    -- Below-player glow: a LibCustomGlow halo while the tracker is ACTIVE (result._timerColor set =
-    -- green/buff-up) when the per-dest "Show glow" is on. Only below-player; any other dest stops it.
-    -- Track the active glow type so we Start/Stop only on a real change (the lib animates itself).
+    -- Below-player glow: a LibCustomGlow halo while the tracked spell is PROCCED (Blizzard's spell-
+    -- activation overlay → frame._procced, set by the proc events below) when the per-dest "Show glow on
+    -- proc" is on. Only below-player; any other dest stops it. Track the active glow type so we Start/Stop
+    -- only on a real change (the lib animates itself).
     function result.ApplyDestGlow()
         local wantType, colorArr
         if CDMActive() and getCfg("cdmDest") == "belowPlayer" and ns.CDMAnchor and ns.CDMAnchor.GetDestGlow then
             local enabled, gt, c = ns.CDMAnchor.GetDestGlow("belowPlayer")
-            if enabled and result._timerColor then
+            if enabled and frame._procced then
                 wantType = gt or "pixel"
                 colorArr = { c.r or 1, c.g or 1, c.b or 1, c.a or 1 }
             end
@@ -755,21 +774,25 @@ function ns.ui.CreateTimerIcon(config)
     -- Render the per-dest Title + Stacks for a below-player icon (other dests: hide both).
     function result.ApplyDestExtras()
         local isBP = CDMActive() and getCfg("cdmDest") == "belowPlayer"
-        if isBP and DCfg("titleShow", false) then
-            titleFS:SetFont(ns.ResolveFontPath(getCfg("timerFontPath"), getCfg("timerFontKey")), DCfg("titleSize", 10), "OUTLINE")
+        -- Title: free text (essential's titleText), styled per-dest with the title* keys.
+        if isBP and DCfg("showTitle", false) then
+            titleFS:SetFont(ns.ResolveFontPath(DCfg("titleFontPath", nil), DCfg("titleFontKey", "Fira Mono")),
+                DCfg("titleFontSize", 12), DCfg("titleOutline", "OUTLINE"))
             local c = DCfg("titleColor", nil) or { r = 1, g = 1, b = 1, a = 1 }
             titleFS:SetTextColor(c.r, c.g, c.b, c.a or 1)
-            if ns.AnchorFS then ns.AnchorFS(titleFS, frame, DCfg("titlePos", "BOTTOM"), DCfg("titleOffX", 0), DCfg("titleOffY", 0)) end
-            local nm = ResolveName()
-            if nm and nm ~= "" then titleFS:SetText(nm); titleFS:Show() else titleFS:Hide() end
+            if ns.AnchorFS then ns.AnchorFS(titleFS, frame, DCfg("titlePos", "TOP"), DCfg("titleOffX", 0), DCfg("titleOffY", 0)) end
+            local txt = DCfg("titleText", "") or ""
+            if txt ~= "" then titleFS:SetText(txt); titleFS:Show() else titleFS:Hide() end
         else
             titleFS:Hide()
         end
-        if isBP and DCfg("stackShow", false) then
-            stacksFS:SetFont(ns.ResolveFontPath(getCfg("timerFontPath"), getCfg("timerFontKey")), DCfg("stackSize", 12), "OUTLINE")
+        -- Stacks / charges: the tracked spell's charges, or the item count, styled with the stack* keys.
+        if isBP and DCfg("showStack", true) then
+            stacksFS:SetFont(ns.ResolveFontPath(DCfg("stackFontPath", nil), DCfg("stackFontKey", "Fira Mono")),
+                DCfg("stackFontSize", 10), DCfg("stackOutline", "OUTLINE"))
             local c = DCfg("stackColor", nil) or { r = 1, g = 1, b = 1, a = 1 }
             stacksFS:SetTextColor(c.r, c.g, c.b, c.a or 1)
-            if ns.AnchorFS then ns.AnchorFS(stacksFS, frame, DCfg("stackPos", "BOTTOMRIGHT"), DCfg("stackOffX", 0), DCfg("stackOffY", 0)) end
+            if ns.AnchorFS then ns.AnchorFS(stacksFS, frame, DCfg("stackPos", "BOTTOMRIGHT"), DCfg("stackOffX", 2), DCfg("stackOffY", -2)) end
             local ch = ResolveCharges()
             if ch and ch > 0 then stacksFS:SetText(tostring(ch)); stacksFS:Show() else stacksFS:Hide() end
         else
@@ -913,6 +936,18 @@ function ns.ui.CreateTimerIcon(config)
     end
     frame:HookScript("OnShow", SlotRepack)
     frame:HookScript("OnHide", SlotRepack)
+
+    -- Below-player "Show glow on proc": track Blizzard's spell-activation overlay for the tracked spell
+    -- so ApplyDestGlow can flash the halo while it is procced (set frame._procced; re-apply the glow).
+    frame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
+    frame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
+    frame:SetScript("OnEvent", function(_, event, arg1)
+        local sid = getCfg("spellId")
+        if sid and arg1 == sid then
+            frame._procced = (event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
+            if result.ApplyDestGlow then result.ApplyDestGlow() end
+        end
+    end)
 
     -- Follow the native Cooldown Manager: ns.CDMAnchor re-applies this icon's
     -- position whenever the viewer relayouts / moves; in slot mode it also sizes

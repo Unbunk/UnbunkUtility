@@ -390,6 +390,18 @@ local function StacksSection(bundle)
       end }
 end
 
+-- Exposed so the below-player panel (and later the shared custom-icon window) can reuse the SAME
+-- Timer/Title/Stacks sections fed a per-dest bundle — pixel-identical to essential, with the show-gate
+-- greying handled by the section's own `gate` (active when the bundle has no `has`, i.e. not an override).
+ns.CDMGroups = ns.CDMGroups or {}
+ns.CDMGroups.TimerSection  = TimerSection
+ns.CDMGroups.TitleSection  = TitleSection
+ns.CDMGroups.StacksSection = StacksSection
+ns.CDMGroups.SectionKeys   = { timer = TIMER_KEYS, title = TITLE_KEYS, stack = STACK_KEYS }
+ns.CDMGroups.GrowList      = GrowList
+ns.CDMGroups.GrowLabel     = GrowLabel
+ns.CDMGroups.GrowFromLabel = GrowFromLabel
+
 -- ════════════════════════════════════════════════════════════════════════════════
 -- Per-ICON override editor (the pencil), bound to a Config instance `I`. One singleton editor is
 -- shared across panels (re-pointed to the active I + sid on open).
