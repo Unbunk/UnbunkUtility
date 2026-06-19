@@ -378,7 +378,10 @@ function ns.CDMAnchor.GetIconDescriptors(dest)
     local out = {}
     for _, d in ipairs(appliers) do
         if d.frame and d.getCfg and d.getCfg("includeInCdm")
-            and (d.getCfg("cdmDest") or "essential") == dest then
+            and (d.getCfg("cdmDest") or "essential") == dest
+            -- Skip a tracker that has nothing trackable right now (optional predicate): a PASSIVE or empty
+            -- trinket slot has no on-use cooldown, so it must not fold into a group as a "?" member.
+            and (not d.cdmEligible or d.cdmEligible()) then
             -- The member key is the frame's global name (DescId is declared later in the file, so
             -- this closure can't capture that local — inline the same frame:GetName() resolution).
             local name = (d.frame.GetName and d.frame:GetName()) or tostring(d.frame)
@@ -791,6 +794,13 @@ function ns.CDMAnchor.RowIconCount(dest, row)
     return #BucketList(dest, row, false) + #BucketList(dest, row, true)
 end
 
+-- Per-BUCKET cap + count. The below-player front/end buckets are each capped INDEPENDENTLY (the user's
+-- "4 icons per part of the row"); the "+" add tile, the cross-bucket drop, and the custom-add path all
+-- gate against these. Other dests fall back to the combined RowCap.
+local BUCKET_CAP = { belowPlayer = 4 }
+function ns.CDMAnchor.BucketCap(dest) return BUCKET_CAP[dest] or ns.CDMAnchor.RowCap(dest) end
+function ns.CDMAnchor.BucketIconCount(dest, row, atEnd) return #BucketList(dest, row, atEnd) end
+
 -- Addon TRACKER icons (not custom) that are CDM-capable but taken OUT of the CDM
 -- (includeInCdm false) and currently shown — for the "Free icons" tab, where clicking
 -- one jumps to its own config panel. Custom free icons come from ns.CustomCDM instead.
@@ -933,6 +943,66 @@ function ns.CDMAnchor.SetDestBorder(dest, key, val)
     c[key] = val
     -- A forced refresh re-lays-out the dest, and each icon's setSize -> ApplyDerivedSizing
     -- -> ApplyBorder then re-reads this border.
+    ns.CDMAnchor.RefreshAll(true)
+end
+
+-- ── Per-dest CDM display flags: "Show press overlay" / "Show Keybinds" ────────
+-- Per-dest opt-in (default OFF), stored alongside the dest's config. Read by TimerIcon for an icon
+-- pinned in that dest. Only the BELOW-PLAYER frame uses this store (its own "CDM settings" cadre);
+-- essential/utility groups read their GROUP's per-icon flags via the CDMGroups engine instead.
+local function DestFlagCfg(dest)
+    if dest == "belowPlayer" then
+        local p = ns.db and ns.db.profile
+        if not p then return nil end
+        p.cdmBelowRow = p.cdmBelowRow or {}
+        return p.cdmBelowRow
+    end
+    return ViewerCfg(dest)
+end
+
+function ns.CDMAnchor.GetDestCdmFlag(dest, key)
+    local c = DestFlagCfg(dest)
+    return (c and c[key] == true) or false
+end
+
+function ns.CDMAnchor.SetDestCdmFlag(dest, key, val)
+    local c = DestFlagCfg(dest)
+    if not c then return end
+    c[key] = val and true or false
+    -- Re-lay-out the dest so every icon's setSize -> ApplyDerivedSizing -> ApplyKeybind re-reads it.
+    ns.CDMAnchor.RefreshAll(true)
+end
+
+-- ── Per-dest GLOW (below-player) ─────────────────────────────────────────────
+-- enabled / type (pixel|autocast|button) / colour {r,g,b,a}. TimerIcon draws a LibCustomGlow halo on
+-- the icon while it is ACTIVE (green/buff-up) when enabled. Stored on cdmBelowRow. Default OFF.
+function ns.CDMAnchor.GetDestGlow(dest)
+    local c = DestFlagCfg(dest)
+    local enabled = (c and c.glowEnabled == true) or false
+    local gtype   = (c and c.glowType) or "pixel"
+    local color   = (c and c.glowColor) or { r = 0.96, g = 1, b = 0, a = 1 }
+    return enabled, gtype, color
+end
+function ns.CDMAnchor.SetDestGlow(dest, key, val)
+    local c = DestFlagCfg(dest)
+    if not c then return end
+    c[key] = val
+    ns.CDMAnchor.RefreshAll(true)
+end
+
+-- ── Generic per-dest icon config (below-player Title / Stacks / Timer cadres) ──
+-- Stored on the dest's config (cdmBelowRow). GetDestCfg returns `default` when unset. TimerIcon reads
+-- these for any icon pinned in that dest; the cadres write them.
+function ns.CDMAnchor.GetDestCfg(dest, key, default)
+    local c = DestFlagCfg(dest)
+    local v = c and c[key]
+    if v == nil then return default end
+    return v
+end
+function ns.CDMAnchor.SetDestCfg(dest, key, val)
+    local c = DestFlagCfg(dest)
+    if not c then return end
+    c[key] = val
     ns.CDMAnchor.RefreshAll(true)
 end
 
@@ -1352,9 +1422,8 @@ local function LayoutCDMRow(viewer, dest, list)
     end)
 
     -- Split our icons per row + side (mine is already sorted by row, side, order).
-    -- BOTH sides are laid order-ascending LEFT->RIGHT so the saved order matches the
-    -- visual order — otherwise the "Move in row" arrows (which assume index 1 = left)
-    -- read inverted for end-anchored icons.
+    -- BOTH sides are laid order-ascending LEFT->RIGHT so the stored order matches the on-screen order
+    -- (index 1 = leftmost), keeping end-anchored icons consistent in this bucket-fallback layout.
     local startByRow, endByRow = {}, {}
     for _, m in ipairs(mine) do
         local t = m.atEnd and endByRow or startByRow

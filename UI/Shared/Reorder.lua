@@ -261,6 +261,19 @@ function ns.ui.CreateIconReorderStrip(opts)
     emptyFs:SetText(opts.emptyText or "")
     emptyFs:Hide()
 
+    -- Transient "full" caption: shown on this strip ONLY while a FOREIGN icon is dragged over it and the
+    -- bucket is full (opts.canAdd() is false). On a high overlay so it sits above the tiles. Opt-in via
+    -- opts.fullText (e.g. the below-player front/end buckets); strips without it never show a message.
+    local fullOverlay = CreateFrame("Frame", nil, strip)
+    fullOverlay:SetAllPoints(strip)
+    fullOverlay:SetFrameLevel(strip:GetFrameLevel() + 5)
+    fullOverlay:Hide()
+    local fullFs = fullOverlay:CreateFontString(nil, "OVERLAY")
+    fullFs:SetFont(STANDARD_TEXT_FONT, 14, "OUTLINE")
+    fullFs:SetTextColor(1, 0.45, 0.45)
+    fullFs:SetText(opts.fullText or "")
+    fullFs:SetPoint("CENTER", fullOverlay, "CENTER", 0, 0)
+
     local function slotX(i) return PAD + (i - 1) * (ICON + GAP) end
 
     -- Tile placement: a wrapping grid (Free-icons list) when opts.wrap + a fixed width,
@@ -367,6 +380,17 @@ function ns.ui.CreateIconReorderStrip(opts)
         if holeIndex and holeIndex >= #seq then slot = slot + 1 end
         -- Keep the trailing "+" past the (possibly gapped) tiles while dragging.
         if addBtn and addBtn:IsShown() then placeTile(slot + 1, addBtn) end
+
+        -- Transient full hint: this strip is hovered (holeIndex set) by a FOREIGN icon (not already here
+        -- → not a reorder) and its bucket is full (canAdd false). Suppressed for a within-strip reorder so
+        -- a full bucket can still be re-ordered.
+        if fullOverlay and opts.fullText then
+            local show = (holeIndex ~= nil) and dragId and opts.canAdd and (not opts.canAdd())
+            if show then
+                for _, v in ipairs(items) do if v.id == dragId then show = false; break end end
+            end
+            fullOverlay:SetShown(show and true or false)
+        end
     end
 
     result._drag = {
@@ -431,6 +455,7 @@ function ns.ui.CreateIconReorderStrip(opts)
     -- Reuses a button pool (never creates/destroys per refresh) so icons can't pile up.
     local function rebuild()
         items = getIcons() or {}
+        if fullOverlay then fullOverlay:Hide() end   -- transient; only the drag reflow shows it
         -- Show the "+" only when adding is enabled AND the row isn't full (canAdd).
         local showAdd = false
         if opts.onAdd and (not opts.canAdd or opts.canAdd()) then showAdd = true end

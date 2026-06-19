@@ -40,6 +40,69 @@ local function MatchTier(tiers, total)
     return best
 end
 
+-- ── Press overlay (shared across all TimerIcons) ────────────────────────────────
+-- A SINGLE poll loop tints an icon while its action-bar keybind is physically held. A tracker opts in
+-- via result.ApplyKeybind (which registers it here when its CDM dest enables "Show press overlay"); the
+-- loop only iterates the registered trackers, so it's idle by default. Taint-free (only IsKeyDown / the
+-- modifier getters + a plain texture). Mirrors the native poller in the CDMGroups engine.
+local PRESS_FALLBACK = { r = 1, g = 1, b = 1, a = 0.35 }
+local pressTrackers = {}   -- [frame] = { frame, overlay, getCombos, getColor }
+local pressPoller
+local function ComboDown(c)
+    if c.shift ~= IsShiftKeyDown() then return false end
+    if c.ctrl  ~= IsControlKeyDown() then return false end
+    if c.alt   ~= IsAltKeyDown() then return false end
+    return IsKeyDown(c.key)
+end
+local function AnyComboDown(combos)
+    for _, c in ipairs(combos) do if ComboDown(c) then return true end end
+    return false
+end
+local function EnsurePressPoller()
+    if pressPoller then return end
+    pressPoller = CreateFrame("Frame")
+    local accum = 0
+    pressPoller:SetScript("OnUpdate", function(_, dt)
+        accum = accum + dt
+        if accum < 0.05 then return end
+        accum = 0
+        local typing = GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
+        for f, e in pairs(pressTrackers) do
+            local want = false
+            if not typing and f:IsShown() then
+                local combos = e.getCombos()
+                if combos and AnyComboDown(combos) then want = true end
+            end
+            if want then
+                local pc = e.getColor() or PRESS_FALLBACK
+                e.overlay:SetColorTexture(pc.r, pc.g, pc.b, pc.a or 0.35)
+                e.overlay:Show()
+            else
+                e.overlay:Hide()
+            end
+        end
+    end)
+end
+
+-- ── Below-player glow (LibCustomGlow) ───────────────────────────────────────────
+-- The below-player "Glow" cadre draws a LibCustomGlow halo on the tracker while it is ACTIVE
+-- (green/buff-up). Types pixel/autocast/button (proc is N/A for a tracker). Calls mirror the CDMGroups
+-- engine. No-op if the lib is absent. The halo frame is a child of the icon, so it hides with it.
+local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
+local DEST_GLOW_KEY = "uuti"
+local function StartDestGlow(frame, gtype, colorArr)
+    if not LCG then return end
+    if gtype == "autocast" then LCG.AutoCastGlow_Start(frame, colorArr, nil, nil, nil, nil, nil, DEST_GLOW_KEY)
+    elseif gtype == "button" then LCG.ButtonGlow_Start(frame)
+    else LCG.PixelGlow_Start(frame, colorArr, nil, nil, nil, nil, nil, nil, nil, DEST_GLOW_KEY) end
+end
+local function StopDestGlow(frame, gtype)
+    if not LCG then return end
+    if gtype == "autocast" then LCG.AutoCastGlow_Stop(frame, DEST_GLOW_KEY)
+    elseif gtype == "button" then LCG.ButtonGlow_Stop(frame)
+    else LCG.PixelGlow_Stop(frame, DEST_GLOW_KEY) end
+end
+
 function ns.ui.CreateTimerIcon(config)
     local name      = config.name
     local getCfg    = config.getCfg
@@ -78,9 +141,25 @@ function ns.ui.CreateTimerIcon(config)
 
     -- ── Icon ──────────────────────────────────────────────────────────────────
 
+    -- Aspect-preserving icon crop, IDENTICAL to CDMGroups Engine.IconTexCoord: a square slot trims a
+    -- 7% border zoom (0.07,0.93); a NON-square slot letterboxes the longer axis so the art keeps its
+    -- proportions instead of stretching. Recomputed on every resize (ApplyDerivedSizing) so a tracker
+    -- folded into a non-square group matches the native cooldowns beside it (else the trinket looked
+    -- zoomed/stretched while the natives were letterboxed).
+    local ICON_ZOOM = 0.07
+    local function IconTexCoordFor(w, h)
+        if not (w and h) or w <= 0 or h <= 0 then return ICON_ZOOM, 1 - ICON_ZOOM, ICON_ZOOM, 1 - ICON_ZOOM end
+        local texW = 1 - ICON_ZOOM * 2
+        local aspect = w / h
+        local xR = aspect < 1 and aspect or 1
+        local yR = aspect > 1 and 1 / aspect or 1
+        return -0.5 * texW * xR + 0.5,  0.5 * texW * xR + 0.5,
+               -0.5 * texW * yR + 0.5,  0.5 * texW * yR + 0.5
+    end
+
     local iconTex = frame:CreateTexture(nil, "BACKGROUND")
     iconTex:SetAllPoints(frame)
-    iconTex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    iconTex:SetTexCoord(IconTexCoordFor(64, 64))   -- 0.07,0.93 square default; re-cropped on resize
 
     local checkTex = frame:CreateTexture(nil, "OVERLAY")
     checkTex:SetTexture(ns.GREEN_CHECK_TEXTURE)
@@ -119,6 +198,23 @@ function ns.ui.CreateTimerIcon(config)
     timerText:SetPoint("CENTER", frame, "CENTER", 0, 0)
     timerText:Hide()
 
+    -- ── Keybind text + press overlay (Cooldown Manager integration) ──────────────
+    -- The keybind text sits on the timer host (above the border + swipe, like the timer); the press
+    -- overlay is a tint over the icon, BELOW the border/timer. Both are driven by result.ApplyKeybind
+    -- from the icon's CDM dest (the group's per-icon flags when a Cooldown-groups group owns this icon,
+    -- else the per-dest below-player flags). A FREE icon shows neither.
+    local keybindText = timerHost:CreateFontString(nil, "OVERLAY")
+    keybindText:Hide()
+    local pressOverlay = frame:CreateTexture(nil, "OVERLAY")
+    pressOverlay:SetAllPoints(frame)
+    pressOverlay:Hide()
+    -- Below-player Title (tracked spell/item NAME) + Stacks/Charges. Additive; rendered only for a
+    -- below-player icon when the per-dest cadres enable them (hidden otherwise).
+    local titleFS = timerHost:CreateFontString(nil, "OVERLAY")
+    titleFS:Hide()
+    local stacksFS = timerHost:CreateFontString(nil, "OVERLAY")
+    stacksFS:Hide()
+
     -- ── Drag ──────────────────────────────────────────────────────────────────
 
     -- True when the NEW "Cooldown groups" engine OWNS this icon's dest: it then folds this tracker
@@ -149,6 +245,20 @@ function ns.ui.CreateTimerIcon(config)
         return v ~= nil and v:IsShown()
     end
     result.CDMActive = CDMActive
+
+    -- Effective timer config for THIS icon: the per-dest below-player value (when set) overrides the
+    -- tracker's own config; everything else (and any unset below-player key) falls back to getCfg, then
+    -- `default`. So a below-player Timer cadre value governs below-player icons with ZERO change to
+    -- essential/utility/free trackers (they always hit the getCfg fallback).
+    local function TimerCfg(key, default)
+        if getCfg("cdmDest") == "belowPlayer" and CDMActive() and ns.CDMAnchor and ns.CDMAnchor.GetDestCfg then
+            local v = ns.CDMAnchor.GetDestCfg("belowPlayer", key, nil)
+            if v ~= nil then return v end
+        end
+        local g = getCfg(key)
+        if g ~= nil then return g end
+        return default
+    end
 
     frame:SetMovable(true)
     frame:EnableMouse(false)
@@ -230,7 +340,7 @@ function ns.ui.CreateTimerIcon(config)
                         timerText:SetTextColor(tier.color.r, tier.color.g, tier.color.b, tier.color.a or 1)
                         scale = tier.scale or 1
                     else
-                        local c = getCfg("timerColor")
+                        local c = TimerCfg("timerColor", nil)
                         if c then timerText:SetTextColor(c.r, c.g, c.b, c.a or 1)
                         else timerText:SetTextColor(1, 1, 1, 1) end
                     end
@@ -248,7 +358,7 @@ function ns.ui.CreateTimerIcon(config)
                     timerText:SetTextColor(1, 0.82, 0, 1)     -- yellow <=15s
                     scale = SIZE_YELLOW
                 else
-                    local c = getCfg("timerColor")
+                    local c = TimerCfg("timerColor", nil)
                     if c then
                         timerText:SetTextColor(c.r, c.g, c.b, c.a or 1)
                     else
@@ -267,8 +377,8 @@ function ns.ui.CreateTimerIcon(config)
                         flashUntil = GetTime() + FLASH_DURATION
                     end
                 end
-                -- "Show timer" toggle (custom icons); absent -> always shown.
-                if (not getCfg) or getCfg("showTimer") ~= false then
+                -- "Show timer" toggle (per-dest for below-player, else the tracker's); absent -> shown.
+                if TimerCfg("showTimer", nil) ~= false then
                     timerText:Show()
                 else
                     timerText:Hide()
@@ -318,6 +428,7 @@ function ns.ui.CreateTimerIcon(config)
             -- grey the icon out behind the swipe so it reads as "not ready".
             iconTex:SetDesaturated(true)
         end
+        if result.ApplyDestGlow then result.ApplyDestGlow() end
     end
 
     function result.ClearTimer()
@@ -326,6 +437,8 @@ function ns.ui.CreateTimerIcon(config)
         timerText:Hide()
         cooldown:Clear()
         iconTex:SetDesaturated(false)  -- restore full colour once the CD/timer ends
+        result._timerColor = nil
+        if result.ApplyDestGlow then result.ApplyDestGlow() end
         -- The check is now driven separately (Show / Hide / Blink) by
         -- consumers, so they can flash it on CD-completion instead of
         -- leaving it permanently visible.
@@ -351,11 +464,11 @@ function ns.ui.CreateTimerIcon(config)
     end
 
     function result.ApplyFont()
-        baseFontSize = getCfg("timerFontSize") or 20
+        baseFontSize = TimerCfg("timerFontSize", nil) or 20
         SetTimerFont()
         -- React to the "show timer" toggle immediately: hide now if off, else clear the
         -- cached second so a re-enabled timer re-renders on the next tick.
-        if getCfg and getCfg("showTimer") == false then
+        if TimerCfg("showTimer", nil) == false then
             timerText:Hide()
         else
             lastSecs = nil
@@ -393,16 +506,24 @@ function ns.ui.CreateTimerIcon(config)
     -- consistent whatever drives the size.
     local function ApplyDerivedSizing()
         local w, h = frame:GetSize()
+        iconTex:SetTexCoord(IconTexCoordFor(w, h))   -- aspect-aware crop, matches native CDM icons (no stretch)
         -- The user-configured timer font size wins; we only auto-derive from the
         -- icon size when none is set. ItemTracker.ApplyVisuals calls ApplySize()
         -- (→ here) every 0.5s tick, so without this the configured timerFontSize
         -- was overwritten by the derived value on the very next tick and the
         -- exposed "Timer text size" control had no effect.
-        baseFontSize = getCfg("timerFontSize") or math.max(10, math.floor(math.min(w, h) * 0.4))
+        baseFontSize = TimerCfg("timerFontSize", nil) or math.max(10, math.floor(math.min(w, h) * 0.4))
         SetTimerFont()
+        -- Below-player timer text position (per-dest); CENTER everywhere else (TimerCfg → CENTER fallback).
+        if ns.AnchorFS then
+            ns.AnchorFS(timerText, frame, TimerCfg("timerPos", "CENTER"), TimerCfg("timerOffX", 0), TimerCfg("timerOffY", 0))
+        end
         local checkSize = math.floor(math.min(w, h) * 0.6)
         checkTex:SetSize(checkSize, checkSize)
         result.ApplyBorder()
+        result.ApplyKeybind()
+        result.ApplyDestGlow()
+        result.ApplyDestExtras()
     end
 
     function result.ApplySize()
@@ -436,9 +557,20 @@ function ns.ui.CreateTimerIcon(config)
         -- Below player frame panels) governs every icon of that dest, so they all share one
         -- border. A free icon (not in the CDM) uses its own border config.
         local enabled, c, size
-        -- When the groups engine owns this dest the tracker keeps its OWN look (the engine never
-        -- restyles its border), so use the icon's own border config — NOT the old per-dest CDM border.
-        if not EngineOwns() and CDMActive() and ns.CDMAnchor and ns.CDMAnchor.GetDestBorder then
+        if EngineOwns() then
+            -- In a CDMGroups group, read the GROUP's per-icon border config for this tracker's key — the
+            -- SAME source the engine uses for the native cooldowns beside it (I.IconGet resolves the
+            -- per-icon pencil override, else the group default). Otherwise the tracker drew its own
+            -- (often differently-coloured/sized) border and stood out from its neighbours.
+            local dest = getCfg("cdmDest") or "essential"
+            local I = ns.CDMGroups and ns.CDMGroups.instances and ns.CDMGroups.instances[dest]
+            local key = frame:GetName()
+            if I and I.IconGet and key then
+                enabled, c, size = I.IconGet(key, "borderEnabled"), I.IconGet(key, "borderColor"), I.IconGet(key, "borderSize")
+            else
+                enabled, c, size = getCfg("borderEnabled"), getCfg("borderColor"), getCfg("borderSize")
+            end
+        elseif CDMActive() and ns.CDMAnchor and ns.CDMAnchor.GetDestBorder then
             enabled, c, size = ns.CDMAnchor.GetDestBorder(getCfg("cdmDest") or "essential")
         else
             enabled, c, size = getCfg("borderEnabled"), getCfg("borderColor"), getCfg("borderSize")
@@ -473,6 +605,176 @@ function ns.ui.CreateTimerIcon(config)
         borderEdges.right:SetWidth(size)
 
         for _, t in pairs(borderEdges) do t:Show() end
+    end
+
+    -- ── Keybind text + press overlay resolution ─────────────────────────────────
+    local function CdmGroupInstance()
+        local dest = getCfg("cdmDest") or "essential"
+        return ns.CDMGroups and ns.CDMGroups.instances and ns.CDMGroups.instances[dest]
+    end
+    -- A CDM display flag ("showKeybinds" / "showPressOverlay") for THIS icon: the group's per-icon value
+    -- (pencil override → group) when a Cooldown-groups group owns the dest; the per-dest below-player
+    -- flag when pinned below the player; never for a free icon.
+    local function CdmFlag(key)
+        if EngineOwns() then
+            local I = CdmGroupInstance()
+            local fn = frame:GetName()
+            if I and I.IconGet and fn then return I.IconGet(fn, key) == true end
+        elseif CDMActive() and getCfg("cdmDest") == "belowPlayer" then
+            if ns.CDMAnchor and ns.CDMAnchor.GetDestCdmFlag then
+                return ns.CDMAnchor.GetDestCdmFlag("belowPlayer", key) == true
+            end
+        end
+        return false
+    end
+    -- The icon's keybind target: its on-use SPELL first, then its ITEM (a trinket/potion is bound on the
+    -- bar as an item, not a spell). Text + raw combos come from the shared resolver.
+    local function KbText()
+        if not ns.CDGKeybinds then return nil end
+        local sid = getCfg("spellId")
+        local txt = sid and ns.CDGKeybinds.GetKeybindText(sid)
+        if not txt and config.getItemId then
+            local iid = config.getItemId()
+            if iid then txt = ns.CDGKeybinds.GetKeybindTextForItem(iid) end
+        end
+        return txt
+    end
+    local function KbCombos()
+        if not ns.CDGKeybinds then return nil end
+        local sid = getCfg("spellId")
+        local c = sid and ns.CDGKeybinds.GetRawCombos(sid)
+        if not c and config.getItemId then
+            local iid = config.getItemId()
+            if iid then c = ns.CDGKeybinds.GetRawCombosForItem(iid) end
+        end
+        return c
+    end
+    local function PressColor()
+        if EngineOwns() then
+            local I = CdmGroupInstance()
+            local fn = frame:GetName()
+            if I and I.IconGet and fn then return I.IconGet(fn, "pressOverlayColor") or PRESS_FALLBACK end
+        end
+        return PRESS_FALLBACK
+    end
+
+    -- Refresh the keybind text + the press-overlay registration from the icon's CDM dest. Called every
+    -- ApplyDerivedSizing pass (size / relayout tick) so a rebind or config change repaints within a tick.
+    function result.ApplyKeybind()
+        if CdmFlag("showKeybinds") then
+            local fontKey, fontPath, fontSize, outline, color, pos, ox, oy
+            if EngineOwns() then
+                local I = CdmGroupInstance()
+                local fn = frame:GetName()
+                fontKey, fontPath = I.IconGet(fn, "keybindFontKey"), I.IconGet(fn, "keybindFontPath")
+                fontSize, outline = I.IconGet(fn, "keybindFontSize") or 12, I.IconGet(fn, "keybindOutline") or "OUTLINE"
+                color = I.IconGet(fn, "keybindColor")
+                pos, ox, oy = I.IconGet(fn, "keybindPos") or "TOPLEFT", I.IconGet(fn, "keybindOffX"), I.IconGet(fn, "keybindOffY")
+            else
+                local w, h = frame:GetSize()
+                fontKey, fontPath = getCfg("timerFontKey"), getCfg("timerFontPath")
+                fontSize, outline = math.max(8, math.floor(math.min(w, h) * 0.28)), "OUTLINE"
+                pos, ox, oy = "TOPLEFT", 2, -2
+            end
+            keybindText:SetFont(ns.ResolveFontPath(fontPath, fontKey), fontSize or 12, outline or "OUTLINE")
+            local c = color or { r = 1, g = 1, b = 1, a = 1 }
+            keybindText:SetTextColor(c.r, c.g, c.b, c.a or 1)
+            if ns.AnchorFS then ns.AnchorFS(keybindText, frame, pos or "TOPLEFT", ox, oy) end
+            local txt = KbText()
+            if txt and txt ~= "" then keybindText:SetText(txt); keybindText:Show() else keybindText:Hide() end
+        else
+            keybindText:Hide()
+        end
+
+        if CdmFlag("showPressOverlay") then
+            EnsurePressPoller()
+            if not pressTrackers[frame] then
+                pressTrackers[frame] = { frame = frame, overlay = pressOverlay, getCombos = KbCombos, getColor = PressColor }
+            end
+        elseif pressTrackers[frame] then
+            pressTrackers[frame] = nil
+            pressOverlay:Hide()
+        end
+    end
+
+    -- Below-player glow: a LibCustomGlow halo while the tracker is ACTIVE (result._timerColor set =
+    -- green/buff-up) when the per-dest "Show glow" is on. Only below-player; any other dest stops it.
+    -- Track the active glow type so we Start/Stop only on a real change (the lib animates itself).
+    function result.ApplyDestGlow()
+        local wantType, colorArr
+        if CDMActive() and getCfg("cdmDest") == "belowPlayer" and ns.CDMAnchor and ns.CDMAnchor.GetDestGlow then
+            local enabled, gt, c = ns.CDMAnchor.GetDestGlow("belowPlayer")
+            if enabled and result._timerColor then
+                wantType = gt or "pixel"
+                colorArr = { c.r or 1, c.g or 1, c.b or 1, c.a or 1 }
+            end
+        end
+        local cur = frame._destGlowType
+        if cur == wantType then return end
+        if cur then StopDestGlow(frame, cur) end
+        if wantType then StartDestGlow(frame, wantType, colorArr) end
+        frame._destGlowType = wantType
+    end
+
+    -- Below-player Title (the tracked spell/item NAME) + Stacks/Charges. Name/charges lightly cached.
+    local nameKey, nameVal
+    local function ResolveName()
+        local sid = getCfg("spellId")
+        if sid and sid ~= 0 then
+            if nameKey ~= sid then nameKey, nameVal = sid, (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(sid)) end
+            if nameVal then return nameVal end
+        end
+        if config.getItemId then
+            local iid = config.getItemId()
+            if iid then
+                local k = "i" .. iid
+                if nameKey ~= k then nameKey, nameVal = k, (C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(iid)) end
+                return nameVal
+            end
+        end
+        return nil
+    end
+    local function ResolveCharges()
+        local sid = getCfg("spellId")
+        if sid and sid ~= 0 and C_Spell and C_Spell.GetSpellCharges then
+            local ci = C_Spell.GetSpellCharges(sid)
+            if ci and (ci.maxCharges or 0) > 1 then return ci.currentCharges end
+        end
+        if config.getItemId then
+            local iid = config.getItemId()
+            if iid and C_Item and C_Item.GetItemCount then
+                local n = C_Item.GetItemCount(iid)
+                if n and n > 0 then return n end
+            end
+        end
+        return nil
+    end
+    local function DCfg(key, default)
+        return (ns.CDMAnchor and ns.CDMAnchor.GetDestCfg and ns.CDMAnchor.GetDestCfg("belowPlayer", key, default)) or default
+    end
+    -- Render the per-dest Title + Stacks for a below-player icon (other dests: hide both).
+    function result.ApplyDestExtras()
+        local isBP = CDMActive() and getCfg("cdmDest") == "belowPlayer"
+        if isBP and DCfg("titleShow", false) then
+            titleFS:SetFont(ns.ResolveFontPath(getCfg("timerFontPath"), getCfg("timerFontKey")), DCfg("titleSize", 10), "OUTLINE")
+            local c = DCfg("titleColor", nil) or { r = 1, g = 1, b = 1, a = 1 }
+            titleFS:SetTextColor(c.r, c.g, c.b, c.a or 1)
+            if ns.AnchorFS then ns.AnchorFS(titleFS, frame, DCfg("titlePos", "BOTTOM"), DCfg("titleOffX", 0), DCfg("titleOffY", 0)) end
+            local nm = ResolveName()
+            if nm and nm ~= "" then titleFS:SetText(nm); titleFS:Show() else titleFS:Hide() end
+        else
+            titleFS:Hide()
+        end
+        if isBP and DCfg("stackShow", false) then
+            stacksFS:SetFont(ns.ResolveFontPath(getCfg("timerFontPath"), getCfg("timerFontKey")), DCfg("stackSize", 12), "OUTLINE")
+            local c = DCfg("stackColor", nil) or { r = 1, g = 1, b = 1, a = 1 }
+            stacksFS:SetTextColor(c.r, c.g, c.b, c.a or 1)
+            if ns.AnchorFS then ns.AnchorFS(stacksFS, frame, DCfg("stackPos", "BOTTOMRIGHT"), DCfg("stackOffX", 0), DCfg("stackOffY", 0)) end
+            local ch = ResolveCharges()
+            if ch and ch > 0 then stacksFS:SetText(tostring(ch)); stacksFS:Show() else stacksFS:Hide() end
+        else
+            stacksFS:Hide()
+        end
     end
 
     function result.SetUnlocked(val)
@@ -617,12 +919,13 @@ function ns.ui.CreateTimerIcon(config)
     -- the icon to the native row via SetSlotSize.
     if ns.CDMAnchor then
         ns.CDMAnchor.Register({
-            apply   = result.ApplyPosition,
-            frame   = frame,
-            getCfg  = getCfg,
-            setCfg  = config.setCfg,   -- optional: lets the CDM reorder strips flip cdmAtEnd on drag
-            setSize = result.SetSlotSize,
-            getIcon = function() return curIcon end,
+            apply       = result.ApplyPosition,
+            frame       = frame,
+            getCfg      = getCfg,
+            setCfg      = config.setCfg,   -- optional: lets the CDM reorder strips flip cdmAtEnd on drag
+            setSize     = result.SetSlotSize,
+            getIcon     = function() return curIcon end,
+            cdmEligible = config.cdmEligible,  -- optional: false → don't fold into a CDM group (e.g. a passive trinket)
         })
     end
 

@@ -80,13 +80,12 @@ Modules/CustomCDM/Core/CustomCDM.lua
 Modules/CustomCDM/UI/Editor.lua
 Modules/DefensiveTracker/Core/DefensiveTracker.lua
 Modules/DefensiveTracker/UI/ConfigWindow.lua
-Modules/NativeCDM/Core/NativeCDM.lua
-Modules/NativeCDM/UI/Editor.lua
 Modules/BuffGroups/Core/Config.lua
 Modules/BuffGroups/Core/BuffGroups.lua
 Modules/BuffGroups/Core/CustomBuffs.lua
 Modules/BuffGroups/UI/ConfigWindow.lua
 Modules/CDMGroups/Core/Config.lua
+Modules/CDMGroups/Core/Keybinds.lua
 Modules/CDMGroups/Core/Engine.lua
 Modules/CDMGroups/Core/CustomCooldowns.lua
 Modules/CDMGroups/UI/ConfigWindow.lua

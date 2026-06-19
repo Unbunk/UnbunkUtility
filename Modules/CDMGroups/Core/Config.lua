@@ -73,6 +73,16 @@ local GROUP_TEMPLATE = {
     glowEnabled = true,
     glowType    = "pixel",                          -- "pixel" | "autocast" | "button" | "proc"
     glowColor   = { r = 0.96, g = 1, b = 0, a = 1 },   -- F5FF00
+    -- CDM bar integration: flash the icon while its action-bar keybind is physically HELD (press overlay);
+    -- draw that keybind's text on the icon (show keybinds). Both default OFF (opt-in; resolves keybinds
+    -- from the standard bars, and the overlay runs a light poll). Both are per-icon overridable.
+    showPressOverlay  = false,
+    showKeybinds      = false,
+    pressOverlayColor = { r = 1, g = 1, b = 1, a = 0.35 },
+    -- keybind text styling (mirrors the title text pattern); legible top-left by default
+    keybindFontKey = "Fira Mono", keybindFontPath = nil, keybindFontSize = 12, keybindOutline = "OUTLINE",
+    keybindColor   = { r = 1, g = 1, b = 1, a = 1 },
+    keybindPos     = "TOPLEFT", keybindOffX = 2, keybindOffY = -2,
     -- timer / countdown text (restyle of the native Cooldown countdown)
     showTimer     = true,
     timerFontKey  = "Fira Mono", timerFontPath = nil, timerFontSize = 14, timerOutline = "OUTLINE",
@@ -112,6 +122,7 @@ local ICON_OVERRIDE_KEYS = {
     iconW = true, iconH = true,
     showTimer = true, showTitle = true, showStack = true,
     glowEnabled = true, glowType = true, glowColor = true,
+    showPressOverlay = true, showKeybinds = true,
 }
 CDG.ICON_OVERRIDE_KEYS = ICON_OVERRIDE_KEYS
 

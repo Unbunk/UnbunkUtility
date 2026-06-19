@@ -48,6 +48,12 @@ function ns.ui.CreateItemTracker(config)
         name    = frameName,
         getCfg  = getCfg,
         setCfg  = config.setCfg,   -- optional: forwarded to the CDM descriptor (cdmAtEnd on drag)
+        getItemId = getItemId,     -- lets the keybind resolver find the bar binding (bound as an ITEM)
+        -- CDM eligibility: only fold this item into a Cooldown-groups group when it has a usable ON-USE
+        -- spell. cachedSpellName (set in ApplyVisuals, anti-churn) is a STRING when usable, `false` for a
+        -- passive/stat item, nil while unresolved/empty — so a passive or empty trinket slot is excluded
+        -- from the group list (no more "?" placeholder). Potions/healthstones are always on-use → eligible.
+        cdmEligible = function() return type(cachedSpellName) == "string" end,
         onDragStop = function(x, y)
             if onDragStop then onDragStop(x, y) end
         end,
