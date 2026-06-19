@@ -3,7 +3,7 @@
 -- Modules/BuffGroups/Core/Config.lua. Where BuffGroups is hard-wired to the native Buff viewer
 -- (BuffIconCooldownViewer + Enum.CooldownViewerCategory.TrackedBuff), THIS module is a factory:
 -- ns.CDMGroups.Make(dest) builds one self-contained INSTANCE (all the same accessors) bound to a
--- destination ("essential" now; "utility" reserved for a later phase). Each instance reads/writes
+-- destination ("essential" + "utility" are both instantiated). Each instance reads/writes
 -- ns.db.profile.cdmGroups[dest], so two dests never share state.
 --
 -- We REUSE the native cooldown viewer frames — re-sized, re-styled and re-anchored into user-defined
@@ -69,9 +69,10 @@ local GROUP_TEMPLATE = {
     borderEnabled = true,
     borderColor   = { r = 0, g = 0, b = 0, a = 1 },
     borderSize    = 1,
-    -- glow (marching-dots overlay around an active icon)
-    glowEnabled = false,
-    glowColor   = { r = 1, g = 1, b = 1, a = 1 },
+    -- glow (LibCustomGlow around an active icon) — shown only while the spell is procced
+    glowEnabled = true,
+    glowType    = "pixel",                          -- "pixel" | "autocast" | "button" | "proc"
+    glowColor   = { r = 0.96, g = 1, b = 0, a = 1 },   -- F5FF00
     -- timer / countdown text (restyle of the native Cooldown countdown)
     showTimer     = true,
     timerFontKey  = "Fira Mono", timerFontPath = nil, timerFontSize = 14, timerOutline = "OUTLINE",
@@ -110,20 +111,29 @@ local ICON_OVERRIDE_KEYS = {
     borderEnabled = true, borderColor = true, borderSize = true,
     iconW = true, iconH = true,
     showTimer = true, showTitle = true, showStack = true,
-    glowEnabled = true, glowColor = true,
+    glowEnabled = true, glowType = true, glowColor = true,
 }
 CDG.ICON_OVERRIDE_KEYS = ICON_OVERRIDE_KEYS
 
--- Group 1 defaults: the indelible default group.
+-- Group 1 defaults: the indelible default group. Dest-aware: the ESSENTIAL Group 1 lives at
+-- SCREEN-CENTER (CENTER-to-CENTER of UIParent, posX/posY offset from center) since it's the primary
+-- block; the UTILITY Group 1 instead defaults to sitting flush BELOW the Essential block (anchorTo
+-- "essential", relPos "below", 0/0) so the two stack vertically out of the box. The GROUP_TEMPLATE
+-- itself stays generic.
 local function MakeGroup1(dest)
     local g = ns.DeepCopy(GROUP_TEMPLATE)
     g.id   = 1
     g.name = "Group 1"
-    g.posX = 0
-    g.posY = -220   -- sits below screen center (where the Essential CDM normally lives); other groups default to 0
-    -- Essential groups default to SCREEN-CENTER (CENTER-to-CENTER of UIParent, posX/posY offset from
-    -- center) instead of anchoring to the native viewer; the GROUP_TEMPLATE itself stays generic.
-    g.anchorTo = "screen"
+    if dest == "utility" then
+        g.anchorTo = "essential"
+        g.relPos   = "below"
+        g.posX     = 0
+        g.posY     = 0
+    else
+        g.posX = 0
+        g.posY = -220   -- sits below screen center (where the Essential CDM normally lives); other groups default to 0
+        g.anchorTo = "screen"
+    end
     return g
 end
 
@@ -197,17 +207,47 @@ function CDG.Make(dest)
                 s.order[gid] = rows
             end
         end
-        -- One-time: Group 1's default Y becomes -222 (below screen center, where the Essential CDM
-        -- normally sits). Applied once to a profile whose Group 1 predates this default (it was 0).
-        if not s.g1DefaultYApplied then
+        -- One-time: the ESSENTIAL Group 1's default Y becomes -222 (below screen center, where the
+        -- Essential CDM normally sits). Applied once to a profile whose Group 1 predates this default (it
+        -- was 0). ESSENTIAL-ONLY: utility's Group 1 anchors flush BELOW Essential (posY 0 from MakeGroup1)
+        -- and never predates anything, so this -222 screen-center offset must not touch it.
+        if dest == "essential" and not s.g1DefaultYApplied then
             s.g1DefaultYApplied = true
             if s.groups[1] then s.groups[1].posY = -222 end
         end
-        -- One-time: the engine is now ON by default (it replaces the old Essentials placement). Flip a
-        -- profile that predates this default ON once; the user can still toggle it off afterward.
-        if not s.enabledDefaultV1 then
-            s.enabledDefaultV1 = true
+        -- One-time: the engine is now ON by default (it replaces the old bucket placement). Flip a
+        -- profile that predates this default ON once; the user can still toggle it off afterward. Each
+        -- dest carries its OWN migration flag (enabledDefaultV1 for "essential", a dest-named flag for
+        -- every other dest, e.g. utilityEnabledDefaultV1) so enabling one dest's default never marks the
+        -- other's done — an EXISTING profile that had only "essential" gets "utility" flipped on once too.
+        local enabledFlag = (dest == "essential") and "enabledDefaultV1" or (dest .. "EnabledDefaultV1")
+        if not s[enabledFlag] then
+            s[enabledFlag] = true
             s.enabled = true
+        end
+        -- One-time UTILITY cleanup: during the early Utility builds the engine's displayed-set
+        -- accumulation grabbed frames REGARDLESS of IsShown (incl. the empty-pool fallback's full-category
+        -- children + cross-viewer / "Not Displayed" pool frames), polluting the universe with essential/
+        -- hidden cooldowns; if the user then dragged any of those they got baked into s.assign/s.order, and
+        -- an old build also PERSISTED the polluted set in s.seenDisplayed. The engine now gates accumulation
+        -- on nf:IsShown() and keeps the set RUNTIME-ONLY, so it self-heals each session — but persisted
+        -- contamination from those builds must be cleared once. Wipe this dest's order/assign + the dead
+        -- s.seenDisplayed so Group 1 re-seeds clean (GroupOf/GroupRows default displayed -> Group 1
+        -- dynamically; a legit-but-uncast cooldown is NOT lost — it reappears the moment it's shown on CD).
+        -- UTILITY-ONLY: essential's data is correct and must not be reset.
+        if dest == "utility" and not s.utilityReseedV1 then
+            s.utilityReseedV1 = true
+            s.order = {}
+            s.assign = {}
+            s.seenDisplayed = nil
+        end
+        -- Stale-profile normalization (idempotent, every load — handles switching to an OLD profile):
+        -- ESSENTIAL's Group 1 is the primary SCREEN-centered block, but an old profile may carry the
+        -- GROUP_TEMPLATE default anchorTo=="essential". Group 1 IS essential's anchor frame, so that
+        -- self-anchors ("Cannot anchor to itself"); force "screen". (Utility's Group 1 anchors flush below
+        -- Essential by design, so this is essential-only and only rewrites the self-referential value.)
+        if dest == "essential" and s.groups[1] and s.groups[1].anchorTo == "essential" then
+            s.groups[1].anchorTo = "screen"
         end
     end
     ns.RegisterCfgInitHook(I.CfgInit)
@@ -239,7 +279,10 @@ function CDG.Make(dest)
         g.name = "Group " .. id
         g.posX = 0
         g.posY = 0
-        g.anchorTo = "screen"   -- Essential groups default to screen-center (see MakeGroup1)
+        -- A brand-new (id>=2) group defaults to SCREEN-CENTER for every dest — only the indelible
+        -- Group 1 carries the dest-specific default (utility's Group 1 sits below Essential, see
+        -- MakeGroup1); extra groups are standalone blocks the user re-anchors as wanted.
+        g.anchorTo = "screen"
         s.groups[id] = g
         return id
     end
@@ -558,12 +601,28 @@ function CDG.Make(dest)
     return I
 end
 
--- Instantiate "essential" now (the only dest this phase). "utility" is a later phase.
+-- Instantiate the dests. "essential" (the primary, screen-anchored block) and "utility" (anchored
+-- flush below Essential; its viewer HIDES ready cooldowns, so the engine flags this instance to
+-- ACCUMULATE the cooldowns seen in its pool into the tracked universe — see Engine.lua's poolAccumulates).
 CDG.essential = CDG.Make("essential")
+CDG.utility   = CDG.Make("utility")
 
 -- Ownership guard: true when the NEW engine for `dest` is enabled, so the OLD CDMAnchor bucket
 -- system must NOT also drive that viewer. Safe before instances exist (returns false).
 function CDG.OwnsDest(dest)
     local I = CDG.instances and CDG.instances[dest]
     return (I and I.Enabled and I.Enabled()) or false
+end
+
+-- Anchor target for things that anchor TO this dest (e.g. a Buff group placed "above essential").
+-- When the engine owns the dest, return its PRIMARY group's container (Group 1) — the real, resized
+-- block the user sees — so anchored UIs follow ITS bounds (and adapt to the icon size) instead of the
+-- native viewer husk, whose size never grew. nil when not owned / not yet laid out → caller falls back.
+function CDG.AnchorFrame(dest)
+    local I = CDG.instances and CDG.instances[dest]
+    if not (I and I.Enabled and I.Enabled() and I.GetContainer) then return nil end
+    local c = I.GetContainer(1)
+    local w = c and c.GetWidth and c:GetWidth()
+    if w and w > 1 then return c end   -- only once Group 1 has been laid out (has real bounds)
+    return nil
 end

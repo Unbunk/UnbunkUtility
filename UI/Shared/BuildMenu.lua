@@ -381,15 +381,18 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                     headerExtra   = entry.headerExtra,
                     createContent = function(cf)
                         local innerOptions = entry.build and entry.build(cf) or {}
+                        local secOriginX = panelOpts.innerOriginX or 8
                         sectionSub = ns.ui.BuildMenu(cf, innerOptions, {
-                            -- Default inner width to the OUTER width, not a hardcoded
-                            -- 500: InstanceFilter/SoundPicker/TextEditor/IconPicker draw
-                            -- their content at 518 internally, so a 500 host would clip
-                            -- them. Modules whose sections are genuinely narrower pass
-                            -- innerWidth explicitly.
-                            width    = panelOpts.innerWidth   or width,
+                            -- Reserve a RIGHT margin equal to the left originX inset so full-width children
+                            -- with VISIBLE borders (nested group boxes) don't overflow the section's right
+                            -- edge — that's why the sub-cadres of "Group settings" stuck out ~8px on expand.
+                            -- The 518-internal shared widgets (InstanceFilter/SoundPicker/TextEditor/Icon
+                            -- Picker) left-align their visible content well under this width and the section
+                            -- never SetClipsChildren, so the slightly narrower host doesn't clip them. An
+                            -- explicit innerWidth (genuinely-narrower sections) is still respected as-is.
+                            width    = panelOpts.innerWidth or (width - 2 * secOriginX),
                             gap      = panelOpts.innerGap     or 10,
-                            originX  = panelOpts.innerOriginX or 8,
+                            originX  = secOriginX,
                             originY  = panelOpts.innerOriginY or -8,
                             autoHook = false,
                             LSM      = entry.LSM or LSM,

@@ -233,5 +233,7 @@ end
 
 CDG.CustomFor = CustomFor
 
--- Attach the custom-cooldown runtime to the "essential" instance now (the only dest this phase).
+-- Attach the custom-cooldown runtime to each instance (essential + utility). Per-instance pools + cast
+-- event frame, so the two dests never share custom state.
 if CDG.essential then CustomFor(CDG.essential) end
+if CDG.utility then CustomFor(CDG.utility) end

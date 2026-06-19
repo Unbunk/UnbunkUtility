@@ -40,8 +40,140 @@ local FALLBACK_ICON = 134400   -- question mark
 local canaccessvalue = canaccessvalue or function() return true end
 local issecretvalue  = issecretvalue  or function() return false end
 
--- Per-dest -> viewer global frame name. Only "essential" is built this phase. (The Enum category is no
--- longer read: the displayed set / universe come from the viewer's frame pool, not the category set.)
+-- ── LibCustomGlow (bundled) — the glow renderer ──────────────────────────────
+-- We delegate the glow to LibCustomGlow-1.0 (the same lib Ayije_CDM ships) instead of drawing our
+-- own marching-dots. LibStub dedupes the bundled copy with any sibling addon's. If the lib is
+-- missing (very old/broken install) LCG stays nil and every glow op below no-ops gracefully.
+-- The bundled revision (MINOR 24) exports:
+--   PixelGlow_Start(frame,color,N,frequency,length,th,xOffset,yOffset,border,key,frameLevel) / PixelGlow_Stop(frame,key)
+--   AutoCastGlow_Start(frame,color,N,frequency,scale,xOffset,yOffset,key,frameLevel)          / AutoCastGlow_Stop(frame,key)
+--   ButtonGlow_Start(frame,color,frequency,frameLevel)                                        / ButtonGlow_Stop(frame)  (NO key — one per frame)
+--   ProcGlow_Start(frame, options{color,key,...})                                             / ProcGlow_Stop(frame,key)
+-- color is an array {r,g,b,a}. We use ONE shared glow key ("uucdg") so our Start/Stop are
+-- namespaced and never clash with another addon glowing the same native frame. ButtonGlow ignores
+-- the key (it stores _ButtonGlow on the frame), which is fine — at most one glow type is ever active
+-- per frame at a time (UpdateGlow stops the previous type before starting a new one).
+local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
+local GLOW_KEY = "uucdg"
+
+-- LibCustomGlow's ProcGlow sizes/anchors its pooled flipbook frame from the OWNER frame's size at the
+-- moment it calls frame:Show() (inside ProcGlow_Start). For our REUSED, dynamically re-sized native CDM
+-- frames that size is often STALE (a just-acquired pool frame whose SetPoint hasn't resolved, or a frame
+-- not yet re-sized this layout) → the flipbook (a 150px texture anchored CENTER) renders DETACHED and
+-- OVERSIZED, away from the icon (the "giant proc flash in the middle of the screen" — only the proc type,
+-- since the others don't use this pooled-frame+OnShow-sizing path). We can't change the lib, so after
+-- (re)starting it we DETERMINISTICALLY re-glue the pooled frame to nf and re-derive the flipbook size from
+-- nf's RELIABLE size (nf uses SetSize, not anchors, so nf:GetSize() is never stale). Idempotent + cheap, so
+-- it's also re-applied every relayout (ApplyGlow) to correct any later drift.
+local function FixProcGlow(nf, w, h)
+    if not (nf and nf.GetSize) then return end
+    local f = nf["_ProcGlow" .. GLOW_KEY]   -- the lib stores its pooled frame here (key = "_ProcGlow"..key)
+    if not f then return end                -- no proc frame (e.g. the ButtonGlow fallback path)
+    if f:GetParent() ~= nf then f:SetParent(nf) end
+    -- Prefer the CONFIGURED icon size (passed by the caller — the source of truth). nf:GetSize() can lag a
+    -- tick behind StyleFrame's SetSize when a proc fires on a JUST-shown frame; that stale (often larger)
+    -- size made the flash-in render HUGE for ~0.5s until the next relayout corrected it. Fall back to
+    -- nf:GetSize(), then 44, when no configured size is given.
+    local gw, gh = nf:GetSize()
+    if not (w and w > 0) then w = gw end
+    if not (h and h > 0) then h = gh end
+    if not (w and w > 0) then w = 44 end
+    if not (h and h > 0) then h = 44 end
+    local xo, yo = w * 0.2, h * 0.2         -- same padding the lib uses (frame ends up ~1.4x the icon)
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", nf, "TOPLEFT", -xo, yo)
+    f:SetPoint("BOTTOMRIGHT", nf, "BOTTOMRIGHT", xo, -yo)
+    -- Size the FLASH-IN texture (ProcStart) to the frame, exactly like the steady ProcLoop (which the lib
+    -- SetAllPoints to f), so the intro flash stays AROUND THE ICON. The lib's default sizes ProcStart to
+    -- w/42*150 ≈ 3.5x the icon (Blizzard's big action-bar burst) — that's the "giant flash" for the ~0.7s
+    -- intro before the loop took over at icon size. Anchoring BOTH textures to f keeps the proc icon-sized.
+    if f.ProcStart and f.ProcStart.SetAllPoints then
+        f.ProcStart:ClearAllPoints()
+        f.ProcStart:SetAllPoints(f)
+    end
+end
+
+-- glowType -> { start, stop } wrappers, all taking (nf, colorArray). Each wrapper hides the
+-- per-function signature differences (Button takes no key; Proc takes an options table). "proc"
+-- maps to the lib's ProcGlow (Blizzard's native action-bar proc flipbook) when available, else
+-- falls back to ButtonGlow so an old lib revision still glows.
+local GLOW_FNS = {}
+if LCG then
+    GLOW_FNS.pixel = {
+        start = function(nf, c) LCG.PixelGlow_Start(nf, c, nil, nil, nil, nil, nil, nil, nil, GLOW_KEY) end,
+        stop  = function(nf)    LCG.PixelGlow_Stop(nf, GLOW_KEY) end,
+    }
+    GLOW_FNS.autocast = {
+        start = function(nf, c) LCG.AutoCastGlow_Start(nf, c, nil, nil, nil, nil, nil, GLOW_KEY) end,
+        stop  = function(nf)    LCG.AutoCastGlow_Stop(nf, GLOW_KEY) end,
+    }
+    GLOW_FNS.button = {
+        -- No color: ButtonGlow then uses its NATURAL textures = Blizzard's native yellow proc-glow look
+        -- (a color desaturates + tints them, away from native). Mirrors the proc type's native-look choice,
+        -- so the color picker is hidden for "button" too. No key — one button glow per frame.
+        start = function(nf, c) LCG.ButtonGlow_Start(nf) end,
+        stop  = function(nf)    LCG.ButtonGlow_Stop(nf) end,
+    }
+    if LCG.ProcGlow_Start and LCG.ProcGlow_Stop then
+        GLOW_FNS.proc = {
+            -- LibCustomGlow's ProcGlow draws its OWN pooled flipbook frame anchored to nf — it does NOT use
+            -- Blizzard's nf.SpellActivationAlert, so ApplyGlow suppresses that region for this type too.
+            -- NO `color`: ProcGlow uses the NATURAL (non-desaturated) flipbook = the exact in-game native
+            -- proc look (a color would desaturate + tint it, flattening the native gold). So the color
+            -- picker applies to the OTHER types; the proc type mirrors Blizzard's own proc glow.
+            -- startAnim = FALSE: skip the initial BURST flipbook. The burst (ProcStart) and the steady loop
+            -- (ProcLoop) use DIFFERENT atlases — the loop fills the icon-sized frame nicely, but the burst's
+            -- content sits small in its cell (meant to be scaled ~2.5x), so at icon size it looks tiny and
+            -- at native size it overflows neighbouring grouped icons ("énorme"). There's no good single size
+            -- for it in a tight group, so we show only the steady loop (icon-sized, the look the user kept).
+            start = function(nf, c) LCG.ProcGlow_Start(nf, { key = GLOW_KEY, startAnim = false }) end,
+            stop  = function(nf)    LCG.ProcGlow_Stop(nf, GLOW_KEY) end,
+        }
+    else
+        GLOW_FNS.proc = GLOW_FNS.button   -- old lib revision: fall back to ButtonGlow for "proc"
+    end
+end
+local function GlowFnsFor(glowType) return GLOW_FNS[glowType or "pixel"] or GLOW_FNS.pixel end
+
+-- ── Proc detection (the "Show glow on proc" gate) ────────────────────────────
+-- The glow must show ONLY while the cooldown's spell currently has a PROC — the spell-activation
+-- overlay glow the game flashes on action bars (Brain Freeze, Fingers of Frost, a transform proc,
+-- etc.). The native CDM item frame is fed that proc by Blizzard's ActionButtonSpellAlertManager,
+-- which calls ShowAlert(frame)/HideAlert(frame) on the SAME native frames we restyle (this is exactly
+-- the signal Ayije_CDM gates on — see Ayije_CDM/Core/Glow.lua:526 HookAlertManager, which hooks
+-- ShowAlert/HideAlert on those item frames). We can't read frame.SpellActivationAlert:IsShown()
+-- because ApplyGlow hides that region every relayout to suppress Blizzard's own glow visual; so we
+-- instead mirror Ayije and hook the manager to stamp a plain Lua flag on the frame. The flag is a
+-- normal table field (never a secret), safe to read. If the manager is missing the hook simply never
+-- installs and frames stay flag=nil → glow stays hidden (graceful). When the flag FLIPS we also re-run
+-- the frame's stored glow updater (nf._uuCdgGlowUpdate, installed by ApplyGlow) so the LibCustomGlow
+-- glow starts/stops the instant the proc shows/hides — a fresh hook context, never inside the viewer
+-- RefreshLayout hooksecurefunc, so the LCG calls can't taint Blizzard's relayout.
+local function FrameIsProcced(nf)
+    return nf and nf._uuCdgProcced == true
+end
+
+local alertManagerHooked = false
+local function EnsureAlertManagerHook()
+    if alertManagerHooked then return end
+    local mgr = _G.ActionButtonSpellAlertManager
+    if not (mgr and mgr.ShowAlert and mgr.HideAlert) then return end
+    alertManagerHooked = true
+    hooksecurefunc(mgr, "ShowAlert", function(_, frame)
+        if frame then
+            frame._uuCdgProcced = true
+            if frame._uuCdgGlowUpdate then frame._uuCdgGlowUpdate() end
+        end
+    end)
+    hooksecurefunc(mgr, "HideAlert", function(_, frame)
+        if frame then
+            frame._uuCdgProcced = false
+            if frame._uuCdgGlowUpdate then frame._uuCdgGlowUpdate() end
+        end
+    end)
+end
+
+-- Per-dest -> viewer global frame name.
 local DEST_VIEWER = { essential = "EssentialCooldownViewer", utility = "UtilityCooldownViewer" }
 
 -- ── Spell helpers ────────────────────────────────────────────────────────────
@@ -124,10 +256,32 @@ local function EngineFor(I)
     end
     I.FrameSpellId = FrameSpellId
 
+    -- The STABLE IDENTITY key of a native cooldown item frame: its BASE spellId (cooldownInfo.spellID),
+    -- which survives a transform (Frostbolt 116 <-> Glacial Spike 199786 both key on 116). The engine keys
+    -- groups / order / iconCfg / placement by THIS so a transforming cooldown keeps its slot + per-icon
+    -- settings instead of looking like a brand-new cooldown. If the base is unreadable (nil / secret in
+    -- combat) fall back to the DISPLAY spellId (FrameSpellId) so we NEVER key on nil — that pass keys on
+    -- whatever is readable, and the next clean pass re-keys to the base. The base is a real, resolvable
+    -- spellId, so its config tile always has an icon (the live form's icon comes from keyToDisplay below).
+    local function FrameKey(nf)
+        if not nf then return nil end
+        local base = ns.CDMAnchor and ns.CDMAnchor.NativeFrameBaseSpellId and ns.CDMAnchor.NativeFrameBaseSpellId(nf)
+        if base then return base end
+        return FrameSpellId(nf)
+    end
+    I.FrameKey = FrameKey
+
+    -- Runtime map base-key -> CURRENT display spellId, populated wherever we enumerate the pool
+    -- (CollectDisplayed). Lets the config tile resolve the cooldown's CURRENT form (Glacial Spike while
+    -- transformed) for icon / name while everything else stays keyed by the stable base. Not persisted —
+    -- it is rebuilt from the live pool every refresh; absent keys fall back to the base spellId.
+    local keyToDisplay = {}
+    I.KeyToDisplay = keyToDisplay
+
     -- Enumerate the dest's native item frames (the pool's ACTIVE frames; like CDMAnchor.EnumBuffIcons
     -- but for THIS viewer). Returns every active pool frame regardless of IsShown — a not-currently-up
     -- cooldown's frame is shown=false but still needs positioning; the caller resolves the spell id.
-    local function EnumNativeFrames()
+    local function EnumNativeFrames(activeOnly)
         local v = Viewer()
         if not v then return {} end
         local out = {}
@@ -137,7 +291,13 @@ local function EngineFor(I)
                 if f then out[#out + 1] = f end
             end
         end
-        if #out == 0 then
+        -- Fallback: some viewer states leave itemFramePool empty but still parent the frames as children.
+        -- Used ONLY for positioning (RefreshLayout). The DISPLAYED-SET logic passes activeOnly=true to
+        -- SKIP it: v:GetChildren() returns the viewer's FULL managed CATEGORY (every cooldown, incl. ones
+        -- the user moved to another viewer or hid in "Not Displayed"), and right after a /reload — before
+        -- Blizzard hides the ready ones — they momentarily read as shown. Accumulating those is exactly how
+        -- the utility universe got polluted; the real pool (EnumerateActive) never holds them.
+        if #out == 0 and not activeOnly then
             for _, c in ipairs({ v:GetChildren() }) do
                 if c and (c.cooldownInfo or c.GetCooldownInfo or c.GetSpellID) then out[#out + 1] = c end
             end
@@ -164,14 +324,157 @@ local function EngineFor(I)
     -- transient EMPTY pool (login / spec change before Blizzard rebuilds it) can be told from "nothing
     -- displayed" and DEFERRED rather than clobbering a known cache — matching BuffGroups' poolCount == 0
     -- defer.
+    -- ── Displayed/tracked set from the POOL (accumulated for hide-when-ready viewers) ──
+    -- ESSENTIAL pools ALL its displayed cooldowns (always shown) → the live pool IS its full set (no
+    -- accumulation). UTILITY HIDES ready cooldowns → its pool is only the on-CD subset, so we ACCUMULATE
+    -- the base ids seen DISPLAYED in its viewer: a ready-but-already-seen utility cooldown then stays in
+    -- the universe/config. THREE gates guard what we accumulate (each closes a real pollution channel
+    -- found by live diagnostics):
+    --   (1) SETTLE window — right after login/reload the viewer transiently exposes its FULL category
+    --       (cooldowns the user moved to another viewer or hid in "Not Displayed"), all momentarily SHOWN,
+    --       before EditMode display-overrides apply. So we accumulate ONLY once `viewerReadyAt` (armed on
+    --       COOLDOWN_VIEWER_DATA_LOADED / PEW) is SETTLE seconds in the past — the layout has applied.
+    --       Mirrors Ayije, which gates all setup on COOLDOWN_VIEWER_DATA_LOADED + a settle.
+    --   (2) nf:IsShown() — a frame counts only while ACTUALLY shown in THIS viewer (post-settle, a shown
+    --       utility frame means it's on CD; the empty-pool GetChildren fallback is also skipped, see
+    --       EnumNativeFrames(true) below).
+    --   (3) ShownInOtherDest — a cooldown currently shown in ANOTHER dest's pool (e.g. moved into the
+    --       Essential viewer) belongs to that viewer, not here.
+    -- RUNTIME-ONLY (not persisted): re-fills from the live viewer each session, so it always tracks the
+    -- user's CURRENT EditMode selection — hiding/moving a cooldown just stops it re-accumulating after the
+    -- next /reload, and nothing goes stale on disk. Reset + re-armed on spec/talent change.
+    -- The LAYOUT still renders only the live pool frames (RefreshLayout), so a ready cooldown reflows out.
+    local SETTLE = 3
+    local accumDisplayed = {}
+    local viewerReadyAt
+    function I.ResetAccumDisplayed()
+        wipe(accumDisplayed)
+        viewerReadyAt = GetTime()   -- re-arm the settle window after a layout change
+    end
+    function I.ArmSettle() viewerReadyAt = viewerReadyAt or GetTime() end
+
+    -- (3) cross-viewer guard: a cooldown shown in ANOTHER CDMGroups dest's pool (its displayedCache) is
+    -- displayed in that viewer — never accumulate it into THIS dest's universe.
+    local function ShownInOtherDest(key)
+        local insts = ns.CDMGroups and ns.CDMGroups.instances
+        if not insts then return false end
+        for d, inst in pairs(insts) do
+            if d ~= dest and inst.DisplayedKnown and inst.DisplayedKnown()
+                and inst.IsDisplayed and inst.IsDisplayed(key) then
+                return true
+            end
+        end
+        return false
+    end
+
     local function CollectDisplayed()
         local out, seen, count = {}, {}, 0
-        for _, nf in ipairs(EnumNativeFrames()) do
+        wipe(keyToDisplay)
+        -- (1) settle gate: don't accumulate until the viewer has applied its layout (see block comment).
+        local settled = I.poolAccumulates and viewerReadyAt and (GetTime() >= viewerReadyAt + SETTLE)
+        -- activeOnly=true: the displayed-set must come from the REAL pool only, never the GetChildren
+        -- fallback (which returns the full category and pollutes the accumulated universe).
+        for _, nf in ipairs(EnumNativeFrames(true)) do
             count = count + 1
-            local sid = FrameSpellId(nf)
-            if sid and not seen[sid] then seen[sid] = true; out[#out + 1] = sid end
+            -- IDENTITY is the STABLE BASE key; the live form's DISPLAY spellId is cached in keyToDisplay so
+            -- the config tile can show the current form's icon/name even though the slot keys on the base.
+            local key  = FrameKey(nf)
+            local disp = FrameSpellId(nf)
+            if key then keyToDisplay[key] = disp or key end
+            if key and not seen[key] then seen[key] = true; out[#out + 1] = key end
+            -- Accumulate behind all three gates (settle + shown + not-cross-viewer).
+            if settled and key and nf.IsShown and nf:IsShown() and not ShownInOtherDest(key) then
+                accumDisplayed[key] = true
+            end
         end
+        if not I.poolAccumulates then return out, count end
+        -- Return the ACCUMULATED set (so a ready-but-already-seen cooldown stays in the universe). `count`
+        -- stays the LIVE frame count so RefreshDisplayedCache's empty-pool defer (poolCount == 0 and
+        -- #displayed == 0) still tells "viewer not built yet" from "all ready" (accumulated, don't clobber).
+        wipe(out); seen = {}
+        for key in pairs(accumDisplayed) do out[#out + 1] = key end
         return out, count
+    end
+
+    -- ── ONE-TIME stable-key migration (display spellId -> base spellId) ──────────
+    -- Existing profiles keyed assign / iconCfg / custom and every order-row spellId by the OLD DISPLAY
+    -- spellId (overrideTooltipSpellID > overrideSpellID > spellID). The engine now keys by the STABLE
+    -- BASE spellId, so a saved entry whose display differs from its base (e.g. Greater Invisibility
+    -- display 110959, base 66) must be re-keyed once or it would dangle. Run LAZILY (the pool is empty at
+    -- CfgInit): build a display->base map from the LIVE pool, then re-key every entry whose key maps to a
+    -- DIFFERENT base. Rules: only re-key on a real display!=base mapping (a no-op for display==base, the
+    -- common case); LEAVE un-mappable keys in place (a cooldown not in the current pool/spec stays
+    -- dormant, never dropped); never set the flag while the pool is empty; on a double-write collision
+    -- (both base and display already present) prefer the EXISTING base entry and drop the stale display one.
+    local function MigrateStableKeysV1()
+        local s = I.Store and I.Store()
+        if not s then return end
+        if s.stableKeyMigrationV1 then return end
+
+        -- display->base from the live pool. Empty pool (login / spec change) -> defer (don't set the flag).
+        local toBase, mapped = {}, false
+        for _, nf in ipairs(EnumNativeFrames()) do
+            local oldDisplay = FrameSpellId(nf)
+            local base       = FrameKey(nf)
+            if oldDisplay and base then
+                mapped = true
+                if oldDisplay ~= base then toBase[oldDisplay] = base end
+            end
+        end
+        if not mapped then return end   -- pool not populated yet -> try again next tick
+
+        -- Re-key one number-keyed table (assign / iconCfg / custom): an entry under a DISPLAY key whose
+        -- base differs moves to the base key. Collision-safe: if the base key already holds a value, keep
+        -- it (the in-form-configured entry wins) and just drop the stale display entry.
+        local function rekeyTable(t)
+            if type(t) ~= "table" then return end
+            local moves
+            for k in pairs(t) do
+                local base = (type(k) == "number") and toBase[k]
+                if base and base ~= k then
+                    moves = moves or {}
+                    moves[#moves + 1] = k
+                end
+            end
+            if not moves then return end
+            for _, k in ipairs(moves) do
+                local base = toBase[k]
+                if t[base] == nil then t[base] = t[k] end   -- else keep the existing base entry
+                t[k] = nil
+            end
+        end
+        rekeyTable(s.assign)
+        rekeyTable(s.iconCfg)
+        rekeyTable(s.custom)
+
+        -- Re-key every order-row spellId in place (rows are arrays of base keys after this). Skip a value
+        -- whose re-keyed base already appears in the same group's order (avoid a duplicate slot).
+        if type(s.order) == "table" then
+            for _, rows in pairs(s.order) do
+                if type(rows) == "table" then
+                    local present = {}
+                    for _, row in ipairs(rows) do
+                        if type(row) == "table" then
+                            for _, sid in ipairs(row) do present[sid] = true end
+                        end
+                    end
+                    for _, row in ipairs(rows) do
+                        if type(row) == "table" then
+                            for i = #row, 1, -1 do
+                                local sid  = row[i]
+                                local base = (type(sid) == "number") and toBase[sid]
+                                if base and base ~= sid then
+                                    if present[base] then table.remove(row, i)   -- base already in this group's order
+                                    else row[i] = base; present[base] = true; present[sid] = nil end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        s.stableKeyMigrationV1 = true
     end
 
     -- Recompute the displayed set straight into displayedCache from the POOL, set displayedKnown, and
@@ -179,9 +482,15 @@ local function EngineFor(I)
     -- the config (onDisplayedChanged) only on a real change. An EMPTY pool right after a spec change /
     -- login usually means Blizzard hasn't rebuilt it yet — don't clobber the known set with an empty one
     -- (matches BuffGroups' defer on poolCount == 0); leave the cache untouched and report no change.
+    -- For a category-set dest (utility) the native pool is LEGITIMATELY empty when every tracked
+    -- cooldown is ready, yet CollectDisplayed still returns the category set's ids — so only defer when
+    -- the RESOLVED displayed set (pool ∪ category) is empty too, else utility's ready-only state would
+    -- never populate the cache.
     function I.RefreshDisplayedCache()
         local displayed, poolCount = CollectDisplayed()
-        if poolCount == 0 then return false end
+        if poolCount == 0 and #displayed == 0 then return false end
+        -- The pool is populated: run the one-time display->base re-key now (no-op once done).
+        MigrateStableKeysV1()
         local newSet, newCount = {}, 0
         for _, sid in ipairs(displayed) do
             if not newSet[sid] then newSet[sid] = true; newCount = newCount + 1 end
@@ -295,21 +604,25 @@ local function EngineFor(I)
         end
         return out
     end
+
     -- Public icon/name resolvers used by the config strip + the pencil editor. A NUMBER key is a
     -- native/custom spellId (resolve via C_Spell). A STRING key is an addon-TRACKER member: there is no
     -- spell to resolve, so fall back to the tracker descriptor's getIcon() for the tile texture, and use
     -- the frame name as the display name (the config skips the spell tooltip for trackers anyway).
+    -- A NUMBER key is the stable BASE spellId; resolve the tile's icon/name from the CURRENT display form
+    -- (keyToDisplay[key], e.g. Glacial Spike while Frostbolt is transformed) so the config tile mirrors
+    -- what's on screen, falling back to the base spellId when the cooldown isn't currently in the pool.
     function I.SpellTexture(key)
         if type(key) == "string" then
             local td = I.TrackerDesc(key)
             local tex = td and td.getIcon and td.getIcon()
             return tex or FALLBACK_ICON
         end
-        return SpellTexture(key)
+        return SpellTexture(keyToDisplay[key] or key)
     end
     function I.SpellName(key)
         if type(key) == "string" then return key end
-        return SpellName(key)
+        return SpellName(keyToDisplay[key] or key)
     end
 
     -- ── Native on-screen order (the EditMode arrangement), via layoutIndex (guarded) ──
@@ -325,7 +638,7 @@ local function EngineFor(I)
         if not (v and v.itemFramePool and v.itemFramePool.EnumerateActive) then return nil end
         local entries, n = {}, 0
         for f in v.itemFramePool:EnumerateActive() do
-            local sid = FrameSpellId(f)
+            local sid = FrameKey(f)   -- order entries key on the STABLE BASE key (matches the group store)
             if sid then
                 n = n + 1
                 entries[n] = { sid = sid, li = FrameLayoutIndex(f) or math.huge, seq = n }
@@ -466,13 +779,28 @@ local function EngineFor(I)
         -- Screen-center: CENTER-to-CENTER of UIParent; posX/posY then offset from screen center
         -- (relPos is irrelevant here — the config hides the Placement dropdown for this anchor).
         if anchorTo == "screen" then return "CENTER", UIParent, "CENTER" end
+        -- The PRIMARY group (Group 1) of a dest IS that dest's anchor frame (ns.CDMGroups.AnchorFrame),
+        -- so it can't anchor to its OWN dest — that resolves to its own container ("Cannot anchor to
+        -- itself"). It's the primary block; pin it to screen-center. (Essential's Group 1 carrying a stale
+        -- anchorTo=="essential" hit exactly this.) A NON-primary group anchoring to its dest's Group 1 is
+        -- fine (different container) and is handled below.
+        if g.id == 1 and anchorTo == dest then return "CENTER", UIParent, "CENTER" end
         local pts = RELPOS_POINTS[g.relPos or "above"] or RELPOS_POINTS.above
         local rel
         if anchorTo == "essential" or anchorTo == "utility" then
-            rel = ns.GetCDMViewer and ns.GetCDMViewer(anchorTo)
+            -- Prefer the CDMGroups PRIMARY group CONTAINER of that dest (Group 1's resized block, the real
+            -- thing the user sees) so an anchored group FOLLOWS its live bounds — e.g. a utility group
+            -- placed "below essential" tracks the Essential block's BOTTOM and auto-follows as the
+            -- Essential icon size changes. Falls back to the native viewer husk when that dest's engine
+            -- isn't enabled / Group 1 isn't laid out yet. (Mirrors the BuffGroups ContainerAnchor change.)
+            rel = (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(anchorTo))
+                or (ns.GetCDMViewer and ns.GetCDMViewer(anchorTo))
         elseif anchorTo == "belowPlayer" then
             rel = ResolvePlayerFrame()
         end
+        -- General self-anchor guard: any stale/odd anchorTo that resolves to THIS group's own container
+        -- would crash with "Cannot anchor to itself" — fall back to screen-center.
+        if rel == GetContainer(g.id) then return "CENTER", UIParent, "CENTER" end
         return pts[1], rel or UIParent, pts[2]
     end
 
@@ -540,56 +868,74 @@ local function EngineFor(I)
             I.IconGet(spellId, "borderColor"), I.IconGet(spellId, "borderSize") or 1, true)
     end
 
-    -- ── Glow: a marching-dots overlay (self-drawn) ──────────────────────────────
-    local function EnsureGlow(nf)
-        if nf._uuCdgGlow then return nf._uuCdgGlow end
-        local DOT_COUNT, DOT_SIZE, CYCLE = 8, 3, 1.5
-        local glow = CreateFrame("Frame", nil, nf)
-        glow:SetAllPoints(nf)
-        glow:SetFrameLevel((nf:GetFrameLevel() or 1) + 6)
-        glow:Hide()
-        local dots = {}
-        for i = 1, DOT_COUNT do
-            local dot = glow:CreateTexture(nil, "OVERLAY", nil, 7)
-            dot:SetSize(DOT_SIZE, DOT_SIZE)
-            dots[i] = dot
-        end
-        glow.dots = dots
-        local elapsed = 0
-        glow:SetScript("OnUpdate", function(self, dt)
-            elapsed = elapsed + dt
-            local progress = (elapsed % CYCLE) / CYCLE
-            local w, h = nf:GetWidth(), nf:GetHeight()
-            if not (w and h) or not canaccessvalue(w) or not canaccessvalue(h) or w == 0 or h == 0 then return end
-            local perimeter = 2 * (w + h)
-            for i, dot in ipairs(dots) do
-                local p = (progress + (i - 1) / DOT_COUNT) % 1
-                local d = p * perimeter
-                local x, y
-                if d < w then x, y = d, 0
-                elseif d < w + h then x, y = w, -(d - w)
-                elseif d < 2 * w + h then x, y = w - (d - w - h), -h
-                else x, y = 0, -(perimeter - d) end
-                dot:ClearAllPoints()
-                dot:SetPoint("CENTER", nf, "TOPLEFT", x, y)
-            end
-        end)
-        nf._uuCdgGlow = glow
-        return glow
+    -- ── Glow: LibCustomGlow, gated on the live proc flag ────────────────────────
+    -- glowColor is stored as {r,g,b,a}; LibCustomGlow wants an array {r,g,b,a}.
+    local function GlowColorArray(spellId)
+        local c = I.IconGet(spellId, "glowColor") or { r = 1, g = 1, b = 1, a = 1 }
+        return { c.r or 1, c.g or 1, c.b or 1, c.a or 1 }
     end
 
-    local function ApplyGlow(nf, spellId)
+    -- Stop whatever LCG glow we currently have active on this frame (if any) and forget it.
+    local function StopGlow(nf)
+        local active = nf._uuCdgGlowActive
+        if not active then return end
+        local fns = GLOW_FNS[active]
+        if fns and fns.stop then pcall(fns.stop, nf) end
+        nf._uuCdgGlowActive = nil
+    end
+
+    -- Reconcile a frame's glow to the desired state. The glow shows ONLY while glowEnabled is true AND
+    -- the frame is currently PROCCED (the live _uuCdgProcced flag). Track the active type per frame so
+    -- we only Start/Stop on a REAL change — LibCustomGlow animates itself, so restarting every tick
+    -- would reset the animation and churn frames. On a type CHANGE we stop the old type first.
+    local function UpdateGlow(nf, spellId)
+        if not nf then return end
+        if not LCG then return end
         local enabled = I.IconGet(spellId, "glowEnabled") == true
-        local alert = nf.SpellActivationAlert
-        if alert and alert.Hide then alert:Hide(); if alert.SetAlpha then alert:SetAlpha(0) end end
-        if not enabled then
-            if nf._uuCdgGlow then nf._uuCdgGlow:Hide() end
-            return
+        local wantType = enabled and FrameIsProcced(nf) and (I.IconGet(spellId, "glowType") or "pixel") or nil
+        local active = nf._uuCdgGlowActive
+        if active == wantType then return end          -- no change → leave LCG's own animation running
+        if active then StopGlow(nf) end                -- stop the previous (different) type first
+        if not wantType then return end
+        local fns = GLOW_FNS[wantType]
+        if fns and fns.start then
+            pcall(fns.start, nf, GlowColorArray(spellId))
+            nf._uuCdgGlowActive = wantType
+            -- Proc glow: snap its pooled flipbook to nf at the CONFIGURED icon size IMMEDIATELY, so the
+            -- flash-in never renders huge while nf:GetSize() lags a tick behind StyleFrame.
+            if wantType == "proc" then
+                FixProcGlow(nf, I.IconGet(spellId, "iconW"), I.IconGet(spellId, "iconH"))
+            end
         end
-        local glow = EnsureGlow(nf)
-        local c = I.IconGet(spellId, "glowColor") or { r = 1, g = 1, b = 1, a = 1 }
-        for _, dot in ipairs(glow.dots) do dot:SetColorTexture(c.r, c.g, c.b, c.a or 1) end
-        glow:Show()
+    end
+    -- Expose for HideAll / the release pass (which only have the frame, keyed by its base spellId).
+    I.StopGlow = StopGlow
+
+    -- Wire a frame's glow during a relayout/restyle. Suppress Blizzard's own proc glow region (it would
+    -- overlap ours) UNLESS the chosen type IS the native proc flipbook (LCG ProcGlow), in which case we
+    -- leave the native region alone so we don't fight the very visual we're using. Store a per-frame
+    -- updater closure the alert-manager hook calls on a proc flip → the glow tracks the proc LIVE, in a
+    -- fresh hook/timer context (never synchronously inside the viewer RefreshLayout hooksecurefunc).
+    local function ApplyGlow(nf, spellId)
+        -- ALWAYS suppress Blizzard's own proc-glow region (nf.SpellActivationAlert). Even for the "proc"
+        -- glow type we draw with LibCustomGlow's ProcGlow — a SEPARATE pooled frame anchored to nf, NOT
+        -- this region — so hiding it never fights our visual. The old `nativeProc` exception left Blizzard's
+        -- UNMANAGED alert visible; on our resized / screen-center-anchored frames it rendered as the giant
+        -- proc flash in the MIDDLE OF THE SCREEN (only on the proc type). StyleFrame re-runs this ~5x/sec,
+        -- so a proc that re-shows the region is re-hidden within a tick.
+        local alert = nf.SpellActivationAlert
+        if alert then
+            if alert.Hide then alert:Hide() end
+            if alert.SetAlpha then alert:SetAlpha(0) end
+        end
+        EnsureAlertManagerHook()
+        nf._uuCdgGlowUpdate = function() UpdateGlow(nf, spellId) end
+        UpdateGlow(nf, spellId)
+        -- UpdateGlow short-circuits when the glow is already the active type, so it never re-anchors a
+        -- proc glow that drifted/oversized after its first start — re-glue it to nf here every relayout.
+        if nf._uuCdgGlowActive == "proc" then
+            FixProcGlow(nf, I.IconGet(spellId, "iconW"), I.IconGet(spellId, "iconH"))
+        end
     end
 
     -- Resize + restyle a native frame: SetSize -> refix .Icon -> countdown font -> text regions ->
@@ -696,7 +1042,7 @@ local function EngineFor(I)
     -- frame we didn't pin (so the OLD bucket system's pins on Essential natives are untouched).
     local function ReleaseNative(nf)
         if ns.CDMAnchor and ns.CDMAnchor.ReleaseNativePin then ns.CDMAnchor.ReleaseNativePin(nf) end
-        if nf._uuCdgGlow then nf._uuCdgGlow:Hide() end
+        StopGlow(nf)
         if nf.Title then nf.Title:Hide() end
         pinnedFrames[nf] = nil
     end
@@ -723,7 +1069,9 @@ local function EngineFor(I)
         f:SetSize(w, h)
         f:SetFrameLevel((container:GetFrameLevel() or 1) + 1)
         local tex = f.Icon
-        tex:SetTexture(SpellTexture(spellId))
+        -- spellId is the stable BASE key; I.SpellTexture resolves the CURRENT display form (keyToDisplay)
+        -- so a placeholder ghost shows the live form's icon, not the base spell's.
+        tex:SetTexture(I.SpellTexture(spellId))
         tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
         tex:SetDesaturated(true)
         tex:SetAlpha(PLACEHOLDER_ALPHA)
@@ -848,10 +1196,11 @@ local function EngineFor(I)
             return
         end
 
-        -- Build spellId -> native frame (the live pool) and spellId -> active(shown) for sounds.
+        -- Build baseKey -> native frame (the live pool) and baseKey -> active(shown) for sounds. Keyed by
+        -- the STABLE BASE key (FrameKey) so a transformed cooldown still maps to its grouped slot.
         local frameOf, activeOf = {}, {}
         for _, nf in ipairs(EnumNativeFrames()) do
-            local sid = FrameSpellId(nf)
+            local sid = FrameKey(nf)
             if sid then
                 frameOf[sid] = nf
                 if FrameShown(nf) then activeOf[sid] = true end
@@ -909,7 +1258,7 @@ local function EngineFor(I)
                     nf:Hide()
                 else
                     if nf.Title then nf.Title:Hide() end
-                    if nf._uuCdgGlow then nf._uuCdgGlow:Hide() end
+                    StopGlow(nf)
                     if ns.CDMAnchor and ns.CDMAnchor.ApplyFrameBorder then ns.CDMAnchor.ApplyFrameBorder(nf, false) end
                     PinNative(nf, UIParent, OFFSCREEN, OFFSCREEN)
                 end
@@ -1042,7 +1391,7 @@ local function EngineFor(I)
         -- pool / moved to a deleted group). Guarded to frames we own so the old system's pins are safe.
         local toReleaseNF
         for nf in pairs(pinnedFrames) do
-            local sid = FrameSpellId(nf)
+            local sid = FrameKey(nf)   -- match the placed[] set, which is keyed by the stable base key
             if not (sid and placed[sid]) then
                 toReleaseNF = toReleaseNF or {}
                 toReleaseNF[#toReleaseNF + 1] = nf
@@ -1167,9 +1516,19 @@ local function EngineFor(I)
     ev:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     ev:RegisterEvent("TRAIT_CONFIG_UPDATED")
     ev:RegisterEvent("PLAYER_ENTERING_WORLD")
+    ev:RegisterEvent("COOLDOWN_VIEWER_DATA_LOADED")
     ev:RegisterUnitEvent("UNIT_AURA", "player")
     ev:RegisterEvent("PLAYER_REGEN_ENABLED")
     ev:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "TRAIT_CONFIG_UPDATED" then
+            -- New spec / talent layout: the accumulated displayed set is stale — clear it AND re-arm the
+            -- settle window so the universe re-fills from the NEW (settled) layout, not its load transient.
+            I.ResetAccumDisplayed()
+        elseif event == "COOLDOWN_VIEWER_DATA_LOADED" or event == "PLAYER_ENTERING_WORLD" then
+            -- Arm the settle window ONCE: accumulation begins SETTLE seconds later, after the viewer has
+            -- applied the user's EditMode layout (skipping the full-category load transient).
+            I.ArmSettle()
+        end
         HookNativeViewer()
         if I.Enabled() then I.RefreshLayout() end
     end)
@@ -1202,5 +1561,15 @@ end
 
 CDG.EngineFor = EngineFor
 
--- Attach the engine to the "essential" instance now (the only dest this phase).
+-- Attach the engine to each instance. ESSENTIAL's pool IS its full displayed set (always shown), so it
+-- reads pool-only (poolAccumulates stays nil/false — byte-for-byte the prior behaviour). UTILITY's viewer
+-- HIDES ready cooldowns, so its pool is only the on-CD subset; flag it to ACCUMULATE every base id seen in
+-- its pool into the displayed/tracked universe (the layout still renders only the live pool, so ready
+-- cooldowns reflow out like the native utility viewer). The accumulated set excludes the user's hidden /
+-- cross-viewer cooldowns BY CONSTRUCTION — they never enter this viewer's pool. Set the flag BEFORE
+-- EngineFor for clarity (CollectDisplayed reads I.poolAccumulates at runtime anyway).
 if CDG.essential then EngineFor(CDG.essential) end
+if CDG.utility then
+    CDG.utility.poolAccumulates = true
+    EngineFor(CDG.utility)
+end

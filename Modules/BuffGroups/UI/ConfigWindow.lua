@@ -1284,6 +1284,7 @@ local function CreateBuffsPanel(parent)
     -- box heights). rebuild() = menu.Rebuild(), which honours the persisted cfgCollapsed.
     local function GroupSettingsSection(id)
         return { type = "section", label = L["Group settings"], showCheckbox = false,
+          headerExtra = ns.ui.SettingsHeaderIcon,
           getCollapsed = function() return BG.GGet(id, "cfgCollapsed") ~= false end,
           onCollapse   = function(c)
               BG.GSet(id, "cfgCollapsed", c and true or false)

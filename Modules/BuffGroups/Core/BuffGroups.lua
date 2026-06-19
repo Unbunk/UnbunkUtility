@@ -557,7 +557,11 @@ local function ContainerAnchor(g)
     local pts = RELPOS_POINTS[g.relPos or "above"] or RELPOS_POINTS.above
     local rel
     if anchorTo == "essential" or anchorTo == "utility" then
-        rel = ns.GetCDMViewer and ns.GetCDMViewer(anchorTo)
+        -- Prefer the CDMGroups group block (its real, resized bounds) when that engine owns the dest,
+        -- so anchoring "above/below essential" stays flush as the Essential icon size changes; the
+        -- relative SetPoint to its TOP/BOTTOM edge then auto-follows it. Fall back to the native viewer.
+        rel = (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(anchorTo))
+            or (ns.GetCDMViewer and ns.GetCDMViewer(anchorTo))
     elseif anchorTo == "belowPlayer" then
         rel = ResolvePlayerFrame()
     end
