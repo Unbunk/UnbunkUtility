@@ -206,6 +206,13 @@ local initTT = CreateFrame("Frame")
 initTT:RegisterEvent("PLAYER_LOGIN")
 initTT:SetScript("OnEvent", function(self)
     C_Timer.After(0.5, function()
+        if ns.ReseedTrackerOverride then
+            for _, p in ipairs({ "trinket1", "trinket2" }) do
+                local c = TT.CfgGet(p)
+                ns.ReseedTrackerOverride("TrinketTracker" .. (p == "trinket1" and "1" or "2"),
+                    (c and c.cdmDest) or "essential", ns.DefaultTrackerTimerSeed)
+            end
+        end
         TT.ApplyAll()
     end)
     self:UnregisterEvent("PLAYER_LOGIN")

@@ -384,6 +384,9 @@ end)
 local initRT = CreateFrame("Frame")
 initRT:RegisterEvent("PLAYER_LOGIN")
 initRT:SetScript("OnEvent", function(self)
+    if ns.ReseedTrackerOverride then
+        ns.ReseedTrackerOverride("RacialTrackerFrame", RT.CfgGet("cdmDest") or "belowPlayer", ns.DefaultTrackerTimerSeed)
+    end
     ResolveRacial()
     RT.ApplyPosition()
     RT.ApplyFont()

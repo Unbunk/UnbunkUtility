@@ -631,7 +631,12 @@ function CDG.Make(dest)
         local ic = s and s.iconCfg and s.iconCfg[spellId]
         if not ic then return false end
         if key ~= nil then return ic[key] ~= nil end
-        return next(ic) ~= nil
+        -- "Any REAL override?" — the reserved markers (seed version, disabled-stash, legacy migrate flag)
+        -- don't count, so a fully-inherited migrated icon isn't shown as customised (e.g. the pencil glyph).
+        for k in pairs(ic) do
+            if k ~= "__ovSeedV" and k ~= "__ovStash" and k ~= "__ovMigrated" then return true end
+        end
+        return false
     end
 
     function I.IconReset(spellId, key)
