@@ -478,7 +478,7 @@ local function IconSections(I, sid, bundle, ctx, opts)
             return e
         end },
 
-        { type = "group", title = L["Icon size"], build = function()
+        { _omit = "size", type = "group", title = L["Icon size"], build = function()
             local keys = { "iconW", "iconH" }
             local gated = gatedFor(keys)
             local e = {}
@@ -641,10 +641,30 @@ end
 function ns.CDMGroups.TrackerCdmCadres(cfg)
     local dest = cfg.getDest()
     local ovBundle, ovCtx
+    -- The Override cadre omits Sound (the trackers keep their own), and the placeholder / section-label
+    -- chrome. Below-player additionally omits Icon size — that row is laid out at a uniform per-bucket
+    -- size, governed by the bucket's "Front/End of the row" settings, not per icon.
+    local omit = { sound = true, placeholder = true, label = true }
     if dest == "belowPlayer" then
-        if ns.CDMAnchor and ns.CDMAnchor.MakeBelowOverride then
-            if ns.CDMAnchor.SeedBelowIconOverride then ns.CDMAnchor.SeedBelowIconOverride(cfg.frameName, cfg.seedValues()) end
-            ovBundle, ovCtx = ns.CDMAnchor.MakeBelowOverride(cfg.frameName, cfg.applyIcon, cfg.rebuild)
+        omit.size = true
+        local CA = ns.CDMAnchor
+        if CA and CA.BelowIconGet then
+            local fn     = cfg.frameName
+            local bucket = (CA.IsAtEnd(cfg.cdmAtEnd and cfg.cdmAtEnd())) and "belowEnd" or "belowFront"
+            if CA.SeedBelowIconOverride then CA.SeedBelowIconOverride(fn, cfg.seedValues()) end
+            ovBundle = {
+                get      = function(key) return CA.BelowIconGet(fn, bucket, key) end,
+                groupGet = function(key) return CA.GetDestCfg(bucket, key) end,
+                set      = function(key, val) CA.BelowIconSet(fn, key, val) end,
+                reset    = function(key) CA.BelowIconReset(fn, key) end,
+                has      = function(keys)
+                    for _, k in ipairs(keys) do if CA.BelowIconHasOverride(fn, k) then return true end end
+                    return false
+                end,
+                touch    = cfg.applyIcon,
+                refresh  = cfg.rebuild,
+            }
+            ovCtx = { refresh = cfg.rebuild, rebuild = cfg.rebuild, reopen = cfg.rebuild }
         end
     else
         local inst = ns.CDMGroups.instances and ns.CDMGroups.instances[dest]
@@ -668,8 +688,7 @@ function ns.CDMGroups.TrackerCdmCadres(cfg)
           onCollapse   = function(c) cfg.setOv(c and true or false); deferRebuild() end,
           build = function()
               if ovBundle then
-                  return ns.CDMGroups.IconSections(nil, cfg.frameName, ovBundle, ovCtx,
-                      { omit = { sound = true, placeholder = true, label = true } })
+                  return ns.CDMGroups.IconSections(nil, cfg.frameName, ovBundle, ovCtx, { omit = omit })
               end
               return { { type = "label", font = "UnbunkUtilityBody", height = 36,
                   text = L["These apply when the icon is in the Essential or Utility Cooldown Manager group."] } }
