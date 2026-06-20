@@ -145,6 +145,9 @@ local function CreateTracker(index)
         end,
         setCfg  = function(key, val) HT.CfgSet(key, val) end,   -- cdmAtEnd flip on a cross-strip drag
         getItemId = function() return t.assignedId end,
+        -- The shared icon's in-CDM stacks must count CHARGES (includeUses=true), not plain item stacks,
+        -- just like the module's own draw below — otherwise a multi-charge healthstone shows the wrong number.
+        getCount  = function() return t.assignedId and (GetItemCount(t.assignedId, false, true) or 0) or 0 end,
         hasItem   = function(itemId)
             -- includeUses=true: count charges (a healthstone has several).
             return itemId ~= nil and (GetItemCount(itemId, false, true) or 0) > 0
@@ -196,9 +199,34 @@ end
 
 -- ── Per-tracker visuals ───────────────────────────────────────────────────────
 
+-- The per-icon override seed for a healthstone: the (singleton) config mapped to the override schema
+-- (stackAnchor -> stackPos, stackOffsetX/Y -> stackOffX/Y). Stacks are always on (no toggle). No title.
+function HT.OverrideSeed()
+    local thr = {}
+    for _, t in ipairs(HT.CfgGet("timerTiers") or {}) do thr[#thr + 1] = { time = t.at, size = t.scale, color = t.color } end
+    return {
+        showTimer = true,
+        timerFontKey = HT.CfgGet("timerFontKey"), timerFontPath = HT.CfgGet("timerFontPath"), timerFontSize = HT.CfgGet("timerFontSize"),
+        timerOutline = HT.CfgGet("timerOutline"), timerColor = HT.CfgGet("timerColor"), timerPos = "CENTER", timerOffX = 0, timerOffY = 0,
+        timerThresholdsEnabled = true, timerThresholds = thr,
+        borderEnabled = HT.CfgGet("borderEnabled"), borderColor = HT.CfgGet("borderColor"), borderSize = HT.CfgGet("borderSize"),
+        iconW = HT.CfgGet("iconWidth"), iconH = HT.CfgGet("iconHeight"),
+        showTitle = false,
+        showStack = true, showAtZero = HT.CfgGet("showAtZero") == true,
+        stackFontKey = HT.CfgGet("stackFontKey"), stackFontPath = HT.CfgGet("stackFontPath"), stackFontSize = HT.CfgGet("stackFontSize"),
+        stackOutline = HT.CfgGet("stackOutline"), stackColor = HT.CfgGet("stackColor"),
+        stackPos = HT.CfgGet("stackAnchor") or "BOTTOMRIGHT", stackOffX = HT.CfgGet("stackOffsetX") or 0, stackOffY = HT.CfgGet("stackOffsetY") or 0,
+    }
+end
+
 local function ApplyStackVisualsFor(t)
     if not t or not t.stackText then return end
     local fs = t.stackText
+    -- In the Cooldown Manager the shared icon draws the charges (from the per-icon override) — hide our own
+    -- to avoid a double-draw, lazily seeding the below-player override from this healthstone's look.
+    if ns.TrackerSuppressOwnExtras(t.icon, t.GetFrame():GetName(), HT.CfgGet("cdmDest"), HT.OverrideSeed) then
+        fs:Hide(); return
+    end
     local fontPath = ns.ResolveFontPath(HT.CfgGet("stackFontPath"), HT.CfgGet("stackFontKey"))
     fs:SetFont(fontPath, HT.CfgGet("stackFontSize") or 12, HT.CfgGet("stackOutline") or "OUTLINE")
     local c = HT.CfgGet("stackColor") or { r = 1, g = 1, b = 1, a = 1 }
@@ -346,6 +374,9 @@ function HT.ApplyAll()
         local t = EnsureTracker(i)
         local id = ids[i]
         t.assignedId = id
+        -- Stacks first: in the CDM this suppresses our own FS and seeds the per-icon override BEFORE the
+        -- icon repaints (ApplyVisuals/direct path → ApplyDestExtras), so there's no first-tick bucket flash.
+        ApplyStackVisualsFor(t)
         if usedInCombatById[id] and (GetItemCount(id, false, true) or 0) <= 0 then
             -- Consumed-in-combat variant no longer in bags: drive the icon
             -- directly (ApplyVisuals would hide it since hasItem is false) so
@@ -368,7 +399,6 @@ function HT.ApplyAll()
         else
             t.ApplyVisuals()
         end
-        ApplyStackVisualsFor(t)
         ApplyCombatMarkerFor(t)
     end
 
