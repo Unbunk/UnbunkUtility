@@ -195,6 +195,9 @@ function ns.ui.CreateTimerIcon(config)
     timerHost:SetAllPoints(frame)
     timerHost:SetFrameLevel(borderFrame:GetFrameLevel() + 1)
     local timerText = timerHost:CreateFontString(nil, "OVERLAY")
+    -- A benign initial font so the OnUpdate tick's SetText can never hit "Font not set" if it fires before
+    -- ApplyFont/ApplySize set the real one (e.g. a timer that starts before the engine first sizes the icon).
+    timerText:SetFont(ns.ResolveFontPath(nil, nil), 20, "")
     timerText:SetPoint("CENTER", frame, "CENTER", 0, 0)
     timerText:Hide()
 
