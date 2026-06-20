@@ -873,7 +873,11 @@ function ns.ui.CreateTimerIcon(config)
             stacksFS:SetTextColor(c.r, c.g, c.b, c.a or 1)
             if ns.AnchorFS then ns.AnchorFS(stacksFS, frame, XCfg("stackPos", "BOTTOMRIGHT"), XCfg("stackOffX", 2), XCfg("stackOffY", -2)) end
             local ch = ResolveCharges()
-            if ch and ch > 0 then
+            -- A tracker can require a MINIMUM count before the number is drawn: trinkets pass minStack=2
+            -- so a lone "1" (a single on-use = no real charges) isn't shown, while a genuine 2+ charge
+            -- trinket still displays. Default 1 keeps the old "show whenever > 0" for potions/healthstones.
+            local minStack = config.minStack or 1
+            if ch and ch >= minStack then
                 stacksFS:SetText(tostring(ch)); stacksFS:Show()
             elseif XCfg("showAtZero", false) then   -- keep a literal "0" when the tracker opted in
                 stacksFS:SetText("0"); stacksFS:Show()
