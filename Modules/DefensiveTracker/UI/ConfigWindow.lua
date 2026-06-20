@@ -250,7 +250,7 @@ local function TitleGroup(sid, LSM)
 end
 
 local function StacksGroup(sid, LSM)
-    return { type = "group", title = L["Stacks"],
+    return { type = "group", title = L["Stacks/Charges"],
       gate = { enabled = function() return DT.Get(sid, "showStack") ~= false end, master = "showstack" },
       build = function() return {
         { type = "checkbox", ref = "showstack", label = L["Show stacks"], height = 24,
@@ -267,19 +267,94 @@ local function StacksGroup(sid, LSM)
     } end }
 end
 
--- The "Icon" sub-cadre: "Show icon" gate, then Placement, Border, Timer, Title, Stacks.
+-- The "Icon" sub-cadre: "Show icon" gate + placement identity, then the shared Override / Free cadres.
+-- Free holds this defensive's own position / size / Border / Timer / Title / Stacks; Override holds the
+-- per-icon look that governs the icon while it is in the Cooldown Manager.
 local function IconGroup(sid, LSM)
     return { type = "group", title = L["Icon"],
       gate = { enabled = function() return DT.Get(sid, "showIcon") ~= false end, master = "showicon" },
-      build = function() return {
-        { type = "checkbox", ref = "showicon", label = L["Show icon"],
-          get = function() return DT.Get(sid, "showIcon") ~= false end,
-          set = function(v) DT.Set(sid, "showIcon", v) end },
-        PlacementGroup(sid),
-        TimerGroup(sid, LSM),
-        TitleGroup(sid, LSM),
-        StacksGroup(sid, LSM),
-    } end }
+      build = function()
+        local frameName = "UnbunkUtilityDefensive" .. sid
+        local pe
+        local function inCdm() return ns.CDMIncludedVal(DT.Get(sid, "includeInCdm")) end
+        local function curDest() return DT.Get(sid, "cdmDest") or "belowPlayer" end
+        local function applyIcon()
+            DT.ApplyIcon(sid)
+            if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
+        end
+
+        local e = {
+            { type = "checkbox", ref = "showicon", label = L["Show icon"],
+              get = function() return DT.Get(sid, "showIcon") ~= false end,
+              set = function(v) DT.Set(sid, "showIcon", v) end },
+
+            { type = "group", title = L["Placement"], build = function() return {
+                { type = "checkbox", label = L["Include in cdm"],
+                  disabled = function() return not ns.IsCDMEnabled() end,
+                  get = function() return inCdm() end,
+                  set = function(v) DT.Set(sid, "includeInCdm", v); panelRebuild(); if ns.RebuildActiveModule then ns.RebuildActiveModule() end end },
+                { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
+                  when = function() return inCdm() end,
+                  getList = function() return ns.CDMDestList() end,
+                  getCurrentKey = function() return ns.CDMDestChoiceLabel(function(k) return DT.Get(sid, k) end) end,
+                  onSelect = function(label)
+                      ns.CDMApplyDestChoice(label, function(k, v) DT.Set(sid, k, v) end)
+                      panelRebuild(); if ns.RebuildActiveModule then ns.RebuildActiveModule() end
+                  end },
+            } end },
+        }
+
+        local cfg = {
+            frameName  = frameName,
+            getDest    = curDest,
+            cdmAtEnd   = function() return DT.Get(sid, "cdmAtEnd") end,
+            inCdm      = inCdm,
+            applyIcon  = applyIcon,
+            rebuild    = panelRebuild,
+            getOv      = function() return DT.Get(sid, "ovCollapsed") ~= false end,
+            setOv      = function(c) DT.Set(sid, "ovCollapsed", c) end,
+            getFree    = function() return DT.Get(sid, "freeCollapsed") ~= false end,
+            setFree    = function(c) DT.Set(sid, "freeCollapsed", c) end,
+            seedValues = function() return DT.OverrideSeed(sid) end,
+            freeBuild  = function() return {
+                { type = "position", ref = "pe",
+                  onBuilt = function(w) pe = w end,
+                  label = L["Icon position (offset from screen center)"],
+                  getX = function() return DT.Get(sid, "posX") end,
+                  getY = function() return DT.Get(sid, "posY") end,
+                  onApply = function(x, yv) if x then DT.Set(sid, "posX", x) end if yv then DT.Set(sid, "posY", yv) end end,
+                  onUnlock = function() DT.SetUnlocked(sid, true) end,
+                  onLock   = function() DT.SetUnlocked(sid, false); if pe then pe.Refresh() end end,
+                  isUnlocked = function() return DT.IsUnlocked(sid) end },
+                { type = "custom", height = 46, build = function(host)
+                    local sLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
+                    sLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); sLbl:SetText(L["Icon size"])
+                    local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                    wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
+                    local wInput = ns.ui.CreateTextInput({ parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+                        text = tostring(DT.Get(sid, "iconWidth") or 30),
+                        onEnter = function(v) if v and v > 0 then DT.Set(sid, "iconWidth", v) end end })
+                    wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+                    local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                    hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
+                    local hInput = ns.ui.CreateTextInput({ parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+                        text = tostring(DT.Get(sid, "iconHeight") or 30),
+                        onEnter = function(v) if v and v > 0 then DT.Set(sid, "iconHeight", v) end end })
+                    hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+                    return { frame = host, height = 46, Refresh = function()
+                        wInput.SetText(tostring(DT.Get(sid, "iconWidth") or 30))
+                        hInput.SetText(tostring(DT.Get(sid, "iconHeight") or 30))
+                    end }
+                end },
+                BorderGroup(sid),
+                TimerGroup(sid, LSM),
+                TitleGroup(sid, LSM),
+                StacksGroup(sid, LSM),
+            } end,
+        }
+        for _, x in ipairs(ns.CDMGroups.TrackerCdmCadres(cfg)) do e[#e + 1] = x end
+        return e
+      end }
 end
 
 -- One collapsible section per defensive: header = spell icon + name; body = Sound, Icon.
@@ -334,6 +409,15 @@ local function CreateDefensiveTrackerPanel(parent)
     end
 
     DT.configMenu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
+
+    -- Every defensive's Override / Free sections start collapsed and re-collapse on tab show.
+    parent:HookScript("OnHide", function()
+        local c = ns.db and ns.db.profile and ns.db.profile.defensiveTracker
+        if c and c.spells then
+            for _, e in pairs(c.spells) do e.ovCollapsed = true; e.freeCollapsed = true end
+        end
+    end)
+    parent:HookScript("OnShow", function() if DT.configMenu then DT.configMenu.Rebuild() end end)
     return DT.configMenu
 end
 

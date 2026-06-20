@@ -248,11 +248,41 @@ function DT.TestSound(spellId, which) PlaySound(spellId, which) end
 -- same modes (edges + 4 inside corners).
 local AnchorFS = ns.AnchorFS
 
+-- The per-icon override seed for a defensive: its Free look mapped to the shared override schema
+-- (titleAnchor->titlePos, titleOffsetX/Y->titleOffX/Y; same for stack*). The module's effective draw
+-- DEFAULTS are baked in (title 16 / stack 12 etc.) so the in-CDM look starts identical to the own-draw.
+function DT.OverrideSeed(spellId)
+    local e = SpellCfg(spellId) or {}
+    local thr = {}
+    for _, t in ipairs(e.timerTiers or {}) do thr[#thr + 1] = { time = t.at, size = t.scale, color = t.color } end
+    return {
+        showTimer = true,
+        timerFontKey = e.timerFontKey, timerFontPath = e.timerFontPath, timerFontSize = e.timerFontSize,
+        timerOutline = e.timerOutline, timerColor = e.timerColor, timerPos = "CENTER", timerOffX = 0, timerOffY = 0,
+        timerThresholdsEnabled = true, timerThresholds = thr,
+        borderEnabled = e.borderEnabled, borderColor = e.borderColor, borderSize = e.borderSize,
+        iconW = e.iconWidth, iconH = e.iconHeight,
+        showTitle = e.showTitle == true, titleText = e.titleText,
+        titleFontKey = e.titleFontKey, titleFontPath = e.titleFontPath, titleFontSize = e.titleFontSize or 16,
+        titleOutline = e.titleOutline or "OUTLINE", titleColor = e.titleColor,
+        titlePos = e.titleAnchor or "TOP", titleOffX = e.titleOffsetX or 0, titleOffY = e.titleOffsetY or 0,
+        showStack = e.showStack ~= false, showAtZero = e.showAtZero == true,
+        stackFontKey = e.stackFontKey, stackFontPath = e.stackFontPath, stackFontSize = e.stackFontSize or 12,
+        stackOutline = e.stackOutline or "OUTLINE", stackColor = e.stackColor,
+        stackPos = e.stackAnchor or "BOTTOMRIGHT", stackOffX = e.stackOffsetX or 0, stackOffY = e.stackOffsetY or 0,
+    }
+end
+
 local function ApplyTitle(spellId)
     local d = live[spellId]
     if not d or not d.titleFS then return end
     local e = SpellCfg(spellId)
     local fs = d.titleFS
+    -- In the CDM the shared icon draws the title from the per-icon override — hide our own (no double-draw),
+    -- lazily seeding the below-player override from this defensive's look.
+    if ns.TrackerSuppressOwnExtras(d.icon, FrameName(spellId), e and e.cdmDest, function() return DT.OverrideSeed(spellId) end) then
+        fs:Hide(); return
+    end
     if not e or not e.showTitle then fs:Hide(); return end
     fs:SetFont(ns.ResolveFontPath(e.titleFontPath, e.titleFontKey), e.titleFontSize or 16, e.titleOutline or "OUTLINE")
     local c = e.titleColor or { r = 1, g = 1, b = 1, a = 1 }
@@ -267,6 +297,9 @@ local function ApplyStack(spellId)
     if not d or not d.stackFS then return end
     local e = SpellCfg(spellId)
     local fs = d.stackFS
+    if ns.TrackerSuppressOwnExtras(d.icon, FrameName(spellId), e and e.cdmDest, function() return DT.OverrideSeed(spellId) end) then
+        fs:Hide(); return
+    end
     if not e or not e.showStack then fs:Hide(); return end
     fs:SetFont(ns.ResolveFontPath(e.stackFontPath, e.stackFontKey), e.stackFontSize or 12, e.stackOutline or "OUTLINE")
     local c = e.stackColor or { r = 1, g = 1, b = 1, a = 1 }
@@ -292,6 +325,11 @@ local function ApplyOne(spellId)
     end
 
     d.icon.SetIcon(SpellTexture(spellId))
+    -- Seed the below-player override BEFORE ApplySize repaints (ApplyDestExtras), so the first in-CDM tick
+    -- already reads this defensive's own look, not the bucket default (no flash).
+    if e.cdmDest == "belowPlayer" and not ns.TrackerOverrideMigrated(FrameName(spellId), "belowPlayer") then
+        ns.SeedTrackerOverride(FrameName(spellId), "belowPlayer", DT.OverrideSeed(spellId))
+    end
     d.icon.ApplySize()
 
     -- Icon visibility = "Show icon" + the charge "show at 0" rule. The cooldown logic
@@ -301,6 +339,7 @@ local function ApplyOne(spellId)
     if e.showIcon ~= false and not hideForZero then
         d.icon.Show()
         ApplyStack(spellId)
+        ApplyTitle(spellId)   -- per-tick too, so the in-CDM suppression re-evaluates as the dest changes
     else
         d.icon.Hide()
     end

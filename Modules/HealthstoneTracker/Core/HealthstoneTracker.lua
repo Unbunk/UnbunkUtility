@@ -213,8 +213,8 @@ function HT.OverrideSeed()
         iconW = HT.CfgGet("iconWidth"), iconH = HT.CfgGet("iconHeight"),
         showTitle = false,
         showStack = true, showAtZero = HT.CfgGet("showAtZero") == true,
-        stackFontKey = HT.CfgGet("stackFontKey"), stackFontPath = HT.CfgGet("stackFontPath"), stackFontSize = HT.CfgGet("stackFontSize"),
-        stackOutline = HT.CfgGet("stackOutline"), stackColor = HT.CfgGet("stackColor"),
+        stackFontKey = HT.CfgGet("stackFontKey"), stackFontPath = HT.CfgGet("stackFontPath"), stackFontSize = HT.CfgGet("stackFontSize") or 12,
+        stackOutline = HT.CfgGet("stackOutline") or "OUTLINE", stackColor = HT.CfgGet("stackColor"),
         stackPos = HT.CfgGet("stackAnchor") or "BOTTOMRIGHT", stackOffX = HT.CfgGet("stackOffsetX") or 0, stackOffY = HT.CfgGet("stackOffsetY") or 0,
     }
 end

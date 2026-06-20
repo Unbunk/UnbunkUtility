@@ -97,8 +97,8 @@ function PT.OverrideSeed(prefix)
         iconW = cfg.iconWidth, iconH = cfg.iconHeight,
         showTitle = false,
         showStack = cfg.showStack ~= false, showAtZero = cfg.showAtZero == true,
-        stackFontKey = cfg.stackFontKey, stackFontPath = cfg.stackFontPath, stackFontSize = cfg.stackFontSize,
-        stackOutline = cfg.stackOutline, stackColor = cfg.stackColor,
+        stackFontKey = cfg.stackFontKey, stackFontPath = cfg.stackFontPath, stackFontSize = cfg.stackFontSize or 14,
+        stackOutline = cfg.stackOutline or "OUTLINE", stackColor = cfg.stackColor,
         stackPos = cfg.stackAnchor or "BOTTOM", stackOffX = cfg.stackOffsetX or 0, stackOffY = cfg.stackOffsetY or 0,
     }
 end
