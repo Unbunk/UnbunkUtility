@@ -477,9 +477,121 @@ end
 
 -- Build every custom icon in the current profile (and refresh all live ids, so any
 -- left over from a previous profile that the current one lacks get hidden).
+-- ── One-time migration: old CDMGroups cast-only customs -> full CustomCDM icons ──
+-- The old essential/utility "custom cooldowns" (CDMGroups s.custom[spellId] = {duration,name,icon} — a
+-- fixed-duration swipe started at cast) are superseded by CustomCDM icons that track the REAL cooldown.
+-- This folds each into a CustomCDM icon (its old dest, includeInCdm) and re-keys its group assignment /
+-- order slot / per-icon override from the number spellId to the new icon's frame-name string, so it keeps
+-- its exact group + position. The old fixed `duration` is dropped (real cooldown is the upgrade). Per
+-- profile, once (flag set up-front so a mid-run error can't double-migrate); the touched CDMGroups
+-- sub-tables are deep-copied to a backup first so a bad run is recoverable. Runs from BuildAll
+-- (PLAYER_LOGIN + every profile change) — AFTER CDMGroups' own CfgInit reseed, so re-keyed slots survive.
+local function MigrateCustoms()
+    local p = ns.db and ns.db.profile
+    if not p or p.cdmCustomMigratedV1 then return end
+    p.cdmCustomMigratedV1 = true   -- set up-front so this never double-runs within a profile
+    local groups = p.cdmGroups
+    if type(groups) ~= "table" then return end
+    local cc = Store(); if not cc then return end
+    -- Make sure the next id can't collide with (or overwrite) an existing / hand-edited icon: a stale
+    -- low nextId would otherwise stomp cc.icons[1]. (Store() only fixes a *nil* nextId, not a low one.)
+    do
+        local maxId = 0
+        for existingId in pairs(cc.icons) do
+            if type(existingId) == "number" and existingId > maxId then maxId = existingId end
+        end
+        if (cc.nextId or 1) <= maxId then cc.nextId = maxId + 1 end
+    end
+    -- True if an icon for this (spellId, dest) already exists — so a re-run (e.g. a restored pre-migration
+    -- backup that cleared the flag) cleans up the stale custom instead of creating a DUPLICATE icon.
+    local function alreadyMigrated(spellId, dest)
+        for _, e in pairs(cc.icons) do
+            if e.spellId == spellId and e.cdmDest == dest and e.includeInCdm then return true end
+        end
+        return false
+    end
+    local migrated = 0
+    for _, dest in ipairs({ "essential", "utility" }) do
+        local s = groups[dest]
+        if type(s) == "table" and type(s.custom) == "table" and next(s.custom) then
+            -- Back up the sub-tables we mutate (once per dest) before touching them.
+            p.cdmCustomMigrateBackup = p.cdmCustomMigrateBackup or {}
+            p.cdmCustomMigrateBackup[dest] = {
+                custom  = ns.DeepCopy(s.custom),
+                assign  = ns.DeepCopy(s.assign  or {}),
+                order   = ns.DeepCopy(s.order   or {}),
+                iconCfg = ns.DeepCopy(s.iconCfg or {}),
+            }
+            -- Snapshot the keys first (we delete from s.custom while iterating).
+            local sids = {}
+            for spellId in pairs(s.custom) do sids[#sids + 1] = spellId end
+            for _, spellId in ipairs(sids) do
+                -- Each custom in its OWN pcall so one malformed entry can't abort the whole batch.
+                pcall(function()
+                    if type(spellId) ~= "number" then s.custom[spellId] = nil; return end   -- drop junk keys
+                    if alreadyMigrated(spellId, dest) then s.custom[spellId] = nil; return end
+                    -- New CustomCDM icon for this custom (real cooldown; the old fixed duration is dropped).
+                    local id = cc.nextId or 1
+                    cc.nextId = id + 1
+                    local e = {}
+                    ns.MergeDefaults(e, ICON_DEFAULTS)
+                    SeedTiers(e)
+                    e.spellId      = spellId
+                    e.cdmDest      = dest
+                    e.includeInCdm = true
+                    cc.icons[id]   = e
+                    -- Re-key the group placement: number spellId -> frame-name string, keeping its slot.
+                    local name = FrameName(id)
+                    if type(s.assign) == "table" then
+                        s.assign[name] = s.assign[spellId]; s.assign[spellId] = nil
+                    end
+                    if type(s.order) == "table" then
+                        for _, rows in pairs(s.order) do          -- rows = a group's row list
+                            if type(rows) == "table" then
+                                for ri, row in ipairs(rows) do
+                                    if type(row) == "table" then
+                                        for ci, v in ipairs(row) do if v == spellId then row[ci] = name end end
+                                    elseif row == spellId then     -- legacy flat order
+                                        rows[ri] = name
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    -- Safety net: if the custom had no (or Unused) assign but its order slot sits in a REAL
+                    -- group, anchor it there — else GroupOf(name) defaults to Group 1 and GroupRows filters
+                    -- it out of the group its order placed it in (it'd vanish). Keeps the slot.
+                    if type(s.assign) == "table" and (not s.assign[name] or s.assign[name] == 0)
+                        and type(s.order) == "table" then
+                        for gid, rows in pairs(s.order) do
+                            if gid ~= 0 and type(rows) == "table" then
+                                local found = false
+                                for _, row in ipairs(rows) do
+                                    if type(row) == "table" then
+                                        for _, v in ipairs(row) do if v == name then found = true; break end end
+                                    elseif row == name then found = true end
+                                    if found then break end
+                                end
+                                if found then s.assign[name] = gid; break end
+                            end
+                        end
+                    end
+                    if type(s.iconCfg) == "table" and s.iconCfg[spellId] ~= nil then
+                        s.iconCfg[name] = s.iconCfg[spellId]; s.iconCfg[spellId] = nil
+                    end
+                    s.custom[spellId] = nil
+                    migrated = migrated + 1
+                end)
+            end
+        end
+    end
+    if migrated > 0 then ns.Print(tostring(migrated) .. " custom cooldown(s) migrated to CustomCDM (real cooldowns).") end
+end
+
 function CC.BuildAll()
     local s = Store()
     if not s then return end
+    pcall(MigrateCustoms)   -- one-time, flag-gated; never let a migration error break the build/login
     for id, e in pairs(s.icons) do
         ns.MergeDefaults(e, ICON_DEFAULTS)   -- backfill any missing visual keys
         SeedTiers(e)                         -- give a never-configured entry the default tiers
