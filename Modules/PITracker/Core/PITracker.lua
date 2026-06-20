@@ -185,6 +185,9 @@ PI:ScheduleRepeatingTimer(function()
 end, 0.5)
 
 ns.RegisterReloadHook(function()
+    if ns.ReseedTrackerOverride then
+        ns.ReseedTrackerOverride("PITrackerFrame", PI.CfgGet("cdmDest") or "essential", ns.DefaultTrackerTimerSeed)
+    end
     PI.ApplyPosition()
     PI.ApplyFont()
     PI.ApplySize()

@@ -163,11 +163,7 @@ local function BuildTrinketOptions(prefix, LSM)
                     getFree    = function() return GetCfg("freeCollapsed") ~= false end,
                     setFree    = function(c) SetCfg("freeCollapsed", c) end,
                     -- Default override-set: ONLY Timer (size 14 + urgency thresholds). Rest inherits the group.
-                    seedValues = function() return {
-                        timerFontSize = 14,
-                        timerThresholdsEnabled = true,
-                        timerThresholds = ns.DefaultTrackerTimerThresholds(),
-                    } end,
+                    seedValues = function() return ns.DefaultTrackerTimerSeed() end,
                     freeBuild  = function() return {
                         { type = "position", ref = "pe",
                           onBuilt = function(w) if tracker then tracker.pe = w end end,

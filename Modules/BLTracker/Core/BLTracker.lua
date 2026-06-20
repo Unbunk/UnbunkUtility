@@ -323,6 +323,10 @@ BL:RegisterEvent("UNIT_AURA", function(event, unit)
 end)
 
 ns.RegisterReloadHook(function()
+    -- Apply the current default override-set at login (no need to open the config), version-checked.
+    if ns.ReseedTrackerOverride then
+        ns.ReseedTrackerOverride("BLTrackerFrame", BL.CfgGet("cdmDest") or "essential", ns.DefaultTrackerTimerSeed)
+    end
     BL.ApplyPosition()
     BL.ApplyFont()
     BL.ApplySize()

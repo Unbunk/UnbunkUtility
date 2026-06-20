@@ -370,6 +370,9 @@ RT:ScheduleRepeatingTimer(function()
 end, 0.5)
 
 ns.RegisterReloadHook(function()
+    if ns.ReseedTrackerOverride then
+        ns.ReseedTrackerOverride("RacialTrackerFrame", RT.CfgGet("cdmDest") or "belowPlayer", ns.DefaultTrackerTimerSeed)
+    end
     ResolveRacial()
     RT.ApplyPosition()
     RT.ApplyFont()
