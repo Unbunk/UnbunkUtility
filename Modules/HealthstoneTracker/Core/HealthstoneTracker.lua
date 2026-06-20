@@ -206,7 +206,7 @@ function HT.OverrideSeed()
         timerFontSize = 14,
         timerThresholdsEnabled = true,
         timerThresholds = ns.DefaultTrackerTimerThresholds(),
-        stackFontSize = 12, stackOutline = "THICKOUTLINE", stackOffX = 3, stackOffY = -2,
+        stackFontSize = 12, stackOutline = "THICKOUTLINE", stackOffX = 3, stackOffY = -1,
     }
 end
 

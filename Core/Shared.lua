@@ -102,7 +102,7 @@ end
 -- Tracker per-icon override seed version. Bump this when the DEFAULT override-set a tracker seeds changes;
 -- an icon seeded at an older version is wiped and re-seeded with the new defaults on its next config-open /
 -- render (it stays "migrated" meanwhile, so it keeps rendering until the re-seed lands — no flash).
-ns.OVERRIDE_SEED_VERSION = 2
+ns.OVERRIDE_SEED_VERSION = 3
 
 -- The default urgency thresholds every tracker's Timer override seeds: yellow x1.2 at 15s, red x1.45 at 5s.
 -- Fresh table per call so the seed never aliases a shared one.
