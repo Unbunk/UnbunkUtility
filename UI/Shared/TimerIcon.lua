@@ -263,10 +263,11 @@ function ns.ui.CreateTimerIcon(config)
     -- has been migrated to the override system (I.IconOverrideMigrated) — so an un-migrated tracker keeps
     -- reading its OWN config (getCfg) and nothing regresses; a migrated one's in-CDM appearance comes
     -- entirely from its "Override settings", never its "Free icon settings". nil = not applicable.
+    local function FrameName() return frame and frame.GetName and frame:GetName() end
     local function EngineIconGet(key)
         if not EngineOwns() then return nil end
         local I = ns.CDMGroups and ns.CDMGroups.instances and ns.CDMGroups.instances[getCfg("cdmDest") or "essential"]
-        local fn = frame and frame.GetName and frame:GetName()
+        local fn = FrameName()
         if I and I.IconGet and fn and I.IconOverrideMigrated and I.IconOverrideMigrated(fn) then
             return I.IconGet(fn, key)
         end
@@ -274,8 +275,9 @@ function ns.ui.CreateTimerIcon(config)
     end
     local function TimerCfg(key, default)
         if CDMActive() then
-            if getCfg("cdmDest") == "belowPlayer" and ns.CDMAnchor and ns.CDMAnchor.GetDestCfg then
-                local v = ns.CDMAnchor.GetDestCfg(CfgDest(), key, nil)
+            if getCfg("cdmDest") == "belowPlayer" and ns.CDMAnchor and ns.CDMAnchor.GetDestCfgFor then
+                -- below-player: per-icon override (when migrated) → bucket value.
+                local v = ns.CDMAnchor.GetDestCfgFor(FrameName(), CfgDest(), key, nil)
                 if v ~= nil then return v end
             else
                 local v = EngineIconGet(key)
@@ -301,10 +303,10 @@ function ns.ui.CreateTimerIcon(config)
     end
     local function TimerTiers()
         if CDMActive() then
-            if getCfg("cdmDest") == "belowPlayer" and ns.CDMAnchor and ns.CDMAnchor.GetDestCfg then
-                local cd = CfgDest()
-                return ThresholdsToTiers(ns.CDMAnchor.GetDestCfg(cd, "timerThresholdsEnabled", false),
-                                         ns.CDMAnchor.GetDestCfg(cd, "timerThresholds", nil))
+            if getCfg("cdmDest") == "belowPlayer" and ns.CDMAnchor and ns.CDMAnchor.GetDestCfgFor then
+                local cd, fn = CfgDest(), FrameName()
+                return ThresholdsToTiers(ns.CDMAnchor.GetDestCfgFor(fn, cd, "timerThresholdsEnabled", false),
+                                         ns.CDMAnchor.GetDestCfgFor(fn, cd, "timerThresholds", nil))
             elseif EngineIconGet("timerThresholdsEnabled") ~= nil then
                 -- Migrated engine-owned icon: urgency tiers come from its override thresholds.
                 return ThresholdsToTiers(EngineIconGet("timerThresholdsEnabled") == true,
@@ -624,11 +626,12 @@ function ns.ui.CreateTimerIcon(config)
             else
                 enabled, c, size = getCfg("borderEnabled"), getCfg("borderColor"), getCfg("borderSize")
             end
-        elseif CDMActive() and ns.CDMAnchor and ns.CDMAnchor.GetDestBorder then
-            -- Below-player icons read their bucket's border (front/end); other dests by their own name.
+        elseif CDMActive() and ns.CDMAnchor and ns.CDMAnchor.GetDestBorderFor then
+            -- Below-player icons read their bucket's border (front/end), or their own per-icon override
+            -- when migrated; other dests by their own name.
             local bd = getCfg("cdmDest") or "essential"
             if bd == "belowPlayer" then bd = CfgDest() end
-            enabled, c, size = ns.CDMAnchor.GetDestBorder(bd)
+            enabled, c, size = ns.CDMAnchor.GetDestBorderFor(FrameName(), bd)
         else
             enabled, c, size = getCfg("borderEnabled"), getCfg("borderColor"), getCfg("borderSize")
         end
@@ -678,8 +681,8 @@ function ns.ui.CreateTimerIcon(config)
             local fn = frame:GetName()
             if I and I.IconGet and fn then return I.IconGet(fn, key) == true end
         elseif CDMActive() and getCfg("cdmDest") == "belowPlayer" then
-            if ns.CDMAnchor and ns.CDMAnchor.GetDestCdmFlag then
-                return ns.CDMAnchor.GetDestCdmFlag(CfgDest(), key) == true
+            if ns.CDMAnchor and ns.CDMAnchor.GetDestCdmFlagFor then
+                return ns.CDMAnchor.GetDestCdmFlagFor(FrameName(), CfgDest(), key) == true
             end
         end
         return false
@@ -760,8 +763,8 @@ function ns.ui.CreateTimerIcon(config)
     -- only on a real change (the lib animates itself).
     function result.ApplyDestGlow()
         local wantType, colorArr
-        if CDMActive() and getCfg("cdmDest") == "belowPlayer" and ns.CDMAnchor and ns.CDMAnchor.GetDestGlow then
-            local enabled, gt, c = ns.CDMAnchor.GetDestGlow(CfgDest())
+        if CDMActive() and getCfg("cdmDest") == "belowPlayer" and ns.CDMAnchor and ns.CDMAnchor.GetDestGlowFor then
+            local enabled, gt, c = ns.CDMAnchor.GetDestGlowFor(FrameName(), CfgDest())
             if enabled and frame._procced then
                 wantType = gt or "pixel"
                 colorArr = { c.r or 1, c.g or 1, c.b or 1, c.a or 1 }
@@ -808,7 +811,7 @@ function ns.ui.CreateTimerIcon(config)
         return nil
     end
     local function DCfg(key, default)
-        return (ns.CDMAnchor and ns.CDMAnchor.GetDestCfg and ns.CDMAnchor.GetDestCfg(CfgDest(), key, default)) or default
+        return (ns.CDMAnchor and ns.CDMAnchor.GetDestCfgFor and ns.CDMAnchor.GetDestCfgFor(FrameName(), CfgDest(), key, default)) or default
     end
     -- Render the per-dest Title + Stacks for a below-player icon (other dests: hide both).
     function result.ApplyDestExtras()

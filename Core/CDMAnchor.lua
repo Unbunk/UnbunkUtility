@@ -1049,6 +1049,109 @@ function ns.CDMAnchor.SetDestCfg(dest, key, val)
     ns.CDMAnchor.RefreshAll(true)
 end
 
+-- ── Per-ICON override for below-player icons (the tracker "Override settings" cadre) ──────────────
+-- Mirrors the essential/utility group's per-icon override (CDMGroups I.IconGet): a MIGRATED below-player
+-- icon reads its OWN value, falling back to its bucket's value (cdmBelowRow.front / .end). Stored flat per
+-- frame name on cdmBelowRow.iconCfg[frameName]; `__ovMigrated` marks an icon that has been seeded so the
+-- read path stays bucket-only (unchanged) for every icon that never opened the new cadre. Size is NOT
+-- overridden here — the below-player row is laid out at a uniform per-bucket size, so the Override cadre
+-- omits its Icon-size section for this dest.
+local function BelowIconStore()
+    local p = ns.db and ns.db.profile
+    if not p then return nil end
+    p.cdmBelowRow = p.cdmBelowRow or {}
+    p.cdmBelowRow.iconCfg = p.cdmBelowRow.iconCfg or {}
+    return p.cdmBelowRow.iconCfg
+end
+
+function ns.CDMAnchor.BelowIconMigrated(frameName)
+    local s = BelowIconStore()
+    local ic = s and frameName and s[frameName]
+    return (ic and ic.__ovMigrated == true) or false
+end
+
+-- override (only when migrated) -> bucket value (GetDestCfg). bucketDest = "belowFront" | "belowEnd".
+function ns.CDMAnchor.BelowIconGet(frameName, bucketDest, key, default)
+    local s = BelowIconStore()
+    local ic = s and frameName and s[frameName]
+    if ic and ic.__ovMigrated then
+        local v = ic[key]
+        if v ~= nil then return v end
+    end
+    return ns.CDMAnchor.GetDestCfg(bucketDest, key, default)
+end
+
+function ns.CDMAnchor.BelowIconSet(frameName, key, val)
+    local s = BelowIconStore()
+    if not s or not frameName then return end
+    s[frameName] = s[frameName] or {}
+    s[frameName][key] = val
+    ns.CDMAnchor.RefreshAll(true)
+end
+
+function ns.CDMAnchor.BelowIconReset(frameName, key)
+    local s = BelowIconStore()
+    local ic = s and frameName and s[frameName]
+    if ic then ic[key] = nil; ns.CDMAnchor.RefreshAll(true) end
+end
+
+function ns.CDMAnchor.BelowIconHasOverride(frameName, key)
+    local s = BelowIconStore()
+    local ic = s and frameName and s[frameName]
+    return ic ~= nil and ic[key] ~= nil
+end
+
+-- Seed the per-icon override from the tracker's current look (idempotent: skips a migrated icon and never
+-- clobbers an existing key). Maps are deep-copied so later edits don't alias the seed source.
+function ns.CDMAnchor.SeedBelowIconOverride(frameName, values)
+    local s = BelowIconStore()
+    if not s or not frameName then return end
+    local ic = s[frameName]
+    if ic and ic.__ovMigrated then return end
+    ic = ic or {}
+    for k, v in pairs(values or {}) do
+        if ic[k] == nil then ic[k] = (type(v) == "table") and ns.DeepCopy(v) or v end
+    end
+    ic.__ovMigrated = true
+    s[frameName] = ic
+end
+
+-- ── Per-icon-aware below-player getters (used by TimerIcon) ───────────────────────────────────────
+-- Each returns the per-icon override value when the icon is migrated, otherwise the bucket value — so an
+-- un-migrated icon reads EXACTLY as before. TimerIcon passes the icon's frame name + resolved bucket dest.
+function ns.CDMAnchor.GetDestCfgFor(frameName, bucketDest, key, default)
+    return ns.CDMAnchor.BelowIconGet(frameName, bucketDest, key, default)
+end
+
+function ns.CDMAnchor.GetDestBorderFor(frameName, bucketDest)
+    if not (frameName and ns.CDMAnchor.BelowIconMigrated(frameName)) then
+        return ns.CDMAnchor.GetDestBorder(bucketDest)
+    end
+    local g = function(k, d) return ns.CDMAnchor.BelowIconGet(frameName, bucketDest, k, d) end
+    local enabled = g("borderEnabled", true) ~= false
+    local color   = g("borderColor", nil) or { r = 0, g = 0, b = 0, a = 1 }
+    local size    = g("borderSize", 1) or 1
+    return enabled, color, size
+end
+
+function ns.CDMAnchor.GetDestGlowFor(frameName, bucketDest)
+    if not (frameName and ns.CDMAnchor.BelowIconMigrated(frameName)) then
+        return ns.CDMAnchor.GetDestGlow(bucketDest)
+    end
+    local g = function(k, d) return ns.CDMAnchor.BelowIconGet(frameName, bucketDest, k, d) end
+    local enabled = g("glowEnabled", true) ~= false
+    local gtype   = g("glowType", "pixel") or "pixel"
+    local color   = g("glowColor", nil) or { r = 0.96, g = 1, b = 0, a = 1 }
+    return enabled, gtype, color
+end
+
+function ns.CDMAnchor.GetDestCdmFlagFor(frameName, bucketDest, key)
+    if not (frameName and ns.CDMAnchor.BelowIconMigrated(frameName)) then
+        return ns.CDMAnchor.GetDestCdmFlag(bucketDest, key)
+    end
+    return ns.CDMAnchor.BelowIconGet(frameName, bucketDest, key, false) == true
+end
+
 -- Any reason to own this viewer (an offset, any row size, or an active unlock-drag)?
 -- Lets us take it over even when it hosts no icons of ours; with none, Blizzard keeps it.
 local function ViewerHasOverride(dest)
