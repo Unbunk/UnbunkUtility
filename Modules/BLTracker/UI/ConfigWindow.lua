@@ -131,7 +131,7 @@ local function CreateBLTrackerPanel(parent)
 
                     -- Free-mode hint: when NOT in the CDM the look is set in "Free icon settings" (the
                     -- Override cadre is greyed). Hidden while in the CDM.
-                    { type = "label", font = "UnbunkUtilityH6", height = 18,
+                    { type = "label", font = "UnbunkUtilityH6", height = 18, color = { 0.6, 0.6, 0.6 },
                       when = function() return not inCdm() end,
                       text = L["Check Free icon settings to setup icon"] },
                 }
