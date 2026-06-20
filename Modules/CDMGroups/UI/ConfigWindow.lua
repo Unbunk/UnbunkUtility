@@ -419,7 +419,9 @@ local OpenIconEditor   -- fwd decl
 -- re-render the shared section helpers expect; `ctx.refresh`/`ctx.rebuild` are the editor's light/full
 -- re-renders and `ctx.reopen` re-opens it. `I`/`sid` are carried for sections that need them in later
 -- increments (spell/item resolution); the body reads config only through the bundle.
-local function IconSections(I, sid, bundle, ctx)
+local function IconSections(I, sid, bundle, ctx, opts)
+    opts = opts or {}
+    local omit = opts.omit or {}   -- omit.label / omit.sound / omit.placeholder skip those entries
     local function gatedFor(keys)
         return function()
             if bundle.has then return bundle.has(keys) end
@@ -427,10 +429,10 @@ local function IconSections(I, sid, bundle, ctx)
         end
     end
     local entries = {
-        { type = "label", font = "UnbunkUtilityH6", height = 30,
+        { _omit = "label", type = "label", font = "UnbunkUtilityH6", height = 30,
           text = L["Tick \"Override group settings\" in a section to give this icon its own values; untick it to inherit the group again."] },
 
-        { type = "group", title = L["Sound alert"], build = function() return {
+        { _omit = "sound", type = "group", title = L["Sound alert"], build = function() return {
             { type = "sound", LSM = LSM, label = L["Sound on use"],
               getKey    = function() return bundle.get("soundStartSound") end,
               getEnable = function() return bundle.get("soundStartEnabled") == true end,
@@ -453,7 +455,7 @@ local function IconSections(I, sid, bundle, ctx)
               end },
         } end },
 
-        { type = "button", width = 200, hostHeight = 30,
+        { _omit = "placeholder", type = "button", width = 200, hostHeight = 30,
           label = (bundle.get("placeholder") == true) and L["Hide placeholder"] or L["Show placeholder"],
           onClick = function()
               bundle.set("placeholder", bundle.get("placeholder") ~= true)
@@ -574,6 +576,15 @@ local function IconSections(I, sid, bundle, ctx)
               ctx.rebuild()
           end },
     }
+    -- Drop any entries the caller opted out of (the tracker "Override settings" cadre omits sound +
+    -- placeholder + the inheritance label, since trackers have their own separate Sound alert cadre).
+    if next(omit) then
+        local kept = {}
+        for _, e in ipairs(entries) do
+            if not (e._omit and omit[e._omit]) then kept[#kept + 1] = e end
+        end
+        entries = kept
+    end
     return entries
 end
 ns.CDMGroups.IconSections = IconSections
