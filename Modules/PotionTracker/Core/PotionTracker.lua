@@ -81,6 +81,28 @@ local function ApplyLayout()
     combatTracker.ApplyPosition()
 end
 
+-- The per-icon override seed for a potion: its Free look mapped to the shared override schema (stackAnchor
+-- -> stackPos, stackOffsetX/Y -> stackOffX/Y). Used to seed the in-CDM look so it starts identical, and by
+-- the config's Override cadre. No title (potions have none).
+function PT.OverrideSeed(prefix)
+    local cfg = PT.CfgGet(prefix) or {}
+    local thr = {}
+    for _, t in ipairs(cfg.timerTiers or {}) do thr[#thr + 1] = { time = t.at, size = t.scale, color = t.color } end
+    return {
+        showTimer = true,
+        timerFontKey = cfg.timerFontKey, timerFontPath = cfg.timerFontPath, timerFontSize = cfg.timerFontSize,
+        timerOutline = cfg.timerOutline, timerColor = cfg.timerColor, timerPos = "CENTER", timerOffX = 0, timerOffY = 0,
+        timerThresholdsEnabled = true, timerThresholds = thr,
+        borderEnabled = cfg.borderEnabled, borderColor = cfg.borderColor, borderSize = cfg.borderSize,
+        iconW = cfg.iconWidth, iconH = cfg.iconHeight,
+        showTitle = false,
+        showStack = cfg.showStack ~= false,
+        stackFontKey = cfg.stackFontKey, stackFontPath = cfg.stackFontPath, stackFontSize = cfg.stackFontSize,
+        stackOutline = cfg.stackOutline, stackColor = cfg.stackColor,
+        stackPos = cfg.stackAnchor or "BOTTOM", stackOffX = cfg.stackOffsetX or 0, stackOffY = cfg.stackOffsetY or 0,
+    }
+end
+
 -- Refreshes the stack-count FontString (text + font/color) below a tracker.
 function PT.ApplyStackVisuals(prefix, tracker)
     if not tracker or not tracker.stackText then return end
@@ -88,6 +110,12 @@ function PT.ApplyStackVisuals(prefix, tracker)
     if not cfg then return end
 
     local fs = tracker.stackText
+    -- In the Cooldown Manager the shared icon draws the stacks (from the per-icon override) — hide our own
+    -- to avoid a double-draw, and lazily seed the override from this potion's look (below-player).
+    if ns.TrackerSuppressOwnExtras(tracker.icon, tracker.GetFrame():GetName(), cfg.cdmDest,
+            function() return PT.OverrideSeed(prefix) end) then
+        fs:Hide(); return
+    end
     local fontPath = ns.ResolveFontPath(cfg.stackFontPath, cfg.stackFontKey)
     fs:SetFont(fontPath, cfg.stackFontSize or 14, cfg.stackOutline or "OUTLINE")
     local c = cfg.stackColor or { r=1, g=1, b=1, a=1 }
