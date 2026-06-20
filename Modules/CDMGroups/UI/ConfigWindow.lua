@@ -186,15 +186,34 @@ local function PosOffsetFor(bundle, prefix)
     }
 end
 
+-- Per-icon stash of override values that were cleared by un-ticking "Override group settings", so the
+-- toggle can restore them (session-only, keyed by the icon's id). A bundle gets stashGet/stashSet bound to
+-- its own id via StashFns.
+local ovStash = {}
+local function StashFns(id)
+    return function(key) return ovStash[id] and ovStash[id][key] end,           -- stashGet
+           function(key, val) ovStash[id] = ovStash[id] or {}; ovStash[id][key] = val end   -- stashSet
+end
+
+-- Toggle a section between "override the group" and "inherit the group". Non-destructive: disabling
+-- STASHES the current override values (per icon, this session) and then clears them so the section inherits
+-- the group; re-enabling RESTORES the stashed values (not the group), so flipping the checkbox off and back
+-- on doesn't silently lose your customisation. Falls back to the group only when there's nothing stashed.
 local function OverrideToggle(bundle, keys, label)
     if not bundle.reset or not bundle.has then return nil end
     return { type = "checkbox", label = label or L["Override group settings"],
         get = function() return bundle.has(keys) end,
         set = function(v)
             if v then
-                for _, key in ipairs(keys) do bundle.set(key, CloneVal(bundle.get(key))) end
+                for _, key in ipairs(keys) do
+                    local prev = bundle.stashGet and bundle.stashGet(key)
+                    bundle.set(key, CloneVal(prev ~= nil and prev or bundle.get(key)))
+                end
             else
-                for _, key in ipairs(keys) do bundle.reset(key) end
+                for _, key in ipairs(keys) do
+                    if bundle.stashSet then bundle.stashSet(key, CloneVal(bundle.get(key))) end
+                    bundle.reset(key)
+                end
             end
             bundle.touch()
             if bundle.refresh then bundle.refresh() end
@@ -599,6 +618,7 @@ function ns.CDMGroups.MakeTrackerOverride(dest, frameName, onApply, onRebuild)
     if not I then return nil end
     local function apply()   if onApply   then onApply()   end end
     local function rebuild() if onRebuild then onRebuild() end end
+    local stashGet, stashSet = StashFns(frameName)
     local bundle = {
         get      = function(key) return I.IconGet(frameName, key) end,
         groupGet = function(key) return I.GGet(I.GroupOf(frameName), key) end,
@@ -610,6 +630,7 @@ function ns.CDMGroups.MakeTrackerOverride(dest, frameName, onApply, onRebuild)
         end,
         touch    = apply,
         refresh  = rebuild,   -- shared section helpers expect a full menu re-render
+        stashGet = stashGet, stashSet = stashSet,
     }
     local ctx = { refresh = rebuild, rebuild = rebuild, reopen = rebuild }
     return bundle, ctx
@@ -652,6 +673,7 @@ function ns.CDMGroups.TrackerCdmCadres(cfg)
             local fn     = cfg.frameName
             local bucket = (CA.IsAtEnd(cfg.cdmAtEnd and cfg.cdmAtEnd())) and "belowEnd" or "belowFront"
             if CA.SeedBelowIconOverride then CA.SeedBelowIconOverride(fn, cfg.seedValues()) end
+            local stashGet, stashSet = StashFns(fn)
             ovBundle = {
                 get      = function(key) return CA.BelowIconGet(fn, bucket, key) end,
                 groupGet = function(key) return CA.GetDestCfg(bucket, key) end,
@@ -663,6 +685,7 @@ function ns.CDMGroups.TrackerCdmCadres(cfg)
                 end,
                 touch    = cfg.applyIcon,
                 refresh  = cfg.rebuild,
+                stashGet = stashGet, stashSet = stashSet,
             }
             ovCtx = { refresh = cfg.rebuild, rebuild = cfg.rebuild, reopen = cfg.rebuild }
         end
@@ -710,6 +733,7 @@ end
 local function IconOptions(I, sid)
     local function menuRefresh() if iconEditor and iconEditor.menu then iconEditor.menu.Refresh() end end
     local function menuRebuild() if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end
+    local stashGet, stashSet = StashFns("icon:" .. tostring(sid))
     local bundle = {
         get      = function(key) return I.IconGet(sid, key) end,
         groupGet = function(key) return I.GGet(I.GroupOf(sid), key) end,
@@ -721,6 +745,7 @@ local function IconOptions(I, sid)
         end,
         touch    = function() I.ApplyAll(); if onIconEditChange then onIconEditChange() end end,
         refresh  = menuRebuild,   -- shared helpers (OverrideToggle/Copy/Timer…) re-render via a full Rebuild
+        stashGet = stashGet, stashSet = stashSet,
     }
     local ctx = { refresh = menuRefresh, rebuild = menuRebuild, reopen = function() OpenIconEditor(I, sid, onIconEditChange) end }
     return IconSections(I, sid, bundle, ctx)
