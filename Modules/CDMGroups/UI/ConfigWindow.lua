@@ -589,6 +589,32 @@ local function IconSections(I, sid, bundle, ctx, opts)
 end
 ns.CDMGroups.IconSections = IconSections
 
+-- Build the (bundle, ctx) a TRACKER's "Override settings" cadre feeds to IconSections: bound to the
+-- icon's PER-ICON override in its essential/utility CDMGroups group (keyed by frameName; override →
+-- group default). `onApply` re-applies the icon in-game after a value change; `onRebuild` re-renders the
+-- tracker's config menu (the section gates use `when`). Returns nil for a dest with no group instance
+-- (below-player / screen / free) so the caller can grey the cadre.
+function ns.CDMGroups.MakeTrackerOverride(dest, frameName, onApply, onRebuild)
+    local I = ns.CDMGroups.instances and ns.CDMGroups.instances[dest]
+    if not I then return nil end
+    local function apply()   if onApply   then onApply()   end end
+    local function rebuild() if onRebuild then onRebuild() end end
+    local bundle = {
+        get      = function(key) return I.IconGet(frameName, key) end,
+        groupGet = function(key) return I.GGet(I.GroupOf(frameName), key) end,
+        set      = function(key, val) I.IconSet(frameName, key, val) end,
+        reset    = function(key) I.IconReset(frameName, key) end,
+        has      = function(keys)
+            for _, k in ipairs(keys) do if I.IconHasOverride(frameName, k) then return true end end
+            return false
+        end,
+        touch    = apply,
+        refresh  = rebuild,   -- shared section helpers expect a full menu re-render
+    }
+    local ctx = { refresh = rebuild, rebuild = rebuild, reopen = rebuild }
+    return bundle, ctx
+end
+
 -- The per-icon override editor's option tree: binds IconSections to the Config instance `I` + the
 -- singleton pencil editor. bundle.* reads/writes the per-icon override store; bundle.refresh is the full
 -- Rebuild the shared section helpers expect (the override gates use `when`); ctx routes the editor's own

@@ -640,8 +640,36 @@ function CDG.Make(dest)
             s.iconCfg[spellId] = nil
         else
             s.iconCfg[spellId][key] = nil
+            -- Keep the override table alive while it still carries the migration marker (an icon with all
+            -- sections inherited still reads from the override store → group default, not its Free config).
             if next(s.iconCfg[spellId]) == nil then s.iconCfg[spellId] = nil end
         end
+    end
+
+    -- True once an icon (essential/utility tracker member) has been migrated to the per-icon override
+    -- system: its in-CDM appearance then comes from the override store (override → group default), never
+    -- its module's own "Free" config. The marker is a reserved key in the icon's override table.
+    function I.IconOverrideMigrated(spellId)
+        local s = Store(dest)
+        local ic = s and s.iconCfg and s.iconCfg[spellId]
+        return (ic and ic.__ovMigrated == true) or false
+    end
+
+    -- Seed an icon's per-icon override from a {key=value} table (the tracker's current look, already
+    -- mapped to the GROUP key schema), turning the override ON for each key so the icon keeps its look
+    -- once it reads from the override store. One-time per icon (the __ovMigrated marker); never clobbers
+    -- a key the user already set.
+    function I.SeedIconOverride(spellId, values)
+        local s = Store(dest); if not s or not spellId then return end
+        s.iconCfg = s.iconCfg or {}
+        local ic = s.iconCfg[spellId]
+        if ic and ic.__ovMigrated then return end
+        ic = ic or {}
+        for k, v in pairs(values or {}) do
+            if ic[k] == nil then ic[k] = (type(v) == "table") and ns.DeepCopy(v) or v end
+        end
+        ic.__ovMigrated = true
+        s.iconCfg[spellId] = ic
     end
 
     return I
