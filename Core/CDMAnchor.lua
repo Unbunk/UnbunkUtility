@@ -1152,6 +1152,48 @@ function ns.CDMAnchor.GetDestCdmFlagFor(frameName, bucketDest, key)
     return ns.CDMAnchor.BelowIconGet(frameName, bucketDest, key, false) == true
 end
 
+-- ── Tracker title/stacks: own-draw suppression + lazy seed (F4) ───────────────────────────────────
+-- The trackers (Defensive/Potion/Healthstone) draw their OWN title/stacks FontStrings. When an icon is in
+-- the Cooldown Manager the shared TimerIcon draws those instead (from the per-icon override), so the module
+-- must hide its own to avoid a double-draw. These helpers tell a module when to suppress, and seed the
+-- override so the in-CDM look starts from the tracker's own config (not the bucket / group default).
+
+-- Has this icon been migrated to the per-icon override for its dest?
+function ns.TrackerOverrideMigrated(frameName, cdmDest)
+    if not frameName then return false end
+    if cdmDest == "belowPlayer" then
+        return (ns.CDMAnchor.BelowIconMigrated and ns.CDMAnchor.BelowIconMigrated(frameName)) or false
+    end
+    local I = ns.CDMGroups and ns.CDMGroups.instances and ns.CDMGroups.instances[cdmDest or "essential"]
+    return (I and I.IconOverrideMigrated and I.IconOverrideMigrated(frameName)) or false
+end
+
+-- Seed the per-icon override (below-player store OR essential/utility group), idempotent.
+function ns.SeedTrackerOverride(frameName, cdmDest, values)
+    if not frameName then return end
+    if cdmDest == "belowPlayer" then
+        if ns.CDMAnchor.SeedBelowIconOverride then ns.CDMAnchor.SeedBelowIconOverride(frameName, values) end
+    else
+        local I = ns.CDMGroups and ns.CDMGroups.instances and ns.CDMGroups.instances[cdmDest or "essential"]
+        if I and I.SeedIconOverride then I.SeedIconOverride(frameName, values) end
+    end
+end
+
+-- Should the module hide its own title/stacks (because TimerIcon draws the replacement)? True when the icon
+-- is in the CDM AND TimerIcon will draw: below-player always (and lazily seed the override from `seedValues`
+-- so it shows the tracker's look, not the bucket default), essential/utility only once migrated. seedValues
+-- is an optional thunk returning the {override schema} table — called at most once, before migration.
+function ns.TrackerSuppressOwnExtras(icon, frameName, cdmDest, seedValues)
+    if not (icon and icon.CDMActive and icon.CDMActive()) then return false end
+    if cdmDest == "belowPlayer" then
+        if seedValues and not ns.TrackerOverrideMigrated(frameName, "belowPlayer") then
+            ns.SeedTrackerOverride(frameName, "belowPlayer", seedValues())
+        end
+        return true
+    end
+    return ns.TrackerOverrideMigrated(frameName, cdmDest)
+end
+
 -- Any reason to own this viewer (an offset, any row size, or an active unlock-drag)?
 -- Lets us take it over even when it hosts no icons of ours; with none, Blizzard keeps it.
 local function ViewerHasOverride(dest)
