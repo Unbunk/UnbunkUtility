@@ -453,7 +453,9 @@ function DT.ApplyIcon(spellId)
     d.icon.ApplyBorder()
     ApplyTitle(spellId)
     ApplyOne(spellId)
-    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+    -- Force a re-pin: a config edit may not change the placement signature (e.g. a
+    -- border/title-only tweak) but the visuals still need to re-apply.
+    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll(true) end
 end
 
 function DT.Get(spellId, key)

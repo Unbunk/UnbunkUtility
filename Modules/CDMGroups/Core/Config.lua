@@ -523,30 +523,11 @@ function CDG.Make(dest)
         s.order[targetGroupId] = rows
     end
 
-    -- ── Custom (cast-triggered) cooldowns ─────────────────────────────────────────
-    -- custom[spellId] = { duration, name, icon }: the addon DRAWS these (a cooldown swipe started by
-    -- UNIT_SPELLCAST_SUCCEEDED on spellId, running for `duration` seconds — see Core/CustomCooldowns.lua),
-    -- so they need no native frame. name/icon are display hints (resolved from the spell when nil).
-    -- Ported verbatim from BuffGroups, plus row-aware placement: opts.rowIndex / opts.colIndex place the
-    -- new custom at a precise (row,col) via MoveBuff; otherwise it appends to the group's last row.
-    function I.AddCustom(spellId, groupId, opts)
-        local s = Store(dest); if not s or not spellId then return end
-        opts = opts or {}
-        s.custom = s.custom or {}
-        s.custom[spellId] = {
-            duration = tonumber(opts.duration) or 0,
-            name     = opts.name,
-            icon     = opts.icon,
-        }
-        local gid = groupId or 1
-        if opts.rowIndex ~= nil or opts.colIndex ~= nil then
-            I.MoveBuff(spellId, gid, opts.rowIndex, opts.colIndex)
-        else
-            s.assign[spellId] = gid
-            I.AppendOrder(gid, spellId)
-        end
-    end
-
+    -- ── Legacy cast-triggered customs (read-only residue) ─────────────────────────
+    -- custom[spellId] = { duration, name, icon } were addon-DRAWN cooldown swipes. They are now
+    -- migrated to CustomCDM at login (see Modules/CustomCDM MigrateCustoms); none are ever created
+    -- here any more. The readers below (IsCustom/GetCustom/RemoveCustom/CustomList) only service an
+    -- entry that survived migration (e.g. a malformed one the per-entry pcall left behind).
     function I.RemoveCustom(spellId)
         local s = Store(dest); if not s then return end
         if s.custom then s.custom[spellId] = nil end
@@ -563,7 +544,7 @@ function CDG.Make(dest)
         if s.iconCfg then s.iconCfg[spellId] = nil end
     end
 
-    -- Tracker MEMBER placement: a string-keyed twin of AddCustom with NO s.custom entry. A CustomCDM
+    -- Tracker MEMBER placement: a string-keyed group assignment with NO s.custom entry. A CustomCDM
     -- icon folded into a group is a tracker member keyed by its frame name ("UnbunkUtilityCustomCDM<id>");
     -- this only records its group assignment + order slot (assign/order accept any key generically), so the
     -- engine's tracker fold picks it up on the next refresh. opts.rowIndex / opts.colIndex place it precisely

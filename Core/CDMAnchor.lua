@@ -256,9 +256,7 @@ function ns.CDMAnchor.GetNativeRows(dest)
         local list = {}
         for _, nf in ipairs(row) do
             local sid = ns.CDMAnchor.NativeFrameSpellId(nf)
-            -- Skip natives the user has ADOPTED (customized) — those are listed by the
-            -- "Native icons" cadre from ns.NativeCDM.AdoptedForDest, not from the viewer.
-            if sid and not (ns.NativeCDM and ns.NativeCDM.IsAdopted and ns.NativeCDM.IsAdopted(sid)) then
+            if sid then
                 local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
                 list[#list + 1] = {
                     spellId = sid,
@@ -271,15 +269,6 @@ function ns.CDMAnchor.GetNativeRows(dest)
         out[ri] = list
     end
     return out
-end
-
--- Has the user adopted this native's spell AND is its replacement icon built? Adopted
--- natives are replaced by our own TimerIcon, so the layout hides them and drops them
--- from the grid — but only when a real replacement exists (else the cooldown vanishes).
-local function NativeAdopted(nf)
-    if not (ns.NativeCDM and ns.NativeCDM.ShouldHideNative) then return false end
-    local sid = ns.CDMAnchor.NativeFrameSpellId(nf)
-    return sid and ns.NativeCDM.ShouldHideNative(sid) or false
 end
 
 -- Synchronously hide any native frame matching this spell, used right after adopting so
@@ -698,8 +687,8 @@ local function EffectiveRowCount(dest)
     local v = ns.GetCDMViewer(dest)
     if not v then return 1 end
     local nNat = 0
-    for _, nf in ipairs(EnumNativeIcons(v)) do
-        if not NativeAdopted(nf) then nNat = nNat + 1 end
+    for _ in ipairs(EnumNativeIcons(v)) do
+        nNat = nNat + 1
     end
     local nMine = 0
     for _, d in ipairs(appliers) do
@@ -819,15 +808,11 @@ function ns.CDMAnchor.GetBucketIcons(dest, row, atEnd)
     local out = {}
     for _, d in ipairs(BucketList(dest, row, atEnd)) do
         local id = DescId(d)
-        -- Adopted native icons are managed in the "Native icons" cadre, not the Addon
-        -- Icons reorder strips, so keep them out of this list.
-        if not (ns.NativeCDM and ns.NativeCDM.IsNativeFrame and ns.NativeCDM.IsNativeFrame(id)) then
-            out[#out + 1] = {
-                id      = id,
-                texture = d.getIcon and d.getIcon() or nil,
-                custom  = ns.CustomCDM and ns.CustomCDM.IsCustom(id) or nil,
-            }
-        end
+        out[#out + 1] = {
+            id      = id,
+            texture = d.getIcon and d.getIcon() or nil,
+            custom  = ns.CustomCDM and ns.CustomCDM.IsCustom(id) or nil,
+        }
     end
     return out
 end
@@ -1585,34 +1570,16 @@ local function LayoutCDMRow(viewer, dest, list)
     local padY = viewer.childYPadding or 3
     local rows = ComputeRows(viewer)
 
-    -- Native SEQUENCE in visual order (top->bottom, L->R). A native whose spell the user
-    -- adopted AND kept in THIS viewer's CDM is replaced IN PLACE by its addon icon: we
-    -- hide the native and put the icon's descriptor at the native's own slot, so adopting
-    -- keeps the cooldown exactly where it sat. An adopted icon moved to another dest or
-    -- taken out of the CDM is not in `list`, so its native shows here normally.
-    local adoptedApplier = {}
-    for _, d in ipairs(list) do
-        local nm  = d.frame and d.frame.GetName and d.frame:GetName()
-        local sid = nm and ns.NativeCDM and ns.NativeCDM.IsNativeFrame and ns.NativeCDM.IsNativeFrame(nm)
-                    and ns.NativeCDM.SpellIdFromFrameName(nm)
-        if sid then adoptedApplier[sid] = d end
-    end
-    local natives = {}        -- sequence of { native = nf } | { d = applier }
+    -- Native SEQUENCE in visual order (top->bottom, L->R).
+    local natives = {}        -- sequence of { native = nf }
     local refW, refH, gotRef = 30, 30, false
     for _, row in ipairs(rows) do
         for _, nf in ipairs(row) do
-            local sid = ns.CDMAnchor.NativeFrameSpellId(nf)
-            local app = sid and adoptedApplier[sid]
-            if app then
-                if nf.Hide and nf:IsShown() and CanWrite(nf) then nf:Hide() end
-                natives[#natives + 1] = { d = app }
-            else
-                if not gotRef then
-                    local w, h = nf:GetSize()
-                    if w and w > 0 then refW, refH, gotRef = w, h, true end
-                end
-                natives[#natives + 1] = { native = nf }
+            if not gotRef then
+                local w, h = nf:GetSize()
+                if w and w > 0 then refW, refH, gotRef = w, h, true end
             end
+            natives[#natives + 1] = { native = nf }
         end
     end
     local nNat = #natives
@@ -1622,16 +1589,12 @@ local function LayoutCDMRow(viewer, dest, list)
     if iconLimit <= 0 then iconLimit = (rows[1] and #rows[1]) or math.max(nNat, 1) end
     if iconLimit < 1 then iconLimit = 1 end
 
-    -- Our shown icons with their desired (row, side). Adopted-native icons are EXCLUDED
-    -- here — they were placed at their native slot in the sequence above, not in a bucket.
+    -- Our shown icons with their desired (row, side).
     local mine = {}
     for _, d in ipairs(list) do
         if d.frame and d.frame:IsShown() then
-            local nm = d.frame.GetName and d.frame:GetName()
-            if not (nm and ns.NativeCDM and ns.NativeCDM.IsNativeFrame and ns.NativeCDM.IsNativeFrame(nm)) then
-                mine[#mine + 1] = { d = d, row = math.max(1, d.getCfg("cdmRow") or 1),
-                                    atEnd = IsAtEnd(d.getCfg("cdmAtEnd")) }
-            end
+            mine[#mine + 1] = { d = d, row = math.max(1, d.getCfg("cdmRow") or 1),
+                                atEnd = IsAtEnd(d.getCfg("cdmAtEnd")) }
         end
     end
 
@@ -1741,7 +1704,6 @@ local function LayoutCDMRow(viewer, dest, list)
             if c.native then
                 PinNative(c.native, viewer, x, y, rw, rh)
                 ApplyNativeBorder(c.native, dest)
-                if ns.NativeCDM and ns.NativeCDM.StyleNativeText then ns.NativeCDM.StyleNativeText(c.native) end
             elseif c.d and c.d.frame then
                 if c.d.setSize then c.d.setSize(rw, rh) end
                 c.d.frame:ClearAllPoints()

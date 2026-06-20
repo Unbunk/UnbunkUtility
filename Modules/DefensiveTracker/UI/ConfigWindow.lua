@@ -223,8 +223,7 @@ local function IconGroup(sid, LSM)
         local function inCdm() return ns.CDMIncludedVal(DT.Get(sid, "includeInCdm")) end
         local function curDest() return DT.Get(sid, "cdmDest") or "belowPlayer" end
         local function applyIcon()
-            DT.ApplyIcon(sid)
-            if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
+            DT.ApplyIcon(sid)  -- already forces a CDMAnchor re-pin
         end
 
         local e = {
