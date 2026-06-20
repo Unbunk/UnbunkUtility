@@ -247,7 +247,7 @@ local function BuildPotionSectionOptions(prefix, LSM)
                         { type = "checkbox", label = L["Include in cdm"],
                           disabled = function() return not ns.IsCDMEnabled() end,
                           get = function() return inCdm() end,
-                          set = function(v) SetCfg("includeInCdm", v); tracker.ApplySize(); tracker.ApplyPosition(); rebuildMenu() end },
+                          set = function(v) SetCfg("includeInCdm", v); tracker.ApplySize(); tracker.ApplyPosition(); PT.ApplyStackVisuals(prefix, tracker); rebuildMenu() end },
                         { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
                           when = function() return inCdm() end,
                           getList = function() return ns.CDMDestList() end,

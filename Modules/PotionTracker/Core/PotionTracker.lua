@@ -96,7 +96,7 @@ function PT.OverrideSeed(prefix)
         borderEnabled = cfg.borderEnabled, borderColor = cfg.borderColor, borderSize = cfg.borderSize,
         iconW = cfg.iconWidth, iconH = cfg.iconHeight,
         showTitle = false,
-        showStack = cfg.showStack ~= false,
+        showStack = cfg.showStack ~= false, showAtZero = cfg.showAtZero == true,
         stackFontKey = cfg.stackFontKey, stackFontPath = cfg.stackFontPath, stackFontSize = cfg.stackFontSize,
         stackOutline = cfg.stackOutline, stackColor = cfg.stackColor,
         stackPos = cfg.stackAnchor or "BOTTOM", stackOffX = cfg.stackOffsetX or 0, stackOffY = cfg.stackOffsetY or 0,
@@ -144,10 +144,12 @@ end
 function PT.ApplyAll()
     if not healthTracker or not combatTracker then return end
     ApplyLayout()
-    healthTracker.ApplyVisuals()
-    combatTracker.ApplyVisuals()
+    -- Stacks first: in the CDM this suppresses our own FS and seeds the per-icon override, so the icon's
+    -- following ApplyVisuals → ApplyDestExtras already reads the seeded override (no first-tick bucket flash).
     PT.ApplyStackVisuals("health", healthTracker)
     PT.ApplyStackVisuals("combat", combatTracker)
+    healthTracker.ApplyVisuals()
+    combatTracker.ApplyVisuals()
 end
 
 function PT.GetHealthTracker() return healthTracker end
