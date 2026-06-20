@@ -396,6 +396,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                             originY  = panelOpts.innerOriginY or -8,
                             autoHook = false,
                             LSM      = entry.LSM or LSM,
+                            gate     = entry.gate,   -- grey the section's whole body when entry.gate.enabled() is false
                             depth    = depth,   -- a section does NOT deepen the heading level
                         })
                         return sectionSub.height
