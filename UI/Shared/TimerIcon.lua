@@ -258,10 +258,29 @@ function ns.ui.CreateTimerIcon(config)
     -- tracker's own config; everything else (and any unset below-player key) falls back to getCfg, then
     -- `default`. So a below-player Timer cadre value governs below-player icons with ZERO change to
     -- essential/utility/free trackers (they always hit the getCfg fallback).
+    -- Per-icon override value for an ENGINE-OWNED icon (in a CDMGroups essential/utility group), via the
+    -- group's per-icon override store (I.IconGet = override → group default). Returned ONLY once the icon
+    -- has been migrated to the override system (I.IconOverrideMigrated) — so an un-migrated tracker keeps
+    -- reading its OWN config (getCfg) and nothing regresses; a migrated one's in-CDM appearance comes
+    -- entirely from its "Override settings", never its "Free icon settings". nil = not applicable.
+    local function EngineIconGet(key)
+        if not EngineOwns() then return nil end
+        local I = ns.CDMGroups and ns.CDMGroups.instances and ns.CDMGroups.instances[getCfg("cdmDest") or "essential"]
+        local fn = frame and frame.GetName and frame:GetName()
+        if I and I.IconGet and fn and I.IconOverrideMigrated and I.IconOverrideMigrated(fn) then
+            return I.IconGet(fn, key)
+        end
+        return nil
+    end
     local function TimerCfg(key, default)
-        if getCfg("cdmDest") == "belowPlayer" and CDMActive() and ns.CDMAnchor and ns.CDMAnchor.GetDestCfg then
-            local v = ns.CDMAnchor.GetDestCfg(CfgDest(), key, nil)
-            if v ~= nil then return v end
+        if CDMActive() then
+            if getCfg("cdmDest") == "belowPlayer" and ns.CDMAnchor and ns.CDMAnchor.GetDestCfg then
+                local v = ns.CDMAnchor.GetDestCfg(CfgDest(), key, nil)
+                if v ~= nil then return v end
+            else
+                local v = EngineIconGet(key)
+                if v ~= nil then return v end
+            end
         end
         local g = getCfg(key)
         if g ~= nil then return g end
@@ -271,18 +290,26 @@ function ns.ui.CreateTimerIcon(config)
     -- Effective timer urgency tiers: below-player maps its per-dest timerThresholds {time,size,color}
     -- (essential's shape) to the tracker's {at,scale,color}; thresholds OFF → {} (no built-in urgency,
     -- base colour only). Other dests keep their own timerTiers (nil → the built-in yellow@15 / red@5).
+    -- Map the group/below-player {time,size,color}+enabled threshold shape to the tracker's {at,scale,color}
+    -- tiers. Shared by the below-player and engine-owned branches.
+    local function ThresholdsToTiers(enabled, thr)
+        if not enabled then return {} end
+        if not thr then return {} end
+        local t = {}
+        for _, x in ipairs(thr) do t[#t + 1] = { at = x.time, scale = x.size, color = x.color } end
+        return t
+    end
     local function TimerTiers()
-        if getCfg("cdmDest") == "belowPlayer" and CDMActive() and ns.CDMAnchor and ns.CDMAnchor.GetDestCfg then
-            local cd = CfgDest()
-            if ns.CDMAnchor.GetDestCfg(cd, "timerThresholdsEnabled", false) then
-                local thr = ns.CDMAnchor.GetDestCfg(cd, "timerThresholds", nil)
-                if thr then
-                    local t = {}
-                    for _, x in ipairs(thr) do t[#t + 1] = { at = x.time, scale = x.size, color = x.color } end
-                    return t
-                end
+        if CDMActive() then
+            if getCfg("cdmDest") == "belowPlayer" and ns.CDMAnchor and ns.CDMAnchor.GetDestCfg then
+                local cd = CfgDest()
+                return ThresholdsToTiers(ns.CDMAnchor.GetDestCfg(cd, "timerThresholdsEnabled", false),
+                                         ns.CDMAnchor.GetDestCfg(cd, "timerThresholds", nil))
+            elseif EngineIconGet("timerThresholdsEnabled") ~= nil then
+                -- Migrated engine-owned icon: urgency tiers come from its override thresholds.
+                return ThresholdsToTiers(EngineIconGet("timerThresholdsEnabled") == true,
+                                         EngineIconGet("timerThresholds"))
             end
-            return {}
         end
         return getCfg("timerTiers")
     end
