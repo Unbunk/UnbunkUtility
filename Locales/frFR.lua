@@ -637,6 +637,7 @@ L["These apply when the icon is in the Essential or Utility Cooldown Manager gro
 L["Check Free icon settings to setup icon"] = "Cochez Free icon settings pour configurer l'icône"
 L["(When in CDM)"] = "(En CDM)"
 L["(When not in CDM)"] = "(Hors CDM)"
+L["Stacks/Charges"] = "Charges/Cumuls"
 L["Overrides here win over the group; reset a section to inherit the group again."] = "Les surcharges ici priment sur le groupe ; réinitialisez une section pour hériter de nouveau du groupe."
 L["Tick \"Override group settings\" in a section to give this icon its own values; untick it to inherit the group again."] = "Cochez « Surcharger les réglages du groupe » dans une section pour donner à cette icône ses propres valeurs ; décochez pour hériter de nouveau du groupe."
 L["Not in the Cooldown Manager's tracked buffs — it won't display."] = "Pas dans les buffs suivis du Cooldown Manager — ne s'affichera pas."
