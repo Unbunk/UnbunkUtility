@@ -92,234 +92,127 @@ local function CreatePITrackerPanel(parent)
             -- timer text) since there is no icon to configure; the checkbox stays live.
             gate      = { enabled = function() return PI.CfgGet("showIcon") ~= false end, master = "showicon" },
             build = function()
-                return {
-                    -- Show icon checkbox (gate master — stays live)
-                    {
-                        type   = "checkbox",
-                        ref    = "showicon",
-                        label  = L["Show icon"],
-                        height = 24,
-                        get    = function() return PI.CfgGet("showIcon") ~= false end,
-                        set    = function(val)
-                            PI.CfgSet("showIcon", val)
-                            PI.ApplyVisuals()
-                        end,
-                    },
+                local frameName = "PITrackerFrame"
+                local function inCdm() return ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end
+                local function curDest() return PI.CfgGet("cdmDest") or "essential" end
+                local function rebuildMenu() if menu then menu.Rebuild() end end
+                local function applyIcon()
+                    PI.ApplyVisuals(); PI.ApplyFont(); PI.ApplyBorder(); PI.ApplySize()
+                    if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
+                end
 
-                    -- Placement sub-box: Cooldown Manager slot OR free position.
-                    -- "Include in cdm" toggles which controls show; its set calls
-                    -- menu.Rebuild() so the CDM options swap with the position editor.
-                    {
-                        type  = "group",
-                        title = L["Placement"],
-                        build = function()
-                            return {
-                                {
-                                    type = "checkbox",
-                                    label = L["Include in cdm"],
-                                    disabled = function() return not ns.IsCDMEnabled() end,
-                                    get = function() return ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
-                                    set = function(v)
-                                        PI.CfgSet("includeInCdm", v)
-                                        PI.ApplySize(); PI.ApplyPosition()
-                                        if menu then menu.Rebuild() end
-                                    end,
-                                },
-                                {
-                                    type = "dropdown",
-                                    label = L["Anchor to"],
-                                    width = 200,
-                                    height = 50,
-                                    when = function() return ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
-                                    getList = function() return ns.CDMDestList() end,
-                                    getCurrentKey = function() return ns.CDMDestChoiceLabel(PI.CfgGet) end,
-                                    onSelect = function(label) ns.CDMApplyDestChoice(label, PI.CfgSet); PI.ApplySize(); PI.ApplyPosition(); if menu then menu.Refresh() end end,
-                                },
-                                -- Free icon position (only when NOT in the CDM)
-                                {
-                                    type       = "position",
-                                    ref        = "pe",
-                                    when       = function() return not ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
-                                    onBuilt    = function(w) PI.pe = w end,
-                                    label      = L["Icon position (offset from screen center)"],
-                                    getX       = function() return PI.CfgGet("posX") end,
-                                    getY       = function() return PI.CfgGet("posY") end,
-                                    onApply    = function(x, yv)
-                                        if x  then PI.CfgSet("posX", x)  end
-                                        if yv then PI.CfgSet("posY", yv) end
-                                        PI.ApplyPosition()
-                                    end,
-                                    onUnlock   = function() PI.SetUnlocked(true) end,
-                                    onLock     = function()
-                                        PI.SetUnlocked(false)
-                                        if PI.pe then PI.pe.Refresh() end
-                                    end,
-                                    isUnlocked = function() return PI.IsUnlocked() end,
-                                },
-                                -- Icon size — free mode only. In the CDM the size is
-                                -- automatic: native row size (essential/utility) or the
-                                -- account-wide below-player row size (General Settings).
-                                {
-                                    type   = "custom",
-                                    height = 46,
-                                    when   = function() return not ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
-                                    build  = function(host)
-                                        local sizeLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-                                        sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                                        sizeLbl:SetText(L["Icon size"])
+                local e = {
+                    { type = "checkbox", ref = "showicon", label = L["Show icon"], height = 24,
+                      get = function() return PI.CfgGet("showIcon") ~= false end,
+                      set = function(val) PI.CfgSet("showIcon", val); PI.ApplyVisuals() end },
 
-                                        local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                                        wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
-                                        wLbl:SetText(L["W"])
-
-                                        local wInput = ns.ui.CreateTextInput({
-                                            parent     = host,
-                                            width      = 46,
-                                            height     = 22,
-                                            numeric    = true,
-                                            min        = 8,
-                                            max        = 512,
-                                            maxLetters = 3,
-                                            text       = tostring(PI.CfgGet("iconWidth") or 40),
-                                            onEnter    = function(val)
-                                                if val and val > 0 then
-                                                    PI.CfgSet("iconWidth", val)
-                                                    PI.ApplySize()
-                                                end
-                                            end,
-                                        })
-                                        wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-
-                                        local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                                        hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
-                                        hLbl:SetText(L["H"])
-
-                                        local hInput = ns.ui.CreateTextInput({
-                                            parent     = host,
-                                            width      = 46,
-                                            height     = 22,
-                                            numeric    = true,
-                                            min        = 8,
-                                            max        = 512,
-                                            maxLetters = 3,
-                                            text       = tostring(PI.CfgGet("iconHeight") or 40),
-                                            onEnter    = function(val)
-                                                if val and val > 0 then
-                                                    PI.CfgSet("iconHeight", val)
-                                                    PI.ApplySize()
-                                                end
-                                            end,
-                                        })
-                                        hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-
-                                        return {
-                                            frame   = host,
-                                            height  = 46,
-                                            Refresh = function()
-                                                wInput.SetText(tostring(PI.CfgGet("iconWidth")  or 40))
-                                                hInput.SetText(tostring(PI.CfgGet("iconHeight") or 40))
-                                            end,
-                                        }
-                                    end,
-                                },
-                                -- Border at the bottom of Placement, and ONLY for a free icon —
-                                -- in the CDM the per-dest border governs every icon there.
-                                {
-                                    type  = "group",
-                                    title = L["Border"],
-                                    when  = function() return not ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end,
-                                    build = function()
-                                        return {
-                                            {
-                                                type  = "checkbox",
-                                                label = L["Show border"],
-                                                get   = function() return PI.CfgGet("borderEnabled") == true end,
-                                                set   = function(v) PI.CfgSet("borderEnabled", v); PI.ApplyBorder(); if menu then menu.Refresh() end end,
-                                            },
-                                            {
-                                                type          = "textEditor",
-                                                label         = L["Border color"],
-                                                enabledBy     = function() return PI.CfgGet("borderEnabled") == true end,
-                                                showText      = false,
-                                                showFont      = false,
-                                                showSize      = false,
-                                                showOutline   = false,
-                                                showColor     = true,
-                                                getColor      = function() return PI.CfgGet("borderColor") end,
-                                                onColorChange = function(r, g, b, a)
-                                                    PI.CfgSet("borderColor", { r = r, g = g, b = b, a = a })
-                                                    PI.ApplyBorder()
-                                                end,
-                                            },
-                                            {
-                                                type       = "textinput",
-                                                label      = L["Border thickness"],
-                                                enabledBy  = function() return PI.CfgGet("borderEnabled") == true end,
-                                                width      = 46,
-                                                numeric    = true,
-                                                min        = 1,
-                                                max        = 16,
-                                                maxLetters = 2,
-                                                get        = function() return PI.CfgGet("borderSize") or 1 end,
-                                                set        = function(v) if v and v > 0 then PI.CfgSet("borderSize", v); PI.ApplyBorder() end end,
-                                            },
-                                        }
-                                    end,
-                                },
-                            }
-                        end,
-                    },
-
-                    -- ── Timer text (sub-box) ──────────────────────────────────────────────
-                    {
-                        type  = "group",
-                        title = L["Timer text"],
-                        build = function()
-                            return {
-                                {
-                                    type            = "textEditor",
-                                    LSM             = LSM,
-                                    label           = L["Timer text"],
-                                    showLabel       = false,
-                                    showText        = false,
-                                    showFont        = true,
-                                    showSize        = true,
-                                    showColor       = true,
-                                    showOutline     = true,
-                                    getFontKey      = function() return PI.CfgGet("timerFontKey") end,
-                                    getFontPath     = function() return PI.CfgGet("timerFontPath") end,
-                                    getFontSize     = function() return PI.CfgGet("timerFontSize") end,
-                                    getColor        = function() return PI.CfgGet("timerColor") end,
-                                    getOutline      = function() return PI.CfgGet("timerOutline") end,
-                                    onFontChange    = function(key, path)
-                                        PI.CfgSet("timerFontKey", key)
-                                        PI.CfgSet("timerFontPath", path)
-                                        PI.ApplyFont()
-                                    end,
-                                    onSizeChange    = function(size)
-                                        PI.CfgSet("timerFontSize", size)
-                                        PI.ApplyFont()
-                                    end,
-                                    onColorChange   = function(r, g, b, a)
-                                        PI.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
-                                        PI.ApplyFont()
-                                    end,
-                                    onOutlineChange = function(outline)
-                                        PI.CfgSet("timerOutline", outline)
-                                        PI.ApplyFont()
-                                    end,
-                                },
-                            }
-                        end,
-                    },
+                    { type = "group", title = L["Placement"], build = function() return {
+                        { type = "checkbox", label = L["Include in cdm"],
+                          disabled = function() return not ns.IsCDMEnabled() end,
+                          get = function() return inCdm() end,
+                          set = function(v) PI.CfgSet("includeInCdm", v); PI.ApplySize(); PI.ApplyPosition(); rebuildMenu() end },
+                        { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
+                          when = function() return inCdm() end,
+                          getList = function() return ns.CDMDestList() end,
+                          getCurrentKey = function() return ns.CDMDestChoiceLabel(PI.CfgGet) end,
+                          onSelect = function(label) ns.CDMApplyDestChoice(label, PI.CfgSet); PI.ApplySize(); PI.ApplyPosition(); rebuildMenu() end },
+                    } end },
                 }
+
+                local cfg = {
+                    frameName  = frameName,
+                    getDest    = curDest,
+                    cdmAtEnd   = function() return PI.CfgGet("cdmAtEnd") end,
+                    inCdm      = inCdm,
+                    applyIcon  = applyIcon,
+                    rebuild    = rebuildMenu,
+                    getOv      = function() return PI.CfgGet("ovCollapsed") ~= false end,
+                    setOv      = function(c) PI.CfgSet("ovCollapsed", c) end,
+                    getFree    = function() return PI.CfgGet("freeCollapsed") ~= false end,
+                    setFree    = function(c) PI.CfgSet("freeCollapsed", c) end,
+                    -- PI has no urgency tiers: seed thresholds OFF (base colour only).
+                    seedValues = function()
+                        return {
+                            showTimer = true,
+                            timerFontKey = PI.CfgGet("timerFontKey"), timerFontPath = PI.CfgGet("timerFontPath"),
+                            timerFontSize = PI.CfgGet("timerFontSize"), timerOutline = PI.CfgGet("timerOutline"),
+                            timerColor = PI.CfgGet("timerColor"), timerPos = "CENTER", timerOffX = 0, timerOffY = 0,
+                            timerThresholdsEnabled = false, timerThresholds = {},
+                            borderEnabled = PI.CfgGet("borderEnabled"), borderColor = PI.CfgGet("borderColor"), borderSize = PI.CfgGet("borderSize"),
+                            iconW = PI.CfgGet("iconWidth"), iconH = PI.CfgGet("iconHeight"),
+                            showTitle = false, showStack = false,
+                        }
+                    end,
+                    freeBuild  = function() return {
+                        { type = "position", ref = "pe",
+                          onBuilt = function(w) PI.pe = w end,
+                          label = L["Icon position (offset from screen center)"],
+                          getX = function() return PI.CfgGet("posX") end,
+                          getY = function() return PI.CfgGet("posY") end,
+                          onApply = function(x, yv) if x then PI.CfgSet("posX", x) end if yv then PI.CfgSet("posY", yv) end PI.ApplyPosition() end,
+                          onUnlock = function() PI.SetUnlocked(true) end,
+                          onLock = function() PI.SetUnlocked(false); if PI.pe then PI.pe.Refresh() end end,
+                          isUnlocked = function() return PI.IsUnlocked() end },
+                        { type = "custom", height = 46, build = function(host)
+                            local sizeLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
+                            sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); sizeLbl:SetText(L["Icon size"])
+                            local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                            wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
+                            local wInput = ns.ui.CreateTextInput({ parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+                                text = tostring(PI.CfgGet("iconWidth") or 40),
+                                onEnter = function(val) if val and val > 0 then PI.CfgSet("iconWidth", val); PI.ApplySize() end end })
+                            wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+                            local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                            hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
+                            local hInput = ns.ui.CreateTextInput({ parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+                                text = tostring(PI.CfgGet("iconHeight") or 40),
+                                onEnter = function(val) if val and val > 0 then PI.CfgSet("iconHeight", val); PI.ApplySize() end end })
+                            hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+                            return { frame = host, height = 46, Refresh = function()
+                                wInput.SetText(tostring(PI.CfgGet("iconWidth") or 40)); hInput.SetText(tostring(PI.CfgGet("iconHeight") or 40)) end }
+                        end },
+                        { type = "group", title = L["Border"], build = function() return {
+                            { type = "checkbox", label = L["Show border"],
+                              get = function() return PI.CfgGet("borderEnabled") == true end,
+                              set = function(v) PI.CfgSet("borderEnabled", v); PI.ApplyBorder(); rebuildMenu() end },
+                            { type = "textEditor", label = L["Border color"], enabledBy = function() return PI.CfgGet("borderEnabled") == true end,
+                              showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                              getColor = function() return PI.CfgGet("borderColor") end,
+                              onColorChange = function(r, g, b, a) PI.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); PI.ApplyBorder() end },
+                            { type = "textinput", label = L["Border thickness"], enabledBy = function() return PI.CfgGet("borderEnabled") == true end,
+                              width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+                              get = function() return PI.CfgGet("borderSize") or 1 end,
+                              set = function(v) if v and v > 0 then PI.CfgSet("borderSize", v); PI.ApplyBorder() end end },
+                        } end },
+                        { type = "group", title = L["Timer"], build = function() return {
+                            { type = "textEditor", LSM = LSM, label = L["Timer"], showLabel = false,
+                              showText = false, showFont = true, showSize = true, showColor = true, showOutline = true,
+                              getFontKey = function() return PI.CfgGet("timerFontKey") end,
+                              getFontPath = function() return PI.CfgGet("timerFontPath") end,
+                              getFontSize = function() return PI.CfgGet("timerFontSize") end,
+                              getColor = function() return PI.CfgGet("timerColor") end,
+                              getOutline = function() return PI.CfgGet("timerOutline") end,
+                              onFontChange = function(key, path) PI.CfgSet("timerFontKey", key); PI.CfgSet("timerFontPath", path); PI.ApplyFont() end,
+                              onSizeChange = function(size) PI.CfgSet("timerFontSize", size); PI.ApplyFont() end,
+                              onColorChange = function(r, g, b, a) PI.CfgSet("timerColor", { r = r, g = g, b = b, a = a }); PI.ApplyFont() end,
+                              onOutlineChange = function(outline) PI.CfgSet("timerOutline", outline); PI.ApplyFont() end },
+                        } end },
+                    } end,
+                }
+                for _, x in ipairs(ns.CDMGroups.TrackerCdmCadres(cfg)) do e[#e + 1] = x end
+                return e
             end,
         },
     }
 
     -- gap=12, width=518, autoHook=true -> OnShow re-sync is generated automatically.
     menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
-    -- NOTE: no parent:HookScript("OnShow", ...) here anymore — BuildMenu did it.
+
+    -- The Override / Free settings sections start collapsed and re-collapse on each tab show.
+    parent:HookScript("OnHide", function()
+        PI.CfgSet("ovCollapsed", true); PI.CfgSet("freeCollapsed", true)
+    end)
+    parent:HookScript("OnShow", function() if menu then menu.Rebuild() end end)
 
     -- Feature-unavailable banner. Put it in its own frame raised WAY above the greyed
     -- cadres AND the disable-gate click-blockers (those sit at host level + 500), so the
