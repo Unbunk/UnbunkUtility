@@ -99,6 +99,20 @@ function ns.ResolveFontPath(path, key)
     return "Fonts\\FRIZQT__.TTF"
 end
 
+-- Tracker per-icon override seed version. Bump this when the DEFAULT override-set a tracker seeds changes;
+-- an icon seeded at an older version is wiped and re-seeded with the new defaults on its next config-open /
+-- render (it stays "migrated" meanwhile, so it keeps rendering until the re-seed lands — no flash).
+ns.OVERRIDE_SEED_VERSION = 2
+
+-- The default urgency thresholds every tracker's Timer override seeds: yellow x1.2 at 15s, red x1.45 at 5s.
+-- Fresh table per call so the seed never aliases a shared one.
+function ns.DefaultTrackerTimerThresholds()
+    return {
+        { time = 15, size = 1.2,  color = { r = 1, g = 0.82, b = 0, a = 1 } },
+        { time = 5,  size = 1.45, color = { r = 1, g = 0,    b = 0, a = 1 } },
+    }
+end
+
 -- ── Text anchors (title / stack around an icon) ───────────────────────────────
 -- Single source of truth shared by every icon editor + core. The edge modes
 -- (TOP/BOTTOM/LEFT/RIGHT) sit just OUTSIDE the icon; the four corner modes sit

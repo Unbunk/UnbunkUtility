@@ -652,23 +652,26 @@ function CDG.Make(dest)
     function I.IconOverrideMigrated(spellId)
         local s = Store(dest)
         local ic = s and s.iconCfg and s.iconCfg[spellId]
-        return (ic and ic.__ovMigrated == true) or false
+        -- Migrated = seeded at any version (new __ovSeedV, or the legacy __ovMigrated marker). It stays true
+        -- across a default-version bump so the icon keeps rendering its override until the re-seed lands.
+        return (ic and (ic.__ovSeedV ~= nil or ic.__ovMigrated == true)) or false
     end
 
-    -- Seed an icon's per-icon override from a {key=value} table (the tracker's current look, already
-    -- mapped to the GROUP key schema), turning the override ON for each key so the icon keeps its look
-    -- once it reads from the override store. One-time per icon (the __ovMigrated marker); never clobbers
-    -- a key the user already set.
+    -- Seed an icon's per-icon override from a {key=value} table (the tracker's default override-set, mapped
+    -- to the GROUP key schema), turning the override ON for those keys. Versioned: skipped once the icon is
+    -- seeded at the CURRENT version; otherwise the override is WIPED and re-seeded so a changed default-set
+    -- fully replaces a stale one (and the legacy full seed). Keys not in `values` inherit the group.
     function I.SeedIconOverride(spellId, values)
         local s = Store(dest); if not s or not spellId then return end
         s.iconCfg = s.iconCfg or {}
+        local ver = ns.OVERRIDE_SEED_VERSION or 1
         local ic = s.iconCfg[spellId]
-        if ic and ic.__ovMigrated then return end
-        ic = ic or {}
+        if ic and ic.__ovSeedV == ver then return end
+        ic = {}
         for k, v in pairs(values or {}) do
-            if ic[k] == nil then ic[k] = (type(v) == "table") and ns.DeepCopy(v) or v end
+            ic[k] = (type(v) == "table") and ns.DeepCopy(v) or v
         end
-        ic.__ovMigrated = true
+        ic.__ovSeedV = ver
         s.iconCfg[spellId] = ic
     end
 

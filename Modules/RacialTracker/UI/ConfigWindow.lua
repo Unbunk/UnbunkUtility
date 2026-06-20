@@ -243,19 +243,12 @@ local function CreateRacialTrackerPanel(parent)
                     setOv      = function(c) RT.CfgSet("ovCollapsed", c) end,
                     getFree    = function() return RT.CfgGet("freeCollapsed") ~= false end,
                     setFree    = function(c) RT.CfgSet("freeCollapsed", c) end,
-                    seedValues = function()
-                        local thr = {}
-                        for _, t in ipairs(RT.CfgGet("timerTiers") or {}) do thr[#thr + 1] = { time = t.at, size = t.scale, color = t.color } end
-                        return {
-                            showTimer = true,
-                            timerFontKey = RT.CfgGet("timerFontKey"), timerFontPath = RT.CfgGet("timerFontPath"),
-                            timerFontSize = RT.CfgGet("timerFontSize"), timerOutline = RT.CfgGet("timerOutline"),
-                            timerColor = RT.CfgGet("timerColor"), timerPos = "CENTER", timerOffX = 0, timerOffY = 0,
-                            timerThresholdsEnabled = true, timerThresholds = thr,
-                            borderEnabled = RT.CfgGet("borderEnabled"), borderColor = RT.CfgGet("borderColor"), borderSize = RT.CfgGet("borderSize"),
-                            showTitle = false, showStack = false,
-                        }
-                    end,
+                    -- Default override-set: ONLY Timer (size 14 + urgency thresholds). Rest inherits the group.
+                    seedValues = function() return {
+                        timerFontSize = 14,
+                        timerThresholdsEnabled = true,
+                        timerThresholds = ns.DefaultTrackerTimerThresholds(),
+                    } end,
                     freeBuild  = function() return {
                         { type = "position", ref = "pe",
                           onBuilt = function(w) RT.pe = w end,

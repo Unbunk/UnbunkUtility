@@ -1067,14 +1067,15 @@ end
 function ns.CDMAnchor.BelowIconMigrated(frameName)
     local s = BelowIconStore()
     local ic = s and frameName and s[frameName]
-    return (ic and ic.__ovMigrated == true) or false
+    -- Seeded at any version (new __ovSeedV) or the legacy __ovMigrated marker.
+    return (ic and (ic.__ovSeedV ~= nil or ic.__ovMigrated == true)) or false
 end
 
 -- override (only when migrated) -> bucket value (GetDestCfg). bucketDest = "belowFront" | "belowEnd".
 function ns.CDMAnchor.BelowIconGet(frameName, bucketDest, key, default)
     local s = BelowIconStore()
     local ic = s and frameName and s[frameName]
-    if ic and ic.__ovMigrated then
+    if ic and (ic.__ovSeedV ~= nil or ic.__ovMigrated) then
         local v = ic[key]
         if v ~= nil then return v end
     end
@@ -1101,18 +1102,20 @@ function ns.CDMAnchor.BelowIconHasOverride(frameName, key)
     return ic ~= nil and ic[key] ~= nil
 end
 
--- Seed the per-icon override from the tracker's current look (idempotent: skips a migrated icon and never
--- clobbers an existing key). Maps are deep-copied so later edits don't alias the seed source.
+-- Seed the per-icon override from the tracker's default override-set. Versioned: skipped once seeded at the
+-- CURRENT version; otherwise the override is WIPED and re-seeded so a changed default-set fully replaces a
+-- stale one (and the legacy full seed). Keys not in `values` inherit the bucket. Maps are deep-copied.
 function ns.CDMAnchor.SeedBelowIconOverride(frameName, values)
     local s = BelowIconStore()
     if not s or not frameName then return end
+    local ver = ns.OVERRIDE_SEED_VERSION or 1
     local ic = s[frameName]
-    if ic and ic.__ovMigrated then return end
-    ic = ic or {}
+    if ic and ic.__ovSeedV == ver then return end
+    ic = {}
     for k, v in pairs(values or {}) do
-        if ic[k] == nil then ic[k] = (type(v) == "table") and ns.DeepCopy(v) or v end
+        ic[k] = (type(v) == "table") and ns.DeepCopy(v) or v
     end
-    ic.__ovMigrated = true
+    ic.__ovSeedV = ver
     s[frameName] = ic
 end
 

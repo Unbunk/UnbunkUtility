@@ -248,28 +248,14 @@ function DT.TestSound(spellId, which) PlaySound(spellId, which) end
 -- same modes (edges + 4 inside corners).
 local AnchorFS = ns.AnchorFS
 
--- The per-icon override seed for a defensive: its Free look mapped to the shared override schema
--- (titleAnchor->titlePos, titleOffsetX/Y->titleOffX/Y; same for stack*). The module's effective draw
--- DEFAULTS are baked in (title 16 / stack 12 etc.) so the in-CDM look starts identical to the own-draw.
-function DT.OverrideSeed(spellId)
-    local e = SpellCfg(spellId) or {}
-    local thr = {}
-    for _, t in ipairs(e.timerTiers or {}) do thr[#thr + 1] = { time = t.at, size = t.scale, color = t.color } end
+-- Default per-icon override-set for a defensive: ONLY Timer (size 14 + urgency thresholds) and
+-- Stacks/Charges (size 12, thick outline, X+3). Everything else stays un-overridden -> inherits the group.
+function DT.OverrideSeed()
     return {
-        showTimer = true,
-        timerFontKey = e.timerFontKey, timerFontPath = e.timerFontPath, timerFontSize = e.timerFontSize,
-        timerOutline = e.timerOutline, timerColor = e.timerColor, timerPos = "CENTER", timerOffX = 0, timerOffY = 0,
-        timerThresholdsEnabled = true, timerThresholds = thr,
-        borderEnabled = e.borderEnabled, borderColor = e.borderColor, borderSize = e.borderSize,
-        iconW = e.iconWidth, iconH = e.iconHeight,
-        showTitle = e.showTitle == true, titleText = e.titleText,
-        titleFontKey = e.titleFontKey, titleFontPath = e.titleFontPath, titleFontSize = e.titleFontSize or 16,
-        titleOutline = e.titleOutline or "OUTLINE", titleColor = e.titleColor,
-        titlePos = e.titleAnchor or "TOP", titleOffX = e.titleOffsetX or 0, titleOffY = e.titleOffsetY or 0,
-        showStack = e.showStack ~= false, showAtZero = e.showAtZero == true,
-        stackFontKey = e.stackFontKey, stackFontPath = e.stackFontPath, stackFontSize = e.stackFontSize or 12,
-        stackOutline = e.stackOutline or "OUTLINE", stackColor = e.stackColor,
-        stackPos = e.stackAnchor or "BOTTOMRIGHT", stackOffX = e.stackOffsetX or 0, stackOffY = e.stackOffsetY or 0,
+        timerFontSize = 14,
+        timerThresholdsEnabled = true,
+        timerThresholds = ns.DefaultTrackerTimerThresholds(),
+        stackFontSize = 12, stackOutline = "THICKOUTLINE", stackOffX = 3,
     }
 end
 

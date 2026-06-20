@@ -155,17 +155,11 @@ local function CreateBLTrackerPanel(parent)
                 local ovBundle, ovCtx
                 local inst = ns.CDMGroups and ns.CDMGroups.instances and ns.CDMGroups.instances[curDest()]
                 if inst and inst.SeedIconOverride and ns.CDMGroups.MakeTrackerOverride then
-                    local thr = {}
-                    for _, t in ipairs(BL.CfgGet("timerTiers") or {}) do thr[#thr + 1] = { time = t.at, size = t.scale, color = t.color } end
+                    -- Default override-set: ONLY Timer (size 14 + urgency thresholds). Rest inherits the group.
                     inst.SeedIconOverride(frameName, {
-                        showTimer = true,
-                        timerFontKey = BL.CfgGet("timerFontKey"), timerFontPath = BL.CfgGet("timerFontPath"),
-                        timerFontSize = BL.CfgGet("timerFontSize"), timerOutline = BL.CfgGet("timerOutline"),
-                        timerColor = BL.CfgGet("timerColor"), timerPos = "CENTER", timerOffX = 0, timerOffY = 0,
-                        timerThresholdsEnabled = true, timerThresholds = thr,
-                        borderEnabled = BL.CfgGet("borderEnabled"), borderColor = BL.CfgGet("borderColor"), borderSize = BL.CfgGet("borderSize"),
-                        iconW = BL.CfgGet("iconWidth"), iconH = BL.CfgGet("iconHeight"),
-                        showTitle = false, showStack = false,
+                        timerFontSize = 14,
+                        timerThresholdsEnabled = true,
+                        timerThresholds = ns.DefaultTrackerTimerThresholds(),
                     })
                     ovBundle, ovCtx = ns.CDMGroups.MakeTrackerOverride(curDest(), frameName, applyIcon, rebuildMenu)
                 end
