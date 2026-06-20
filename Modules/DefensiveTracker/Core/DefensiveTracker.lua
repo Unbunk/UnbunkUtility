@@ -422,6 +422,13 @@ local function EnsureIcon(spellId)
             if e[key] ~= nil then return e[key] end
             return DEFAULTS[key]
         end,
+        -- In-CDM stacks: the shared icon draws this defensive's charge count (matching the own-draw's
+        -- maxCharges>1 gate). Isolated to ResolveCharges — no spellId exposure (keybind/glow unaffected).
+        getCount = function()
+            local cur, maxc = GetCharges(spellId)
+            if cur and maxc and maxc > 1 then return cur end
+            return nil
+        end,
         -- Lets the CDM reorder strips flip cdmAtEnd (Front <-> End bucket) on a cross-strip drag.
         setCfg = function(key, val)
             local e = SpellCfg(spellId)
