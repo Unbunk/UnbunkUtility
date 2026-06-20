@@ -859,7 +859,13 @@ function ns.ui.CreateTimerIcon(config)
             stacksFS:SetTextColor(c.r, c.g, c.b, c.a or 1)
             if ns.AnchorFS then ns.AnchorFS(stacksFS, frame, XCfg("stackPos", "BOTTOMRIGHT"), XCfg("stackOffX", 2), XCfg("stackOffY", -2)) end
             local ch = ResolveCharges()
-            if ch and ch > 0 then stacksFS:SetText(tostring(ch)); stacksFS:Show() else stacksFS:Hide() end
+            if ch and ch > 0 then
+                stacksFS:SetText(tostring(ch)); stacksFS:Show()
+            elseif XCfg("showAtZero", false) then   -- keep a literal "0" when the tracker opted in
+                stacksFS:SetText("0"); stacksFS:Show()
+            else
+                stacksFS:Hide()
+            end
         else
             stacksFS:Hide()
         end
