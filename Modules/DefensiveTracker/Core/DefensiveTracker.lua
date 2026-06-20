@@ -255,7 +255,7 @@ function DT.OverrideSeed()
         timerFontSize = 14,
         timerThresholdsEnabled = true,
         timerThresholds = ns.DefaultTrackerTimerThresholds(),
-        stackFontSize = 12, stackOutline = "THICKOUTLINE", stackOffX = 3,
+        stackFontSize = 12, stackOutline = "THICKOUTLINE", stackOffX = 3, stackOffY = -1,
     }
 end
 
