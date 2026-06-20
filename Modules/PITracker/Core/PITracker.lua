@@ -198,6 +198,9 @@ end)
 local initPI = CreateFrame("Frame")
 initPI:RegisterEvent("PLAYER_LOGIN")
 initPI:SetScript("OnEvent", function(self)
+    if ns.ReseedTrackerOverride then
+        ns.ReseedTrackerOverride("PITrackerFrame", PI.CfgGet("cdmDest") or "essential", ns.DefaultTrackerTimerSeed)
+    end
     CheckPlayerHasPI()
     PI.ApplyPosition()
     PI.ApplyFont()

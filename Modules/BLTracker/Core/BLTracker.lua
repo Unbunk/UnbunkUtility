@@ -337,6 +337,10 @@ end)
 local initBL = CreateFrame("Frame")
 initBL:RegisterEvent("PLAYER_LOGIN")
 initBL:SetScript("OnEvent", function(self)
+    -- Apply the current default override-set at login too (RunReloadHooks only fires on a profile change).
+    if ns.ReseedTrackerOverride then
+        ns.ReseedTrackerOverride("BLTrackerFrame", BL.CfgGet("cdmDest") or "essential", ns.DefaultTrackerTimerSeed)
+    end
     CheckPlayerHasBL()
     currentIcon = GetDefaultClassIcon(playerClass)
     BL.ApplyPosition()
