@@ -94,249 +94,159 @@ local function CreateBLTrackerPanel(parent)
             -- timer text) since there is no icon to configure; the checkbox stays live.
             gate      = { enabled = function() return BL.CfgGet("showIcon") ~= false end, master = "showicon" },
             build = function()
-                return {
-                    -- ── Show icon checkbox + Always-show toggle (inline, to its right) ────
-                    {
-                        type   = "checkbox",
-                        ref    = "showicon",
-                        label  = L["Show icon"],
-                        height = 24,
-                        get    = function() return BL.CfgGet("showIcon") ~= false end,
-                        set    = function(val)
-                            BL.CfgSet("showIcon", val)
-                            BL.ApplyVisuals()
-                        end,
-                        inline = {
-                            {
-                                type  = "checkbox",
-                                label = L["Always show"],
-                                get   = function() return BL.CfgGet("alwaysShow") ~= false end,
-                                set   = function(val)
-                                    BL.CfgSet("alwaysShow", val)
-                                    BL.ApplyVisuals()
-                                end,
-                                point = { "LEFT", "LEFT", 150, 0 },
-                            },
-                        },
-                    },
+                local frameName = "BLTrackerFrame"
+                local function inCdm() return ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end
+                local function curDest() return BL.CfgGet("cdmDest") or "essential" end
+                local function rebuildMenu() if menu then menu.Rebuild() end end
+                -- Re-apply the icon after an Override change. The Apply* re-read config through TimerIcon,
+                -- which (for a migrated in-CDM icon) now reads the per-icon override; a forced CDM refresh
+                -- re-lays the group out.
+                local function applyIcon()
+                    BL.ApplyVisuals(); BL.ApplyFont(); BL.ApplyBorder(); BL.ApplySize()
+                    if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
+                end
 
-                    -- Placement sub-box: Cooldown Manager slot OR free position.
-                    -- "Include in cdm" toggles which controls show; its set calls
-                    -- menu.Rebuild() so the CDM options swap with the position editor.
-                    {
-                        type  = "group",
-                        title = L["Placement"],
-                        build = function()
-                            return {
-                                -- ── Cooldown Manager integration ──────────────────────────────────────
-                                {
-                                    type = "checkbox",
-                                    label = L["Include in cdm"],
-                                    disabled = function() return not ns.IsCDMEnabled() end,
-                                    get = function() return ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
-                                    set = function(v)
-                                        BL.CfgSet("includeInCdm", v); BL.ApplySize(); BL.ApplyPosition()
-                                        if menu then menu.Rebuild() end
-                                    end,
-                                },
-                                {
-                                    type = "dropdown",
-                                    label = L["Anchor to"],
-                                    width = 200,
-                                    height = 50,
-                                    when = function() return ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
-                                    getList = function() return ns.CDMDestList() end,
-                                    getCurrentKey = function() return ns.CDMDestChoiceLabel(BL.CfgGet) end,
-                                    onSelect = function(label) ns.CDMApplyDestChoice(label, BL.CfgSet); BL.ApplySize(); BL.ApplyPosition(); if menu then menu.Refresh() end end,
-                                },
-                                -- ── Position editor (named ref for the onLock self-refresh) ───────────
-                                {
-                                    type       = "position",
-                                    ref        = "pe",
-                                    when       = function() return not ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
-                                    onBuilt    = function(w) BL.pe = w end,
-                                    label      = L["Icon position (offset from screen center)"],
-                                    getX       = function() return BL.CfgGet("posX") end,
-                                    getY       = function() return BL.CfgGet("posY") end,
-                                    onApply    = function(x, yv)
-                                        if x  then BL.CfgSet("posX", x)  end
-                                        if yv then BL.CfgSet("posY", yv) end
-                                        BL.ApplyPosition()
-                                    end,
-                                    onUnlock   = function() BL.SetUnlocked(true) end,
-                                    onLock     = function()
-                                        BL.SetUnlocked(false)
-                                        if BL.pe then BL.pe.Refresh() end
-                                    end,
-                                    isUnlocked = function() return BL.IsUnlocked() end,
-                                },
-                                -- ── Icon size  W / H  (composite -> custom escape hatch) ──────────────
-                                {
-                                    type   = "custom",
-                                    height = 46,
-                                    when   = function() return not ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
-                                    build  = function(host)
-                                        local sizeLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-                                        sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                                        sizeLbl:SetText(L["Icon size"])
+                local e = {
+                    -- ── Show icon (+ Always-show inline) ──────────────────────────────────
+                    { type = "checkbox", ref = "showicon", label = L["Show icon"], height = 24,
+                      get = function() return BL.CfgGet("showIcon") ~= false end,
+                      set = function(val) BL.CfgSet("showIcon", val); BL.ApplyVisuals() end,
+                      inline = { { type = "checkbox", label = L["Always show"],
+                          get = function() return BL.CfgGet("alwaysShow") ~= false end,
+                          set = function(val) BL.CfgSet("alwaysShow", val); BL.ApplyVisuals() end,
+                          point = { "LEFT", "LEFT", 150, 0 } } } },
 
-                                        local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                                        wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20)
-                                        wLbl:SetText(L["W"])
-
-                                        local wInput = ns.ui.CreateTextInput({
-                                            parent     = host,
-                                            width      = 46,
-                                            height     = 22,
-                                            numeric    = true,
-                                            min        = 8,
-                                            max        = 512,
-                                            maxLetters = 3,
-                                            text       = tostring(BL.CfgGet("iconWidth") or 40),
-                                            onEnter    = function(val)
-                                                if val and val > 0 then
-                                                    BL.CfgSet("iconWidth", val)
-                                                    BL.ApplySize()
-                                                end
-                                            end,
-                                        })
-                                        wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-
-                                        local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                                        hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0)
-                                        hLbl:SetText(L["H"])
-
-                                        local hInput = ns.ui.CreateTextInput({
-                                            parent     = host,
-                                            width      = 46,
-                                            height     = 22,
-                                            numeric    = true,
-                                            min        = 8,
-                                            max        = 512,
-                                            maxLetters = 3,
-                                            text       = tostring(BL.CfgGet("iconHeight") or 40),
-                                            onEnter    = function(val)
-                                                if val and val > 0 then
-                                                    BL.CfgSet("iconHeight", val)
-                                                    BL.ApplySize()
-                                                end
-                                            end,
-                                        })
-                                        hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-
-                                        return {
-                                            frame   = host,
-                                            height  = 46,
-                                            Refresh = function()
-                                                wInput.SetText(tostring(BL.CfgGet("iconWidth")  or 40))
-                                                hInput.SetText(tostring(BL.CfgGet("iconHeight") or 40))
-                                            end,
-                                        }
-                                    end,
-                                },
-                                -- ── Border (sub-box) — only for a free icon; in the CDM the per-dest
-                                -- border governs every icon there. ───────────────────────────────────
-                                {
-                                    type  = "group",
-                                    title = L["Border"],
-                                    when  = function() return not ns.CDMIncludedVal(BL.CfgGet("includeInCdm")) end,
-                                    build = function()
-                                        return {
-                                            {
-                                                type  = "checkbox",
-                                                label = L["Show border"],
-                                                get   = function() return BL.CfgGet("borderEnabled") == true end,
-                                                set   = function(v) BL.CfgSet("borderEnabled", v); BL.ApplyBorder(); if menu then menu.Refresh() end end,
-                                            },
-                                            {
-                                                type          = "textEditor",
-                                                label         = L["Border color"],
-                                                enabledBy     = function() return BL.CfgGet("borderEnabled") == true end,
-                                                showText      = false,
-                                                showFont      = false,
-                                                showSize      = false,
-                                                showOutline   = false,
-                                                showColor     = true,
-                                                getColor      = function() return BL.CfgGet("borderColor") end,
-                                                onColorChange = function(r, g, b, a)
-                                                    BL.CfgSet("borderColor", { r = r, g = g, b = b, a = a })
-                                                    BL.ApplyBorder()
-                                                end,
-                                            },
-                                            {
-                                                type       = "textinput",
-                                                label      = L["Border thickness"],
-                                                enabledBy  = function() return BL.CfgGet("borderEnabled") == true end,
-                                                width      = 46,
-                                                numeric    = true,
-                                                min        = 1,
-                                                max        = 16,
-                                                maxLetters = 2,
-                                                get        = function() return BL.CfgGet("borderSize") or 1 end,
-                                                set        = function(v) if v and v > 0 then BL.CfgSet("borderSize", v); BL.ApplyBorder() end end,
-                                            },
-                                        }
-                                    end,
-                                },
-                            }
-                        end,
-                    },
-
-                    -- ── Timer text (sub-box) ──────────────────────────────────────────────
-                    {
-                        type  = "group",
-                        title = L["Timer text"],
-                        build = function()
-                            return {
-                                {
-                                    type            = "textEditor",
-                                    LSM             = LSM,
-                                    label           = L["Timer text"],
-                                    showLabel       = false,
-                                    showText        = false,
-                                    showFont        = true,
-                                    showSize        = true,
-                                    showColor       = true,
-                                    showOutline     = true,
-                                    getFontKey      = function() return BL.CfgGet("timerFontKey") end,
-                                    getFontPath     = function() return BL.CfgGet("timerFontPath") end,
-                                    getFontSize     = function() return BL.CfgGet("timerFontSize") end,
-                                    getColor        = function() return BL.CfgGet("timerColor") end,
-                                    getOutline      = function() return BL.CfgGet("timerOutline") end,
-                                    onFontChange    = function(key, path)
-                                        BL.CfgSet("timerFontKey", key)
-                                        BL.CfgSet("timerFontPath", path)
-                                        BL.ApplyFont()
-                                    end,
-                                    onSizeChange    = function(size)
-                                        BL.CfgSet("timerFontSize", size)
-                                        BL.ApplyFont()
-                                    end,
-                                    onColorChange   = function(r, g, b, a)
-                                        BL.CfgSet("timerColor", { r = r, g = g, b = b, a = a })
-                                        BL.ApplyFont()
-                                    end,
-                                    onOutlineChange = function(outline)
-                                        BL.CfgSet("timerOutline", outline)
-                                        BL.ApplyFont()
-                                    end,
-                                },
-                                ns.ui.TiersEntry({
-                                    getTiers = function() return BL.CfgGet("timerTiers") end,
-                                    apply    = function() BL.ApplyVisuals() end,
-                                    rebuild  = function() if menu then menu.Rebuild() end end,
-                                }),
-                            }
-                        end,
-                    },
+                    -- ── Placement mode: in the Cooldown Manager (which dest) or free ───────
+                    { type = "group", title = L["Placement"], build = function() return {
+                        { type = "checkbox", label = L["Include in cdm"],
+                          disabled = function() return not ns.IsCDMEnabled() end,
+                          get = function() return inCdm() end,
+                          set = function(v) BL.CfgSet("includeInCdm", v); BL.ApplySize(); BL.ApplyPosition(); rebuildMenu() end },
+                        { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
+                          when = function() return inCdm() end,
+                          getList = function() return ns.CDMDestList() end,
+                          getCurrentKey = function() return ns.CDMDestChoiceLabel(BL.CfgGet) end,
+                          onSelect = function(label) ns.CDMApplyDestChoice(label, BL.CfgSet); BL.ApplySize(); BL.ApplyPosition(); rebuildMenu() end },
+                    } end },
                 }
+
+                -- ── Override settings: the per-icon look that governs the icon WHILE IN the CDM (greyed
+                -- when free). Backed by the icon's per-icon override in its essential/utility group (shared
+                -- IconSections, minus the trackers' own Sound cadre). One-time seeded from the Free look so
+                -- it starts identical, then is governed here.
+                local ovBundle, ovCtx
+                local inst = ns.CDMGroups and ns.CDMGroups.instances and ns.CDMGroups.instances[curDest()]
+                if inst and inst.SeedIconOverride and ns.CDMGroups.MakeTrackerOverride then
+                    local thr = {}
+                    for _, t in ipairs(BL.CfgGet("timerTiers") or {}) do thr[#thr + 1] = { time = t.at, size = t.scale, color = t.color } end
+                    inst.SeedIconOverride(frameName, {
+                        showTimer = true,
+                        timerFontKey = BL.CfgGet("timerFontKey"), timerFontPath = BL.CfgGet("timerFontPath"),
+                        timerFontSize = BL.CfgGet("timerFontSize"), timerOutline = BL.CfgGet("timerOutline"),
+                        timerColor = BL.CfgGet("timerColor"), timerPos = "CENTER", timerOffX = 0, timerOffY = 0,
+                        timerThresholdsEnabled = true, timerThresholds = thr,
+                        borderEnabled = BL.CfgGet("borderEnabled"), borderColor = BL.CfgGet("borderColor"), borderSize = BL.CfgGet("borderSize"),
+                        iconW = BL.CfgGet("iconWidth"), iconH = BL.CfgGet("iconHeight"),
+                        showTitle = false, showStack = false,
+                    })
+                    ovBundle, ovCtx = ns.CDMGroups.MakeTrackerOverride(curDest(), frameName, applyIcon, rebuildMenu)
+                end
+                e[#e + 1] = {
+                    type = "section", label = L["Override settings"], showCheckbox = false,
+                    headerExtra = ns.ui.SettingsHeaderIcon,
+                    gate = { enabled = function() return inCdm() end },
+                    getCollapsed = function() return BL.CfgGet("ovCollapsed") ~= false end,
+                    onCollapse   = function(c) BL.CfgSet("ovCollapsed", c and true or false) end,
+                    build = function()
+                        if ovBundle then
+                            return ns.CDMGroups.IconSections(nil, frameName, ovBundle, ovCtx,
+                                { omit = { sound = true, placeholder = true, label = true } })
+                        end
+                        return { { type = "label", font = "UnbunkUtilityBody", height = 36,
+                            text = L["These apply when the icon is in the Essential or Utility Cooldown Manager group."] } }
+                    end,
+                }
+
+                -- ── Free icon settings: the look while NOT in the CDM (greyed when in the CDM) ─────────
+                e[#e + 1] = {
+                    type = "section", label = L["Free icon settings"], showCheckbox = false,
+                    headerExtra = ns.ui.SettingsHeaderIcon,
+                    gate = { enabled = function() return not inCdm() end },
+                    getCollapsed = function() return BL.CfgGet("freeCollapsed") ~= false end,
+                    onCollapse   = function(c) BL.CfgSet("freeCollapsed", c and true or false) end,
+                    build = function() return {
+                        { type = "position", ref = "pe",
+                          onBuilt = function(w) BL.pe = w end,
+                          label = L["Icon position (offset from screen center)"],
+                          getX = function() return BL.CfgGet("posX") end,
+                          getY = function() return BL.CfgGet("posY") end,
+                          onApply = function(x, yv) if x then BL.CfgSet("posX", x) end if yv then BL.CfgSet("posY", yv) end BL.ApplyPosition() end,
+                          onUnlock = function() BL.SetUnlocked(true) end,
+                          onLock = function() BL.SetUnlocked(false); if BL.pe then BL.pe.Refresh() end end,
+                          isUnlocked = function() return BL.IsUnlocked() end },
+                        { type = "custom", height = 46, build = function(host)
+                            local sizeLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
+                            sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); sizeLbl:SetText(L["Icon size"])
+                            local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                            wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
+                            local wInput = ns.ui.CreateTextInput({ parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+                                text = tostring(BL.CfgGet("iconWidth") or 40),
+                                onEnter = function(val) if val and val > 0 then BL.CfgSet("iconWidth", val); BL.ApplySize() end end })
+                            wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+                            local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                            hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
+                            local hInput = ns.ui.CreateTextInput({ parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+                                text = tostring(BL.CfgGet("iconHeight") or 40),
+                                onEnter = function(val) if val and val > 0 then BL.CfgSet("iconHeight", val); BL.ApplySize() end end })
+                            hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+                            return { frame = host, height = 46, Refresh = function()
+                                wInput.SetText(tostring(BL.CfgGet("iconWidth") or 40)); hInput.SetText(tostring(BL.CfgGet("iconHeight") or 40)) end }
+                        end },
+                        { type = "group", title = L["Border"], build = function() return {
+                            { type = "checkbox", label = L["Show border"],
+                              get = function() return BL.CfgGet("borderEnabled") == true end,
+                              set = function(v) BL.CfgSet("borderEnabled", v); BL.ApplyBorder(); rebuildMenu() end },
+                            { type = "textEditor", label = L["Border color"], enabledBy = function() return BL.CfgGet("borderEnabled") == true end,
+                              showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                              getColor = function() return BL.CfgGet("borderColor") end,
+                              onColorChange = function(r, g, b, a) BL.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); BL.ApplyBorder() end },
+                            { type = "textinput", label = L["Border thickness"], enabledBy = function() return BL.CfgGet("borderEnabled") == true end,
+                              width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+                              get = function() return BL.CfgGet("borderSize") or 1 end,
+                              set = function(v) if v and v > 0 then BL.CfgSet("borderSize", v); BL.ApplyBorder() end end },
+                        } end },
+                        { type = "group", title = L["Timer"], build = function() return {
+                            { type = "textEditor", LSM = LSM, label = L["Timer"], showLabel = false,
+                              showText = false, showFont = true, showSize = true, showColor = true, showOutline = true,
+                              getFontKey = function() return BL.CfgGet("timerFontKey") end,
+                              getFontPath = function() return BL.CfgGet("timerFontPath") end,
+                              getFontSize = function() return BL.CfgGet("timerFontSize") end,
+                              getColor = function() return BL.CfgGet("timerColor") end,
+                              getOutline = function() return BL.CfgGet("timerOutline") end,
+                              onFontChange = function(key, path) BL.CfgSet("timerFontKey", key); BL.CfgSet("timerFontPath", path); BL.ApplyFont() end,
+                              onSizeChange = function(size) BL.CfgSet("timerFontSize", size); BL.ApplyFont() end,
+                              onColorChange = function(r, g, b, a) BL.CfgSet("timerColor", { r = r, g = g, b = b, a = a }); BL.ApplyFont() end,
+                              onOutlineChange = function(outline) BL.CfgSet("timerOutline", outline); BL.ApplyFont() end },
+                            ns.ui.TiersEntry({ getTiers = function() return BL.CfgGet("timerTiers") end,
+                              apply = function() BL.ApplyVisuals() end, rebuild = rebuildMenu }),
+                        } end },
+                    } end,
+                }
+                return e
             end,
         },
     }
 
     -- gap=12, width=518, autoHook=true -> OnShow re-sync is generated automatically.
     menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })
-    -- NOTE: no parent:HookScript("OnShow", ...) here anymore — BuildMenu did it.
+
+    -- The Override / Free settings sections start collapsed and re-collapse on each tab show (on hide,
+    -- persist collapsed = true; on show, Rebuild re-reads getCollapsed). Same idiom as the below-player
+    -- and CDMGroups group sections.
+    parent:HookScript("OnHide", function()
+        BL.CfgSet("ovCollapsed", true); BL.CfgSet("freeCollapsed", true)
+    end)
+    parent:HookScript("OnShow", function() if menu then menu.Rebuild() end end)
     return menu
 end
 
