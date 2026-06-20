@@ -801,6 +801,9 @@ function ns.ui.CreateTimerIcon(config)
             local ci = C_Spell.GetSpellCharges(sid)
             if ci and (ci.maxCharges or 0) > 1 then return ci.currentCharges end
         end
+        -- A caller-supplied count wins over the default item-count (e.g. healthstones count CHARGES via
+        -- GetItemCount(id, false, true), not plain stacks). Authoritative when present.
+        if config.getCount then return config.getCount() end
         if config.getItemId then
             local iid = config.getItemId()
             if iid and C_Item and C_Item.GetItemCount then
@@ -813,28 +816,48 @@ function ns.ui.CreateTimerIcon(config)
     local function DCfg(key, default)
         return (ns.CDMAnchor and ns.CDMAnchor.GetDestCfgFor and ns.CDMAnchor.GetDestCfgFor(FrameName(), CfgDest(), key, default)) or default
     end
-    -- Render the per-dest Title + Stacks for a below-player icon (other dests: hide both).
+    -- Render the per-dest Title + Stacks. Below-player: from the bucket (+ this icon's per-icon override)
+    -- via DCfg. Engine-owned (essential/utility): from the icon's per-icon override (EngineIconGet), but
+    -- ONLY once migrated — so an un-migrated engine icon draws nothing here and its module keeps own-drawing
+    -- (no double-draw). Free / other dests: hide both (the module own-draws).
     function result.ApplyDestExtras()
         local isBP = CDMActive() and getCfg("cdmDest") == "belowPlayer"
-        -- Title: free text (essential's titleText), styled per-dest with the title* keys.
-        if isBP and DCfg("showTitle", false) then
-            titleFS:SetFont(ns.ResolveFontPath(DCfg("titleFontPath", nil), DCfg("titleFontKey", "Fira Mono")),
-                DCfg("titleFontSize", 12), DCfg("titleOutline", "OUTLINE"))
-            local c = DCfg("titleColor", nil) or { r = 1, g = 1, b = 1, a = 1 }
+        local function EngineMigrated()
+            if not EngineOwns() then return false end
+            local I = ns.CDMGroups and ns.CDMGroups.instances and ns.CDMGroups.instances[getCfg("cdmDest") or "essential"]
+            local fn = FrameName()
+            return (I and I.IconOverrideMigrated and fn and I.IconOverrideMigrated(fn)) or false
+        end
+        local isEngine = (not isBP) and EngineMigrated()
+        local drawExtras = isBP or isEngine
+        -- Per-dest extras source: below-player → DCfg (bucket + per-icon override); engine-owned → the
+        -- per-icon override (EngineIconGet, migrated-only). nil → caller default.
+        local function XCfg(key, default)
+            local v
+            if isBP then v = DCfg(key, nil)
+            elseif isEngine then v = EngineIconGet(key) end
+            if v ~= nil then return v end
+            return default
+        end
+        -- Title: free text (titleText), styled with the title* keys.
+        if drawExtras and XCfg("showTitle", false) then
+            titleFS:SetFont(ns.ResolveFontPath(XCfg("titleFontPath", nil), XCfg("titleFontKey", "Fira Mono")),
+                XCfg("titleFontSize", 12), XCfg("titleOutline", "OUTLINE"))
+            local c = XCfg("titleColor", nil) or { r = 1, g = 1, b = 1, a = 1 }
             titleFS:SetTextColor(c.r, c.g, c.b, c.a or 1)
-            if ns.AnchorFS then ns.AnchorFS(titleFS, frame, DCfg("titlePos", "TOP"), DCfg("titleOffX", 0), DCfg("titleOffY", 0)) end
-            local txt = DCfg("titleText", "") or ""
+            if ns.AnchorFS then ns.AnchorFS(titleFS, frame, XCfg("titlePos", "TOP"), XCfg("titleOffX", 0), XCfg("titleOffY", 0)) end
+            local txt = XCfg("titleText", "") or ""
             if txt ~= "" then titleFS:SetText(txt); titleFS:Show() else titleFS:Hide() end
         else
             titleFS:Hide()
         end
         -- Stacks / charges: the tracked spell's charges, or the item count, styled with the stack* keys.
-        if isBP and DCfg("showStack", true) then
-            stacksFS:SetFont(ns.ResolveFontPath(DCfg("stackFontPath", nil), DCfg("stackFontKey", "Fira Mono")),
-                DCfg("stackFontSize", 10), DCfg("stackOutline", "OUTLINE"))
-            local c = DCfg("stackColor", nil) or { r = 1, g = 1, b = 1, a = 1 }
+        if drawExtras and XCfg("showStack", true) then
+            stacksFS:SetFont(ns.ResolveFontPath(XCfg("stackFontPath", nil), XCfg("stackFontKey", "Fira Mono")),
+                XCfg("stackFontSize", 10), XCfg("stackOutline", "OUTLINE"))
+            local c = XCfg("stackColor", nil) or { r = 1, g = 1, b = 1, a = 1 }
             stacksFS:SetTextColor(c.r, c.g, c.b, c.a or 1)
-            if ns.AnchorFS then ns.AnchorFS(stacksFS, frame, DCfg("stackPos", "BOTTOMRIGHT"), DCfg("stackOffX", 2), DCfg("stackOffY", -2)) end
+            if ns.AnchorFS then ns.AnchorFS(stacksFS, frame, XCfg("stackPos", "BOTTOMRIGHT"), XCfg("stackOffX", 2), XCfg("stackOffY", -2)) end
             local ch = ResolveCharges()
             if ch and ch > 0 then stacksFS:SetText(tostring(ch)); stacksFS:Show() else stacksFS:Hide() end
         else
