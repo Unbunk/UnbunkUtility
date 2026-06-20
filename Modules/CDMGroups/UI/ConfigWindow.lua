@@ -1094,7 +1094,7 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
 
             -- An old CDMGroups cast-only custom, OR a CustomCDM icon, gets an X (top-right) that removes it.
             -- A CustomCDM frame routes to CC.ConfirmRemove (deletes the entry + cleans up its group member-
-            -- ship via CC.Remove); the old custom uses I.RemoveCustom + frees its drawn frame.
+            -- ship via CC.Remove); a legacy custom that survived migration uses I.RemoveCustom.
             if isCustom or isCC then
                 local xb = CreateFrame("Button", nil, b)
                 xb:SetSize(14, 14); xb:SetPoint("CENTER", b, "TOPRIGHT", -7, -3)
@@ -1108,7 +1108,6 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                         ns.CustomCDM.ConfirmRemove(ns.CustomCDM.IdFromFrameName(spellId))
                     else
                         if I.RemoveCustom then I.RemoveCustom(spellId) end
-                        if I.ReleaseCustomFrame then I.ReleaseCustomFrame(spellId) end
                         touch(); rebuild()
                     end
                 end)

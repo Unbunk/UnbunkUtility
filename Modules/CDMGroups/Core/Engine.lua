@@ -1241,7 +1241,6 @@ local function EngineFor(I)
             toRelease[#toRelease + 1] = nf
         end
         if toRelease then for _, nf in ipairs(toRelease) do ReleaseNative(nf) end end
-        if I.HideInactiveCustomFrames then I.HideInactiveCustomFrames() end
         for sid in pairs(placeholderActive) do ReleasePlaceholder(sid) end
         for _, c in pairs(containers) do c:Hide() end
         -- Only heal the viewer when we had pins to drop — avoids hammering the native RefreshLayout
@@ -1308,15 +1307,6 @@ local function EngineFor(I)
                 if FrameShown(nf) then activeOf[sid] = true end
             end
         end
-        -- Fold the active CUSTOM (addon-drawn) cooldown frames in alongside the natives. A custom frame
-        -- carries .isCustomBuff/.Icon/.Cooldown/.Title/.Stack so StyleFrame treats it uniformly; it's
-        -- only ever present while ACTIVE, so each is also "active" for the sound transition.
-        if I.EnumActiveCustomFrames then
-            for sid, f in pairs(I.EnumActiveCustomFrames()) do
-                frameOf[sid] = f
-                activeOf[sid] = true
-            end
-        end
         -- Fold the addon-TRACKER frames (BL Tracker, Trinket, …) keyed by their global NAME (string).
         -- A tracker is its module's own frame: the engine NEVER Show/Hides it — it only positions +
         -- sizes it WHEN SHOWN. So a tracker counts as ACTIVE for reflow only while frame:IsShown()
@@ -1356,16 +1346,12 @@ local function EngineFor(I)
                 placed[sid] = true
             elseif nf then
                 placed[sid] = true
-                if nf.isCustomBuff then
-                    nf:Hide()
-                else
-                    if nf.Title then nf.Title:Hide() end
-                    if nf.Keybind then nf.Keybind:Hide() end
-                    if nf.PressOverlay then nf.PressOverlay:Hide() end
-                    StopGlow(nf)
-                    if ns.CDMAnchor and ns.CDMAnchor.ApplyFrameBorder then ns.CDMAnchor.ApplyFrameBorder(nf, false) end
-                    PinNative(nf, UIParent, OFFSCREEN, OFFSCREEN)
-                end
+                if nf.Title then nf.Title:Hide() end
+                if nf.Keybind then nf.Keybind:Hide() end
+                if nf.PressOverlay then nf.PressOverlay:Hide() end
+                StopGlow(nf)
+                if ns.CDMAnchor and ns.CDMAnchor.ApplyFrameBorder then ns.CDMAnchor.ApplyFrameBorder(nf, false) end
+                PinNative(nf, UIParent, OFFSCREEN, OFFSCREEN)
             end
         end
 
@@ -1465,17 +1451,10 @@ local function EngineFor(I)
                     elseif nf then
                         placed[sid] = true
                         StyleFrame(nf, sid)
-                        if nf.isCustomBuff then
-                            nf:ClearAllPoints()
-                            nf:SetPoint("TOPLEFT", container, "TOPLEFT", x, y)
-                            nf:SetSize(sz.w, sz.h)
-                            nf:Show()
-                        else
-                            PinNative(nf, container, x, y, sz.w, sz.h)
-                        end
+                        PinNative(nf, container, x, y, sz.w, sz.h)
                         -- A `placeholder` NATIVE whose pool frame is present but NOT shown (cooldown not
-                        -- currently up) gets a ghost over its slot; cleared when it shows. Customs never want one.
-                        if not nf.isCustomBuff and I.IconGet(sid, "placeholder") == true and not FrameShown(nf) then
+                        -- currently up) gets a ghost over its slot; cleared when it shows.
+                        if I.IconGet(sid, "placeholder") == true and not FrameShown(nf) then
                             placeholderNeeded[sid] = true
                             ShowPlaceholderAt(sid, container, x, y, sz.w, sz.h)
                         end
