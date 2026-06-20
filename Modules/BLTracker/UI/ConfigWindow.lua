@@ -5,6 +5,18 @@ local L = ns.L
 ns.BLTracker = ns.BLTracker or {}
 local BL = ns.BLTracker
 
+-- A section headerExtra that puts a small grey note right after the section title AND keeps the gear
+-- glyph on the far right (e.g. "Override settings  (When in CDM)").
+local function HeaderHint(text)
+    return function(headerBtn, headerLabel)
+        local fs = headerBtn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH6")
+        fs:SetPoint("LEFT", headerLabel, "RIGHT", 6, 0)
+        fs:SetText(text)
+        fs:SetTextColor(0.6, 0.6, 0.6)
+        if ns.ui.SettingsHeaderIcon then ns.ui.SettingsHeaderIcon(headerBtn) end
+    end
+end
+
 local function CreateBLTrackerPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local menu  -- forward declare so closures can reach menu.refs.pe
@@ -159,7 +171,7 @@ local function CreateBLTrackerPanel(parent)
                 end
                 e[#e + 1] = {
                     type = "section", label = L["Override settings"], showCheckbox = false,
-                    headerExtra = ns.ui.SettingsHeaderIcon,
+                    headerExtra = HeaderHint(L["(When in CDM)"]),
                     gate = { enabled = function() return inCdm() end },
                     getCollapsed = function() return BL.CfgGet("ovCollapsed") ~= false end,
                     -- Re-stack the whole menu after a collapse so the enclosing "Icon" group box grows /
@@ -181,7 +193,7 @@ local function CreateBLTrackerPanel(parent)
                 -- ── Free icon settings: the look while NOT in the CDM (greyed when in the CDM) ─────────
                 e[#e + 1] = {
                     type = "section", label = L["Free icon settings"], showCheckbox = false,
-                    headerExtra = ns.ui.SettingsHeaderIcon,
+                    headerExtra = HeaderHint(L["(When not in CDM)"]),
                     gate = { enabled = function() return not inCdm() end },
                     getCollapsed = function() return BL.CfgGet("freeCollapsed") ~= false end,
                     onCollapse   = function(c)
