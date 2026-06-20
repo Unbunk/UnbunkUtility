@@ -123,8 +123,16 @@ function ns.ui.CreateItemTracker(config)
         end
 
         icon.SetIcon(iconId)
+        local wasHidden = not icon.GetFrame():IsShown()
         icon.ApplySize()
         icon.Show()
+        -- An item tracker becomes group-ELIGIBLE only once its on-use spell resolves, so the FIRST time it
+        -- shows it may not be in the engine's layout snapshot yet — it would then render at its un-sized 64px
+        -- birth size instead of the group's slot size. Kick one relayout on the hidden->shown transition (in
+        -- the CDM) so the engine folds it in and sizes it. Deferred so we don't relayout mid-tick.
+        if wasHidden and icon.CDMActive and icon.CDMActive() and ns.CDMAnchor and ns.CDMAnchor.RefreshAll then
+            C_Timer.After(0, function() ns.CDMAnchor.RefreshAll(true) end)
+        end
 
         -- Green "active" timer, in priority order:
         --   1) the LIVE aura, but only when its fields are safe to read — out of
