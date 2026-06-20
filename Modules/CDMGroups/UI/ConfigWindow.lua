@@ -207,7 +207,10 @@ local function OverrideToggle(bundle, keys, label)
             if v then
                 for _, key in ipairs(keys) do
                     local prev = bundle.stashGet and bundle.stashGet(key)
-                    bundle.set(key, CloneVal(prev ~= nil and prev or bundle.get(key)))
+                    -- NB: explicit nil test, NOT `prev ~= nil and prev or group` — a stashed boolean `false`
+                    -- (showTitle/showStack/borderEnabled/...) would collapse through the and/or idiom.
+                    local val; if prev ~= nil then val = prev else val = bundle.get(key) end
+                    bundle.set(key, CloneVal(val))
                 end
             else
                 for _, key in ipairs(keys) do
@@ -618,7 +621,7 @@ function ns.CDMGroups.MakeTrackerOverride(dest, frameName, onApply, onRebuild)
     if not I then return nil end
     local function apply()   if onApply   then onApply()   end end
     local function rebuild() if onRebuild then onRebuild() end end
-    local stashGet, stashSet = StashFns(frameName)
+    local stashGet, stashSet = StashFns(dest .. ":" .. frameName)   -- per-dest so a dest move can't cross-restore
     local bundle = {
         get      = function(key) return I.IconGet(frameName, key) end,
         groupGet = function(key) return I.GGet(I.GroupOf(frameName), key) end,
@@ -673,7 +676,7 @@ function ns.CDMGroups.TrackerCdmCadres(cfg)
             local fn     = cfg.frameName
             local bucket = (CA.IsAtEnd(cfg.cdmAtEnd and cfg.cdmAtEnd())) and "belowEnd" or "belowFront"
             if CA.SeedBelowIconOverride then CA.SeedBelowIconOverride(fn, cfg.seedValues()) end
-            local stashGet, stashSet = StashFns(fn)
+            local stashGet, stashSet = StashFns("belowPlayer:" .. fn)
             ovBundle = {
                 get      = function(key) return CA.BelowIconGet(fn, bucket, key) end,
                 groupGet = function(key) return CA.GetDestCfg(bucket, key) end,
