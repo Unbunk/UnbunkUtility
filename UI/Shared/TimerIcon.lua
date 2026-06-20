@@ -586,10 +586,13 @@ function ns.ui.CreateTimerIcon(config)
     end
 
     function result.ApplySize()
-        -- The NEW groups engine owns this dest: it sizes the frame via SetSlotSize (below) to the
-        -- group's iconW/iconH and re-derives the look there. The module's own 0.5s ApplySize must NOT
-        -- impose the configured size (it would fight the engine 2x/sec) — yield entirely.
-        if EngineOwns() then return end
+        -- The NEW groups engine owns this dest: it sizes the frame via SetSlotSize. The module's own 0.5s
+        -- ApplySize must NOT impose the configured size (it would fight the engine 2x/sec). But it MUST still
+        -- re-derive the crop from the CURRENT frame size: an item tracker Show()s itself the moment its icon
+        -- resolves — which can precede group membership (its cdmEligible gate), so the engine hasn't sized it
+        -- yet — and would otherwise keep a stale texcoord that doesn't match its frame (mis-proportioned art).
+        -- ApplyDerivedSizing reads GetSize() and never SetSize, so it can't fight the engine's sizing.
+        if EngineOwns() then ApplyDerivedSizing() return end
         -- In any CDM mode the size is owned by ns.CDMAnchor via SetSlotSize:
         -- essential/utility use the per-row size override (default 44); below-player uses
         -- the per-profile cdmBelowRow size. Only a FREE icon uses its configured size.
