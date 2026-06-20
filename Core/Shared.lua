@@ -113,6 +113,16 @@ function ns.DefaultTrackerTimerThresholds()
     }
 end
 
+-- The default override-set for a timer-only tracker (Trinket / Racial / PI / BL): Timer size 14 + the
+-- urgency thresholds, nothing else. Fresh table per call.
+function ns.DefaultTrackerTimerSeed()
+    return {
+        timerFontSize = 14,
+        timerThresholdsEnabled = true,
+        timerThresholds = ns.DefaultTrackerTimerThresholds(),
+    }
+end
+
 -- ── Text anchors (title / stack around an icon) ───────────────────────────────
 -- Single source of truth shared by every icon editor + core. The edge modes
 -- (TOP/BOTTOM/LEFT/RIGHT) sit just OUTSIDE the icon; the four corner modes sit

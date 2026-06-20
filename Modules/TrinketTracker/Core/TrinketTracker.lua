@@ -191,7 +191,16 @@ TT:ScheduleRepeatingTimer(function()
     TT.ApplyAll()
 end, 0.5)
 
-ns.RegisterReloadHook(function() TT.ApplyAll(); TT.ApplyBorder() end)
+ns.RegisterReloadHook(function()
+    if ns.ReseedTrackerOverride then
+        for _, p in ipairs({ "trinket1", "trinket2" }) do
+            local c = TT.CfgGet(p)
+            ns.ReseedTrackerOverride("TrinketTracker" .. (p == "trinket1" and "1" or "2"),
+                (c and c.cdmDest) or "essential", ns.DefaultTrackerTimerSeed)
+        end
+    end
+    TT.ApplyAll(); TT.ApplyBorder()
+end)
 
 local initTT = CreateFrame("Frame")
 initTT:RegisterEvent("PLAYER_LOGIN")

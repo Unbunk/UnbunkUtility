@@ -675,6 +675,31 @@ function CDG.Make(dest)
         s.iconCfg[spellId] = ic
     end
 
+    -- True once the icon is seeded at the CURRENT default version (used to skip a re-seed cheaply).
+    function I.IconSeededCurrent(spellId)
+        local s = Store(dest)
+        local ic = s and s.iconCfg and s.iconCfg[spellId]
+        return (ic and ic.__ovSeedV == (ns.OVERRIDE_SEED_VERSION or 1)) or false
+    end
+
+    -- Per-section "remembered while disabled" stash (persisted on the icon's override table, under
+    -- __ovStash). The cadre shows these values greyed when a section's override is OFF, and re-enabling
+    -- restores them; the RENDER ignores __ovStash (a disabled section inherits the group). Survives /reload.
+    function I.IconStashGet(spellId, key)
+        local s = Store(dest)
+        local ic = s and s.iconCfg and s.iconCfg[spellId]
+        local st = ic and ic.__ovStash
+        return st and st[key]
+    end
+    function I.IconStashSet(spellId, key, val)
+        local s = Store(dest); if not s or not spellId then return end
+        s.iconCfg = s.iconCfg or {}
+        local ic = s.iconCfg[spellId] or {}
+        ic.__ovStash = ic.__ovStash or {}
+        ic.__ovStash[key] = val
+        s.iconCfg[spellId] = ic
+    end
+
     return I
 end
 

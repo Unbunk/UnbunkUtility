@@ -1119,6 +1119,30 @@ function ns.CDMAnchor.SeedBelowIconOverride(frameName, values)
     s[frameName] = ic
 end
 
+-- True once the below-player icon is seeded at the CURRENT default version (cheap re-seed skip).
+function ns.CDMAnchor.BelowIconSeededCurrent(frameName)
+    local s = BelowIconStore()
+    local ic = s and frameName and s[frameName]
+    return (ic and ic.__ovSeedV == (ns.OVERRIDE_SEED_VERSION or 1)) or false
+end
+
+-- Per-section "remembered while disabled" stash (persisted under the icon's __ovStash). The cadre shows
+-- these greyed when a section's override is OFF; the render ignores them (disabled section inherits the
+-- bucket). Survives /reload.
+function ns.CDMAnchor.BelowIconStashGet(frameName, key)
+    local s = BelowIconStore()
+    local ic = s and frameName and s[frameName]
+    local st = ic and ic.__ovStash
+    return st and st[key]
+end
+function ns.CDMAnchor.BelowIconStashSet(frameName, key, val)
+    local s = BelowIconStore()
+    if not s or not frameName then return end
+    s[frameName] = s[frameName] or {}
+    s[frameName].__ovStash = s[frameName].__ovStash or {}
+    s[frameName].__ovStash[key] = val
+end
+
 -- ── Per-icon-aware below-player getters (used by TimerIcon) ───────────────────────────────────────
 -- Each returns the per-icon override value when the icon is migrated, otherwise the bucket value — so an
 -- un-migrated icon reads EXACTLY as before. TimerIcon passes the icon's frame name + resolved bucket dest.
@@ -1171,7 +1195,7 @@ function ns.TrackerOverrideMigrated(frameName, cdmDest)
     return (I and I.IconOverrideMigrated and I.IconOverrideMigrated(frameName)) or false
 end
 
--- Seed the per-icon override (below-player store OR essential/utility group), idempotent.
+-- Seed the per-icon override (below-player store OR essential/utility group), version-checked internally.
 function ns.SeedTrackerOverride(frameName, cdmDest, values)
     if not frameName then return end
     if cdmDest == "belowPlayer" then
@@ -1182,16 +1206,29 @@ function ns.SeedTrackerOverride(frameName, cdmDest, values)
     end
 end
 
+-- Re-seed an icon's override to the CURRENT default version if it's stale or unseeded; cheap no-op once
+-- current (the seed table `seedThunk` is built ONLY when actually needed). Called by the login reload hooks
+-- and the render guard so a default-set change applies without opening each tracker's config.
+function ns.ReseedTrackerOverride(frameName, cdmDest, seedThunk)
+    if not frameName or not seedThunk then return end
+    if cdmDest == "belowPlayer" then
+        if ns.CDMAnchor.BelowIconSeededCurrent and ns.CDMAnchor.BelowIconSeededCurrent(frameName) then return end
+    else
+        local I = ns.CDMGroups and ns.CDMGroups.instances and ns.CDMGroups.instances[cdmDest or "essential"]
+        if not (I and I.SeedIconOverride) then return end
+        if I.IconSeededCurrent and I.IconSeededCurrent(frameName) then return end
+    end
+    ns.SeedTrackerOverride(frameName, cdmDest, seedThunk())
+end
+
 -- Should the module hide its own title/stacks (because TimerIcon draws the replacement)? True when the icon
--- is in the CDM AND TimerIcon will draw: below-player always (and lazily seed the override from `seedValues`
--- so it shows the tracker's look, not the bucket default), essential/utility only once migrated. seedValues
--- is an optional thunk returning the {override schema} table — called at most once, before migration.
+-- is in the CDM AND TimerIcon will draw: below-player always (re-seeding the override to the current default
+-- version so it shows the tracker's look, not the bucket default), essential/utility only once migrated.
+-- seedValues is an optional thunk returning the {override schema} table — built only when a (re)seed is due.
 function ns.TrackerSuppressOwnExtras(icon, frameName, cdmDest, seedValues)
     if not (icon and icon.CDMActive and icon.CDMActive()) then return false end
     if cdmDest == "belowPlayer" then
-        if seedValues and not ns.TrackerOverrideMigrated(frameName, "belowPlayer") then
-            ns.SeedTrackerOverride(frameName, "belowPlayer", seedValues())
-        end
+        if seedValues then ns.ReseedTrackerOverride(frameName, "belowPlayer", seedValues) end
         return true
     end
     return ns.TrackerOverrideMigrated(frameName, cdmDest)

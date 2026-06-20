@@ -311,10 +311,10 @@ local function ApplyOne(spellId)
     end
 
     d.icon.SetIcon(SpellTexture(spellId))
-    -- Seed the below-player override BEFORE ApplySize repaints (ApplyDestExtras), so the first in-CDM tick
-    -- already reads this defensive's own look, not the bucket default (no flash).
-    if e.cdmDest == "belowPlayer" and not ns.TrackerOverrideMigrated(FrameName(spellId), "belowPlayer") then
-        ns.SeedTrackerOverride(FrameName(spellId), "belowPlayer", DT.OverrideSeed(spellId))
+    -- (Re)seed the below-player override to the current default version BEFORE ApplySize repaints
+    -- (ApplyDestExtras), so the first in-CDM tick reads this defensive's own look, not the bucket default.
+    if e.cdmDest == "belowPlayer" then
+        ns.ReseedTrackerOverride(FrameName(spellId), "belowPlayer", DT.OverrideSeed)
     end
     d.icon.ApplySize()
 

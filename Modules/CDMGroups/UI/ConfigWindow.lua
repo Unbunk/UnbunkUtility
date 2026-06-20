@@ -186,14 +186,9 @@ local function PosOffsetFor(bundle, prefix)
     }
 end
 
--- Per-icon stash of override values that were cleared by un-ticking "Override group settings", so the
--- toggle can restore them (session-only, keyed by the icon's id). A bundle gets stashGet/stashSet bound to
--- its own id via StashFns.
-local ovStash = {}
-local function StashFns(id)
-    return function(key) return ovStash[id] and ovStash[id][key] end,           -- stashGet
-           function(key, val) ovStash[id] = ovStash[id] or {}; ovStash[id][key] = val end   -- stashSet
-end
+-- The per-icon "remembered while disabled" stash is now PERSISTED on the override store (Config
+-- I.IconStashGet/Set, CDMAnchor BelowIconStashGet/Set) so it survives /reload; each bundle binds
+-- stashGet/stashSet to its own icon below.
 
 -- Toggle a section between "override the group" and "inherit the group". Non-destructive: disabling
 -- STASHES the current override values (per icon, this session) and then clears them so the section inherits
@@ -621,7 +616,8 @@ function ns.CDMGroups.MakeTrackerOverride(dest, frameName, onApply, onRebuild)
     if not I then return nil end
     local function apply()   if onApply   then onApply()   end end
     local function rebuild() if onRebuild then onRebuild() end end
-    local stashGet, stashSet = StashFns(dest .. ":" .. frameName)   -- per-dest so a dest move can't cross-restore
+    local function stashGet(key) return I.IconStashGet(frameName, key) end
+    local function stashSet(key, val) I.IconStashSet(frameName, key, val) end
     local bundle = {
         -- Display value: the active override, else the value stashed when this section was disabled (so the
         -- cadre keeps SHOWING your override settings while greyed/inheriting), else the group default.
@@ -682,7 +678,8 @@ function ns.CDMGroups.TrackerCdmCadres(cfg)
             local fn     = cfg.frameName
             local bucket = (CA.IsAtEnd(cfg.cdmAtEnd and cfg.cdmAtEnd())) and "belowEnd" or "belowFront"
             if CA.SeedBelowIconOverride then CA.SeedBelowIconOverride(fn, cfg.seedValues()) end
-            local stashGet, stashSet = StashFns("belowPlayer:" .. fn)
+            local function stashGet(key) return CA.BelowIconStashGet(fn, key) end
+            local function stashSet(key, val) CA.BelowIconStashSet(fn, key, val) end
             ovBundle = {
                 -- Display value: active override → stash (shown while disabled/greyed) → bucket default.
                 get      = function(key)
@@ -747,7 +744,8 @@ end
 local function IconOptions(I, sid)
     local function menuRefresh() if iconEditor and iconEditor.menu then iconEditor.menu.Refresh() end end
     local function menuRebuild() if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end
-    local stashGet, stashSet = StashFns("icon:" .. tostring(sid))
+    local function stashGet(key) return I.IconStashGet(sid, key) end
+    local function stashSet(key, val) I.IconStashSet(sid, key, val) end
     local bundle = {
         -- Display value: active override → stash (shown while disabled/greyed) → group default.
         get      = function(key)
