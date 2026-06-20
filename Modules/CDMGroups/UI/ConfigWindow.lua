@@ -615,6 +615,75 @@ function ns.CDMGroups.MakeTrackerOverride(dest, frameName, onApply, onRebuild)
     return bundle, ctx
 end
 
+-- A section headerExtra that puts a small grey note right after the section title AND keeps the gear
+-- glyph on the far right (e.g. "Override settings  (When in CDM)").
+local function HeaderHint(text)
+    return function(headerBtn, headerLabel)
+        local fs = headerBtn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH6")
+        fs:SetPoint("LEFT", headerLabel, "RIGHT", 6, 0)
+        fs:SetText(text); fs:SetTextColor(0.6, 0.6, 0.6)
+        if ns.ui.SettingsHeaderIcon then ns.ui.SettingsHeaderIcon(headerBtn) end
+    end
+end
+
+-- Build the shared "Override settings" + "Free icon settings" cadre pair every tracker module exposes in
+-- its config. Returns a LIST of menu entries (a free-mode hint, then the two collapsible sections) to
+-- splice into the module's Icon options. Both sections start collapsed, re-collapse on tab show (the
+-- module wires the OnHide/OnShow via cfg.setCollapsed), and grey out for the wrong mode. The Override
+-- section is the shared IconSections (minus Sound/placeholder/label) bound to the icon's PER-ICON override
+-- in its current dest — essential/utility group OR below-player — seeded once from the Free look so the
+-- in-CDM appearance starts identical, then is governed here.
+-- cfg = {
+--   frameName, getDest()->dest, inCdm()->bool, applyIcon(), rebuild(),
+--   seedValues()->{group-schema overrides}, freeBuild()->{free cadres},
+--   getOv()/setOv(bool), getFree()/setFree(bool),   -- collapsed state persistence
+-- }
+function ns.CDMGroups.TrackerCdmCadres(cfg)
+    local dest = cfg.getDest()
+    local ovBundle, ovCtx
+    if dest == "belowPlayer" then
+        if ns.CDMAnchor and ns.CDMAnchor.MakeBelowOverride then
+            if ns.CDMAnchor.SeedBelowIconOverride then ns.CDMAnchor.SeedBelowIconOverride(cfg.frameName, cfg.seedValues()) end
+            ovBundle, ovCtx = ns.CDMAnchor.MakeBelowOverride(cfg.frameName, cfg.applyIcon, cfg.rebuild)
+        end
+    else
+        local inst = ns.CDMGroups.instances and ns.CDMGroups.instances[dest]
+        if inst and inst.SeedIconOverride and ns.CDMGroups.MakeTrackerOverride then
+            inst.SeedIconOverride(cfg.frameName, cfg.seedValues())
+            ovBundle, ovCtx = ns.CDMGroups.MakeTrackerOverride(dest, cfg.frameName, cfg.applyIcon, cfg.rebuild)
+        end
+    end
+    local function deferRebuild()
+        if C_Timer and C_Timer.After then C_Timer.After(0, cfg.rebuild) else cfg.rebuild() end
+    end
+    return {
+        { type = "label", font = "UnbunkUtilityH6", height = 18, color = { 0.6, 0.6, 0.6 },
+          when = function() return not cfg.inCdm() end,
+          text = L["Check Free icon settings to setup icon"] },
+
+        { type = "section", label = L["Override settings"], showCheckbox = false,
+          headerExtra = HeaderHint(L["(When in CDM)"]),
+          gate = { enabled = function() return cfg.inCdm() end },
+          getCollapsed = cfg.getOv,
+          onCollapse   = function(c) cfg.setOv(c and true or false); deferRebuild() end,
+          build = function()
+              if ovBundle then
+                  return ns.CDMGroups.IconSections(nil, cfg.frameName, ovBundle, ovCtx,
+                      { omit = { sound = true, placeholder = true, label = true } })
+              end
+              return { { type = "label", font = "UnbunkUtilityBody", height = 36,
+                  text = L["These apply when the icon is in the Essential or Utility Cooldown Manager group."] } }
+          end },
+
+        { type = "section", label = L["Free icon settings"], showCheckbox = false,
+          headerExtra = HeaderHint(L["(When not in CDM)"]),
+          gate = { enabled = function() return not cfg.inCdm() end },
+          getCollapsed = cfg.getFree,
+          onCollapse   = function(c) cfg.setFree(c and true or false); deferRebuild() end,
+          build = cfg.freeBuild },
+    }
+end
+
 -- The per-icon override editor's option tree: binds IconSections to the Config instance `I` + the
 -- singleton pencil editor. bundle.* reads/writes the per-icon override store; bundle.refresh is the full
 -- Rebuild the shared section helpers expect (the override gates use `when`); ctx routes the editor's own
