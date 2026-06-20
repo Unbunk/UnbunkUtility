@@ -174,23 +174,37 @@ local function TiersEntry(id, rebuildEditor)
 end
 
 -- ── Cadre builders (each returns a BuildMenu group entry, bound to an icon id) ─
-local function SpellGroup(id)
-    return { type = "group", title = L["Spell"], build = function() return {
+local function SpellGroup(id, rebuild)
+    return { type = "group", title = L["Spell / Item"], build = function() return {
+            -- Kind: track a Spell or an Item (on-use trinket / potion). Changing it re-renders the cadre so
+            -- the name + input reflect the new kind's value (each kind keeps its own id).
+            { type = "dropdown", label = L["Kind"], width = 160, height = 50,
+              getList = function() return { L["Spell"], L["Item"] } end,
+              getCurrentKey = function() return (CC.Get(id, "entryKind") == "item") and L["Item"] or L["Spell"] end,
+              onSelect = function(label)
+                  CC.Set(id, "entryKind", (label == L["Item"]) and "item" or "spell")
+                  if rebuild then rebuild() end
+              end },
             { type = "custom", height = 52, build = function(host)
-                -- Row 1: the current spell's icon + name.
+                -- Row 1: the current spell/item's icon + name.
                 local fs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                 fs:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                local function showName()
-                    local sid  = CC.Get(id, "spellId")
-                    local tex  = sid and sid ~= 0 and C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)
-                    local name = CC.SpellName(id)
-                    if tex then fs:SetText(string.format("|T%d:20|t %s", tex, name)) else fs:SetText(name or "") end
+                local function curId()
+                    return (CC.Get(id, "entryKind") == "item") and CC.Get(id, "itemId") or CC.Get(id, "spellId")
                 end
-                -- The input shows the current spell id, or BLANK for a not-yet-set draft
-                -- (no "0" placeholder).
+                local function showName()
+                    local rawId = curId()
+                    local name  = CC.SpellName(id)
+                    if rawId and rawId ~= 0 then
+                        fs:SetText(string.format("|T%s:20|t %s", tostring(CC.IconTexture(id)), name))
+                    else
+                        fs:SetText(name or "")
+                    end
+                end
+                -- The input shows the current spell/item id, or BLANK for a not-yet-set draft.
                 local function spellText()
-                    local sid = CC.Get(id, "spellId")
-                    return (sid and sid ~= 0) and tostring(sid) or ""
+                    local rawId = curId()
+                    return (rawId and rawId ~= 0) and tostring(rawId) or ""
                 end
                 showName()
 
@@ -408,7 +422,7 @@ end
 -- Placement, Border, Timer, Title, Stacks.
 local function EditorOptions(id, LSM, refresh, rebuild)
     return {
-        SpellGroup(id),
+        SpellGroup(id, rebuild),
         SoundGroup(id, LSM),
         { type = "group", title = L["Icon"],
           gate = { enabled = function() return CC.Get(id, "showIcon") ~= false end, master = "showicon" },
