@@ -566,7 +566,7 @@ local function IconSections(I, sid, bundle, ctx, opts)
                   for _, key in ipairs(keys) do bundle.set(key, CloneVal(bundle.groupGet(key))) end
               end
               copySection({ "showPressOverlay", "showKeybinds" })
-              copySection({ "iconW", "iconH" })
+              if not omit.size then copySection({ "iconW", "iconH" }) end   -- size omitted (e.g. below-player)
               copySection({ "borderEnabled", "borderColor", "borderSize" })
               copySection({ "glowEnabled", "glowType", "glowColor" })
               copySection(TIMER_KEYS)
