@@ -128,6 +128,12 @@ local function CreateBLTrackerPanel(parent)
                           getCurrentKey = function() return ns.CDMDestChoiceLabel(BL.CfgGet) end,
                           onSelect = function(label) ns.CDMApplyDestChoice(label, BL.CfgSet); BL.ApplySize(); BL.ApplyPosition(); rebuildMenu() end },
                     } end },
+
+                    -- Free-mode hint: when NOT in the CDM the look is set in "Free icon settings" (the
+                    -- Override cadre is greyed). Hidden while in the CDM.
+                    { type = "label", font = "UnbunkUtilityH6", height = 18,
+                      when = function() return not inCdm() end,
+                      text = L["Check Free icon settings to setup icon"] },
                 }
 
                 -- ── Override settings: the per-icon look that governs the icon WHILE IN the CDM (greyed
@@ -156,7 +162,12 @@ local function CreateBLTrackerPanel(parent)
                     headerExtra = ns.ui.SettingsHeaderIcon,
                     gate = { enabled = function() return inCdm() end },
                     getCollapsed = function() return BL.CfgGet("ovCollapsed") ~= false end,
-                    onCollapse   = function(c) BL.CfgSet("ovCollapsed", c and true or false) end,
+                    -- Re-stack the whole menu after a collapse so the enclosing "Icon" group box grows /
+                    -- shrinks to fit (a nested section's height change doesn't reflow its parent on its own).
+                    onCollapse   = function(c)
+                        BL.CfgSet("ovCollapsed", c and true or false)
+                        if C_Timer and C_Timer.After then C_Timer.After(0, rebuildMenu) else rebuildMenu() end
+                    end,
                     build = function()
                         if ovBundle then
                             return ns.CDMGroups.IconSections(nil, frameName, ovBundle, ovCtx,
@@ -173,7 +184,10 @@ local function CreateBLTrackerPanel(parent)
                     headerExtra = ns.ui.SettingsHeaderIcon,
                     gate = { enabled = function() return not inCdm() end },
                     getCollapsed = function() return BL.CfgGet("freeCollapsed") ~= false end,
-                    onCollapse   = function(c) BL.CfgSet("freeCollapsed", c and true or false) end,
+                    onCollapse   = function(c)
+                        BL.CfgSet("freeCollapsed", c and true or false)
+                        if C_Timer and C_Timer.After then C_Timer.After(0, rebuildMenu) else rebuildMenu() end
+                    end,
                     build = function() return {
                         { type = "position", ref = "pe",
                           onBuilt = function(w) BL.pe = w end,
