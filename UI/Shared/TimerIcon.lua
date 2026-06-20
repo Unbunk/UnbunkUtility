@@ -650,24 +650,32 @@ function ns.ui.CreateTimerIcon(config)
         local r, g, b, a = c.r or 0, c.g or 0, c.b or 0, c.a or 1
         for _, t in pairs(borderEdges) do t:SetColorTexture(r, g, b, a) end
 
+        -- OUTSET when a CDMGroups group owns the dest: the edges sit just OUTSIDE the frame, exactly
+        -- like the engine draws them on the NATIVE cooldowns beside us (Engine.ApplyBorder ->
+        -- CDMAnchor.DrawFrameBorder with outset=true). Drawing them INSET instead ate 1px of the icon
+        -- art per side, so an engine-owned tracker (e.g. a trinket) rendered its art ~2px smaller than
+        -- its native neighbours whose art fills the full frame. Free / below-player icons (o = 0) keep
+        -- the legacy inset look — their row has no native neighbours to match.
+        local o = EngineOwns() and size or 0
+
         borderEdges.top:ClearAllPoints()
-        borderEdges.top:SetPoint("TOPLEFT")
-        borderEdges.top:SetPoint("TOPRIGHT")
+        borderEdges.top:SetPoint("TOPLEFT", -o, o)
+        borderEdges.top:SetPoint("TOPRIGHT", o, o)
         borderEdges.top:SetHeight(size)
 
         borderEdges.bottom:ClearAllPoints()
-        borderEdges.bottom:SetPoint("BOTTOMLEFT")
-        borderEdges.bottom:SetPoint("BOTTOMRIGHT")
+        borderEdges.bottom:SetPoint("BOTTOMLEFT", -o, -o)
+        borderEdges.bottom:SetPoint("BOTTOMRIGHT", o, -o)
         borderEdges.bottom:SetHeight(size)
 
         borderEdges.left:ClearAllPoints()
-        borderEdges.left:SetPoint("TOPLEFT")
-        borderEdges.left:SetPoint("BOTTOMLEFT")
+        borderEdges.left:SetPoint("TOPLEFT", -o, o)
+        borderEdges.left:SetPoint("BOTTOMLEFT", -o, -o)
         borderEdges.left:SetWidth(size)
 
         borderEdges.right:ClearAllPoints()
-        borderEdges.right:SetPoint("TOPRIGHT")
-        borderEdges.right:SetPoint("BOTTOMRIGHT")
+        borderEdges.right:SetPoint("TOPRIGHT", o, o)
+        borderEdges.right:SetPoint("BOTTOMRIGHT", o, -o)
         borderEdges.right:SetWidth(size)
 
         for _, t in pairs(borderEdges) do t:Show() end
