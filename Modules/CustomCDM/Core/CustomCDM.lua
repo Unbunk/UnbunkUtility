@@ -549,7 +549,10 @@ local function NewDraft(ctx)
     e.cdmDest      = ctx.dest or "belowPlayer"
     e.cdmAtEnd     = ctx.atEnd and true or false
     e.cdmRow       = ctx.row or 1
-    _draft = { id = id, entry = e }
+    -- ctx.group (optional): a CDMGroups placement { dest, groupId, rowIndex, colIndex } recorded by
+    -- CommitDraft once the icon exists, so an essential/utility "+" tile drops the new icon into that
+    -- exact group/row as a tracker member.
+    _draft = { id = id, entry = e, group = ctx.group }
     return id
 end
 
@@ -557,12 +560,15 @@ end
 -- build the icon. Returns true on success.
 function CC.CommitDraft(id)
     if not (_draft and _draft.id == id) then return false end
-    local e = _draft.entry
+    local e   = _draft.entry
+    local grp = _draft.group
     if not (e.spellId and e.spellId ~= 0 and SpellValid(e.spellId)) then
         ns.Print(L["Invalid spell ID or name:"] .. " " .. tostring(e.spellId))
         return false
     end
-    if e.includeInCdm and ns.CDMAnchor and ns.CDMAnchor.BucketIconCount
+    -- The bucket cap governs ONLY below-player buckets / native rows — never CDMGroups group placement
+    -- (a group has its own capacity); so skip it when committing into a group.
+    if not grp and e.includeInCdm and ns.CDMAnchor and ns.CDMAnchor.BucketIconCount
         and ns.CDMAnchor.BucketIconCount(e.cdmDest or "belowPlayer", e.cdmRow or 1, e.cdmAtEnd and true or false)
             >= ns.CDMAnchor.BucketCap(e.cdmDest or "belowPlayer") then
         ns.Print(L["This row is full."])
@@ -573,6 +579,15 @@ function CC.CommitDraft(id)
     s.nextId    = math.max(s.nextId or 1, id + 1)
     _draft = nil
     BuildIcon(id)
+    -- Group placement: record the now-built icon as a tracker member of the chosen CDMGroups group, by
+    -- frame name. Guard grp.dest == e.cdmDest so a dest changed in the editor (Anchor-to) doesn't strand
+    -- the icon in the wrong dest's group (it then just folds into that dest's default group).
+    if grp and grp.dest == e.cdmDest then
+        local inst = ns.CDMGroups and ns.CDMGroups.instances and ns.CDMGroups.instances[grp.dest]
+        if inst and inst.AddTrackerMember then
+            inst.AddTrackerMember(FrameName(id), grp.groupId, { rowIndex = grp.rowIndex, colIndex = grp.colIndex })
+        end
+    end
     if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
     if ns.RebuildActiveModule then ns.RebuildActiveModule() end
     return true
@@ -619,17 +634,24 @@ end
 function CC.Remove(id)
     local s = Store()
     if not s then return end
+    local e = s.icons[id]
     local d = live[id]
     if d then
         d.icon.Hide()
         local f = d.icon.GetFrame()
         if f then f:Hide() end
     end
-    if s.icons[id] then
+    if e then
         s.icons[id] = nil
         -- Drop its order-map entry so a future icon never inherits the stale slot.
         if ns.db and ns.db.profile and ns.db.profile.cdmOrder then
             ns.db.profile.cdmOrder[FrameName(id)] = nil
+        end
+        -- If it was folded into a CDMGroups group (essential/utility tracker member), drop that group
+        -- assignment too, so no orphan frame-name key lingers in the dest's assign/order.
+        if e.includeInCdm and ns.CDMGroups and ns.CDMGroups.instances then
+            local inst = ns.CDMGroups.instances[e.cdmDest]
+            if inst and inst.RemoveTrackerMember then inst.RemoveTrackerMember(FrameName(id)) end
         end
     end
     if ns.CustomCDM.CloseEditorFor then ns.CustomCDM.CloseEditorFor(id) end
@@ -656,6 +678,15 @@ end
 -- ── Add (opens the editor on a draft) / edit (opens it on the committed icon) ──
 function CC.PromptAdd(dest, row, atEnd)
     local id = NewDraft({ dest = dest, row = row, atEnd = atEnd, includeInCdm = true })
+    if id and CC.OpenEditor then CC.OpenEditor(id) end
+end
+
+-- Opened by the essential/utility group "+" tiles: a draft pinned to that group. "Add Icon" in the
+-- editor commits it AND records it as a tracker member at (groupId, rowIndex, colIndex). rowIndex /
+-- colIndex == math.huge mean "new row" / "end of row" (resolved by I.MoveBuff).
+function CC.PromptAddToGroup(dest, groupId, rowIndex, colIndex)
+    local id = NewDraft({ dest = dest, includeInCdm = true,
+        group = { dest = dest, groupId = groupId, rowIndex = rowIndex, colIndex = colIndex } })
     if id and CC.OpenEditor then CC.OpenEditor(id) end
 end
 

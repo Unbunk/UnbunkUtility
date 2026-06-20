@@ -957,6 +957,9 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
             end
 
             local isCustom = I.IsCustom and I.IsCustom(spellId)
+            -- A CustomCDM icon folded into this group is a tracker member keyed by its frame-name STRING.
+            -- It's edited/removed via the shared CustomCDM editor, not the group's per-icon override.
+            local isCC = ns.CustomCDM and ns.CustomCDM.IsCustom and ns.CustomCDM.IsCustom(spellId)
             b:SetScript("OnEnter", function(self)
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 local shown = false
@@ -998,11 +1001,16 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                 paint()
                 pb:SetScript("OnEnter", function() pg:SetVertexColor(ns.GetBrandColor()) end)
                 pb:SetScript("OnLeave", paint)
-                pb:SetScript("OnClick", function() OpenIconEditor(I, spellId, rebuild) end)
+                pb:SetScript("OnClick", function()
+                    if isCC and ns.CustomCDM then ns.CustomCDM.PromptEdit(ns.CustomCDM.IdFromFrameName(spellId))
+                    else OpenIconEditor(I, spellId, rebuild) end
+                end)
             end
 
-            -- A CUSTOM icon gets an X (top-right) that removes the custom + releases its drawn frame.
-            if isCustom then
+            -- An old CDMGroups cast-only custom, OR a CustomCDM icon, gets an X (top-right) that removes it.
+            -- A CustomCDM frame routes to CC.ConfirmRemove (deletes the entry + cleans up its group member-
+            -- ship via CC.Remove); the old custom uses I.RemoveCustom + frees its drawn frame.
+            if isCustom or isCC then
                 local xb = CreateFrame("Button", nil, b)
                 xb:SetSize(14, 14); xb:SetPoint("CENTER", b, "TOPRIGHT", -7, -3)
                 xb:SetFrameLevel(b:GetFrameLevel() + 5)
@@ -1011,9 +1019,13 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                 xb:SetScript("OnEnter", function() xg:SetVertexColor(ns.GetBrandColor()) end)
                 xb:SetScript("OnLeave", function() xg:SetVertexColor(1, 1, 1) end)
                 xb:SetScript("OnClick", function()
-                    if I.RemoveCustom then I.RemoveCustom(spellId) end
-                    if I.ReleaseCustomFrame then I.ReleaseCustomFrame(spellId) end
-                    touch(); rebuild()
+                    if isCC and ns.CustomCDM then
+                        ns.CustomCDM.ConfirmRemove(ns.CustomCDM.IdFromFrameName(spellId))
+                    else
+                        if I.RemoveCustom then I.RemoveCustom(spellId) end
+                        if I.ReleaseCustomFrame then I.ReleaseCustomFrame(spellId) end
+                        touch(); rebuild()
+                    end
                 end)
             end
             return b
@@ -1134,13 +1146,17 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                     end
 
                     -- The "new row" "+" below the last row: dropping forces a new row; clicking adds a custom there.
-                    obj.newRowTile = MakeAddTile(frame, function() promptAddCustom(groupId, math.huge, 0) end)
+                    obj.newRowTile = MakeAddTile(frame, function()
+                        if ns.CustomCDM and ns.CustomCDM.PromptAddToGroup then ns.CustomCDM.PromptAddToGroup(I.dest, groupId, math.huge, 0) end
+                    end)
 
                     -- An end-of-row "+" per row that has room (< maxPerRow): dropping appends to that row's
                     -- end; clicking adds a custom there. Rebuilt each relayout to track the live counts.
                     local function ensureRowAddTile(r)
                         if not obj.addTiles[r] then
-                            obj.addTiles[r] = MakeAddTile(frame, function() promptAddCustom(groupId, r + 1, math.huge) end)
+                            obj.addTiles[r] = MakeAddTile(frame, function()
+                                if ns.CustomCDM and ns.CustomCDM.PromptAddToGroup then ns.CustomCDM.PromptAddToGroup(I.dest, groupId, r + 1, math.huge) end
+                            end)
                         end
                         return obj.addTiles[r]
                     end

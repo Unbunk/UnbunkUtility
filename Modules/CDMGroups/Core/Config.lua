@@ -563,6 +563,41 @@ function CDG.Make(dest)
         if s.iconCfg then s.iconCfg[spellId] = nil end
     end
 
+    -- Tracker MEMBER placement: a string-keyed twin of AddCustom with NO s.custom entry. A CustomCDM
+    -- icon folded into a group is a tracker member keyed by its frame name ("UnbunkUtilityCustomCDM<id>");
+    -- this only records its group assignment + order slot (assign/order accept any key generically), so the
+    -- engine's tracker fold picks it up on the next refresh. opts.rowIndex / opts.colIndex place it precisely
+    -- via MoveBuff (math.huge -> new row / end of row); otherwise it appends to the group's last row.
+    function I.AddTrackerMember(name, groupId, opts)
+        local s = Store(dest); if not s or not name then return end
+        opts = opts or {}
+        local gid = groupId or 1
+        if opts.rowIndex ~= nil or opts.colIndex ~= nil then
+            I.MoveBuff(name, gid, opts.rowIndex, opts.colIndex)
+        else
+            s.assign[name] = gid
+            I.AppendOrder(gid, name)
+        end
+    end
+
+    -- Drop a tracker member's group assignment + order slot + any per-icon override (the inverse of
+    -- AddTrackerMember). Called when a CustomCDM icon that was folded into a group is deleted, so no
+    -- orphan string key lingers in assign/order (which would otherwise render a broken strip tile).
+    function I.RemoveTrackerMember(name)
+        local s = Store(dest); if not s or not name then return end
+        local gid = s.assign[name]
+        s.assign[name] = nil
+        if gid then
+            local rows = I.RawOrder(gid)
+            for _, row in ipairs(rows) do
+                if type(row) == "table" then
+                    for i = #row, 1, -1 do if row[i] == name then table.remove(row, i) end end
+                end
+            end
+        end
+        if s.iconCfg then s.iconCfg[name] = nil end
+    end
+
     function I.IsCustom(spellId)
         local s = Store(dest); return s and s.custom and s.custom[spellId] ~= nil or false
     end
