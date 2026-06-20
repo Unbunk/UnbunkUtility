@@ -81,25 +81,14 @@ local function ApplyLayout()
     combatTracker.ApplyPosition()
 end
 
--- The per-icon override seed for a potion: its Free look mapped to the shared override schema (stackAnchor
--- -> stackPos, stackOffsetX/Y -> stackOffX/Y). Used to seed the in-CDM look so it starts identical, and by
--- the config's Override cadre. No title (potions have none).
-function PT.OverrideSeed(prefix)
-    local cfg = PT.CfgGet(prefix) or {}
-    local thr = {}
-    for _, t in ipairs(cfg.timerTiers or {}) do thr[#thr + 1] = { time = t.at, size = t.scale, color = t.color } end
+-- Default per-icon override-set for a potion: ONLY Timer (size 14 + urgency thresholds) and Stacks/Charges
+-- (anchor Below + size 12). Everything else stays un-overridden -> inherits the group.
+function PT.OverrideSeed()
     return {
-        showTimer = true,
-        timerFontKey = cfg.timerFontKey, timerFontPath = cfg.timerFontPath, timerFontSize = cfg.timerFontSize,
-        timerOutline = cfg.timerOutline, timerColor = cfg.timerColor, timerPos = "CENTER", timerOffX = 0, timerOffY = 0,
-        timerThresholdsEnabled = true, timerThresholds = thr,
-        borderEnabled = cfg.borderEnabled, borderColor = cfg.borderColor, borderSize = cfg.borderSize,
-        iconW = cfg.iconWidth, iconH = cfg.iconHeight,
-        showTitle = false,
-        showStack = cfg.showStack ~= false, showAtZero = cfg.showAtZero == true,
-        stackFontKey = cfg.stackFontKey, stackFontPath = cfg.stackFontPath, stackFontSize = cfg.stackFontSize or 14,
-        stackOutline = cfg.stackOutline or "OUTLINE", stackColor = cfg.stackColor,
-        stackPos = cfg.stackAnchor or "BOTTOM", stackOffX = cfg.stackOffsetX or 0, stackOffY = cfg.stackOffsetY or 0,
+        timerFontSize = 14,
+        timerThresholdsEnabled = true,
+        timerThresholds = ns.DefaultTrackerTimerThresholds(),
+        stackPos = "BOTTOM", stackFontSize = 12,
     }
 end
 

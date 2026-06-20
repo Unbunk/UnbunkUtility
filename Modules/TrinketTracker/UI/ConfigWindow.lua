@@ -162,20 +162,12 @@ local function BuildTrinketOptions(prefix, LSM)
                     setOv      = function(c) SetCfg("ovCollapsed", c) end,
                     getFree    = function() return GetCfg("freeCollapsed") ~= false end,
                     setFree    = function(c) SetCfg("freeCollapsed", c) end,
-                    seedValues = function()
-                        local thr = {}
-                        for _, t in ipairs(GetCfg("timerTiers") or {}) do thr[#thr + 1] = { time = t.at, size = t.scale, color = t.color } end
-                        return {
-                            showTimer = true,
-                            timerFontKey = GetCfg("timerFontKey"), timerFontPath = GetCfg("timerFontPath"),
-                            timerFontSize = GetCfg("timerFontSize"), timerOutline = GetCfg("timerOutline"),
-                            timerColor = GetCfg("timerColor"), timerPos = "CENTER", timerOffX = 0, timerOffY = 0,
-                            timerThresholdsEnabled = true, timerThresholds = thr,
-                            borderEnabled = GetCfg("borderEnabled"), borderColor = GetCfg("borderColor"), borderSize = GetCfg("borderSize"),
-                            iconW = GetCfg("iconWidth"), iconH = GetCfg("iconHeight"),
-                            showTitle = false, showStack = false,
-                        }
-                    end,
+                    -- Default override-set: ONLY Timer (size 14 + urgency thresholds). Rest inherits the group.
+                    seedValues = function() return {
+                        timerFontSize = 14,
+                        timerThresholdsEnabled = true,
+                        timerThresholds = ns.DefaultTrackerTimerThresholds(),
+                    } end,
                     freeBuild  = function() return {
                         { type = "position", ref = "pe",
                           onBuilt = function(w) if tracker then tracker.pe = w end end,

@@ -199,23 +199,14 @@ end
 
 -- ── Per-tracker visuals ───────────────────────────────────────────────────────
 
--- The per-icon override seed for a healthstone: the (singleton) config mapped to the override schema
--- (stackAnchor -> stackPos, stackOffsetX/Y -> stackOffX/Y). Stacks are always on (no toggle). No title.
+-- Default per-icon override-set for a healthstone: ONLY Timer (size 14 + urgency thresholds) and
+-- Stacks/Charges (size 12, thick outline, X+3 Y-2). Everything else inherits the group.
 function HT.OverrideSeed()
-    local thr = {}
-    for _, t in ipairs(HT.CfgGet("timerTiers") or {}) do thr[#thr + 1] = { time = t.at, size = t.scale, color = t.color } end
     return {
-        showTimer = true,
-        timerFontKey = HT.CfgGet("timerFontKey"), timerFontPath = HT.CfgGet("timerFontPath"), timerFontSize = HT.CfgGet("timerFontSize"),
-        timerOutline = HT.CfgGet("timerOutline"), timerColor = HT.CfgGet("timerColor"), timerPos = "CENTER", timerOffX = 0, timerOffY = 0,
-        timerThresholdsEnabled = true, timerThresholds = thr,
-        borderEnabled = HT.CfgGet("borderEnabled"), borderColor = HT.CfgGet("borderColor"), borderSize = HT.CfgGet("borderSize"),
-        iconW = HT.CfgGet("iconWidth"), iconH = HT.CfgGet("iconHeight"),
-        showTitle = false,
-        showStack = true, showAtZero = HT.CfgGet("showAtZero") == true,
-        stackFontKey = HT.CfgGet("stackFontKey"), stackFontPath = HT.CfgGet("stackFontPath"), stackFontSize = HT.CfgGet("stackFontSize") or 12,
-        stackOutline = HT.CfgGet("stackOutline") or "OUTLINE", stackColor = HT.CfgGet("stackColor"),
-        stackPos = HT.CfgGet("stackAnchor") or "BOTTOMRIGHT", stackOffX = HT.CfgGet("stackOffsetX") or 0, stackOffY = HT.CfgGet("stackOffsetY") or 0,
+        timerFontSize = 14,
+        timerThresholdsEnabled = true,
+        timerThresholds = ns.DefaultTrackerTimerThresholds(),
+        stackFontSize = 12, stackOutline = "THICKOUTLINE", stackOffX = 3, stackOffY = -2,
     }
 end
 

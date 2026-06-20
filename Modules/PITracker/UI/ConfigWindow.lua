@@ -130,19 +130,12 @@ local function CreatePITrackerPanel(parent)
                     setOv      = function(c) PI.CfgSet("ovCollapsed", c) end,
                     getFree    = function() return PI.CfgGet("freeCollapsed") ~= false end,
                     setFree    = function(c) PI.CfgSet("freeCollapsed", c) end,
-                    -- PI has no urgency tiers: seed thresholds OFF (base colour only).
-                    seedValues = function()
-                        return {
-                            showTimer = true,
-                            timerFontKey = PI.CfgGet("timerFontKey"), timerFontPath = PI.CfgGet("timerFontPath"),
-                            timerFontSize = PI.CfgGet("timerFontSize"), timerOutline = PI.CfgGet("timerOutline"),
-                            timerColor = PI.CfgGet("timerColor"), timerPos = "CENTER", timerOffX = 0, timerOffY = 0,
-                            timerThresholdsEnabled = false, timerThresholds = {},
-                            borderEnabled = PI.CfgGet("borderEnabled"), borderColor = PI.CfgGet("borderColor"), borderSize = PI.CfgGet("borderSize"),
-                            iconW = PI.CfgGet("iconWidth"), iconH = PI.CfgGet("iconHeight"),
-                            showTitle = false, showStack = false,
-                        }
-                    end,
+                    -- Default override-set: ONLY Timer (size 14 + urgency thresholds). Rest inherits the group.
+                    seedValues = function() return {
+                        timerFontSize = 14,
+                        timerThresholdsEnabled = true,
+                        timerThresholds = ns.DefaultTrackerTimerThresholds(),
+                    } end,
                     freeBuild  = function() return {
                         { type = "position", ref = "pe",
                           onBuilt = function(w) PI.pe = w end,
