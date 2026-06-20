@@ -149,63 +149,7 @@ local function SoundGroup(sid, LSM)
     } end }
 end
 
-local BorderGroup   -- forward-declared (defined below); PlacementGroup appends it at its bottom
-local function PlacementGroup(sid)
-    local pe
-    return { type = "group", title = L["Placement"], build = function() return {
-        { type = "checkbox", label = L["Include in cdm"],
-          disabled = function() return not ns.IsCDMEnabled() end,
-          get = function() return ns.CDMIncludedVal(DT.Get(sid, "includeInCdm")) end,
-          set = function(v) DT.Set(sid, "includeInCdm", v); panelRebuild(); if ns.RebuildActiveModule then ns.RebuildActiveModule() end end },
-        { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
-          when = function() return ns.CDMIncludedVal(DT.Get(sid, "includeInCdm")) end,
-          getList = function() return ns.CDMDestList() end,
-          -- DT.Get/Set take an extra `sid`; adapt them to the (key)/(key,val) signatures
-          -- the central choice helpers expect.
-          getCurrentKey = function() return ns.CDMDestChoiceLabel(function(k) return DT.Get(sid, k) end) end,
-          onSelect = function(label)
-              ns.CDMApplyDestChoice(label, function(k, v) DT.Set(sid, k, v) end)
-              panelRebuild(); if ns.RebuildActiveModule then ns.RebuildActiveModule() end
-          end },
-        { type = "position", ref = "pe",
-          when = function() return not ns.CDMIncludedVal(DT.Get(sid, "includeInCdm")) end,
-          onBuilt = function(w) pe = w end,
-          label = L["Icon position (offset from screen center)"],
-          getX = function() return DT.Get(sid, "posX") end,
-          getY = function() return DT.Get(sid, "posY") end,
-          onApply = function(x, yv) if x then DT.Set(sid, "posX", x) end; if yv then DT.Set(sid, "posY", yv) end end,
-          onUnlock = function() DT.SetUnlocked(sid, true) end,
-          onLock   = function() DT.SetUnlocked(sid, false); if pe then pe.Refresh() end end,
-          isUnlocked = function() return DT.IsUnlocked(sid) end },
-        { type = "custom", height = 46,
-          when = function() return not ns.CDMIncludedVal(DT.Get(sid, "includeInCdm")) end,
-          build = function(host)
-            local sLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-            sLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); sLbl:SetText(L["Icon size"])
-            local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-            wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
-            local wInput = ns.ui.CreateTextInput({ parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                text = tostring(DT.Get(sid, "iconWidth") or 30),
-                onEnter = function(v) if v and v > 0 then DT.Set(sid, "iconWidth", v) end end })
-            wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-            local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-            hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
-            local hInput = ns.ui.CreateTextInput({ parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                text = tostring(DT.Get(sid, "iconHeight") or 30),
-                onEnter = function(v) if v and v > 0 then DT.Set(sid, "iconHeight", v) end end })
-            hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-            return { frame = host, height = 46, Refresh = function()
-                wInput.SetText(tostring(DT.Get(sid, "iconWidth") or 30))
-                hInput.SetText(tostring(DT.Get(sid, "iconHeight") or 30))
-            end }
-          end },
-        -- Border at the bottom of Placement, and ONLY for a free icon — in the CDM the
-        -- per-dest border (the dest panel's Border cadre) governs every icon there.
-        BorderGroup(sid, function() return not ns.CDMIncludedVal(DT.Get(sid, "includeInCdm")) end),
-    } end }
-end
-
-function BorderGroup(sid, whenFn)
+local function BorderGroup(sid, whenFn)
     return { type = "group", title = L["Border"], when = whenFn, build = function() return {
         { type = "checkbox", label = L["Show border"],
           get = function() return DT.Get(sid, "borderEnabled") == true end,
