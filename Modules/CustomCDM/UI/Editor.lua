@@ -196,45 +196,59 @@ local function SpellGroup(id)
 
                 -- Forward-declared so the input's onEnter (which commits a draft) can use
                 -- the button refresher.
-                local btn, updateBtn
-                updateBtn = function()
-                    if btn then btn.SetText(CC.IsDraft(id) and L["Add Icon"] or L["Delete Icon"]) end
+                -- A draft shows one "Add Icon" button; a committed icon shows "Modify icon" (re-resolve
+                -- the spell from the field, keeping every other setting) + "Delete icon". addBtn / modBtn
+                -- share the same slot (mutually exclusive); delBtn sits to modBtn's right.
+                local input, addBtn, modBtn, delBtn
+                local function updateBtns()
+                    local draft = CC.IsDraft(id)
+                    if addBtn then addBtn.frame:SetShown(draft) end
+                    if modBtn then modBtn.frame:SetShown(not draft) end
+                    if delBtn then delBtn.frame:SetShown(not draft) end
                 end
-                -- Add the (committed) icon for a draft, else just refresh its display.
+                -- Commit a draft (Add) then refresh; a committed icon just refreshes its display. Either
+                -- way re-sync which buttons show.
                 local function commitOrApply()
                     if CC.IsDraft(id) then
-                        if CC.CommitDraft(id) then showName(); updateBtn() end
+                        if CC.CommitDraft(id) then showName() end
                     else
                         showName()
                     end
+                    updateBtns()
                 end
 
-                -- Row 2: the spell-id/name input + the Add Icon / Delete Icon button.
-                local input
+                -- Row 2: the spell-id/name input + the lifecycle buttons.
                 input = ns.ui.CreateTextInput({
                     parent = host, width = 200, height = 22, maxLetters = 64,
                     text = spellText(),
-                    -- Enter resolves the spell AND adds the icon (same as "Add Icon").
+                    -- Enter resolves the spell: commits a draft (Add) or re-resolves a committed icon (Modify).
                     onEnter = function(v) if CC.SetSpellInput(id, v) then commitOrApply() end end,
                 })
                 input.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -26)
 
-                btn = ns.ui.CreateButton({
-                    parent = host, width = 100, height = 22,
-                    label = CC.IsDraft(id) and L["Add Icon"] or L["Delete Icon"],
-                    onClick = function()
-                        if CC.IsDraft(id) then
-                            if CC.SetSpellInput(id, input.GetText() or "") then commitOrApply() end
-                        else
-                            CC.ConfirmRemove(id)
-                        end
-                    end,
+                addBtn = ns.ui.CreateButton({
+                    parent = host, width = 100, height = 22, label = L["Add Icon"],
+                    onClick = function() if CC.SetSpellInput(id, input.GetText() or "") then commitOrApply() end end,
                 })
-                btn.frame:SetPoint("LEFT", input.frame, "RIGHT", 8, 0)
+                addBtn.frame:SetPoint("LEFT", input.frame, "RIGHT", 8, 0)
+
+                modBtn = ns.ui.CreateButton({
+                    parent = host, width = 100, height = 22, label = L["Modify icon"],
+                    onClick = function() if CC.SetSpellInput(id, input.GetText() or "") then showName() end end,
+                })
+                modBtn.frame:SetPoint("LEFT", input.frame, "RIGHT", 8, 0)
+
+                delBtn = ns.ui.CreateButton({
+                    parent = host, width = 100, height = 22, label = L["Delete Icon"],
+                    onClick = function() CC.ConfirmRemove(id) end,
+                })
+                delBtn.frame:SetPoint("LEFT", modBtn.frame, "RIGHT", 6, 0)
+
+                updateBtns()
                 return { frame = host, height = 52, Refresh = function()
                     showName()
                     input.SetText(spellText())
-                    updateBtn()
+                    updateBtns()
                 end }
             end },
     } end }
