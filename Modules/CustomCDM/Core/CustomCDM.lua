@@ -37,6 +37,8 @@ local GREEN = { r = 0, g = 1, b = 0 }  -- "active buff up" timer colour (shared,
 -- tiers are seeded separately (SeedTiers) so editing the list is never "merged back".
 local ICON_DEFAULTS = {
     spellId        = 0,
+    entryKind      = "spell",   -- "spell" | "item": what this icon tracks (item = on-use trinket/potion)
+    itemId         = 0,         -- the tracked item id when entryKind == "item"
     showIcon       = true,   -- off = keep the sound alerts but hide the icon
     includeInCdm   = true,
     cdmDest        = "belowPlayer",
@@ -179,8 +181,56 @@ local function ResolveSpell(value)
 end
 CC.ResolveSpell = ResolveSpell
 
+-- ── Item helpers (entryKind == "item": on-use trinkets / potions) ──────────────
+local function ItemValid(itemId)
+    if not itemId or itemId <= 0 then return false end
+    return (C_Item and C_Item.GetItemInfoInstant and C_Item.GetItemInfoInstant(itemId)) ~= nil
+end
+CC.ItemValid = ItemValid
+
+-- Resolve a user input (numeric itemID, item name, or item link) to an itemID, or nil.
+local function ResolveItem(value)
+    if type(value) ~= "string" then value = tostring(value or "") end
+    value = value:match("^%s*(.-)%s*$")        -- trim
+    if value == "" then return nil end
+    local itemId = C_Item and C_Item.GetItemInfoInstant and C_Item.GetItemInfoInstant(value)  -- id / name / link
+    if itemId then return itemId end
+    local asNum = tonumber(value)
+    return (asNum and ItemValid(asNum)) and asNum or nil
+end
+CC.ResolveItem = ResolveItem
+
+local function ItemTexture(itemId)
+    if not itemId or itemId == 0 then return FALLBACK_ICON end
+    local tex = C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(itemId)
+    return tex or FALLBACK_ICON
+end
+
+local function ItemName(itemId)
+    if not itemId or itemId == 0 then return "" end
+    local n = C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(itemId)
+    return n or ("[" .. tostring(itemId) .. "]")
+end
+
+local function ItemCooldown(itemId)
+    if C_Container and C_Container.GetItemCooldown then
+        local start, duration = C_Container.GetItemCooldown(itemId)
+        return start or 0, duration or 0
+    end
+    if GetItemCooldown then local s, du = GetItemCooldown(itemId); return s or 0, du or 0 end
+    return 0, 0
+end
+
+-- Entry-aware icon texture (spell or item), used by the renderer + the editor.
+local function IconTextureForEntry(e)
+    if e and e.entryKind == "item" then return ItemTexture(e.itemId) end
+    return SpellTexture(e and e.spellId)
+end
+function CC.IconTexture(id) return IconTextureForEntry(EntryById(id)) end
+
 function CC.SpellName(id)
     local e = EntryById(id)
+    if e and e.entryKind == "item" then return ItemName(e.itemId) end
     local sid = e and e.spellId
     if not sid or sid == 0 then return "" end
     local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
@@ -261,6 +311,12 @@ local function ApplyStack(id)
     local c = e.stackColor or { r = 1, g = 1, b = 1, a = 1 }
     fs:SetTextColor(c.r, c.g, c.b, c.a or 1)
     AnchorFS(fs, d.icon.GetFrame(), e.stackAnchor or "BOTTOMRIGHT", e.stackOffsetX, e.stackOffsetY)
+    -- Item kind: show the bag count (how many of the item you carry); spell kind: the recharging charges.
+    if e.entryKind == "item" then
+        local n = e.itemId and e.itemId ~= 0 and C_Item and C_Item.GetItemCount and C_Item.GetItemCount(e.itemId)
+        if n and n > 0 then fs:SetText(tostring(n)); fs:Show() else fs:Hide() end
+        return
+    end
     local cur, maxc = GetCharges(e.spellId)
     if cur and maxc and maxc > 1 and (cur > 0 or e.showAtZero) then
         fs:SetText(tostring(cur))
@@ -277,8 +333,34 @@ local function ApplyOne(id)
     local e = Entry(id)
     if not e then d.icon.Hide(); return end   -- removed / not in this profile -> inert
 
-    d.icon.SetIcon(SpellTexture(e.spellId))
+    d.icon.SetIcon(IconTextureForEntry(e))
     d.icon.ApplySize()
+
+    -- Item kind: a separate, simpler path — the on-use item cooldown swipe + bag count, no aura / charge
+    -- logic. Item cooldowns are NOT secret in combat, so no estimate is needed. The whole spell path below
+    -- is left untouched, so spell icons behave exactly as before.
+    if e.entryKind == "item" then
+        if e.showIcon ~= false then d.icon.Show(); ApplyStack(id) else d.icon.Hide() end
+        local iid = e.itemId
+        if not iid or iid == 0 then d.icon.ClearTimer(); return end
+        local start, duration = ItemCooldown(iid)
+        if start and start > 0 and duration and duration > 2.5 then
+            d.learnedCd = duration; d.hasCooldown = true; d.lastExpiry = start + duration
+            d.icon.SetTimer(start + duration, duration)
+        elseif d.hasCooldown then
+            d.hasCooldown = false
+            local completed = d.lastExpiry and GetTime() >= d.lastExpiry - (ns.READY_EPSILON or 0.3)
+            if completed and not (ns.RecentlyZoned and ns.RecentlyZoned()) then
+                if e.soundOnReady then PlaySound(id, "ready") end
+                d.icon.ClearTimer(); d.icon.BlinkCheck()
+            else
+                d.icon.ClearTimer(); d.icon.HideCheck()
+            end
+        else
+            d.icon.ClearTimer()
+        end
+        return
+    end
 
     -- Icon visibility = "Show icon" + the charge "show at 0" rule. The cooldown logic
     -- below still runs when hidden, so a sound-only (Show icon off) icon still alerts.
@@ -444,7 +526,7 @@ function CC.GetFreeIcons()
     table.sort(ids)
     local out = {}
     for _, id in ipairs(ids) do
-        out[#out + 1] = { id = FrameName(id), texture = SpellTexture(s.icons[id].spellId), custom = true }
+        out[#out + 1] = { id = FrameName(id), texture = IconTextureForEntry(s.icons[id]), custom = true }
     end
     return out
 end
@@ -674,7 +756,12 @@ function CC.CommitDraft(id)
     if not (_draft and _draft.id == id) then return false end
     local e   = _draft.entry
     local grp = _draft.group
-    if not (e.spellId and e.spellId ~= 0 and SpellValid(e.spellId)) then
+    if e.entryKind == "item" then
+        if not (e.itemId and e.itemId ~= 0 and ItemValid(e.itemId)) then
+            ns.Print(L["Invalid item ID or name:"] .. " " .. tostring(e.itemId))
+            return false
+        end
+    elseif not (e.spellId and e.spellId ~= 0 and SpellValid(e.spellId)) then
         ns.Print(L["Invalid spell ID or name:"] .. " " .. tostring(e.spellId))
         return false
     end
@@ -726,16 +813,37 @@ function CC.SetSpellId(id, spellId)
     if ns.RebuildActiveModule then ns.RebuildActiveModule() end
 end
 
--- Resolve a user input (ID or name) and set it as the icon's spell. Returns ok. For a
--- draft it only records the spellId (committed later by "Add Icon").
+function CC.SetItemId(id, itemId)
+    local e = Entry(id)
+    if not e then return end
+    e.itemId = itemId
+    local d = live[id]
+    if d then d.lastUseAt = nil; d.learnedCd = nil; d.hasCooldown = false; d.lastExpiry = nil end
+    ApplyOne(id)
+    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+    if ns.RebuildActiveModule then ns.RebuildActiveModule() end
+end
+
+-- Resolve a user input (ID / name, or item link for items) and set it as the icon's spell OR item,
+-- by the icon's entryKind. Returns ok. For a draft it only records the id (committed by "Add Icon").
 function CC.SetSpellInput(id, value)
+    local e = EntryById(id)
+    if e and e.entryKind == "item" then
+        local iid = ResolveItem(value)
+        if not iid then
+            ns.Print(L["Invalid item ID or name:"] .. " " .. tostring(value))
+            return false
+        end
+        if CC.IsDraft(id) then e.itemId = iid; return true end
+        CC.SetItemId(id, iid)
+        return true
+    end
     local sid = ResolveSpell(value)
     if not sid then
         ns.Print(L["Invalid spell ID or name:"] .. " " .. tostring(value))
         return false
     end
     if CC.IsDraft(id) then
-        local e = EntryById(id)
         if e then e.spellId = sid end
         return true
     end
@@ -775,11 +883,10 @@ end
 -- a small dialog showing the icon + its spell name with Yes/No.
 function CC.ConfirmRemove(id)
     local e = EntryById(id)
-    local sid = e and e.spellId
     ns.ui.ShowConfirm({
         title      = L["Delete custom icon"],
         text       = L["Are you sure you want to delete this icon?"],
-        icon       = (sid and sid ~= 0) and SpellTexture(sid) or FALLBACK_ICON,
+        icon       = IconTextureForEntry(e),
         name       = CC.SpellName(id),
         acceptText = L["Yes"],
         cancelText = L["No"],
