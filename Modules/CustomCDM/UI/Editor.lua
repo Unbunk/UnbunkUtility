@@ -15,171 +15,11 @@ local buffEditor  -- singleton for the dedicated Buff-icon editor (same scaffold
 local choiceWin   -- the Free-icons "+" chooser (Spell/Item vs Buff), built lazily
 -- The id each window is currently editing lives on its own `ed.currentId` (set by OpenEditorWindow).
 
--- ── Anchor dropdown helpers ───────────────────────────────────────────────────
--- Centralised in ns (Core/Shared.lua): Center / edge modes / 4 inside corners.
-local AnchorLabel     = ns.AnchorLabel
-local AnchorFromLabel = ns.AnchorFromLabel
-local AnchorList      = ns.AnchorList
-
--- A textEditor entry editing one styled-text block (font / size / colour / outline) of
--- a config key prefix, e.g. "timer" -> timerFontKey/timerFontPath/timerFontSize/
--- timerColor/timerOutline.
-local function StyleEditor(id, prefix, LSM)
-    local function k(suffix) return prefix .. suffix end
-    return {
-        type        = "textEditor",
-        LSM         = LSM,
-        showLabel   = false, showText = false,
-        showFont    = true,  showSize = true, showColor = true, showOutline = true,
-        getFontKey      = function() return CC.Get(id, k("FontKey"))  end,
-        getFontPath     = function() return CC.Get(id, k("FontPath")) end,
-        getFontSize     = function() return CC.Get(id, k("FontSize")) end,
-        getColor        = function() return CC.Get(id, k("Color"))    end,
-        getOutline      = function() return CC.Get(id, k("Outline"))  end,
-        onFontChange    = function(key, path) CC.Set(id, k("FontKey"), key); CC.Set(id, k("FontPath"), path) end,
-        onSizeChange    = function(size)      CC.Set(id, k("FontSize"), size) end,
-        onColorChange   = function(r, g, b, a) CC.Set(id, k("Color"), { r = r, g = g, b = b, a = a }) end,
-        onOutlineChange = function(outline)   CC.Set(id, k("Outline"), outline) end,
-    }
-end
-
--- A composite row: the title/stack "Anchor" dropdown plus X / Y nudge inputs to its
--- right, editing <prefix>Anchor / <prefix>OffsetX / <prefix>OffsetY ("title" / "stack").
-local function AnchorOffsetEntry(id, prefix)
-    return {
-        type   = "custom",
-        height = 48,
-        build  = function(host)
-            local lbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-            lbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-            lbl:SetText(L["Anchor"])
-
-            local ddAnchor = host:CreateFontString(nil, "ARTWORK")
-            ddAnchor:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -18)
-            local dd
-            dd = ns.ui.CreateDropdown({
-                parent = host, anchorFrame = ddAnchor, width = 130, itemHeight = 20, visibleItems = 5,
-                getList = AnchorList,
-                getCurrentKey = function() return AnchorLabel(CC.Get(id, prefix .. "Anchor")) end,
-                onSelect = function(label)
-                    CC.Set(id, prefix .. "Anchor", AnchorFromLabel(label))
-                    dd.selectedText:SetText(label)
-                end,
-            })
-            dd.selectedText:SetText(AnchorLabel(CC.Get(id, prefix .. "Anchor")))
-
-            local function offInput(after, gap, axisText, key)
-                local axis = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                axis:SetPoint("LEFT", after, "RIGHT", gap, 0)
-                axis:SetText(axisText)
-                local inp = ns.ui.CreateTextInput({
-                    parent = host, width = 44, height = 22, numeric = true, allowNegative = true,
-                    min = -512, max = 512, maxLetters = 4,
-                    text = tostring(CC.Get(id, key) or 0),
-                    onEnter = function(v) if v ~= nil then CC.Set(id, key, v) end end,
-                })
-                inp.frame:SetPoint("LEFT", axis, "RIGHT", 4, 0)
-                return inp
-            end
-            local xInput = offInput(dd.toggleBtn, 14, "X", prefix .. "OffsetX")
-            local yInput = offInput(xInput.frame, 10, "Y", prefix .. "OffsetY")
-
-            return {
-                frame     = host,
-                height    = 48,
-                dropFrame = dd.dropFrame,
-                Refresh   = function()
-                    dd.selectedText:SetText(AnchorLabel(CC.Get(id, prefix .. "Anchor")))
-                    xInput.SetText(tostring(CC.Get(id, prefix .. "OffsetX") or 0))
-                    yInput.SetText(tostring(CC.Get(id, prefix .. "OffsetY") or 0))
-                end,
-            }
-        end,
-    }
-end
-
--- The custom "time thresholds" list editor: one row per tier (At seconds / size mult /
--- colour / remove) plus an "Add threshold" button. Mutates the LIVE entry.timerTiers
--- and re-applies; add/remove rebuild the whole editor so the row count refreshes.
-local function TiersEntry(id, rebuildEditor)
-    return {
-        type   = "custom",
-        height = 60,
-        build  = function(host)
-            local tiers = CC.Get(id, "timerTiers") or {}
-            local ROW_H = 30
-
-            local hdr = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
-            hdr:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-            hdr:SetText(L["Time thresholds (size + colour as the timer drops)"])
-
-            local y = 22
-            for i, tier in ipairs(tiers) do
-                local atLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                atLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
-                atLbl:SetText(L["At (s)"])
-                local atInput = ns.ui.CreateTextInput({
-                    parent = host, width = 42, height = 22, numeric = true, min = 0, max = 3600, maxLetters = 4,
-                    text = tostring(tier.at or 0),
-                    onEnter = function(v) if v ~= nil then tier.at = v; CC.ApplyIcon(id) end end,
-                })
-                atInput.frame:SetPoint("LEFT", atLbl, "RIGHT", 4, 0)
-
-                local szLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                szLbl:SetPoint("LEFT", atInput.frame, "RIGHT", 12, 0)
-                szLbl:SetText(L["Size x"])
-                local szInput = ns.ui.CreateTextInput({
-                    parent = host, width = 46, height = 22, numeric = true, min = 0, max = 10, maxLetters = 4,
-                    text = tostring(tier.scale or 1),
-                    onEnter = function(v) if v and v > 0 then tier.scale = v; CC.ApplyIcon(id) end end,
-                })
-                szInput.frame:SetPoint("LEFT", szLbl, "RIGHT", 4, 0)
-
-                local swatch = ns.ui.CreateColorSwatch({
-                    parent = host, width = 24, height = 22,
-                    getColor = function() return tier.color end,
-                    onChange = function(r, g, b, a) tier.color = { r = r, g = g, b = b, a = a }; CC.ApplyIcon(id) end,
-                })
-                swatch.frame:SetPoint("LEFT", szInput.frame, "RIGHT", 12, 0)
-
-                local rm = ns.ui.CreateButton({
-                    parent = host, label = "X", width = 24, height = 22,
-                    onClick = function()
-                        table.remove(tiers, i)
-                        CC.ApplyIcon(id)
-                        rebuildEditor()
-                    end,
-                })
-                rm.frame:SetPoint("LEFT", swatch.frame, "RIGHT", 12, 0)
-
-                y = y + ROW_H
-            end
-
-            local add = ns.ui.CreateButton({
-                parent = host, label = L["Add threshold"], width = 140, height = 22,
-                onClick = function()
-                    local list = CC.Get(id, "timerTiers")
-                    if list then
-                        list[#list + 1] = { at = 10, scale = 1, color = { r = 1, g = 1, b = 1, a = 1 } }
-                        CC.ApplyIcon(id)
-                        rebuildEditor()
-                    end
-                end,
-            })
-            add.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
-            y = y + 30
-
-            host:SetHeight(math.max(60, y))
-            return { frame = host, height = math.max(60, y) }
-        end,
-    }
-end
-
 -- ── Cadre builders (each returns a BuildMenu group entry, bound to an icon id) ─
 -- The spell/item-id input row + its Add / Modify / Delete lifecycle buttons. Shared by the
 -- Spell/Item group and the Buff group — `entryKind` (spell/item/buff) drives which value it shows
 -- (buff resolves as a spell, so the same row works for it).
-local function SpellInputEntry(id)
+local function SpellInputEntry(id, rebuild)
     return { type = "custom", height = 52, build = function(host)
                 -- Row 1: the current spell/item's icon + name.
                 local fs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
@@ -218,12 +58,18 @@ local function SpellInputEntry(id)
                 -- Commit a draft (Add) then refresh; a committed icon just refreshes its display. Either
                 -- way re-sync which buttons show.
                 local function commitOrApply()
+                    local ok = true
                     if CC.IsDraft(id) then
-                        if CC.CommitDraft(id) then showName() end
+                        ok = CC.CommitDraft(id)
+                        if ok then showName() end
                     else
                         showName()
                     end
                     updateBtns()
+                    -- Rebuild the editor so a now-committed / re-resolved spell re-binds the cadres that
+                    -- key off it (the Buff Override section captures spellId, re-evaluates its fallback).
+                    -- Deferred so we don't tear down this input/button frame mid-callback.
+                    if ok and rebuild then C_Timer.After(0, rebuild) end
                 end
 
                 -- Row 2: the spell-id/name input + the lifecycle buttons.
@@ -243,7 +89,7 @@ local function SpellInputEntry(id)
 
                 modBtn = ns.ui.CreateButton({
                     parent = host, width = 100, height = 22, label = L["Modify icon"],
-                    onClick = function() if CC.SetSpellInput(id, input.GetText() or "") then showName() end end,
+                    onClick = function() if CC.SetSpellInput(id, input.GetText() or "") then commitOrApply() end end,
                 })
                 modBtn.frame:SetPoint("LEFT", input.frame, "RIGHT", 8, 0)
 
@@ -273,7 +119,7 @@ local function SpellGroup(id, rebuild)
                   CC.Set(id, "entryKind", (label == L["Item"]) and "item" or "spell")
                   if rebuild then rebuild() end
               end },
-            SpellInputEntry(id),
+            SpellInputEntry(id, rebuild),
     } end }
 end
 
@@ -311,53 +157,9 @@ local function BorderGroup(id, refresh, whenFn)
     } end }
 end
 
-local function TimerGroup(id, LSM, rebuild)
-    return { type = "group", title = L["Timer"],
-      gate = { enabled = function() return CC.Get(id, "showTimer") ~= false end, master = "showtimer" },
-      build = function() return {
-        { type = "checkbox", ref = "showtimer", label = L["Show timer"],
-          get = function() return CC.Get(id, "showTimer") ~= false end,
-          set = function(v) CC.Set(id, "showTimer", v) end },
-        StyleEditor(id, "timer", LSM),
-        TiersEntry(id, rebuild),
-    } end }
-end
-
-local function TitleGroup(id, LSM)
-    return { type = "group", title = L["Title"],
-      gate = { enabled = function() return CC.Get(id, "showTitle") == true end, master = "showtitle" },
-      build = function() return {
-        { type = "checkbox", ref = "showtitle", label = L["Show title"],
-          get = function() return CC.Get(id, "showTitle") == true end,
-          set = function(v) CC.Set(id, "showTitle", v) end },
-        { type = "textinput", label = L["Title text"], width = 240, maxLetters = 64,
-          get = function() return CC.Get(id, "titleText") or "" end,
-          set = function(v) CC.Set(id, "titleText", v or "") end },
-        AnchorOffsetEntry(id, "title"),
-        StyleEditor(id, "title", LSM),
-    } end }
-end
-
-local function StacksGroup(id, LSM)
-    return { type = "group", title = L["Stacks"],
-      gate = { enabled = function() return CC.Get(id, "showStack") ~= false end, master = "showstack" },
-      build = function() return {
-        { type = "checkbox", ref = "showstack", label = L["Show stacks"], height = 24,
-          get = function() return CC.Get(id, "showStack") ~= false end,
-          set = function(v) CC.Set(id, "showStack", v) end,
-          inline = {
-            { type = "checkbox", label = L["Show icon at 0 stacks"],
-              get = function() return CC.Get(id, "showAtZero") ~= false end,
-              set = function(v) CC.Set(id, "showAtZero", v) end,
-              point = { "LEFT", "LEFT", 150, 0 } },
-          } },
-        AnchorOffsetEntry(id, "stack"),
-        StyleEditor(id, "stack", LSM),
-    } end }
-end
-
-local function PlacementGroup(id, rebuild, refresh)
-    local pe   -- free-mode position editor widget (captured via onBuilt)
+-- Placement sub-cadre: WHERE the icon lives — Include-in-CDM + (when in CDM) the Anchor-to dest. The
+-- free-look and in-CDM override appearance are the two collapsible sections below it (SpellCdmCadres).
+local function PlacementGroup(id, rebuild)
     return { type = "group", title = L["Placement"], build = function() return {
         { type = "checkbox", label = L["Include in cdm"],
           disabled = function() return not ns.IsCDMEnabled() end,
@@ -378,95 +180,51 @@ local function PlacementGroup(id, rebuild, refresh)
               rebuild()
               if ns.RebuildActiveModule then ns.RebuildActiveModule() end
           end },
-        -- Free placement (only when NOT in the CDM): screen position + drag unlock.
-        { type = "position", ref = "pe",
-          when = function() return not ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
-          onBuilt = function(w) pe = w end,
-          label = L["Icon position (offset from screen center)"],
-          getX = function() return CC.Get(id, "posX") end,
-          getY = function() return CC.Get(id, "posY") end,
-          onApply = function(x, yv)
-              if x  then CC.Set(id, "posX", x)  end
-              if yv then CC.Set(id, "posY", yv) end
-          end,
-          onUnlock = function() CC.SetUnlocked(id, true) end,
-          onLock   = function() CC.SetUnlocked(id, false); if pe then pe.Refresh() end end,
-          isUnlocked = function() return CC.IsUnlocked(id) end },
-        -- Icon size — free icons only; a CDM-slotted icon keeps the native row size.
-        { type = "custom", height = 46,
-          when = function() return not ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
-          build = function(host)
-            local sLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-            sLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); sLbl:SetText(L["Icon size"])
-            local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-            wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
-            local wInput = ns.ui.CreateTextInput({
-                parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                text = tostring(CC.Get(id, "iconWidth") or 30),
-                onEnter = function(v) if v and v > 0 then CC.Set(id, "iconWidth", v) end end,
-            })
-            wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-            local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-            hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
-            local hInput = ns.ui.CreateTextInput({
-                parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                text = tostring(CC.Get(id, "iconHeight") or 30),
-                onEnter = function(v) if v and v > 0 then CC.Set(id, "iconHeight", v) end end,
-            })
-            hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-            return { frame = host, height = 46, Refresh = function()
-                wInput.SetText(tostring(CC.Get(id, "iconWidth") or 30))
-                hInput.SetText(tostring(CC.Get(id, "iconHeight") or 30))
-            end }
-          end },
-        -- Border at the bottom of Placement, and ONLY for a free icon — in the CDM the
-        -- per-dest border (the dest panel's Border cadre) governs every icon there.
-        BorderGroup(id, refresh, function() return not ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end),
     } end }
 end
 
--- Build the option list for an icon. `refresh` re-syncs widgets; `rebuild` re-renders
--- the whole menu (used after add/remove of a threshold row, or a placement change).
--- Layout: Spell, then Sound alert, then an "Icon" cadre ("Show icon" toggle) wrapping
--- Placement, Border, Timer, Title, Stacks.
-local function EditorOptions(id, LSM, refresh, rebuild)
-    return {
-        SpellGroup(id, rebuild),
-        SoundGroup(id, LSM),
-        { type = "group", title = L["Icon"],
-          gate = { enabled = function() return CC.Get(id, "showIcon") ~= false end, master = "showicon" },
-          build = function() return {
-            { type = "checkbox", ref = "showicon", label = L["Show icon"],
-              get = function() return CC.Get(id, "showIcon") ~= false end,
-              set = function(v) CC.Set(id, "showIcon", v) end },
-            PlacementGroup(id, rebuild, refresh),
-            TimerGroup(id, LSM, rebuild),
-            TitleGroup(id, LSM),
-            StacksGroup(id, LSM),
-        } end },
-    }
-end
+-- EditorOptions (Spell/Item) is defined further down, after the shared FreeLookCadres + collapsed-state
+-- helpers + SpellCdmCadres it depends on.
 
 -- ── Buff editor (entryKind == "buff") ─────────────────────────────────────────
--- A cast-triggered, fixed-duration free buff. Reuses the shared cadre builders; differs from the
--- Spell/Item editor in: a Spell + Duration group (no Kind/Item), a free-only Placement (no
--- Include-in-CDM / Anchor-to — a buff is always a free icon), and no Stacks (no charges).
-local function BuffSpellGroup(id)
+-- A cast-triggered, fixed-duration buff. Same layout as the addon trackers: Spell + Duration, Sound,
+-- then Icon { Placement (Include-in-CDM only, no Anchor-to — a buff can only go to the Buffs viewer),
+-- Override settings (the BuffGroups per-icon override on the bridged mirror), Free icon settings }.
+-- No Stacks (a cast-triggered buff has no charges).
+local function BuffSpellGroup(id, rebuild)
     return { type = "group", title = L["Spell"], build = function() return {
-        SpellInputEntry(id),
+        SpellInputEntry(id, rebuild),
         { type = "textinput", label = L["Duration (s)"], width = 80, numeric = true, min = 1, max = 3600, maxLetters = 4,
           get = function() return CC.Get(id, "duration") or 30 end,
           set = function(v) if v and v > 0 then CC.Set(id, "duration", v) end end },
     } end }
 end
 
-local function BuffPlacementGroup(id, rebuild, refresh)
-    local pe   -- free-mode position editor widget (captured via onBuilt)
+-- A small grey header note ("(When in CDM)") after a section title, keeping the gear glyph far-right.
+local function HeaderHint(text)
+    return function(headerBtn, headerLabel)
+        local fs = headerBtn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH6")
+        fs:SetPoint("LEFT", headerLabel, "RIGHT", 6, 0)
+        fs:SetText(text); fs:SetTextColor(0.6, 0.6, 0.6)
+        if ns.ui.SettingsHeaderIcon then ns.ui.SettingsHeaderIcon(headerBtn) end
+    end
+end
+
+-- Collapsed-state on the icon entry (default collapsed; written WITHOUT CC.Set so toggling a cadre
+-- doesn't re-apply the whole icon). Shared by both editors.
+local function GetCollapsed(id, key) return CC.Get(id, key) ~= false end
+local function SetCollapsed(id, key, c)
+    local e = CC.GetEntry(id); if e then e[key] = c and true or false end
+end
+local function DeferRebuild(rebuild)
+    if C_Timer and C_Timer.After then C_Timer.After(0, rebuild) else rebuild() end
+end
+
+-- Placement sub-cadre for a buff: just WHERE it lives. A buff can only go to the Buffs viewer (no
+-- "Anchor to"); ticking Include-in-CDM mirrors it into a Buff-groups group, unticking frees it.
+local function BuffPlacementGroup(id, rebuild)
     local function inCdm() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end
-    local function isFree() return not inCdm() end
     return { type = "group", title = L["Placement"], build = function() return {
-        -- A buff can only live in the Buffs viewer when in the CDM, so there's no "Anchor to" choice —
-        -- ticking this mirrors it into Buff groups (Group 1); unticking returns it to a free icon.
         { type = "checkbox", label = L["Include in cdm"],
           disabled = function() return not ns.IsCDMEnabled() end,
           get = function() return inCdm() end,
@@ -477,9 +235,111 @@ local function BuffPlacementGroup(id, rebuild, refresh)
           end },
         { type = "label", font = "UnbunkUtilityH6", height = 30, color = { 0.6, 0.6, 0.6 },
           when = inCdm,
-          text = L["Shown in the Buffs viewer (Buff groups). Set its in-CDM look on the Buff groups tab."] },
-        -- Free placement (only when NOT in the CDM): screen position + size + border.
-        { type = "position", ref = "pe", when = isFree,
+          text = L["Shown in the Buffs viewer (Buff groups). Set its in-CDM look in Override settings."] },
+    } end }
+end
+
+-- A W/H "Icon size" custom row for a free icon (size is seeded per kind: spell/item 44, buff 36).
+local function FreeSizeCustom(id)
+    return { type = "custom", height = 46, build = function(host)
+        local sLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
+        sLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); sLbl:SetText(L["Icon size"])
+        local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+        wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
+        local wInput = ns.ui.CreateTextInput({
+            parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+            text = tostring(CC.Get(id, "iconWidth") or 44),
+            onEnter = function(v) if v and v > 0 then CC.Set(id, "iconWidth", v) end end,
+        })
+        wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+        local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+        hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
+        local hInput = ns.ui.CreateTextInput({
+            parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+            text = tostring(CC.Get(id, "iconHeight") or 44),
+            onEnter = function(v) if v and v > 0 then CC.Set(id, "iconHeight", v) end end,
+        })
+        hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+        return { frame = host, height = 46, Refresh = function()
+            wInput.SetText(tostring(CC.Get(id, "iconWidth") or 44))
+            hInput.SetText(tostring(CC.Get(id, "iconHeight") or 44))
+        end }
+    end }
+end
+
+-- Glow cadre for a free icon. kind "proc" = spell/item glow-ON-PROC (Show + type + colour; rendered by
+-- TimerIcon.ApplyDestGlow on a Blizzard spell-activation proc). kind "active" = buff while-active glow
+-- (Show + colour, no type; rendered by TimerIcon.SetColorGlow while the swipe runs).
+local function FreeGlowGroup(id, refresh, rebuild, kind)
+    return { type = "group", title = L["Glow"], build = function()
+        local e = {
+            { type = "checkbox", label = (kind == "proc") and L["Show glow on proc"] or L["Show glow"],
+              get = function() return CC.Get(id, "glowEnabled") == true end,
+              set = function(v) CC.Set(id, "glowEnabled", v and true or false); refresh() end },
+        }
+        if kind == "proc" then
+            local CDG = ns.CDMGroups
+            e[#e + 1] = { type = "dropdown", label = L["Glow type"], width = 200, height = 50,
+              enabledBy = function() return CC.Get(id, "glowEnabled") == true end,
+              getList = function() return (CDG and CDG.GlowTypeList and CDG.GlowTypeList()) or {} end,
+              getCurrentKey = function() return CDG and CDG.GlowTypeLabel and CDG.GlowTypeLabel(CC.Get(id, "glowType")) end,
+              onSelect = function(label)
+                  CC.Set(id, "glowType", (CDG and CDG.GlowTypeFromLabel and CDG.GlowTypeFromLabel(label)) or "pixel")
+                  rebuild()   -- rebuild so the colour swatch's `when` re-evaluates for the new type
+              end }
+        end
+        e[#e + 1] = { type = "textEditor", label = L["Glow color"],
+          showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+          -- button/proc glows are a fixed native look that ignores colour (mirror the Override cadre):
+          -- hide the swatch for those, always show it for the buff "active" glow.
+          when = (kind == "proc") and function()
+              local gt = CC.Get(id, "glowType"); return gt ~= "proc" and gt ~= "button"
+          end or nil,
+          enabledBy = function() return CC.Get(id, "glowEnabled") == true end,
+          getColor = function() return CC.Get(id, "glowColor") end,
+          onColorChange = function(r, g, b, a) CC.Set(id, "glowColor", { r = r, g = g, b = b, a = a }) end }
+        return e
+    end }
+end
+
+-- "CDM settings" cadre (spell/item free icons only): the same Cooldown-Manager-bar integration the addon
+-- trackers expose — flash the icon while its action-bar keybind is HELD (press overlay) and draw that
+-- keybind's text on the icon. Both opt-in (default off); rendered by TimerIcon.ApplyKeybind reading these
+-- keys from the icon's own config (see the free branch of CdmFlag).
+local function FreeCdmGroup(id)
+    return { type = "group", title = L["CDM settings"], build = function() return {
+        { type = "checkbox", label = L["Show press overlay"],
+          get = function() return CC.Get(id, "showPressOverlay") == true end,
+          set = function(v) CC.Set(id, "showPressOverlay", v and true or false) end },
+        { type = "checkbox", label = L["Show Keybinds"],
+          get = function() return CC.Get(id, "showKeybinds") == true end,
+          set = function(v) CC.Set(id, "showKeybinds", v and true or false) end },
+    } end }
+end
+
+-- The "Free icon settings" cadres for a custom icon: Position → [CDM settings (spell/item)] → Border →
+-- Glow → Icon { size + the SHARED CDMGroups Timer/Title/Stacks sections } — same rich structure
+-- (Style → Anchor, timer threshold toggle) as the Override cadres, bound here to the icon's OWN CC config
+-- (no override store → no "Override group settings" box; each section's show-checkbox greys its controls).
+-- The render reads this same schema (timerPos / timerThresholds(+Enabled) via TimerIcon; titlePos /
+-- stackPos via ApplyTitle/ApplyStack). opts.glow = "proc" (spell/item) | "active" (buff); opts.cdm adds
+-- the CDM settings cadre (spell/item).
+local function FreeLookCadres(id, rebuild, refresh, LSM, opts)
+    opts = opts or {}
+    local bundle = {
+        get     = function(k) return CC.Get(id, k) end,
+        set     = function(k, v) local e = CC.GetEntry(id); if e then e[k] = v end end,
+        touch   = function() CC.ApplyIcon(id) end,
+        refresh = rebuild,
+    }
+    local function sections()
+        local CDG = ns.CDMGroups
+        if not (CDG and CDG.TimerSection and CDG.TitleSection and CDG.StacksSection) then return {} end
+        return { CDG.TimerSection(bundle), CDG.TitleSection(bundle), CDG.StacksSection(bundle) }
+    end
+    local pe   -- free-mode position editor widget (captured via onBuilt)
+    local out = {
+        { type = "position", ref = "pe",
           onBuilt = function(w) pe = w end,
           label = L["Icon position (offset from screen center)"],
           getX = function() return CC.Get(id, "posX") end,
@@ -491,61 +351,123 @@ local function BuffPlacementGroup(id, rebuild, refresh)
           onUnlock = function() CC.SetUnlocked(id, true) end,
           onLock   = function() CC.SetUnlocked(id, false); if pe then pe.Refresh() end end,
           isUnlocked = function() return CC.IsUnlocked(id) end },
-        { type = "custom", height = 46, when = isFree, build = function(host)
-            local sLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-            sLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); sLbl:SetText(L["Icon size"])
-            local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-            wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
-            local wInput = ns.ui.CreateTextInput({
-                parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                text = tostring(CC.Get(id, "iconWidth") or 30),
-                onEnter = function(v) if v and v > 0 then CC.Set(id, "iconWidth", v) end end,
-            })
-            wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-            local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-            hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
-            local hInput = ns.ui.CreateTextInput({
-                parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                text = tostring(CC.Get(id, "iconHeight") or 30),
-                onEnter = function(v) if v and v > 0 then CC.Set(id, "iconHeight", v) end end,
-            })
-            hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-            return { frame = host, height = 46, Refresh = function()
-                wInput.SetText(tostring(CC.Get(id, "iconWidth") or 30))
-                hInput.SetText(tostring(CC.Get(id, "iconHeight") or 30))
-            end }
-        end },
-        BorderGroup(id, refresh, isFree),
-    } end }
+    }
+    if opts.cdm then out[#out + 1] = FreeCdmGroup(id) end   -- above Border (spell/item)
+    out[#out + 1] = BorderGroup(id, refresh)
+    out[#out + 1] = FreeGlowGroup(id, refresh, rebuild, opts.glow or "active")
+    out[#out + 1] = { type = "group", title = L["Icon"], build = function()
+        local e = { FreeSizeCustom(id) }
+        for _, x in ipairs(sections()) do e[#e + 1] = x end
+        return e
+    end }
+    return out
+end
+
+-- The Override settings + Free icon settings collapsible pair for a BUFF (mirror of the tracker
+-- TrackerCdmCadres, but the in-CDM override is the BuffGroups per-icon store on the bridged mirror,
+-- keyed by the buff's spellId — read live since the spell is editable).
+local function BuffCdmCadres(id, rebuild, refresh, LSM)
+    -- Gate on whether the mirror is the LIVE render owner (CC.BuffMirrored), not the bare includeInCdm:
+    -- a buff in Unused / with no spell / with BuffGroups off renders FREE, so the Free section governs.
+    local function mirrored() return CC.BuffMirrored and CC.BuffMirrored(id) and true or false end
+    return {
+        { type = "label", font = "UnbunkUtilityH6", height = 18, color = { 0.6, 0.6, 0.6 },
+          when = function() return not mirrored() end,
+          text = L["Check Free icon settings to setup icon"] },
+
+        { type = "section", label = L["Override settings"], showCheckbox = false,
+          headerExtra = HeaderHint(L["(When in CDM)"]),
+          gate = { enabled = mirrored },
+          getCollapsed = function() return GetCollapsed(id, "ovCollapsed") end,
+          onCollapse   = function(c) SetCollapsed(id, "ovCollapsed", c); DeferRebuild(rebuild) end,
+          build = function()
+              local BG  = ns.BuffGroups
+              local sid = CC.Get(id, "spellId")
+              if not (BG and BG.IconOverrideSections and BG.MakeIconBundle and sid and sid ~= 0) then
+                  return { { type = "label", font = "UnbunkUtilityBody", height = 36,
+                      text = L["These apply when the buff is shown in the Buffs viewer (Buff groups)."] } }
+              end
+              local function touch() if BG.ApplyAll then BG.ApplyAll() end end
+              local bundle = BG.MakeIconBundle(sid, touch, rebuild)
+              return BG.IconOverrideSections(sid, bundle, {
+                  omit = { label = true, sound = true, placeholder = true },
+                  touch = touch, rebuild = rebuild, refreshLight = refresh,
+              })
+          end },
+
+        { type = "section", label = L["Free icon settings"], showCheckbox = false,
+          headerExtra = HeaderHint(L["(When not in CDM)"]),
+          gate = { enabled = function() return not mirrored() end },
+          getCollapsed = function() return GetCollapsed(id, "freeCollapsed") end,
+          onCollapse   = function(c) SetCollapsed(id, "freeCollapsed", c); DeferRebuild(rebuild) end,
+          build = function() return FreeLookCadres(id, rebuild, refresh, LSM, { glow = "active" }) end },
+    }
 end
 
 local function BuffEditorOptions(id, LSM, refresh, rebuild)
     return {
         { type = "label", font = "UnbunkUtilityH6", height = 30,
           text = L["A buff icon shows a fixed-duration swipe started by your own cast of the spell."] },
-        BuffSpellGroup(id),
+        BuffSpellGroup(id, rebuild),
         SoundGroup(id, LSM),
         { type = "group", title = L["Icon"],
           gate = { enabled = function() return CC.Get(id, "showIcon") ~= false end, master = "showicon" },
-          build = function() return {
-            { type = "checkbox", ref = "showicon", label = L["Show icon"],
-              get = function() return CC.Get(id, "showIcon") ~= false end,
-              set = function(v) CC.Set(id, "showIcon", v) end },
-            BuffPlacementGroup(id, rebuild, refresh),
-            -- Glow (below Placement): a coloured pixel glow shown while the buff is active.
-            { type = "group", title = L["Glow"], build = function() return {
-                { type = "checkbox", label = L["Show glow"],
-                  get = function() return CC.Get(id, "glowEnabled") == true end,
-                  set = function(v) CC.Set(id, "glowEnabled", v and true or false); refresh() end },
-                { type = "textEditor", label = L["Glow color"],
-                  showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                  enabledBy = function() return CC.Get(id, "glowEnabled") == true end,
-                  getColor = function() return CC.Get(id, "glowColor") end,
-                  onColorChange = function(r, g, b, a) CC.Set(id, "glowColor", { r = r, g = g, b = b, a = a }) end },
-            } end },
-            TimerGroup(id, LSM, rebuild),
-            TitleGroup(id, LSM),
-        } end },
+          build = function()
+            local e = {
+                { type = "checkbox", ref = "showicon", label = L["Show icon"],
+                  get = function() return CC.Get(id, "showIcon") ~= false end,
+                  set = function(v) CC.Set(id, "showIcon", v) end },
+                BuffPlacementGroup(id, rebuild),
+            }
+            -- Override settings (in-CDM look via the BuffGroups mirror) + Free icon settings (free look).
+            for _, x in ipairs(BuffCdmCadres(id, rebuild, refresh, LSM)) do e[#e + 1] = x end
+            return e
+          end },
+    }
+end
+
+-- The Override settings + Free icon settings collapsible pair for a Spell/Item icon — reuses the addon
+-- trackers' shared cadre pair (ns.CDMGroups.TrackerCdmCadres): Override = the per-icon CDMGroups/below
+-- override (governs the in-CDM look once seeded+migrated; see CustomCDM.lua), Free = the CC free look.
+local function SpellCdmCadres(id, rebuild, refresh, LSM)
+    local function freeBuild() return FreeLookCadres(id, rebuild, refresh, LSM, { glow = "proc", cdm = true }) end
+    if not (ns.CDMGroups and ns.CDMGroups.TrackerCdmCadres) then
+        return freeBuild()   -- CDMGroups unavailable: just the free look
+    end
+    local fn = (CC.FrameName and CC.FrameName(id)) or ("UnbunkUtilityCustomCDM" .. id)
+    return ns.CDMGroups.TrackerCdmCadres({
+        frameName  = fn,
+        getDest    = function() return CC.Get(id, "cdmDest") end,
+        cdmAtEnd   = function() return CC.Get(id, "cdmAtEnd") end,
+        inCdm      = function() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
+        applyIcon  = function() CC.ApplyIcon(id) end,
+        rebuild    = rebuild,
+        seedValues = function() return ns.DefaultTrackerTimerSeed and ns.DefaultTrackerTimerSeed() or {} end,
+        freeBuild  = freeBuild,
+        getOv      = function() return GetCollapsed(id, "ovCollapsed") end,
+        setOv      = function(c) SetCollapsed(id, "ovCollapsed", c) end,
+        getFree    = function() return GetCollapsed(id, "freeCollapsed") end,
+        setFree    = function(c) SetCollapsed(id, "freeCollapsed", c) end,
+    })
+end
+
+-- Spell/Item editor option tree: Spell/Item, Sound, then Icon { Show icon, Placement, Override + Free }.
+local function EditorOptions(id, LSM, refresh, rebuild)
+    return {
+        SpellGroup(id, rebuild),
+        SoundGroup(id, LSM),
+        { type = "group", title = L["Icon"],
+          gate = { enabled = function() return CC.Get(id, "showIcon") ~= false end, master = "showicon" },
+          build = function()
+            local e = {
+                { type = "checkbox", ref = "showicon", label = L["Show icon"],
+                  get = function() return CC.Get(id, "showIcon") ~= false end,
+                  set = function(v) CC.Set(id, "showIcon", v) end },
+                PlacementGroup(id, rebuild),
+            }
+            for _, x in ipairs(SpellCdmCadres(id, rebuild, refresh, LSM)) do e[#e + 1] = x end
+            return e
+          end },
     }
 end
 
@@ -653,6 +575,9 @@ end
 local function OpenEditorWindow(ed, id, optionsFn)
     if not CC.GetEntry(id) then return end
     ed.currentId = id
+    -- Start the Override / Free collapsible sections collapsed on each open (mirrors the trackers'
+    -- re-collapse-on-tab-show). Written directly on the entry so it doesn't re-apply the icon.
+    do local e = CC.GetEntry(id); if e then e.ovCollapsed = true; e.freeCollapsed = true end end
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
     local function syncHeight()

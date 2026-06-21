@@ -84,22 +84,29 @@ local function EnsurePressPoller()
     end)
 end
 
--- ── Below-player glow (LibCustomGlow) ───────────────────────────────────────────
--- The below-player "Glow" cadre draws a LibCustomGlow halo on the tracker while it is ACTIVE
--- (green/buff-up). Types pixel/autocast/button (proc is N/A for a tracker). Calls mirror the CDMGroups
--- engine. No-op if the lib is absent. The halo frame is a child of the icon, so it hides with it.
+-- ── Below-player / free glow (LibCustomGlow) ────────────────────────────────────
+-- Draws a LibCustomGlow halo on the icon (below-player tracker while ACTIVE; free CustomCDM spell/item
+-- on a Blizzard proc). Types pixel/autocast/button/proc — proc is the native action-bar flipbook
+-- (startAnim=false to avoid the giant first-frame flash, matching the CDMGroups engine). Calls mirror
+-- that engine; no-op if the lib is absent. The halo frame is a child of the icon, so it hides with it.
 local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
 local DEST_GLOW_KEY = "uuti"
+local HAS_PROC_GLOW = LCG and LCG.ProcGlow_Start and LCG.ProcGlow_Stop
 local function StartDestGlow(frame, gtype, colorArr)
     if not LCG then return end
     if gtype == "autocast" then LCG.AutoCastGlow_Start(frame, colorArr, nil, nil, nil, nil, nil, DEST_GLOW_KEY)
     elseif gtype == "button" then LCG.ButtonGlow_Start(frame)
+    elseif gtype == "proc" then
+        if HAS_PROC_GLOW then LCG.ProcGlow_Start(frame, { key = DEST_GLOW_KEY, startAnim = false })
+        else LCG.ButtonGlow_Start(frame) end   -- old lib: fall back to the button highlight
     else LCG.PixelGlow_Start(frame, colorArr, nil, nil, nil, nil, nil, nil, nil, DEST_GLOW_KEY) end
 end
 local function StopDestGlow(frame, gtype)
     if not LCG then return end
     if gtype == "autocast" then LCG.AutoCastGlow_Stop(frame, DEST_GLOW_KEY)
     elseif gtype == "button" then LCG.ButtonGlow_Stop(frame)
+    elseif gtype == "proc" then
+        if HAS_PROC_GLOW then LCG.ProcGlow_Stop(frame, DEST_GLOW_KEY) else LCG.ButtonGlow_Stop(frame) end
     else LCG.PixelGlow_Stop(frame, DEST_GLOW_KEY) end
 end
 
@@ -316,6 +323,10 @@ function ns.ui.CreateTimerIcon(config)
                                          EngineIconGet("timerThresholds"))
             end
         end
+        -- Free icon: prefer the group/below threshold schema {time,size,color}+enabled when present (the
+        -- CustomCDM buff free look uses it via the shared CDMGroups Timer section), else the legacy tiers.
+        local en = getCfg("timerThresholdsEnabled")
+        if en ~= nil then return ThresholdsToTiers(en == true, getCfg("timerThresholds")) end
         return getCfg("timerTiers")
     end
 
@@ -466,7 +477,7 @@ function ns.ui.CreateTimerIcon(config)
         iconTex:SetTexture(texture)
     end
 
-    function result.SetTimer(expiry, duration, color)
+    function result.SetTimer(expiry, duration, color, keepLit)
         expirationTime = expiry
         lastSecs = nil  -- force a re-render of text/color on the next OnUpdate
         flashUntil = nil
@@ -483,9 +494,10 @@ function ns.ui.CreateTimerIcon(config)
             iconTex:SetDesaturated(false)
         else
             result._timerColor = nil
-            -- The default (uncoloured) timer is a cooldown / unavailable state:
-            -- grey the icon out behind the swipe so it reads as "not ready".
-            iconTex:SetDesaturated(true)
+            -- keepLit: an ACTIVE state (e.g. a cast-triggered free buff) that wants its CONFIGURED timer
+            -- colour + urgency thresholds (not a locked colour) — keep the icon lit but leave the text
+            -- colour to the tiers/timerColor path. Without keepLit it's a cooldown -> grey the icon out.
+            iconTex:SetDesaturated(keepLit and false or true)
         end
         if result.ApplyDestGlow then result.ApplyDestGlow() end
     end
@@ -688,7 +700,8 @@ function ns.ui.CreateTimerIcon(config)
     end
     -- A CDM display flag ("showKeybinds" / "showPressOverlay") for THIS icon: the group's per-icon value
     -- (pencil override → group) when a Cooldown-groups group owns the dest; the per-dest below-player
-    -- flag when pinned below the player; never for a free icon.
+    -- flag when pinned below the player; otherwise the icon's OWN flag for a free CustomCDM spell/item
+    -- icon (its "CDM settings" cadre). Scoped to entryKind spell/item so buffs and trackers stay off.
     local function CdmFlag(key)
         if EngineOwns() then
             local I = CdmGroupInstance()
@@ -698,14 +711,18 @@ function ns.ui.CreateTimerIcon(config)
             if ns.CDMAnchor and ns.CDMAnchor.GetDestCdmFlagFor then
                 return ns.CDMAnchor.GetDestCdmFlagFor(FrameName(), CfgDest(), key) == true
             end
+        else
+            local ek = getCfg("entryKind")
+            if ek == "spell" or ek == "item" then return getCfg(key) == true end
         end
         return false
     end
     -- The icon's keybind target: its on-use SPELL first, then its ITEM (a trinket/potion is bound on the
-    -- bar as an item, not a spell). Text + raw combos come from the shared resolver.
+    -- bar as an item, not a spell). An ITEM-kind CustomCDM icon can still carry a stale spellId (each kind
+    -- keeps its own id), so skip the spell lookup for items and resolve the item binding directly.
     local function KbText()
         if not ns.CDGKeybinds then return nil end
-        local sid = getCfg("spellId")
+        local sid = getCfg("entryKind") ~= "item" and getCfg("spellId")
         local txt = sid and ns.CDGKeybinds.GetKeybindText(sid)
         if not txt and config.getItemId then
             local iid = config.getItemId()
@@ -715,7 +732,7 @@ function ns.ui.CreateTimerIcon(config)
     end
     local function KbCombos()
         if not ns.CDGKeybinds then return nil end
-        local sid = getCfg("spellId")
+        local sid = getCfg("entryKind") ~= "item" and getCfg("spellId")
         local c = sid and ns.CDGKeybinds.GetRawCombos(sid)
         if not c and config.getItemId then
             local iid = config.getItemId()
@@ -783,12 +800,24 @@ function ns.ui.CreateTimerIcon(config)
                 wantType = gt or "pixel"
                 colorArr = { c.r or 1, c.g or 1, c.b or 1, c.a or 1 }
             end
+        elseif not CDMActive() and frame._procced and getCfg("glowEnabled") == true
+            and getCfg("entryKind") ~= "buff" then
+            -- Free CustomCDM spell/item icon: its OWN glow-on-proc (type + colour). (Buffs use the
+            -- while-active SetColorGlow instead; trackers have no glowEnabled in their free config.)
+            wantType = getCfg("glowType") or "pixel"
+            local c = getCfg("glowColor") or { r = 1, g = 1, b = 0, a = 1 }
+            colorArr = { c.r or 1, c.g or 1, c.b or 1, c.a or 1 }
         end
-        local cur = frame._destGlowType
-        if cur == wantType then return end
+        -- Key the early-return on BOTH type and colour so a live colour edit restarts the halo (the
+        -- coloured pixel/autocast glows take colorArr at Start; button/proc ignore it, but re-keying is
+        -- harmless there).
+        local cur  = frame._destGlowType
+        local ckey = (wantType and colorArr) and table.concat(colorArr, ",") or ""
+        if cur == wantType and frame._destGlowColorKey == ckey then return end
         if cur then StopDestGlow(frame, cur) end
         if wantType then StartDestGlow(frame, wantType, colorArr) end
-        frame._destGlowType = wantType
+        frame._destGlowType     = wantType
+        frame._destGlowColorKey = ckey
     end
 
     -- Below-player Title (the tracked spell/item NAME) + Stacks/Charges. Name/charges lightly cached.
