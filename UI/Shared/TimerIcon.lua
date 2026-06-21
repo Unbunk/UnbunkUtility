@@ -1009,6 +1009,28 @@ function ns.ui.CreateTimerIcon(config)
         end
     end
 
+    -- A COLOURED pixel glow (LibCustomGlow) toggled by a caller — used by CustomCDM buff icons to glow
+    -- while the buff is active. Distinct LCG key from the below-player dest glow so they never collide.
+    -- Tracks on/off + colour so it only Start/Stops on a real change (the lib animates itself); falls
+    -- back to the built-in (uncoloured) pixel glow when LibCustomGlow isn't present.
+    local COLOR_GLOW_KEY = "uutibuffglow"
+    function result.SetColorGlow(enabled, colorArr)
+        local want = enabled and true or false
+        local ckey = (want and colorArr) and table.concat(colorArr, ",") or ""
+        if frame._colorGlowOn == want and frame._colorGlowKey == ckey then return end
+        -- Tear down whatever is currently showing before re-applying.
+        if frame._colorGlowOn then
+            if LCG then LCG.PixelGlow_Stop(frame, COLOR_GLOW_KEY)
+            elseif frame.pixelGlow then frame.pixelGlow:Hide() end
+        end
+        if want then
+            if LCG then LCG.PixelGlow_Start(frame, colorArr, nil, nil, nil, nil, nil, nil, nil, COLOR_GLOW_KEY)
+            else EnsurePixelGlow():Show() end
+        end
+        frame._colorGlowOn  = want
+        frame._colorGlowKey = ckey
+    end
+
     -- In slot mode, re-pack the row when this icon shows/hides: it occupies a slot
     -- only while visible, and our own visibility changes don't trigger a native
     -- viewer relayout, so nudge ns.CDMAnchor ourselves.

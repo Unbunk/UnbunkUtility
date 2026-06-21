@@ -398,6 +398,17 @@ function BG.AllBuffs()
     return out
 end
 
+-- True when spellId is one of the CDM's native TrackedBuff cooldowns (managed natively here, not an
+-- addon custom). The CustomCDM buff bridge uses this to refuse mirroring a natively-tracked spell
+-- (which would hijack its native slot + erase its per-icon overrides).
+function BG.IsNativeTracked(spellId)
+    if not spellId then return false end
+    for _, sid in ipairs(CollectTracked()) do
+        if sid == spellId then return true end
+    end
+    return false
+end
+
 -- (FrameSpellId is defined earlier, above CollectTrackedSplit, since the split keys pool frames by it.)
 
 -- ── Aspect-preserving icon texcoord (so a non-square icon isn't stretched) ──────

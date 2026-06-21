@@ -24,9 +24,8 @@
 -- .Title/.Stack/.isCustomBuff/.spellID so the engine's StyleFrame treats it uniformly). The
 -- module never positions the frame itself — it only owns activation/deactivation + the pool.
 --
--- The Quick-Add TEMPLATE list (BG.CUSTOM_BUFF_TEMPLATES, like Ayije) is the UI's source for
--- the "+" picker; the user can also add a raw Spell ID + Duration. Both route through
--- BG.AddCustom (the Data phase). BG.AddCustomFromTemplate is a thin convenience over it.
+-- Custom buffs are authored through the shared CustomCDM Buff editor (the Free-icons "+ -> Buff"
+-- and the Buff-groups "+" both open it); an in-CDM buff is mirrored here via BG.AddCustom.
 
 local _, ns = ...
 ns.BuffGroups = ns.BuffGroups or {}
@@ -210,15 +209,8 @@ end
 -- Convenience: add one of the Quick-Add templates to a group (resolves name/icon from the
 -- spell). Thin wrapper over the Data phase's BG.AddCustom so the UI's preset picker is a
 -- one-liner; a raw Spell ID + Duration the user types still goes straight through BG.AddCustom.
-function BG.AddCustomFromTemplate(spellID, groupId)
-    for _, t in ipairs(BG.CUSTOM_BUFF_TEMPLATES) do
-        if t.spellID == spellID then
-            if BG.AddCustom then BG.AddCustom(spellID, groupId, { duration = t.duration }) end
-            return true
-        end
-    end
-    return false
-end
+-- (BG.AddCustomFromTemplate removed: the quick-add picker is gone — custom buffs are authored
+--  through the CustomCDM Buff editor now. BG.CUSTOM_BUFF_TEMPLATES above is currently unused.)
 
 -- ── Cast trigger ─────────────────────────────────────────────────────────────────
 -- The player's OWN cast of a registered custom spellId starts its fixed-duration swipe.

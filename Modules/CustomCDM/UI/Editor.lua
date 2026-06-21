@@ -10,8 +10,10 @@ local ADDON, ns = ...
 local L  = ns.L
 local CC = ns.CustomCDM
 
-local editor      -- singleton { frame, scroll, content, sb, menu }
-local editingId   -- the icon id currently shown
+local editor      -- singleton { frame, scroll, content, sb, menu } for the Spell/Item editor
+local buffEditor  -- singleton for the dedicated Buff-icon editor (same scaffolding, buff option tree)
+local choiceWin   -- the Free-icons "+" chooser (Spell/Item vs Buff), built lazily
+-- The id each window is currently editing lives on its own `ed.currentId` (set by OpenEditorWindow).
 
 -- ── Anchor dropdown helpers ───────────────────────────────────────────────────
 -- Centralised in ns (Core/Shared.lua): Center / edge modes / 4 inside corners.
@@ -174,18 +176,11 @@ local function TiersEntry(id, rebuildEditor)
 end
 
 -- ── Cadre builders (each returns a BuildMenu group entry, bound to an icon id) ─
-local function SpellGroup(id, rebuild)
-    return { type = "group", title = L["Spell / Item"], build = function() return {
-            -- Kind: track a Spell or an Item (on-use trinket / potion). Changing it re-renders the cadre so
-            -- the name + input reflect the new kind's value (each kind keeps its own id).
-            { type = "dropdown", label = L["Kind"], width = 160, height = 50,
-              getList = function() return { L["Spell"], L["Item"] } end,
-              getCurrentKey = function() return (CC.Get(id, "entryKind") == "item") and L["Item"] or L["Spell"] end,
-              onSelect = function(label)
-                  CC.Set(id, "entryKind", (label == L["Item"]) and "item" or "spell")
-                  if rebuild then rebuild() end
-              end },
-            { type = "custom", height = 52, build = function(host)
+-- The spell/item-id input row + its Add / Modify / Delete lifecycle buttons. Shared by the
+-- Spell/Item group and the Buff group — `entryKind` (spell/item/buff) drives which value it shows
+-- (buff resolves as a spell, so the same row works for it).
+local function SpellInputEntry(id)
+    return { type = "custom", height = 52, build = function(host)
                 -- Row 1: the current spell/item's icon + name.
                 local fs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
                 fs:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
@@ -264,7 +259,21 @@ local function SpellGroup(id, rebuild)
                     input.SetText(spellText())
                     updateBtns()
                 end }
-            end },
+            end }
+end
+
+local function SpellGroup(id, rebuild)
+    return { type = "group", title = L["Spell / Item"], build = function() return {
+            -- Kind: track a Spell or an Item (on-use trinket / potion). Changing it re-renders the cadre so
+            -- the name + input reflect the new kind's value (each kind keeps its own id).
+            { type = "dropdown", label = L["Kind"], width = 160, height = 50,
+              getList = function() return { L["Spell"], L["Item"] } end,
+              getCurrentKey = function() return (CC.Get(id, "entryKind") == "item") and L["Item"] or L["Spell"] end,
+              onSelect = function(label)
+                  CC.Set(id, "entryKind", (label == L["Item"]) and "item" or "spell")
+                  if rebuild then rebuild() end
+              end },
+            SpellInputEntry(id),
     } end }
 end
 
@@ -438,11 +447,134 @@ local function EditorOptions(id, LSM, refresh, rebuild)
     }
 end
 
--- ── Window scaffolding ────────────────────────────────────────────────────────
-local function EnsureWindow()
-    if editor then return editor end
+-- ── Buff editor (entryKind == "buff") ─────────────────────────────────────────
+-- A cast-triggered, fixed-duration free buff. Reuses the shared cadre builders; differs from the
+-- Spell/Item editor in: a Spell + Duration group (no Kind/Item), a free-only Placement (no
+-- Include-in-CDM / Anchor-to — a buff is always a free icon), and no Stacks (no charges).
+local function BuffSpellGroup(id)
+    return { type = "group", title = L["Spell"], build = function() return {
+        SpellInputEntry(id),
+        { type = "textinput", label = L["Duration (s)"], width = 80, numeric = true, min = 1, max = 3600, maxLetters = 4,
+          get = function() return CC.Get(id, "duration") or 30 end,
+          set = function(v) if v and v > 0 then CC.Set(id, "duration", v) end end },
+    } end }
+end
 
-    local f = CreateFrame("Frame", "UnbunkUtilityCustomCDMEditor", UIParent, "BackdropTemplate")
+local function BuffPlacementGroup(id, rebuild, refresh)
+    local pe   -- free-mode position editor widget (captured via onBuilt)
+    local function inCdm() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end
+    local function isFree() return not inCdm() end
+    return { type = "group", title = L["Placement"], build = function() return {
+        -- A buff can only live in the Buffs viewer when in the CDM, so there's no "Anchor to" choice —
+        -- ticking this mirrors it into Buff groups (Group 1); unticking returns it to a free icon.
+        { type = "checkbox", label = L["Include in cdm"],
+          disabled = function() return not ns.IsCDMEnabled() end,
+          get = function() return inCdm() end,
+          set = function(v)
+              CC.Set(id, "includeInCdm", v)
+              rebuild()
+              if ns.RebuildActiveModule then ns.RebuildActiveModule() end
+          end },
+        { type = "label", font = "UnbunkUtilityH6", height = 30, color = { 0.6, 0.6, 0.6 },
+          when = inCdm,
+          text = L["Shown in the Buffs viewer (Buff groups). Set its in-CDM look on the Buff groups tab."] },
+        -- Free placement (only when NOT in the CDM): screen position + size + border.
+        { type = "position", ref = "pe", when = isFree,
+          onBuilt = function(w) pe = w end,
+          label = L["Icon position (offset from screen center)"],
+          getX = function() return CC.Get(id, "posX") end,
+          getY = function() return CC.Get(id, "posY") end,
+          onApply = function(x, yv)
+              if x  then CC.Set(id, "posX", x)  end
+              if yv then CC.Set(id, "posY", yv) end
+          end,
+          onUnlock = function() CC.SetUnlocked(id, true) end,
+          onLock   = function() CC.SetUnlocked(id, false); if pe then pe.Refresh() end end,
+          isUnlocked = function() return CC.IsUnlocked(id) end },
+        { type = "custom", height = 46, when = isFree, build = function(host)
+            local sLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
+            sLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); sLbl:SetText(L["Icon size"])
+            local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+            wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
+            local wInput = ns.ui.CreateTextInput({
+                parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+                text = tostring(CC.Get(id, "iconWidth") or 30),
+                onEnter = function(v) if v and v > 0 then CC.Set(id, "iconWidth", v) end end,
+            })
+            wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+            local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+            hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
+            local hInput = ns.ui.CreateTextInput({
+                parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+                text = tostring(CC.Get(id, "iconHeight") or 30),
+                onEnter = function(v) if v and v > 0 then CC.Set(id, "iconHeight", v) end end,
+            })
+            hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+            return { frame = host, height = 46, Refresh = function()
+                wInput.SetText(tostring(CC.Get(id, "iconWidth") or 30))
+                hInput.SetText(tostring(CC.Get(id, "iconHeight") or 30))
+            end }
+        end },
+        BorderGroup(id, refresh, isFree),
+    } end }
+end
+
+local function BuffEditorOptions(id, LSM, refresh, rebuild)
+    return {
+        { type = "label", font = "UnbunkUtilityH6", height = 30,
+          text = L["A buff icon shows a fixed-duration swipe started by your own cast of the spell."] },
+        BuffSpellGroup(id),
+        SoundGroup(id, LSM),
+        { type = "group", title = L["Icon"],
+          gate = { enabled = function() return CC.Get(id, "showIcon") ~= false end, master = "showicon" },
+          build = function() return {
+            { type = "checkbox", ref = "showicon", label = L["Show icon"],
+              get = function() return CC.Get(id, "showIcon") ~= false end,
+              set = function(v) CC.Set(id, "showIcon", v) end },
+            BuffPlacementGroup(id, rebuild, refresh),
+            -- Glow (below Placement): a coloured pixel glow shown while the buff is active.
+            { type = "group", title = L["Glow"], build = function() return {
+                { type = "checkbox", label = L["Show glow"],
+                  get = function() return CC.Get(id, "glowEnabled") == true end,
+                  set = function(v) CC.Set(id, "glowEnabled", v and true or false); refresh() end },
+                { type = "textEditor", label = L["Glow color"],
+                  showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                  enabledBy = function() return CC.Get(id, "glowEnabled") == true end,
+                  getColor = function() return CC.Get(id, "glowColor") end,
+                  onColorChange = function(r, g, b, a) CC.Set(id, "glowColor", { r = r, g = g, b = b, a = a }) end },
+            } end },
+            TimerGroup(id, LSM, rebuild),
+            TitleGroup(id, LSM),
+        } end },
+    }
+end
+
+-- ── Window scaffolding ────────────────────────────────────────────────────────
+local EDITOR_BACKDROP = {
+    bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
+    edgeFile = "Interface/Buttons/WHITE8X8",
+    edgeSize = 1,
+    insets   = { left = 1, right = 1, top = 1, bottom = 1 },
+}
+
+-- A white close cross that tints to the brand colour on hover, shared by every popup here.
+local function AddCloseCross(parent, onClick)
+    local close = CreateFrame("Button", nil, parent)
+    close:SetSize(24, 24); close:SetPoint("TOPRIGHT", -6, -6)
+    local cb = close:CreateTexture(nil, "BACKGROUND"); cb:SetAllPoints(close); cb:SetColorTexture(0.4, 0.4, 0.4, 1)
+    local cf = close:CreateTexture(nil, "BACKGROUND", nil, 1)
+    cf:SetPoint("TOPLEFT", 1, -1); cf:SetPoint("BOTTOMRIGHT", -1, 1); cf:SetColorTexture(0.15, 0.15, 0.15, 0.9)
+    local cx = close:CreateTexture(nil, "OVERLAY"); cx:SetSize(12, 12); cx:SetPoint("CENTER"); cx:SetTexture(UNBUNK_ICON_CROSS_WHITE)
+    close:SetScript("OnEnter", function() local r, g, b = ns.GetBrandColor(); cb:SetColorTexture(r, g, b, 1); cx:SetVertexColor(r, g, b) end)
+    close:SetScript("OnLeave", function() cb:SetColorTexture(0.4, 0.4, 0.4, 1); cx:SetVertexColor(1, 1, 1) end)
+    close:SetScript("OnClick", onClick)
+    return close
+end
+
+-- Build a movable, scrollable editor window (one singleton per kind). `ed.currentId` (set by
+-- OpenEditorWindow) is the icon being edited; OnHide re-locks its drag + drops an uncommitted draft.
+local function BuildEditorWindow(globalName, titleText)
+    local f = CreateFrame("Frame", globalName, UIParent, "BackdropTemplate")
     f:SetSize(580, 600)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")          -- above the main config window; below TOOLTIP drop-frames
@@ -452,31 +584,18 @@ local function EnsureWindow()
     f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", f.StartMoving)
     f:SetScript("OnDragStop",  f.StopMovingOrSizing)
-    f:SetBackdrop({
-        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Buttons/WHITE8X8",
-        edgeSize = 1,
-        insets   = { left = 1, right = 1, top = 1, bottom = 1 },
-    })
+    f:SetBackdrop(EDITOR_BACKDROP)
     f:SetBackdropColor(0.08, 0.08, 0.08, 0.97)
     f:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
     f:Hide()
-    tinsert(UISpecialFrames, "UnbunkUtilityCustomCDMEditor")   -- ESC closes
+    tinsert(UISpecialFrames, globalName)   -- ESC closes
 
     local title = f:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
     title:SetPoint("TOP", f, "TOP", 0, -12)
-    title:SetText(L["Custom CDM icon"])
+    title:SetText(titleText)
 
-    -- Close button (white cross tinting to the brand colour on hover, like the main window).
-    local close = CreateFrame("Button", nil, f)
-    close:SetSize(24, 24); close:SetPoint("TOPRIGHT", -6, -6)
-    local cb = close:CreateTexture(nil, "BACKGROUND"); cb:SetAllPoints(close); cb:SetColorTexture(0.4, 0.4, 0.4, 1)
-    local cf = close:CreateTexture(nil, "BACKGROUND", nil, 1)
-    cf:SetPoint("TOPLEFT", 1, -1); cf:SetPoint("BOTTOMRIGHT", -1, 1); cf:SetColorTexture(0.15, 0.15, 0.15, 0.9)
-    local cx = close:CreateTexture(nil, "OVERLAY"); cx:SetSize(12, 12); cx:SetPoint("CENTER"); cx:SetTexture(UNBUNK_ICON_CROSS_WHITE)
-    close:SetScript("OnEnter", function() local r, g, b = ns.GetBrandColor(); cb:SetColorTexture(r, g, b, 1); cx:SetVertexColor(r, g, b) end)
-    close:SetScript("OnLeave", function() cb:SetColorTexture(0.4, 0.4, 0.4, 1); cx:SetVertexColor(1, 1, 1) end)
-    close:SetScript("OnClick", function() f:Hide() end)
+    local ed = { frame = f, title = title }
+    AddCloseCross(f, function() f:Hide() end)
 
     local scroll = CreateFrame("ScrollFrame", nil, f)
     scroll:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -44)
@@ -501,14 +620,25 @@ local function EnsureWindow()
     -- Re-lock any free-drag unlock when the editor closes (mirrors the main window),
     -- and drop an uncommitted draft (the "+" was clicked but "Add Icon" never was).
     f:HookScript("OnHide", function()
-        if editingId then
-            CC.SetUnlocked(editingId, false)
-            if CC.IsDraft and CC.IsDraft(editingId) then CC.DiscardDraft(editingId) end
+        local id = ed.currentId
+        if id then
+            CC.SetUnlocked(id, false)
+            if CC.IsDraft and CC.IsDraft(id) then CC.DiscardDraft(id) end
         end
     end)
 
-    editor = { frame = f, scroll = scroll, content = content, sb = sb }
+    ed.scroll, ed.content, ed.sb = scroll, content, sb
+    return ed
+end
+
+local function EnsureWindow()
+    if not editor then editor = BuildEditorWindow("UnbunkUtilityCustomCDMEditor", L["Custom CDM icon"]) end
     return editor
+end
+
+local function EnsureBuffWindow()
+    if not buffEditor then buffEditor = BuildEditorWindow("UnbunkUtilityCustomCDMBuffEditor", L["Buff icon"]) end
+    return buffEditor
 end
 
 -- Tear down the previously-built menu's frames so a re-open (or another icon) starts clean.
@@ -519,10 +649,10 @@ local function ClearMenu(ed)
     ed.menu = nil
 end
 
-function CC.OpenEditor(id)
+-- Shared open routine: (re)build `optionsFn`'s option tree into `ed` and show it for icon `id`.
+local function OpenEditorWindow(ed, id, optionsFn)
     if not CC.GetEntry(id) then return end
-    local ed = EnsureWindow()
-    editingId = id
+    ed.currentId = id
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
     local function syncHeight()
@@ -533,7 +663,7 @@ function CC.OpenEditor(id)
     local function rebuild() if ed.menu then ed.menu.Rebuild() end; syncHeight() end
 
     ClearMenu(ed)
-    ed.menu = ns.ui.BuildMenu(ed.content, EditorOptions(id, LSM, refresh, rebuild), {
+    ed.menu = ns.ui.BuildMenu(ed.content, optionsFn(id, LSM, refresh, rebuild), {
         gap = 10, width = 518, originX = 8, originY = 0, autoHook = false, LSM = LSM,
     })
     syncHeight()
@@ -545,9 +675,53 @@ function CC.OpenEditor(id)
     C_Timer.After(0, function() ed.sb.Update() end)
 end
 
--- Close the editor if it is currently showing the given icon (called when it is removed).
+function CC.OpenEditor(id)     OpenEditorWindow(EnsureWindow(),     id, EditorOptions)     end
+function CC.OpenBuffEditor(id) OpenEditorWindow(EnsureBuffWindow(), id, BuffEditorOptions) end
+
+-- Close whichever editor is currently showing the given icon (called when it is removed).
 function CC.CloseEditorFor(id)
-    if editor and editingId == id and editor.frame:IsShown() then
-        editor.frame:Hide()
+    for _, ed in ipairs({ editor, buffEditor }) do
+        if ed and ed.currentId == id and ed.frame:IsShown() then ed.frame:Hide() end
     end
+end
+
+-- ── Free-icons "+" chooser: Spell/Item vs Buff ────────────────────────────────
+-- A small movable dialog (brand close cross + ESC) routing to the two free-icon templates.
+function CC.PromptAddFreeChoice()
+    if not choiceWin then
+        local f = CreateFrame("Frame", "UnbunkUtilityFreeIconChoice", UIParent, "BackdropTemplate")
+        f:SetSize(320, 200)
+        f:SetPoint("CENTER")
+        f:SetFrameStrata("DIALOG")
+        f:SetToplevel(true)
+        f:EnableMouse(true)
+        f:SetMovable(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", f.StartMoving)
+        f:SetScript("OnDragStop",  f.StopMovingOrSizing)
+        f:SetBackdrop(EDITOR_BACKDROP)
+        f:SetBackdropColor(0.08, 0.08, 0.08, 0.97)
+        f:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+        f:Hide()
+        tinsert(UISpecialFrames, "UnbunkUtilityFreeIconChoice")   -- ESC closes
+
+        local title = f:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
+        title:SetPoint("TOP", f, "TOP", 0, -14); title:SetText(L["Choose icon type"])
+        AddCloseCross(f, function() f:Hide() end)
+
+        local hint = f:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+        hint:SetPoint("TOP", title, "BOTTOM", 0, -12); hint:SetWidth(280)
+        hint:SetText(L["What kind of free icon do you want to create?"])
+
+        local b1 = ns.ui.CreateButton({ parent = f, width = 260, height = 32, label = L["Spell / Item"],
+            onClick = function() f:Hide(); CC.PromptAddFree() end })
+        b1.frame:SetPoint("TOP", hint, "BOTTOM", 0, -16)
+        local b2 = ns.ui.CreateButton({ parent = f, width = 260, height = 32, label = L["Buff"],
+            onClick = function() f:Hide(); CC.PromptAddFreeBuff() end })
+        b2.frame:SetPoint("TOP", b1.frame, "BOTTOM", 0, -10)
+
+        choiceWin = f
+    end
+    choiceWin:Show()
+    choiceWin:Raise()
 end
