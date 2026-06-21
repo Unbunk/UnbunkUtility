@@ -162,6 +162,9 @@ local function SpellCfg(spellId)
         SeedTiers(e)
         c.spells[spellId] = e
     end
+    -- Seed the shared free-look schema once per spell (freeExtras is its marker): migrates the legacy
+    -- own-draw anchors → the shared Title/Stacks sections, now drawn by TimerIcon (see ApplyTitle/ApplyStack).
+    if not e.freeExtras then ns.SeedTrackerFreeLook(e) end
     return e
 end
 
@@ -259,44 +262,17 @@ function DT.OverrideSeed()
     }
 end
 
+-- Title + Stacks are now drawn by the shared TimerIcon (result.ApplyDestExtras) in EVERY mode — free
+-- (the icon's own config, via freeExtras=true) and in-CDM (the per-icon override / below-player bucket).
+-- So our own FontStrings stay hidden; these remain only to keep ApplyOne's call sites valid.
 local function ApplyTitle(spellId)
     local d = live[spellId]
-    if not d or not d.titleFS then return end
-    local e = SpellCfg(spellId)
-    local fs = d.titleFS
-    -- In the CDM the shared icon draws the title from the per-icon override — hide our own (no double-draw),
-    -- lazily seeding the below-player override from this defensive's look.
-    if ns.TrackerSuppressOwnExtras(d.icon, FrameName(spellId), e and e.cdmDest, function() return DT.OverrideSeed(spellId) end) then
-        fs:Hide(); return
-    end
-    if not e or not e.showTitle then fs:Hide(); return end
-    fs:SetFont(ns.ResolveFontPath(e.titleFontPath, e.titleFontKey), e.titleFontSize or 16, e.titleOutline or "OUTLINE")
-    local c = e.titleColor or { r = 1, g = 1, b = 1, a = 1 }
-    fs:SetTextColor(c.r, c.g, c.b, c.a or 1)
-    AnchorFS(fs, d.icon.GetFrame(), e.titleAnchor or "TOP", e.titleOffsetX, e.titleOffsetY)
-    fs:SetText(e.titleText or "")
-    fs:Show()
+    if d and d.titleFS then d.titleFS:Hide() end
 end
 
 local function ApplyStack(spellId)
     local d = live[spellId]
-    if not d or not d.stackFS then return end
-    local e = SpellCfg(spellId)
-    local fs = d.stackFS
-    if ns.TrackerSuppressOwnExtras(d.icon, FrameName(spellId), e and e.cdmDest, function() return DT.OverrideSeed(spellId) end) then
-        fs:Hide(); return
-    end
-    if not e or not e.showStack then fs:Hide(); return end
-    fs:SetFont(ns.ResolveFontPath(e.stackFontPath, e.stackFontKey), e.stackFontSize or 12, e.stackOutline or "OUTLINE")
-    local c = e.stackColor or { r = 1, g = 1, b = 1, a = 1 }
-    fs:SetTextColor(c.r, c.g, c.b, c.a or 1)
-    AnchorFS(fs, d.icon.GetFrame(), e.stackAnchor or "BOTTOMRIGHT", e.stackOffsetX, e.stackOffsetY)
-    local cur, maxc = GetCharges(spellId)
-    if cur and maxc and maxc > 1 and (cur > 0 or e.showAtZero) then
-        fs:SetText(tostring(cur)); fs:Show()
-    else
-        fs:Hide()
-    end
+    if d and d.stackFS then d.stackFS:Hide() end
 end
 
 -- ── Per-icon per-tick sync ────────────────────────────────────────────────────

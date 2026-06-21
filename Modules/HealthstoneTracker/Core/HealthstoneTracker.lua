@@ -212,33 +212,12 @@ end
 
 local function ApplyStackVisualsFor(t)
     if not t or not t.stackText then return end
-    local fs = t.stackText
-    -- In the Cooldown Manager the shared icon draws the charges (from the per-icon override) — hide our own
-    -- to avoid a double-draw, lazily seeding the below-player override from this healthstone's look.
-    if ns.TrackerSuppressOwnExtras(t.icon, t.GetFrame():GetName(), HT.CfgGet("cdmDest"), HT.OverrideSeed) then
-        fs:Hide(); return
-    end
-    local fontPath = ns.ResolveFontPath(HT.CfgGet("stackFontPath"), HT.CfgGet("stackFontKey"))
-    fs:SetFont(fontPath, HT.CfgGet("stackFontSize") or 12, HT.CfgGet("stackOutline") or "OUTLINE")
-    local c = HT.CfgGet("stackColor") or { r = 1, g = 1, b = 1, a = 1 }
-    fs:SetTextColor(c.r, c.g, c.b, c.a or 1)
-    ns.AnchorFS(fs, t.GetFrame(), HT.CfgGet("stackAnchor") or "BOTTOMRIGHT", HT.CfgGet("stackOffsetX"), HT.CfgGet("stackOffsetY"))
-
-    local id = t.assignedId
-    -- includeUses=true (3rd arg) so the count reflects healthstone CHARGES, not
-    -- the number of item stacks — a healthstone carries multiple charges. Do NOT
-    -- "simplify" this to GetItemCount(id) (that drops the charge count). includeBank
-    -- is false so bank stones aren't counted.
-    local count = id and (GetItemCount(id, false, true) or 0) or 0
-    if count > 0 then
-        fs:SetText(tostring(count))
-        fs:Show()
-    elseif HT.CfgGet("showAtZero") then
-        fs:SetText("0")
-        fs:Show()
-    else
-        fs:Hide()
-    end
+    -- Charges are now drawn by the shared TimerIcon (result.ApplyDestExtras) in every mode — free (the
+    -- icon's own config, via freeExtras=true; the count via config.getCount) and in-CDM (the per-icon
+    -- override / below-player bucket). We keep this only to lazily seed the below-player override from this
+    -- healthstone's look (so the in-CDM look starts right) and to keep our own FontString hidden.
+    ns.TrackerSuppressOwnExtras(t.icon, t.GetFrame():GetName(), HT.CfgGet("cdmDest"), HT.OverrideSeed)
+    t.stackText:Hide()
 end
 
 -- Re-apply stack text visuals to every pooled tracker (config-driven refresh).

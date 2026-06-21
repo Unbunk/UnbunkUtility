@@ -38,6 +38,7 @@ function PI.CfgInit()
     ns.db.profile.PITracker = ns.db.profile.PITracker or {}
     ns.MigrateSoundKeys(ns.db.profile.PITracker)
     ns.MergeDefaults(ns.db.profile.PITracker, DEFAULTS)
+    ns.SeedTrackerFreeLook(ns.db.profile.PITracker)
     -- Hard-off: PI Tracker is unavailable since the Midnight changes, so force it
     -- disabled for everyone (including users who had it on) until it is fixed. The
     -- config UI locks the enable checkbox to match.

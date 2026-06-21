@@ -67,6 +67,7 @@ function HT.CfgInit()
     ns.MergeDefaults(ns.db.profile.HealthstoneTracker, DEFAULTS)
     local t = ns.db.profile.HealthstoneTracker
     if t.timerTiers == nil then t.timerTiers = ns.DeepCopy(DEFAULT_TIERS) end
+    ns.SeedTrackerFreeLook(t)
     -- Default below-player FRONT order: Racial (0) < Potions (1,2) < Healthstone (3+).
     -- Seed each healthstone frame's order ONCE if absent so the stones sort after the
     -- racial + potions; the "Move in row" arrows can still reorder afterwards.

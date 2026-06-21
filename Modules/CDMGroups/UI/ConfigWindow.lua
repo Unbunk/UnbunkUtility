@@ -671,11 +671,10 @@ function ns.CDMGroups.TrackerCdmCadres(cfg)
     local dest = cfg.getDest()
     local ovBundle, ovCtx
     -- The Override cadre omits Sound (the trackers keep their own), and the placeholder / section-label
-    -- chrome. Below-player additionally omits Icon size — that row is laid out at a uniform per-bucket
-    -- size, governed by the bucket's "Front/End of the row" settings, not per icon.
+    -- chrome. Below-player keeps Icon size as a PER-ICON override: ticked, the icon uses its own iconW/iconH
+    -- (honoured by CDMAnchor.LayoutBelowPlayer); unticked, it inherits the bucket's uniform width/height.
     local omit = { sound = true, placeholder = true, label = true }
     if dest == "belowPlayer" then
-        omit.size = true
         local CA = ns.CDMAnchor
         if CA and CA.BelowIconGet then
             local fn     = cfg.frameName
@@ -683,14 +682,22 @@ function ns.CDMGroups.TrackerCdmCadres(cfg)
             if CA.SeedBelowIconOverride then CA.SeedBelowIconOverride(fn, cfg.seedValues()) end
             local function stashGet(key) return CA.BelowIconStashGet(fn, key) end
             local function stashSet(key, val) CA.BelowIconStashSet(fn, key, val) end
+            -- The bucket stores its uniform size under width/height, but the shared Icon size section
+            -- reads/writes iconW/iconH — map them to the bucket's real width/height (default 36) for the
+            -- inherited value, so the section shows/copies the actual below-player size (not a stale 44).
+            local function bucketGet(key)
+                if key == "iconW" then return CA.GetDestCfg(bucket, "width", 36) end
+                if key == "iconH" then return CA.GetDestCfg(bucket, "height", 36) end
+                return CA.GetDestCfg(bucket, key)
+            end
             ovBundle = {
                 -- Display value: active override → stash (shown while disabled/greyed) → bucket default.
                 get      = function(key)
                     if CA.BelowIconHasOverride(fn, key) then return CA.BelowIconGet(fn, bucket, key) end
                     local s = stashGet(key); if s ~= nil then return s end
-                    return CA.GetDestCfg(bucket, key)
+                    return bucketGet(key)
                 end,
-                groupGet = function(key) return CA.GetDestCfg(bucket, key) end,
+                groupGet = function(key) return bucketGet(key) end,
                 set      = function(key, val) CA.BelowIconSet(fn, key, val) end,
                 reset    = function(key) CA.BelowIconReset(fn, key) end,
                 has      = function(keys)
@@ -737,6 +744,121 @@ function ns.CDMGroups.TrackerCdmCadres(cfg)
           getCollapsed = cfg.getFree,
           onCollapse   = function(c) cfg.setFree(c and true or false); deferRebuild() end,
           build = cfg.freeBuild },
+    }
+end
+
+-- Shared "Free icon settings" body for an addon TRACKER icon — the on-screen (not-in-CDM) look, matching
+-- the CustomCDM free layout: Position → CDM settings (press overlay / keybinds) → Border → Glow (on-proc)
+-- → Icon { Icon size, Timer, Title, Stacks/Charges } where Timer/Title/Stacks are the shared sections
+-- (Style → Anchor). All bound to the tracker's OWN config (no override store). The render reuses TimerIcon:
+-- it draws timer/border/glow/keybind from this config, and title/stacks from it too once the tracker
+-- passes config.freeExtras=true to CreateTimerIcon. cfg = {
+--   get(key)->val, set(key,val) (write only), touch() (re-apply), rebuild() (rebuild the menu),
+--   sizeApply() (optional; called after an icon-size edit, else touch), LSM,
+--   pos = { getX, getY, onApply(x,y), onUnlock, onLock, isUnlocked, onBuilt(w) },
+-- }
+function ns.CDMGroups.TrackerFreeCadres(cfg)
+    local bundle = {
+        get     = function(key) return cfg.get(key) end,
+        set     = function(key, val) cfg.set(key, val) end,
+        touch   = cfg.touch,
+        refresh = cfg.rebuild,
+    }
+    local function setApply(key, val) cfg.set(key, val); if cfg.touch then cfg.touch() end end
+    local function sizeApply() if cfg.sizeApply then cfg.sizeApply() elseif cfg.touch then cfg.touch() end end
+
+    local function cdmSettings()
+        return { type = "group", title = L["CDM settings"], build = function() return {
+            { type = "checkbox", label = L["Show press overlay"],
+              get = function() return cfg.get("showPressOverlay") == true end,
+              set = function(v) setApply("showPressOverlay", v and true or false) end },
+            { type = "checkbox", label = L["Show Keybinds"],
+              get = function() return cfg.get("showKeybinds") == true end,
+              set = function(v) setApply("showKeybinds", v and true or false) end },
+        } end }
+    end
+    local function borderGroup()
+        return { type = "group", title = L["Border"], build = function() return {
+            { type = "checkbox", label = L["Show border"],
+              get = function() return cfg.get("borderEnabled") == true end,
+              set = function(v) cfg.set("borderEnabled", v and true or false); if cfg.touch then cfg.touch() end; cfg.rebuild() end },
+            { type = "textEditor", label = L["Border color"],
+              showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+              enabledBy = function() return cfg.get("borderEnabled") == true end,
+              getColor = function() return cfg.get("borderColor") end,
+              onColorChange = function(r, g, b, a) setApply("borderColor", { r = r, g = g, b = b, a = a }) end },
+            { type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+              enabledBy = function() return cfg.get("borderEnabled") == true end,
+              get = function() return cfg.get("borderSize") or 1 end,
+              set = function(v) if v and v > 0 then setApply("borderSize", v) end end },
+        } end }
+    end
+    local function glowGroup()
+        return { type = "group", title = L["Glow"], build = function()
+            local e = {
+                { type = "checkbox", label = L["Show glow on proc"],
+                  get = function() return cfg.get("glowEnabled") == true end,
+                  set = function(v) setApply("glowEnabled", v and true or false) end },
+                { type = "dropdown", label = L["Glow type"], width = 200, height = 50,
+                  enabledBy = function() return cfg.get("glowEnabled") == true end,
+                  getList = GlowTypeList,
+                  getCurrentKey = function() return GlowTypeLabel(cfg.get("glowType")) end,
+                  onSelect = function(label) cfg.set("glowType", GlowTypeFromLabel(label)); if cfg.touch then cfg.touch() end; cfg.rebuild() end },
+                { type = "textEditor", label = L["Glow color"],
+                  showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                  -- button/proc glows ignore colour (native look) — hide the swatch for those.
+                  when = function() local gt = cfg.get("glowType"); return gt ~= "proc" and gt ~= "button" end,
+                  enabledBy = function() return cfg.get("glowEnabled") == true end,
+                  getColor = function() return cfg.get("glowColor") end,
+                  onColorChange = function(r, g, b, a) setApply("glowColor", { r = r, g = g, b = b, a = a }) end },
+            }
+            return e
+        end }
+    end
+    local function sizeRow()
+        return { type = "custom", height = 46, build = function(host)
+            local sLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
+            sLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); sLbl:SetText(L["Icon size"])
+            local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+            wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
+            local wInput = ns.ui.CreateTextInput({
+                parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+                text = tostring(cfg.get("iconWidth") or 44),
+                onEnter = function(v) if v and v > 0 then cfg.set("iconWidth", v); sizeApply() end end,
+            })
+            wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
+            local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+            hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
+            local hInput = ns.ui.CreateTextInput({
+                parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
+                text = tostring(cfg.get("iconHeight") or 44),
+                onEnter = function(v) if v and v > 0 then cfg.set("iconHeight", v); sizeApply() end end,
+            })
+            hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
+            return { frame = host, height = 46, Refresh = function()
+                wInput.SetText(tostring(cfg.get("iconWidth") or 44))
+                hInput.SetText(tostring(cfg.get("iconHeight") or 44))
+            end }
+        end }
+    end
+    return {
+        { type = "position", ref = "pe",
+          onBuilt = cfg.pos and cfg.pos.onBuilt,
+          label = L["Icon position (offset from screen center)"],
+          getX = cfg.pos and cfg.pos.getX, getY = cfg.pos and cfg.pos.getY,
+          onApply = cfg.pos and cfg.pos.onApply,
+          onUnlock = cfg.pos and cfg.pos.onUnlock, onLock = cfg.pos and cfg.pos.onLock,
+          isUnlocked = cfg.pos and cfg.pos.isUnlocked },
+        cdmSettings(),
+        borderGroup(),
+        glowGroup(),
+        { type = "group", title = L["Icon"], build = function()
+            local e = { sizeRow() }
+            if TimerSection then e[#e + 1] = TimerSection(bundle) end
+            if TitleSection then e[#e + 1] = TitleSection(bundle) end
+            if StacksSection then e[#e + 1] = StacksSection(bundle) end
+            return e
+        end },
     }
 end
 

@@ -132,61 +132,25 @@ local function CreatePITrackerPanel(parent)
                     setFree    = function(c) PI.CfgSet("freeCollapsed", c) end,
                     -- Default override-set: ONLY Timer (size 14 + urgency thresholds). Rest inherits the group.
                     seedValues = function() return ns.DefaultTrackerTimerSeed() end,
-                    freeBuild  = function() return {
-                        { type = "position", ref = "pe",
-                          onBuilt = function(w) PI.pe = w end,
-                          label = L["Icon position (offset from screen center)"],
-                          getX = function() return PI.CfgGet("posX") end,
-                          getY = function() return PI.CfgGet("posY") end,
-                          onApply = function(x, yv) if x then PI.CfgSet("posX", x) end if yv then PI.CfgSet("posY", yv) end PI.ApplyPosition() end,
-                          onUnlock = function() PI.SetUnlocked(true) end,
-                          onLock = function() PI.SetUnlocked(false); if PI.pe then PI.pe.Refresh() end end,
-                          isUnlocked = function() return PI.IsUnlocked() end },
-                        { type = "custom", height = 46, build = function(host)
-                            local sizeLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-                            sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); sizeLbl:SetText(L["Icon size"])
-                            local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                            wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
-                            local wInput = ns.ui.CreateTextInput({ parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                                text = tostring(PI.CfgGet("iconWidth") or 40),
-                                onEnter = function(val) if val and val > 0 then PI.CfgSet("iconWidth", val); PI.ApplySize() end end })
-                            wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-                            local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                            hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
-                            local hInput = ns.ui.CreateTextInput({ parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                                text = tostring(PI.CfgGet("iconHeight") or 40),
-                                onEnter = function(val) if val and val > 0 then PI.CfgSet("iconHeight", val); PI.ApplySize() end end })
-                            hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-                            return { frame = host, height = 46, Refresh = function()
-                                wInput.SetText(tostring(PI.CfgGet("iconWidth") or 40)); hInput.SetText(tostring(PI.CfgGet("iconHeight") or 40)) end }
-                        end },
-                        { type = "group", title = L["Border"], build = function() return {
-                            { type = "checkbox", label = L["Show border"],
-                              get = function() return PI.CfgGet("borderEnabled") == true end,
-                              set = function(v) PI.CfgSet("borderEnabled", v); PI.ApplyBorder(); rebuildMenu() end },
-                            { type = "textEditor", label = L["Border color"], enabledBy = function() return PI.CfgGet("borderEnabled") == true end,
-                              showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                              getColor = function() return PI.CfgGet("borderColor") end,
-                              onColorChange = function(r, g, b, a) PI.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); PI.ApplyBorder() end },
-                            { type = "textinput", label = L["Border thickness"], enabledBy = function() return PI.CfgGet("borderEnabled") == true end,
-                              width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-                              get = function() return PI.CfgGet("borderSize") or 1 end,
-                              set = function(v) if v and v > 0 then PI.CfgSet("borderSize", v); PI.ApplyBorder() end end },
-                        } end },
-                        { type = "group", title = L["Timer"], build = function() return {
-                            { type = "textEditor", LSM = LSM, label = L["Timer"], showLabel = false,
-                              showText = false, showFont = true, showSize = true, showColor = true, showOutline = true,
-                              getFontKey = function() return PI.CfgGet("timerFontKey") end,
-                              getFontPath = function() return PI.CfgGet("timerFontPath") end,
-                              getFontSize = function() return PI.CfgGet("timerFontSize") end,
-                              getColor = function() return PI.CfgGet("timerColor") end,
-                              getOutline = function() return PI.CfgGet("timerOutline") end,
-                              onFontChange = function(key, path) PI.CfgSet("timerFontKey", key); PI.CfgSet("timerFontPath", path); PI.ApplyFont() end,
-                              onSizeChange = function(size) PI.CfgSet("timerFontSize", size); PI.ApplyFont() end,
-                              onColorChange = function(r, g, b, a) PI.CfgSet("timerColor", { r = r, g = g, b = b, a = a }); PI.ApplyFont() end,
-                              onOutlineChange = function(outline) PI.CfgSet("timerOutline", outline); PI.ApplyFont() end },
-                        } end },
-                    } end,
+                    freeBuild  = function()
+                        return ns.CDMGroups.TrackerFreeCadres({
+                            get       = PI.CfgGet,
+                            set       = PI.CfgSet,
+                            touch     = applyIcon,
+                            rebuild   = rebuildMenu,
+                            sizeApply = function() PI.ApplySize() end,
+                            LSM       = LSM,
+                            pos = {
+                                getX = function() return PI.CfgGet("posX") end,
+                                getY = function() return PI.CfgGet("posY") end,
+                                onApply = function(x, yv) if x then PI.CfgSet("posX", x) end if yv then PI.CfgSet("posY", yv) end PI.ApplyPosition() end,
+                                onUnlock = function() PI.SetUnlocked(true) end,
+                                onLock = function() PI.SetUnlocked(false); if PI.pe then PI.pe.Refresh() end end,
+                                isUnlocked = function() return PI.IsUnlocked() end,
+                                onBuilt = function(w) PI.pe = w end,
+                            },
+                        })
+                    end,
                 }
                 for _, x in ipairs(ns.CDMGroups.TrackerCdmCadres(cfg)) do e[#e + 1] = x end
                 return e

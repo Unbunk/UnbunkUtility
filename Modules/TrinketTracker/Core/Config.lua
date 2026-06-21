@@ -84,6 +84,8 @@ function TT.CfgInit()
     ns.MergeDefaults(ns.db.profile.TrinketTracker, DEFAULTS)
     SeedTiers(ns.db.profile.TrinketTracker.trinket1)
     SeedTiers(ns.db.profile.TrinketTracker.trinket2)
+    ns.SeedTrackerFreeLook(ns.db.profile.TrinketTracker.trinket1)
+    ns.SeedTrackerFreeLook(ns.db.profile.TrinketTracker.trinket2)
 end
 
 -- Re-apply defaults + sound migration whenever a profile is loaded/imported/reset.

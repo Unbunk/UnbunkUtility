@@ -52,6 +52,7 @@ function BL.CfgInit()
     if ns.db.profile.BLTracker.timerTiers == nil then
         ns.db.profile.BLTracker.timerTiers = ns.DeepCopy(DEFAULT_TIERS)
     end
+    ns.SeedTrackerFreeLook(ns.db.profile.BLTracker)
 end
 ns.RegisterCfgInitHook(BL.CfgInit)
 

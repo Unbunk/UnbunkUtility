@@ -709,7 +709,7 @@ local function ApplyGlow(nf, spellId)
         return
     end
     local glow = EnsureGlow(nf)
-    local c = BG.IconGet(spellId, "glowColor") or { r = 1, g = 1, b = 1, a = 1 }
+    local c = BG.IconGet(spellId, "glowColor") or { r = 0.96, g = 1, b = 0, a = 1 }   -- F5FF00
     for _, dot in ipairs(glow.dots) do dot:SetColorTexture(c.r, c.g, c.b, c.a or 1) end
     glow:Show()
 end
