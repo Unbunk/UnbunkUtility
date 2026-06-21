@@ -879,84 +879,9 @@ local function CreateBuffsPanel(parent)
         rebuild()
     end
 
-    -- The "+" tile: add a CUSTOM (cast-triggered) buff. A small picker offers the Quick-Add
-    -- templates (BG.CUSTOM_BUFF_TEMPLATES) as buttons plus a raw "Spell ID + Duration" pair;
-    -- both route through BG.AddCustom into THIS group.
-    local function promptAddCustom(groupId)
-        local f = ns.ui._bgAddCustom
-        if not f then
-            f = CreateFrame("Frame", "UnbunkUtilityBuffAddCustom", UIParent, "BackdropTemplate")
-            f:SetSize(360, 320)
-            f:SetPoint("CENTER")
-            f:SetFrameStrata("FULLSCREEN_DIALOG")
-            f:SetToplevel(true)
-            f:EnableMouse(true)
-            f:SetBackdrop({
-                bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-                edgeFile = "Interface/Buttons/WHITE8X8",
-                edgeSize = 1,
-                insets   = { left = 1, right = 1, top = 1, bottom = 1 },
-            })
-            f:SetBackdropColor(0.08, 0.08, 0.08, 0.97)
-            f:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
-            tinsert(UISpecialFrames, "UnbunkUtilityBuffAddCustom")   -- ESC closes
-
-            local t = f:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
-            t:SetPoint("TOP", f, "TOP", 0, -12); t:SetText(L["Add a buff"])
-
-            local qh = f:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-            qh:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -42); qh:SetText(L["Quick add"])
-
-            f.quickButtons = {}
-            local y = 64
-            for _, tpl in ipairs(BG.CUSTOM_BUFF_TEMPLATES or {}) do
-                local b = ns.ui.CreateButton({ parent = f, width = 324, height = 24,
-                    label = BG.SpellName(tpl.spellID) })
-                b.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -y)
-                b.spellID = tpl.spellID
-                b.frame:SetScript("OnClick", function()
-                    if f.groupId and b.spellID then BG.AddCustomFromTemplate(b.spellID, f.groupId) end
-                    f:Hide(); if f.onDone then f.onDone() end
-                end)
-                f.quickButtons[#f.quickButtons + 1] = b
-                y = y + 28
-            end
-
-            local idLbl = f:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-            idLbl:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -(y + 8)); idLbl:SetText(L["Spell ID"])
-            local idInput = ns.ui.CreateTextInput({
-                parent = f, width = 90, height = 22, numeric = true, min = 1, max = 99999999, maxLetters = 8, text = "",
-            })
-            idInput.frame:SetPoint("LEFT", idLbl, "RIGHT", 8, 0)
-            f.idInput = idInput
-
-            local durLbl = f:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-            durLbl:SetPoint("LEFT", idInput.frame, "RIGHT", 12, 0); durLbl:SetText(L["Duration"])
-            local durInput = ns.ui.CreateTextInput({
-                parent = f, width = 50, height = 22, numeric = true, min = 1, max = 3600, maxLetters = 4, text = "30",
-            })
-            durInput.frame:SetPoint("LEFT", durLbl, "RIGHT", 8, 0)
-            f.durInput = durInput
-
-            local add = ns.ui.CreateButton({ parent = f, label = L["Add a buff"], width = 130, height = 24 })
-            add.frame:SetPoint("BOTTOM", f, "BOTTOM", 0, 16)
-            add.frame:SetScript("OnClick", function()
-                local sid = tonumber(f.idInput.GetText())
-                local dur = tonumber(f.durInput.GetText())
-                if sid and sid > 0 and f.groupId then
-                    BG.AddCustom(sid, f.groupId, { duration = dur or 0 })
-                end
-                f:Hide(); if f.onDone then f.onDone() end
-            end)
-
-            ns.ui._bgAddCustom = f
-        end
-        f.groupId = groupId
-        f.onDone  = function() touch(); rebuild() end
-        f.idInput.SetText("")
-        f.durInput.SetText("30")
-        f:Show(); f:Raise()
-    end
+    -- The "+" tile opens the shared CustomCDM Buff editor (ns.CustomCDM.PromptAddBuffToGroup), the same
+    -- template as the Free-icons "+ -> Buff", pre-set to live in the clicked group as a bridged buff —
+    -- so custom buffs are authored + managed identically everywhere (replaces the old quick-add popup).
 
     -- A draggable icon strip for one group (groupId 0 = Unused). Shows ALL buffs assigned to
     -- the group (active or not) so they can be reordered; the in-game layout only draws the
@@ -995,7 +920,14 @@ local function CreateBuffsPanel(parent)
                 local aplus = addb:CreateTexture(nil, "ARTWORK"); aplus:SetPoint("CENTER"); aplus:SetSize(ICON - 12, ICON - 12); aplus:SetTexture(UNBUNK_ICON_PLUS_GREEN)
                 addb:SetScript("OnEnter", function() afill:SetColorTexture(0.2, 0.2, 0.2, 0.95) end)
                 addb:SetScript("OnLeave", function() afill:SetColorTexture(0.12, 0.12, 0.12, 0.9) end)
-                addb:SetScript("OnClick", function() promptAddCustom(groupId) end)
+                -- Open the SAME Buff template as the Free-icons "+" (CustomCDM Buff editor), pre-set to
+                -- live in this buff group (a bridged CustomCDM buff). Replaces the old quick-add/spellID
+                -- popup so custom buffs are created + managed the same way everywhere.
+                addb:SetScript("OnClick", function()
+                    if ns.CustomCDM and ns.CustomCDM.PromptAddBuffToGroup then
+                        ns.CustomCDM.PromptAddBuffToGroup(groupId)
+                    end
+                end)
                 obj.addBtn = addb
 
                 -- Red "Row is full" caption over the strip on a high overlay, shown when a (non-wrap)
@@ -1077,7 +1009,10 @@ local function CreateBuffsPanel(parent)
                         pb:SetScript("OnClick", function() OpenIconEditor(spellId, rebuild) end)
                     end
 
-                    if BG.IsCustom(spellId) then
+                    -- A CustomCDM-owned mirror (a bridged buff) is managed from the Free-icons Buff
+                    -- editor, not here — no delete cross, so deleting it there can't orphan the source.
+                    local cdef = BG.GetCustom and BG.GetCustom(spellId)
+                    if BG.IsCustom(spellId) and not (cdef and cdef.owner) then
                         local xb = CreateFrame("Button", nil, b)
                         xb:SetSize(14, 14); xb:SetPoint("CENTER", b, "TOPRIGHT", -7, -3)
                         xb:SetFrameLevel(b:GetFrameLevel() + 5)

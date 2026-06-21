@@ -399,6 +399,7 @@ function BG.AddCustom(spellId, groupId, opts)
         duration = tonumber(opts.duration) or 0,
         name     = opts.name,
         icon     = opts.icon,
+        owner    = opts.owner,   -- "customcdm" when mirrored from a CustomCDM buff icon (not user-made)
     }
     s.assign[spellId] = groupId or 1
     BG.AppendOrder(groupId or 1, spellId)

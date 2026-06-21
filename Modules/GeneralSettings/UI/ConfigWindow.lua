@@ -925,6 +925,21 @@ local function CreateFreeIconsPanel(parent)
             type   = "custom",
             height = 10,
             build  = function(host)
+                -- A cadre framing the whole 10-row grid (1px border + faint fill, the same house
+                -- style as every config cadre — see ns.ui.CreateGroupBox — so it reads as a normal
+                -- thin-bordered box, not a dimmed dark slab). The strip sits inset by BOX_PAD; the
+                -- host reserves the extra height.
+                local BOX_PAD = 6
+                local box = CreateFrame("Frame", nil, host, "BackdropTemplate")
+                box:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                box:SetBackdrop({
+                    bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
+                    edgeFile = "Interface/Buttons/WHITE8X8",
+                    edgeSize = 1,
+                    insets   = { left = 1, right = 1, top = 1, bottom = 1 },
+                })
+                box:SetBackdropColor(0.10, 0.10, 0.10, 0.5)
+                box:SetBackdropBorderColor(0.45, 0.45, 0.45, 1)
                 local s = ns.ui.CreateIconReorderStrip({
                     parent = host, width = 500, rows = 10, wrap = true, emptyText = L["No icons"],
                     getIcons = function()
@@ -958,7 +973,7 @@ local function CreateFreeIconsPanel(parent)
                         local map = freeOrderMap()
                         if map then for i, id in ipairs(ids) do map[id] = i end end
                     end,
-                    onAdd          = function() if ns.CustomCDM then ns.CustomCDM.PromptAddFree() end end,
+                    onAdd          = function() if ns.CustomCDM then ns.CustomCDM.PromptAddFreeChoice() end end,
                     onRemoveCustom = function(itemId)
                         local cid = ns.CustomCDM and ns.CustomCDM.IdFromFrameName(itemId)
                         if cid then ns.CustomCDM.ConfirmRemove(cid) end
@@ -968,9 +983,10 @@ local function CreateFreeIconsPanel(parent)
                         if panel and ns.NavigateToPanel then ns.NavigateToPanel(panel) end
                     end,
                 })
-                s.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                host:SetHeight(s.height)
-                return { frame = host, height = s.height, Refresh = s.Refresh }
+                s.frame:SetPoint("TOPLEFT", box, "TOPLEFT", BOX_PAD, -BOX_PAD)
+                box:SetSize(500 + 2 * BOX_PAD, s.height + 2 * BOX_PAD)
+                host:SetHeight(s.height + 2 * BOX_PAD)
+                return { frame = host, height = s.height + 2 * BOX_PAD, Refresh = s.Refresh }
             end,
         },
     }

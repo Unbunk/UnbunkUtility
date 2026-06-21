@@ -37,8 +37,11 @@ local GREEN = { r = 0, g = 1, b = 0 }  -- "active buff up" timer colour (shared,
 -- tiers are seeded separately (SeedTiers) so editing the list is never "merged back".
 local ICON_DEFAULTS = {
     spellId        = 0,
-    entryKind      = "spell",   -- "spell" | "item": what this icon tracks (item = on-use trinket/potion)
+    entryKind      = "spell",   -- "spell" | "item" | "buff": what this icon tracks (item = on-use trinket/potion;
+                                -- buff = a cast-triggered, fixed-duration drawn buff swipe — always a free icon)
     itemId         = 0,         -- the tracked item id when entryKind == "item"
+    duration       = 30,        -- buff kind: the fixed swipe length (s), armed on the player's own cast
+    cdmBuffGroup   = 1,         -- buff kind + in CDM: which Buff-groups group the mirror lands in
     showIcon       = true,   -- off = keep the sound alerts but hide the icon
     includeInCdm   = true,
     cdmDest        = "belowPlayer",
@@ -52,6 +55,9 @@ local ICON_DEFAULTS = {
     borderEnabled  = true,
     borderColor    = { r = 0, g = 0, b = 0, a = 1 },
     borderSize     = 1,
+    -- Glow (buff kind only): a coloured pixel glow shown while the buff is active. Off by default.
+    glowEnabled    = false,
+    glowColor      = { r = 1, g = 1, b = 1, a = 1 },
     -- Timer text (from potions) + a show toggle. Tiers live in `timerTiers` (seeded).
     showTimer      = true,
     timerFontKey   = "Fira Mono",
@@ -104,6 +110,30 @@ end
 local live = {}
 
 local function FrameName(id) return "UnbunkUtilityCustomCDM" .. id end
+
+-- ── Buff <-> BuffGroups bridge predicates ─────────────────────────────────────
+-- A buff-kind icon can be MIRRORED into the Buffs viewer (drawn there by BuffGroups). These two
+-- helpers decide whether that mirror is actually rendering the buff right now; if not, the buff's
+-- own free TimerIcon must render it so it never vanishes (BuffGroups off, or no mirror created).
+local function BuffGroupsEnabled()
+    local BG = ns.BuffGroups
+    if not BG then return false end
+    if BG.Enabled then return BG.Enabled() and true or false end
+    return true
+end
+-- True only when the buff is in-CDM, BuffGroups is enabled to draw it, a mirror custom exists for
+-- its spell, AND that mirror is in a VISIBLE group — i.e. the viewer is actually showing it, so the
+-- free icon should stay hidden. A mirror parked in "Unused" (group 0, e.g. dragged there or its
+-- group deleted) renders nowhere, so the free icon must take over instead of vanishing.
+local function BuffMirrored(e)
+    if not (e and e.entryKind == "buff" and ns.CDMIncludedVal(e.includeInCdm)
+            and e.spellId and e.spellId ~= 0) then
+        return false
+    end
+    local BG = ns.BuffGroups
+    if not (BuffGroupsEnabled() and BG and BG.IsCustom and BG.IsCustom(e.spellId)) then return false end
+    return (not BG.GroupOf) or BG.GroupOf(e.spellId) ~= 0
+end
 
 -- The profile store: { nextId = N, icons = { [id] = entry } }. Created lazily.
 local function Store()
@@ -336,6 +366,36 @@ local function ApplyOne(id)
     d.icon.SetIcon(IconTextureForEntry(e))
     d.icon.ApplySize()
 
+    -- Buff kind: a cast-triggered, fixed-duration swipe (no real cooldown to read). The player's own cast
+    -- arms `d.buffExpiry` (the UNIT_SPELLCAST_SUCCEEDED handler below); here we just render the green
+    -- "buff up" countdown until it elapses, mirroring the spell path's active-buff look. No charges/stacks.
+    if e.entryKind == "buff" then
+        -- Mirrored into the Buffs viewer (BuffGroups draws it there): keep our own free icon inert.
+        -- Only when the mirror is actually rendering it — if BuffGroups is disabled or no mirror was
+        -- created, fall through and render the free swipe so the buff never disappears.
+        if BuffMirrored(e) then
+            if d.icon.SetColorGlow then d.icon.SetColorGlow(false) end
+            d.icon.Hide(); return
+        end
+        local dur    = tonumber(e.duration) or 0
+        local active = d.buffExpiry and dur > 0 and GetTime() < d.buffExpiry
+        if e.showIcon ~= false then d.icon.Show() else d.icon.Hide() end
+        if active then
+            d.icon.SetTimer(d.buffExpiry, dur, GREEN)
+            d.icon.HideCheck()
+        else
+            d.buffExpiry = nil
+            d.icon.ClearTimer()
+        end
+        -- Glow while the buff is active (and the icon is shown).
+        if d.icon.SetColorGlow then
+            local on = active and e.showIcon ~= false and e.glowEnabled == true
+            local c  = e.glowColor or { r = 1, g = 1, b = 1, a = 1 }
+            d.icon.SetColorGlow(on, { c.r or 1, c.g or 1, c.b or 1, c.a or 1 })
+        end
+        return
+    end
+
     -- Item kind: a separate, simpler path — the on-use item cooldown swipe + bag count, no aura / charge
     -- logic. Item cooldowns are NOT secret in combat, so no estimate is needed. The whole spell path below
     -- is left untouched, so spell icons behave exactly as before.
@@ -458,6 +518,9 @@ local function EnsureIcon(id)
                 if key == "includeInCdm" then return false end
                 return ICON_DEFAULTS[key]
             end
+            -- A buff never uses the CDMAnchor bucket layout; its "in CDM" state is the BuffGroups
+            -- mirror (see SyncBuffBridge), so it always reads as free here (placed by posX/posY or hidden).
+            if key == "includeInCdm" and e.entryKind == "buff" then return false end
             if e[key] ~= nil then return e[key] end
             return ICON_DEFAULTS[key]
         end,
@@ -482,13 +545,79 @@ local function EnsureIcon(id)
     return d
 end
 
+-- ── Buff <-> BuffGroups bridge ────────────────────────────────────────────────
+-- A buff-kind icon with "Include in CDM" on is shown in the Buffs viewer, which only the BuffGroups
+-- engine can drive (the native buff viewer won't take a cast-triggered buff). So while in-CDM we
+-- MIRROR it as a BuffGroups custom buff (Group 1 by default); when it goes free again we drop the
+-- mirror. The CustomCDM icon stays the source of truth (spell + duration, always listed in the
+-- Free-icons grid for management); BuffGroups owns only the in-viewer rendering. `d.bridgedSid`
+-- records the spellId we registered, so a spell change / un-include removes the right mirror.
+-- Idempotent (guards on BG.IsCustom): safe to call from build / edit / remove / reload.
+local BUFF_BRIDGE_GROUP = 1
+local BUFF_BRIDGE_OWNER = "customcdm"   -- marks the BuffGroups custom WE created, so we never touch a user's own
+local function SyncBuffBridge(id)
+    local BG = ns.BuffGroups
+    if not (BG and BG.AddCustom and BG.RemoveCustom and BG.IsCustom) then return end
+    local e = Entry(id)
+    local d = live[id]
+    local function ownedMirror(sid) local def = BG.GetCustom and BG.GetCustom(sid); return def and def.owner == BUFF_BRIDGE_OWNER end
+    local prevSid = d and d.bridgedSid
+    local want    = e and e.entryKind == "buff" and ns.CDMIncludedVal(e.includeInCdm)
+                    and e.spellId and e.spellId ~= 0
+    local wantSid = want and e.spellId or nil
+    -- Going free, or the spell changed: drop ONLY a mirror WE created (never a user's own
+    -- Buff-groups custom of the same spell, which would wipe its group/order/per-icon overrides).
+    if prevSid and prevSid ~= wantSid then
+        if BG.IsCustom(prevSid) and ownedMirror(prevSid) then
+            BG.RemoveCustom(prevSid)
+            if BG.ReleaseCustomFrame then BG.ReleaseCustomFrame(prevSid) end
+        end
+        if d then d.bridgedSid = nil end
+    end
+    if wantSid then
+        if BG.IsCustom(wantSid) then
+            if ownedMirror(wantSid) then
+                local def = BG.GetCustom and BG.GetCustom(wantSid)
+                -- Our mirror: keep its duration in sync. (A swipe already mid-run keeps its old
+                -- length until it ends; the new value applies on the next cast — accepted, self-corrects.)
+                if def then def.duration = tonumber(e.duration) or def.duration end
+                if d then d.bridgedSid = wantSid end
+            elseif d then
+                d.bridgedSid = nil   -- already a USER's Buff-groups custom: ride on it, never clobber it
+            end
+        elseif BG.IsNativeTracked and BG.IsNativeTracked(wantSid) then
+            -- The spell is a native CDM tracked buff (managed on the Buff groups tab). Mirroring it
+            -- would hijack its native slot and erase its per-icon overrides, so refuse — the free icon
+            -- keeps rendering (BuffMirrored stays false since no custom is created).
+            if d then d.bridgedSid = nil end
+        else
+            local grp = tonumber(e.cdmBuffGroup)
+            if not grp or grp <= 0 then grp = BUFF_BRIDGE_GROUP end
+            BG.AddCustom(wantSid, grp, { duration = tonumber(e.duration) or 0, owner = BUFF_BRIDGE_OWNER })
+            -- If the free swipe is already mid-run, carry it straight into the viewer (else it shows
+            -- nowhere until the next cast re-arms it via BuffGroups' own UNIT_SPELLCAST_SUCCEEDED).
+            local dur = tonumber(e.duration) or 0
+            if BG.ActivateCustom and d and d.buffExpiry and dur > 0 and GetTime() < d.buffExpiry then
+                BG.ActivateCustom(wantSid, d.buffExpiry - dur)
+            end
+            if d then d.bridgedSid = wantSid end
+        end
+    end
+end
+CC.SyncBuffBridge = SyncBuffBridge
+
 local function BuildIcon(id)
     local d = EnsureIcon(id)
     d.icon.ApplyFont()
     d.icon.ApplySize()
     d.icon.ApplyBorder()
     ApplyTitle(id)
+    SyncBuffBridge(id)   -- establish/drop the mirror BEFORE ApplyOne, so its BuffMirrored check is current
     ApplyOne(id)
+    -- Position the icon immediately. A free icon anchors itself to posX/posY here; relying on the next
+    -- ns.CDMAnchor.RefreshAll() isn't enough because its no-op signature doesn't track free custom icons,
+    -- so a mid-session add would otherwise stay UNANCHORED (in the config grid but invisible in game).
+    d.icon.ApplyPosition()
     return d
 end
 
@@ -505,8 +634,11 @@ function CC.ApplyIcon(id)
     d.icon.ApplySize()
     d.icon.ApplyBorder()
     ApplyTitle(id)
-    ApplyOne(id)   -- also re-applies the stack
-    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+    SyncBuffBridge(id)   -- a toggled "Include in CDM" (or new duration/spell) re-syncs the Buffs mirror first
+    ApplyOne(id)         -- ...so this re-applies/hides the free icon against the current mirror state
+    -- force=true: an editor edit (esp. toggling Include in CDM, which moves the icon between free and a
+    -- CDM bucket) must re-lay-out even though the no-op signature can't see this custom-icon change.
+    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll(true) end
 end
 
 function CC.GetEntry(id) return EntryById(id) end
@@ -519,14 +651,19 @@ function CC.GetFreeIcons()
     if not s then return {} end
     local ids = {}
     for id, e in pairs(s.icons) do
-        -- Free icons, plus any whose icon is hidden ("Show icon" off) so they stay
-        -- manageable (they're absent from the CDM cadres' shown-only strips).
-        if not e.includeInCdm or not e.showIcon then ids[#ids + 1] = id end
+        -- Free icons, plus any whose icon is hidden ("Show icon" off) so they stay manageable
+        -- (they're absent from the CDM cadres' shown-only strips), plus EVERY buff-kind icon — a
+        -- buff stays in this grid for management even when "in CDM" (mirrored to the Buffs viewer),
+        -- because the Buff groups tab has no pen back to the Buff editor.
+        if e.entryKind == "buff" or not e.includeInCdm or not e.showIcon then ids[#ids + 1] = id end
     end
     table.sort(ids)
     local out = {}
     for _, id in ipairs(ids) do
-        out[#out + 1] = { id = FrameName(id), texture = IconTextureForEntry(s.icons[id]), custom = true }
+        local e = s.icons[id]
+        -- `kind` lets the Free-icons strip's pen route to the right editor (buff -> Buff editor,
+        -- spell/item -> the CustomCDM editor) — though CC.PromptEdit already routes by kind itself.
+        out[#out + 1] = { id = FrameName(id), texture = IconTextureForEntry(e), custom = true, kind = e.entryKind }
     end
     return out
 end
@@ -765,9 +902,14 @@ function CC.CommitDraft(id)
         ns.Print(L["Invalid spell ID or name:"] .. " " .. tostring(e.spellId))
         return false
     end
+    -- A buff also needs a positive fixed duration (the cast-triggered swipe length).
+    if e.entryKind == "buff" and not (tonumber(e.duration) and tonumber(e.duration) > 0) then
+        ns.Print(L["Enter a buff duration greater than 0."])
+        return false
+    end
     -- The bucket cap governs ONLY below-player buckets / native rows — never CDMGroups group placement
-    -- (a group has its own capacity); so skip it when committing into a group.
-    if not grp and e.includeInCdm and ns.CDMAnchor and ns.CDMAnchor.BucketIconCount
+    -- (a group has its own capacity) nor a buff (it goes to the Buffs viewer, not a bucket); so skip those.
+    if not grp and e.entryKind ~= "buff" and e.includeInCdm and ns.CDMAnchor and ns.CDMAnchor.BucketIconCount
         and ns.CDMAnchor.BucketIconCount(e.cdmDest or "belowPlayer", e.cdmRow or 1, e.cdmAtEnd and true or false)
             >= ns.CDMAnchor.BucketCap(e.cdmDest or "belowPlayer") then
         ns.Print(L["This row is full."])
@@ -787,7 +929,7 @@ function CC.CommitDraft(id)
             inst.AddTrackerMember(FrameName(id), grp.groupId, { rowIndex = grp.rowIndex, colIndex = grp.colIndex })
         end
     end
-    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll(true) end   -- force: a newly committed icon must lay out now
     if ns.RebuildActiveModule then ns.RebuildActiveModule() end
     return true
 end
@@ -802,6 +944,34 @@ function CC.PromptAddFree()
     if id and CC.OpenEditor then CC.OpenEditor(id) end
 end
 
+-- The Free-icons "+" -> "Buff" choice: a fresh free draft of the BUFF kind (cast-triggered,
+-- fixed-duration), opened in the dedicated Buff editor; "Add Icon" inside commits it.
+function CC.PromptAddFreeBuff()
+    local id = NewDraft({ includeInCdm = false })
+    if not id then return end
+    local e = EntryById(id)
+    if e then
+        e.entryKind = "buff"
+        if not e.duration or e.duration <= 0 then e.duration = ICON_DEFAULTS.duration end
+    end
+    if CC.OpenBuffEditor then CC.OpenBuffEditor(id) end
+end
+
+-- The Buff-groups tab "+" tile: same Buff template as Free icons, but pre-set to live in the CDM
+-- (Include in CDM on) and mirrored into the clicked buff group. Committing it registers the mirror
+-- in that group via SyncBuffBridge. (Group 0 / Unused → the default visible group 1.)
+function CC.PromptAddBuffToGroup(groupId)
+    local id = NewDraft({ includeInCdm = true })
+    if not id then return end
+    local e = EntryById(id)
+    if e then
+        e.entryKind = "buff"
+        if not e.duration or e.duration <= 0 then e.duration = ICON_DEFAULTS.duration end
+        e.cdmBuffGroup = (groupId and groupId > 0) and groupId or 1
+    end
+    if CC.OpenBuffEditor then CC.OpenBuffEditor(id) end
+end
+
 function CC.SetSpellId(id, spellId)
     local e = Entry(id)
     if not e then return end
@@ -809,6 +979,7 @@ function CC.SetSpellId(id, spellId)
     local d = live[id]
     if d then d.lastUseAt = nil; d.learnedCd = nil; d.hasCooldown = false; d.lastExpiry = nil end
     ApplyOne(id)
+    SyncBuffBridge(id)   -- a bridged buff that changed spell re-registers under the new spellId
     if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
     if ns.RebuildActiveModule then ns.RebuildActiveModule() end
 end
@@ -874,8 +1045,11 @@ function CC.Remove(id)
             if inst and inst.RemoveTrackerMember then inst.RemoveTrackerMember(FrameName(id)) end
         end
     end
+    -- Drop the BuffGroups mirror (if this was a bridged buff). Entry is gone now, so SyncBuffBridge
+    -- resolves want=false and removes whatever spellId we registered for this id.
+    SyncBuffBridge(id)
     if ns.CustomCDM.CloseEditorFor then ns.CustomCDM.CloseEditorFor(id) end
-    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll(true) end   -- force: re-pack the row/grid without the removed icon
     if ns.RebuildActiveModule then ns.RebuildActiveModule() end
 end
 
@@ -909,10 +1083,16 @@ function CC.PromptAddToGroup(dest, groupId, rowIndex, colIndex)
     if id and CC.OpenEditor then CC.OpenEditor(id) end
 end
 
--- The pen opens the full per-icon editor window (defined in UI/Editor.lua).
+-- The pen opens the full per-icon editor window (defined in UI/Editor.lua). Routed by kind so a
+-- buff icon opens the dedicated Buff editor and a spell/item icon the standard CustomCDM editor.
 function CC.PromptEdit(id)
-    if not Entry(id) then return end
-    if CC.OpenEditor then CC.OpenEditor(id) end
+    local e = Entry(id)
+    if not e then return end
+    if e.entryKind == "buff" then
+        if CC.OpenBuffEditor then CC.OpenBuffEditor(id) end
+    elseif CC.OpenEditor then
+        CC.OpenEditor(id)
+    end
 end
 
 -- ── Events ────────────────────────────────────────────────────────────────────
@@ -924,11 +1104,23 @@ CC:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(_, unit, _, spellId)
         local e = Entry(id)
         if e and e.spellId == spellId then
             d.lastUseAt = GetTime()
+            -- Buff kind: arm the fixed-duration swipe ONLY when WE render it (free / BuffGroups off).
+            -- When the Buffs viewer owns the render, BuffGroups' own cast handler drives the swipe.
+            if e.entryKind == "buff" and not BuffMirrored(e) then
+                d.buffExpiry = GetTime() + (tonumber(e.duration) or 0)
+                ApplyOne(id)
+            end
             if e.soundOnUse then PlaySound(id, "use") end
         end
     end
 end)
 CC:RegisterEvent("SPELL_UPDATE_COOLDOWN", function() CC.UpdateAll() end)
+-- A buff drops on death (mirrors the buff-groups custom buffs): clear every armed swipe.
+CC:RegisterEvent("PLAYER_DEAD", function()
+    for id, d in pairs(live) do
+        if d.buffExpiry then d.buffExpiry = nil; ApplyOne(id) end
+    end
+end)
 
 CC:ScheduleRepeatingTimer(function() CC.UpdateAll() end, 0.5)
 
