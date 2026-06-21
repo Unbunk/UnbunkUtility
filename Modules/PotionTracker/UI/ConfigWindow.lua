@@ -268,90 +268,25 @@ local function BuildPotionSectionOptions(prefix, LSM)
                     getFree    = function() return GetCfg("freeCollapsed") ~= false end,
                     setFree    = function(c) SetCfg("freeCollapsed", c) end,
                     seedValues = function() return PT.OverrideSeed(prefix) end,
-                    freeBuild  = function() return {
-                        { type = "position", ref = "pe",
-                          onBuilt = function(w) tracker.pe = w end,
-                          label = L["Icon position (offset from screen center)"],
-                          getX = function() return GetCfg("posX") end,
-                          getY = function() return GetCfg("posY") end,
-                          onApply = function(x, yv) if x then SetCfg("posX", x) end if yv then SetCfg("posY", yv) end PT.ApplyAll() end,
-                          onUnlock = function() tracker.SetUnlocked(true) end,
-                          onLock = function() tracker.SetUnlocked(false); if tracker.pe then tracker.pe.Refresh() end end,
-                          isUnlocked = function() return tracker.IsUnlocked() end },
-                        { type = "custom", height = 46, build = function(sizeFrame)
-                            sizeFrame:SetHeight(46)
-                            local sizeLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-                            sizeLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, 0); sizeLbl:SetText(L["Icon size"])
-                            local wLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                            wLbl:SetPoint("TOPLEFT", sizeFrame, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
-                            local wInput = ns.ui.CreateTextInput({ parent = sizeFrame, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                                text = tostring(GetCfg("iconWidth") or 30),
-                                onEnter = function(val) if val and val > 0 then SetCfg("iconWidth", val); tracker.ApplySize() end end })
-                            wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-                            local hLbl = sizeFrame:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                            hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
-                            local hInput = ns.ui.CreateTextInput({ parent = sizeFrame, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                                text = tostring(GetCfg("iconHeight") or 30),
-                                onEnter = function(val) if val and val > 0 then SetCfg("iconHeight", val); tracker.ApplySize() end end })
-                            hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-                            return { frame = sizeFrame, height = 46, Refresh = function()
-                                wInput.SetText(tostring(GetCfg("iconWidth") or 30)); hInput.SetText(tostring(GetCfg("iconHeight") or 30)) end }
-                        end },
-                        { type = "group", title = L["Border"], build = function() return {
-                            { type = "checkbox", label = L["Show border"],
-                              get = function() return GetCfg("borderEnabled") == true end,
-                              set = function(v) SetCfg("borderEnabled", v); tracker.ApplyBorder(); rebuildMenu() end },
-                            { type = "textEditor", label = L["Border color"], enabledBy = function() return GetCfg("borderEnabled") == true end,
-                              showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                              getColor = function() return GetCfg("borderColor") end,
-                              onColorChange = function(r, g, b, a) SetCfg("borderColor", { r = r, g = g, b = b, a = a }); tracker.ApplyBorder() end },
-                            { type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-                              enabledBy = function() return GetCfg("borderEnabled") == true end,
-                              get = function() return GetCfg("borderSize") or 1 end,
-                              set = function(v) if v and v > 0 then SetCfg("borderSize", v); tracker.ApplyBorder() end end },
-                        } end },
-                        { type = "group", title = L["Timer"], build = function() return {
-                            { type = "textEditor", LSM = LSM, label = L["Timer"], showLabel = false,
-                              showText = false, showFont = true, showSize = true, showColor = true, showOutline = true,
-                              getFontKey = function() return GetCfg("timerFontKey") end,
-                              getFontPath = function() return GetCfg("timerFontPath") end,
-                              getFontSize = function() return GetCfg("timerFontSize") end,
-                              getColor = function() return GetCfg("timerColor") end,
-                              getOutline = function() return GetCfg("timerOutline") end,
-                              onFontChange = function(key, path) SetCfg("timerFontKey", key); SetCfg("timerFontPath", path); tracker.ApplyFont() end,
-                              onSizeChange = function(size) SetCfg("timerFontSize", size); tracker.ApplyFont() end,
-                              onColorChange = function(r, g, b, a) SetCfg("timerColor", { r = r, g = g, b = b, a = a }); tracker.ApplyFont() end,
-                              onOutlineChange = function(outline) SetCfg("timerOutline", outline); tracker.ApplyFont() end },
-                            ns.ui.TiersEntry({ getTiers = function() return GetCfg("timerTiers") end,
-                              apply = function() tracker.ApplyVisuals() end, rebuild = rebuildMenu }),
-                        } end },
-                        { type = "group", title = L["Stacks/Charges"],
-                          gate = { enabled = function() return GetCfg("showStack") ~= false end, master = "showstack" },
-                          build = function() return {
-                            { type = "checkbox", ref = "showstack", label = L["Show stack count below icon"], height = 24,
-                              get = function() return GetCfg("showStack") ~= false end,
-                              set = function(val) SetCfg("showStack", val); PT.ApplyStackVisuals(prefix, tracker) end },
-                            ns.ui.AnchorOffsetEntry({
-                                getAnchor = function() return GetCfg("stackAnchor") end,
-                                setAnchor = function(m) SetCfg("stackAnchor", m); PT.ApplyStackVisuals(prefix, tracker) end,
-                                getX = function() return GetCfg("stackOffsetX") end,
-                                setX = function(v) SetCfg("stackOffsetX", v); PT.ApplyStackVisuals(prefix, tracker) end,
-                                getY = function() return GetCfg("stackOffsetY") end,
-                                setY = function(v) SetCfg("stackOffsetY", v); PT.ApplyStackVisuals(prefix, tracker) end,
-                            }),
-                            { type = "textEditor", LSM = LSM, label = L["Stacks/Charges"], showLabel = false,
-                              showText = false, showFont = true, showSize = true, showColor = true, showOutline = true,
-                              getFontKey = function() return GetCfg("stackFontKey") end,
-                              getFontPath = function() return GetCfg("stackFontPath") end,
-                              getFontSize = function() return GetCfg("stackFontSize") end,
-                              getColor = function() return GetCfg("stackColor") end,
-                              getOutline = function() return GetCfg("stackOutline") end,
-                              onFontChange = function(key, path) SetCfg("stackFontKey", key); SetCfg("stackFontPath", path); PT.ApplyStackVisuals(prefix, tracker) end,
-                              onSizeChange = function(size) SetCfg("stackFontSize", size); PT.ApplyStackVisuals(prefix, tracker) end,
-                              onColorChange = function(r, g, b, a) SetCfg("stackColor", { r = r, g = g, b = b, a = a }); PT.ApplyStackVisuals(prefix, tracker) end,
-                              onOutlineChange = function(outline) SetCfg("stackOutline", outline); PT.ApplyStackVisuals(prefix, tracker) end },
-                        } end },
-                    } end,
+                    freeBuild  = function()
+                        return ns.CDMGroups.TrackerFreeCadres({
+                            get       = GetCfg,
+                            set       = SetCfg,
+                            touch     = applyIcon,
+                            rebuild   = rebuildMenu,
+                            sizeApply = function() if tracker then tracker.ApplySize() end end,
+                            LSM       = LSM,
+                            pos = {
+                                getX = function() return GetCfg("posX") end,
+                                getY = function() return GetCfg("posY") end,
+                                onApply = function(x, yv) if x then SetCfg("posX", x) end if yv then SetCfg("posY", yv) end PT.ApplyAll() end,
+                                onUnlock = function() tracker.SetUnlocked(true) end,
+                                onLock = function() tracker.SetUnlocked(false); if tracker.pe then tracker.pe.Refresh() end end,
+                                isUnlocked = function() return tracker.IsUnlocked() end,
+                                onBuilt = function(w) tracker.pe = w end,
+                            },
+                        })
+                    end,
                 }
                 for _, x in ipairs(ns.CDMGroups.TrackerCdmCadres(cfg)) do e[#e + 1] = x end
                 return e

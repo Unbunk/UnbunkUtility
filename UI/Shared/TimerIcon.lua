@@ -92,6 +92,9 @@ end
 local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
 local DEST_GLOW_KEY = "uuti"
 local HAS_PROC_GLOW = LCG and LCG.ProcGlow_Start and LCG.ProcGlow_Stop
+-- Pixel-glow line thickness. LCG's 1px default is invisible on our small (36-44px) icons (the icon
+-- border swallows it), so use a thicker line that actually reads as a glow.
+local PIXEL_GLOW_TH = 3
 local function StartDestGlow(frame, gtype, colorArr)
     if not LCG then return end
     if gtype == "autocast" then LCG.AutoCastGlow_Start(frame, colorArr, nil, nil, nil, nil, nil, DEST_GLOW_KEY)
@@ -99,7 +102,7 @@ local function StartDestGlow(frame, gtype, colorArr)
     elseif gtype == "proc" then
         if HAS_PROC_GLOW then LCG.ProcGlow_Start(frame, { key = DEST_GLOW_KEY, startAnim = false })
         else LCG.ButtonGlow_Start(frame) end   -- old lib: fall back to the button highlight
-    else LCG.PixelGlow_Start(frame, colorArr, nil, nil, nil, nil, nil, nil, nil, DEST_GLOW_KEY) end
+    else LCG.PixelGlow_Start(frame, colorArr, nil, nil, nil, PIXEL_GLOW_TH, nil, nil, nil, DEST_GLOW_KEY) end
 end
 local function StopDestGlow(frame, gtype)
     if not LCG then return end
@@ -108,6 +111,29 @@ local function StopDestGlow(frame, gtype)
     elseif gtype == "proc" then
         if HAS_PROC_GLOW then LCG.ProcGlow_Stop(frame, DEST_GLOW_KEY) else LCG.ButtonGlow_Stop(frame) end
     else LCG.PixelGlow_Stop(frame, DEST_GLOW_KEY) end
+end
+
+-- Whether a SPELL_ACTIVATION_OVERLAY_GLOW arg1 (the spell Blizzard is highlighting) is "the same ability"
+-- as a tracked spellId. Blizzard frequently highlights an OVERRIDE / different-rank id than the one the
+-- user typed (talents, base<->override swaps), so an exact `arg1 == sid` match silently misses the proc.
+-- Match the override both ways + same-name as a fallback so "Show glow on proc" actually fires.
+local function ProcSpellMatches(arg1, sid)
+    if not (arg1 and sid and sid ~= 0) then return false end
+    if arg1 == sid then return true end
+    if C_Spell and C_Spell.GetOverrideSpell then
+        local ok, ov = pcall(C_Spell.GetOverrideSpell, sid)
+        if ok and ov == arg1 then return true end
+    end
+    if FindBaseSpellByID then
+        local ok, base = pcall(FindBaseSpellByID, arg1)
+        if ok and base == sid then return true end
+    end
+    local GetSpellName = C_Spell and C_Spell.GetSpellName
+    if GetSpellName then
+        local n1, n2 = GetSpellName(arg1), GetSpellName(sid)
+        if n1 and n1 == n2 then return true end
+    end
+    return false
 end
 
 function ns.ui.CreateTimerIcon(config)
@@ -712,8 +738,9 @@ function ns.ui.CreateTimerIcon(config)
                 return ns.CDMAnchor.GetDestCdmFlagFor(FrameName(), CfgDest(), key) == true
             end
         else
-            local ek = getCfg("entryKind")
-            if ek == "spell" or ek == "item" then return getCfg(key) == true end
+            -- Free icon: read its OWN flag (its "CDM settings" cadre). Excludes buffs (no keybind concept);
+            -- a tracker without the key reads nil → false, so this is a no-op until the tracker opts in.
+            if getCfg("entryKind") ~= "buff" and not CDMActive() then return getCfg(key) == true end
         end
         return false
     end
@@ -805,7 +832,7 @@ function ns.ui.CreateTimerIcon(config)
             -- Free CustomCDM spell/item icon: its OWN glow-on-proc (type + colour). (Buffs use the
             -- while-active SetColorGlow instead; trackers have no glowEnabled in their free config.)
             wantType = getCfg("glowType") or "pixel"
-            local c = getCfg("glowColor") or { r = 1, g = 1, b = 0, a = 1 }
+            local c = getCfg("glowColor") or { r = 0.96, g = 1, b = 0, a = 1 }   -- F5FF00
             colorArr = { c.r or 1, c.g or 1, c.b or 1, c.a or 1 }
         end
         -- Key the early-return on BOTH type and colour so a live colour edit restarts the halo (the
@@ -872,13 +899,18 @@ function ns.ui.CreateTimerIcon(config)
             return (I and I.IconOverrideMigrated and fn and I.IconOverrideMigrated(fn)) or false
         end
         local isEngine = (not isBP) and EngineMigrated()
-        local drawExtras = isBP or isEngine
+        -- Free (not in CDM): a tracker that opted into the shared free cadres (its config has freeExtras=true)
+        -- draws its title/stacks HERE from its own config, so every such tracker gets the shared Title/Stacks
+        -- sections without own-drawing. CustomCDM (which own-draws via its own FS) does NOT set freeExtras.
+        local isFree = (getCfg("freeExtras") == true) and (not isBP) and (not isEngine) and (not CDMActive())
+        local drawExtras = isBP or isEngine or isFree
         -- Per-dest extras source: below-player → DCfg (bucket + per-icon override); engine-owned → the
-        -- per-icon override (EngineIconGet, migrated-only). nil → caller default.
+        -- per-icon override (EngineIconGet, migrated-only); free → the icon's own config. nil → caller default.
         local function XCfg(key, default)
             local v
             if isBP then v = DCfg(key, nil)
-            elseif isEngine then v = EngineIconGet(key) end
+            elseif isEngine then v = EngineIconGet(key)
+            elseif isFree then v = getCfg(key) end
             if v ~= nil then return v end
             return default
         end
@@ -908,7 +940,7 @@ function ns.ui.CreateTimerIcon(config)
             local minStack = config.minStack or 1
             if ch and ch >= minStack then
                 stacksFS:SetText(tostring(ch)); stacksFS:Show()
-            elseif XCfg("showAtZero", false) then   -- keep a literal "0" when the tracker opted in
+            elseif XCfg("showAtZero", false) and (ch == 0 or config.getItemId ~= nil) then   -- "0" only for a real 0 charge count or an item that can be 0 in bags (not for a chargeless spell)
                 stacksFS:SetText("0"); stacksFS:Show()
             else
                 stacksFS:Hide()
@@ -1053,7 +1085,7 @@ function ns.ui.CreateTimerIcon(config)
             elseif frame.pixelGlow then frame.pixelGlow:Hide() end
         end
         if want then
-            if LCG then LCG.PixelGlow_Start(frame, colorArr, nil, nil, nil, nil, nil, nil, nil, COLOR_GLOW_KEY)
+            if LCG then LCG.PixelGlow_Start(frame, colorArr, nil, nil, nil, PIXEL_GLOW_TH, nil, nil, nil, COLOR_GLOW_KEY)
             else EnsurePixelGlow():Show() end
         end
         frame._colorGlowOn  = want
@@ -1082,8 +1114,7 @@ function ns.ui.CreateTimerIcon(config)
     frame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
     frame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
     frame:SetScript("OnEvent", function(_, event, arg1)
-        local sid = getCfg("spellId")
-        if sid and arg1 == sid then
+        if ProcSpellMatches(arg1, getCfg("spellId")) then
             frame._procced = (event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
             if result.ApplyDestGlow then result.ApplyDestGlow() end
         end

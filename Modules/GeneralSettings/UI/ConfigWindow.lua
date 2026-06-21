@@ -453,7 +453,7 @@ local function CreateBelowPlayerPanel(parent)
                   get = function() return GDC("staticDisplay", false) and true or false end,
                   set = function(v) SDC("staticDisplay", v and true or false) end },
                 { type = "textinput", label = L["Spacing"], width = 46, numeric = true, min = 0, max = 64, maxLetters = 2,
-                  get = function() return GDC("spacing", 1) end,
+                  get = function() return GDC("spacing", 0) end,
                   set = function(v) if v ~= nil then SDC("spacing", v) end end },
             } end },
 
@@ -925,20 +925,16 @@ local function CreateFreeIconsPanel(parent)
             type   = "custom",
             height = 10,
             build  = function(host)
-                -- A cadre framing the whole 10-row grid (1px border + faint fill, the same house
-                -- style as every config cadre — see ns.ui.CreateGroupBox — so it reads as a normal
-                -- thin-bordered box, not a dimmed dark slab). The strip sits inset by BOX_PAD; the
-                -- host reserves the extra height.
+                -- A cadre framing the whole 10-row grid: just a 1px border, NO fill. A filled slab (even
+                -- at 0.10/0.5) reads as a greyed/dimmed box over the panel, so keep it a plain thin-bordered
+                -- outline. The strip sits inset by BOX_PAD; the host reserves the extra height.
                 local BOX_PAD = 6
                 local box = CreateFrame("Frame", nil, host, "BackdropTemplate")
                 box:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
                 box:SetBackdrop({
-                    bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
                     edgeFile = "Interface/Buttons/WHITE8X8",
                     edgeSize = 1,
-                    insets   = { left = 1, right = 1, top = 1, bottom = 1 },
                 })
-                box:SetBackdropColor(0.10, 0.10, 0.10, 0.5)
                 box:SetBackdropBorderColor(0.45, 0.45, 0.45, 1)
                 local s = ns.ui.CreateIconReorderStrip({
                     parent = host, width = 500, rows = 10, wrap = true, emptyText = L["No icons"],

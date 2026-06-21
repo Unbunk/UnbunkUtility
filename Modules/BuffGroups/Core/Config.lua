@@ -51,9 +51,9 @@ local GROUP_TEMPLATE = {
     borderEnabled = true,
     borderColor   = { r = 0, g = 0, b = 0, a = 1 },
     borderSize    = 1,
-    -- glow (LibCustomGlow-style highlight around an active icon)
-    glowEnabled = false,
-    glowColor   = { r = 1, g = 1, b = 1, a = 1 },
+    -- glow (LibCustomGlow-style highlight around an active icon); colour defaults to F5FF00 even off
+    glowEnabled = true,
+    glowColor   = { r = 0.96, g = 1, b = 0, a = 1 },   -- F5FF00
     -- timer / countdown text (restyle of the native Cooldown countdown)
     showTimer     = true,
     timerFontKey  = "Fira Mono", timerFontPath = nil, timerFontSize = 12, timerOutline = "OUTLINE",
@@ -214,6 +214,15 @@ function BG.CfgInit()
             g.soundStopEnabled  = false
             g.soundStopSound    = nil
             g.soundStopPath     = nil
+        end
+    end
+    -- One-shot: glow now defaults ON. The scalar default (glowEnabled) changed, which won't retro-apply
+    -- to existing groups, so flip it true ONCE on every existing group (per-icon overrides still inherit
+    -- via IconGet; an icon that explicitly overrode glow keeps its own value). Mirrors the V8 flag flip.
+    if not s.classifyGlowV11 then
+        s.classifyGlowV11 = true
+        for _, g in pairs(s.groups) do
+            g.glowEnabled = true
         end
     end
     -- One-shot: re-sort every EXISTING group's saved order so its NATIVE buffs follow the native

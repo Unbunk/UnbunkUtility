@@ -417,7 +417,7 @@ local function BelowBucketLayout(bucket)
     local p = ns.db and ns.db.profile
     local c = p and p.cdmBelowRow and p.cdmBelowRow[bucket]
     local gap = c and c.spacing
-    if gap == nil then gap = 1 end
+    if gap == nil then gap = 0 end   -- default: icons flush (no spacing)
     return (c and c.width) or 36, (c and c.height) or 36, gap,
            (c and c.growDir) or "RIGHT", (c and c.staticDisplay) == true
 end
@@ -636,6 +636,7 @@ local function LayoutBelowPlayer(list)
     -- a slot (reflow).
     local function place(bucket, row, side)
         local w, h, gap, grow, static = BelowBucketLayout(side)
+        local bucketDest = (side == "end") and "belowEnd" or "belowFront"
         local vertical = (grow == "UP" or grow == "DOWN" or grow == "CENTER_V")
         local reverse  = (grow == "LEFT" or grow == "UP")
 
@@ -649,10 +650,23 @@ local function LayoutBelowPlayer(list)
                 members[i], members[#members - i + 1] = members[#members - i + 1], members[i]
             end
         end
-        local prev, count = nil, 0
+        -- Per-icon size: an icon whose "Icon size" override cadre is ticked (iconW/iconH override stored
+        -- via BelowIconSet) uses its OWN size; otherwise it inherits the bucket's uniform width/height. The
+        -- row advances by each icon's real size (relative SetPoint), so a mixed-size row stays aligned.
+        local function iconSize(d)
+            local fn = d.frame and d.frame.GetName and d.frame:GetName()
+            local iw, ih = w, h
+            if fn and ns.CDMAnchor.BelowIconHasOverride then
+                if ns.CDMAnchor.BelowIconHasOverride(fn, "iconW") then iw = ns.CDMAnchor.BelowIconGet(fn, bucketDest, "iconW") or w end
+                if ns.CDMAnchor.BelowIconHasOverride(fn, "iconH") then ih = ns.CDMAnchor.BelowIconGet(fn, bucketDest, "iconH") or h end
+            end
+            return iw, ih
+        end
+        local prev, count, mainTotal, crossMax = nil, 0, 0, 0
         for _, d in ipairs(members) do
             local f = d.frame
-            if d.setSize then d.setSize(w, h) end
+            local iw, ih = iconSize(d)
+            if d.setSize then d.setSize(iw, ih) end
             f:ClearAllPoints()
             if prev then
                 if vertical then f:SetPoint("TOP", prev, "BOTTOM", 0, -gap)
@@ -664,11 +678,13 @@ local function LayoutBelowPlayer(list)
             end
             prev = f
             count = count + 1
+            if vertical then mainTotal = mainTotal + ih; crossMax = math.max(crossMax, iw)
+            else            mainTotal = mainTotal + iw; crossMax = math.max(crossMax, ih) end
         end
         if vertical then
-            row:SetSize(math.max(1, w), math.max(1, count * h + math.max(0, count - 1) * gap))
+            row:SetSize(math.max(1, crossMax), math.max(1, mainTotal + math.max(0, count - 1) * gap))
         else
-            row:SetSize(math.max(1, count * w + math.max(0, count - 1) * gap), math.max(1, h))
+            row:SetSize(math.max(1, mainTotal + math.max(0, count - 1) * gap), math.max(1, crossMax))
         end
         if row.dragBG then
             if belowUnlocked then row.dragBG:Show() else row.dragBG:Hide() end

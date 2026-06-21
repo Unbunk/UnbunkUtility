@@ -55,9 +55,10 @@ local ICON_DEFAULTS = {
     borderEnabled  = true,
     borderColor    = { r = 0, g = 0, b = 0, a = 1 },
     borderSize     = 1,
-    -- Glow (buff kind only): a coloured pixel glow shown while the buff is active. Off by default.
+    -- Glow (buff kind only): a coloured pixel glow shown while the buff is active. Off by default;
+    -- the colour defaults to F5FF00 even while disabled (consistent across every Glow cadre).
     glowEnabled    = false,
-    glowColor      = { r = 1, g = 1, b = 1, a = 1 },
+    glowColor      = { r = 0.96, g = 1, b = 0, a = 1 },   -- F5FF00
     -- Timer text (from potions) + a show toggle. Tiers live in `timerTiers` (seeded).
     showTimer      = true,
     timerFontKey   = "Fira Mono",
@@ -117,6 +118,7 @@ local BUFF_DEFAULTS = {
     timerColor = { r = 0, g = 1, b = 0, a = 1 },   -- green by default (the "buff up" look), now configurable
     titlePos = "TOP", titleOffX = 0, titleOffY = 0,
     stackFontSize = 8, stackPos = "BOTTOMRIGHT", stackOffX = 2, stackOffY = -2,
+    onlyWhenActive = true,   -- a buff free icon shows only while the buff is up (toggle in the editor)
     -- buff glow = "while active" (SetColorGlow), off by default (glowEnabled/glowColor from ICON_DEFAULTS).
 }
 -- Spell/Item free look (same shared CDMGroups Timer/Title/Stacks sections as buffs, different defaults +
@@ -127,7 +129,7 @@ local SPELL_DEFAULTS = {
     timerFontSize = 14, timerPos = "CENTER", timerThresholdsEnabled = true,
     titlePos = "TOP", titleOffX = 0, titleOffY = 0, showTitle = false,
     stackFontSize = 10, stackPos = "BOTTOMRIGHT", stackOffX = 2, stackOffY = -2,
-    glowEnabled = true, glowType = "pixel", glowColor = { r = 0.961, g = 1, b = 0, a = 1 },  -- F5FF00
+    glowEnabled = true, glowType = "pixel", glowColor = { r = 0.96, g = 1, b = 0, a = 1 },  -- F5FF00
 }
 -- The 2 default urgency thresholds, in the CDMGroups {time,size,color} shape (yellow @15s, red @5s).
 local DEFAULT_FREE_THRESHOLDS = {
@@ -448,7 +450,11 @@ local function ApplyOne(id)
         end
         local dur    = tonumber(e.duration) or 0
         local active = d.buffExpiry and dur > 0 and GetTime() < d.buffExpiry
-        if e.showIcon ~= false then d.icon.Show(); ApplyStack(id) else d.icon.Hide() end
+        -- "Only show when buff is active" (on by default): hide the free icon while the buff isn't up.
+        -- (onExpire re-runs ApplyOne when the swipe elapses, so it hides itself then.) Always show while
+        -- unlocked so the icon can still be positioned in the editor.
+        local show = e.showIcon ~= false and (active or e.onlyWhenActive == false or d.icon.IsUnlocked())
+        if show then d.icon.Show(); ApplyStack(id) else d.icon.Hide() end
         if active then
             -- keepLit (not a locked GREEN): the icon stays lit while the swipe runs, and the timer text
             -- follows the configured timerColor + urgency thresholds from the Timer cadre (green is just
@@ -462,7 +468,7 @@ local function ApplyOne(id)
         -- Glow while the buff is active (and the icon is shown).
         if d.icon.SetColorGlow then
             local on = active and e.showIcon ~= false and e.glowEnabled == true
-            local c  = e.glowColor or { r = 1, g = 1, b = 1, a = 1 }
+            local c  = e.glowColor or { r = 0.96, g = 1, b = 0, a = 1 }
             d.icon.SetColorGlow(on, { c.r or 1, c.g or 1, c.b or 1, c.a or 1 })
         end
         return
@@ -614,7 +620,12 @@ local function EnsureIcon(id)
             if e then e.posX = x; e.posY = y end
         end,
     })
-    icon.onExpire = function() end
+    -- When a buff's swipe elapses, re-render so "Only show when buff is active" can hide it (spell/item
+    -- handle their own cooldown end via UpdateAll, so only the buff path needs this).
+    icon.onExpire = function()
+        local e = Entry(id)
+        if e and e.entryKind == "buff" then ApplyOne(id) end
+    end
     d = { icon = icon }
     local frame = icon.GetFrame()
     -- Title / stack drawn over the icon (the timer text lives on a higher child frame,

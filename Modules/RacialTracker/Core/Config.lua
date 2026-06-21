@@ -60,6 +60,7 @@ function RT.CfgInit()
     if ns.db.profile.RacialTracker.timerTiers == nil then
         ns.db.profile.RacialTracker.timerTiers = ns.DeepCopy(DEFAULT_TIERS)
     end
+    ns.SeedTrackerFreeLook(ns.db.profile.RacialTracker)
     -- Pin the icon to the LEFT of the below-player CDM row by default: give it the
     -- lowest order ONCE (0 sorts before any normalized 1-based entry, so it wins
     -- even when potions/healthstone already have a saved order). Only set when

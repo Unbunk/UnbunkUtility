@@ -123,6 +123,44 @@ function ns.DefaultTrackerTimerSeed()
     }
 end
 
+-- Seed a tracker icon's FREE-look schema (missing-only) so it can use the shared free cadres
+-- (ns.CDMGroups.TrackerFreeCadres): CDM settings (press overlay / keybinds), Glow (on-proc, F5FF00), and
+-- the shared Timer/Title/Stacks sections. `freeExtras=true` tells TimerIcon to draw the title/stacks from
+-- this config in free placement. Also migrates the legacy timerTiers -> the shared timerThresholds once.
+function ns.SeedTrackerFreeLook(t)
+    if not t then return end
+    if t.timerThresholds == nil and type(t.timerTiers) == "table" then
+        local th = {}
+        for _, x in ipairs(t.timerTiers) do th[#th + 1] = { time = x.at, size = x.scale, color = x.color } end
+        t.timerThresholds = th
+        if t.timerThresholdsEnabled == nil then t.timerThresholdsEnabled = true end
+    end
+    -- Carry any legacy own-draw anchors (Defensive/Healthstone) into the shared schema so an upgraded
+    -- icon keeps its title/stack position when its render switches to the shared free path.
+    if t.titlePos == nil and t.titleAnchor ~= nil then
+        t.titlePos = t.titleAnchor; t.titleOffX = t.titleOffsetX; t.titleOffY = t.titleOffsetY
+    end
+    if t.stackPos == nil and t.stackAnchor ~= nil then
+        t.stackPos = t.stackAnchor; t.stackOffX = t.stackOffsetX; t.stackOffY = t.stackOffsetY
+    end
+    local defs = {
+        freeExtras = true,
+        showTimer = true, timerPos = "CENTER", timerThresholdsEnabled = true,
+        showTitle = false, titleText = "", titleFontKey = "Fira Mono", titleFontSize = 12,
+        titleOutline = "OUTLINE", titleColor = { r = 1, g = 1, b = 1, a = 1 },
+        titlePos = "TOP", titleOffX = 0, titleOffY = 0,
+        showStack = true, showAtZero = false, stackFontKey = "Fira Mono", stackFontSize = 10,
+        stackOutline = "OUTLINE", stackColor = { r = 1, g = 1, b = 1, a = 1 },
+        stackPos = "BOTTOMRIGHT", stackOffX = 2, stackOffY = -2,
+        glowEnabled = true, glowType = "pixel", glowColor = { r = 0.96, g = 1, b = 0, a = 1 },  -- F5FF00
+        showPressOverlay = false, showKeybinds = false,
+    }
+    for k, v in pairs(defs) do
+        if t[k] == nil then t[k] = (type(v) == "table") and ns.DeepCopy(v) or v end
+    end
+    if t.timerThresholds == nil then t.timerThresholds = ns.DefaultTrackerTimerThresholds() end
+end
+
 -- ── Text anchors (title / stack around an icon) ───────────────────────────────
 -- Single source of truth shared by every icon editor + core. The edge modes
 -- (TOP/BOTTOM/LEFT/RIGHT) sit just OUTSIDE the icon; the four corner modes sit

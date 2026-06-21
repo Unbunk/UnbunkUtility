@@ -19,93 +19,130 @@ local choiceWin   -- the Free-icons "+" chooser (Spell/Item vs Buff), built lazi
 -- The spell/item-id input row + its Add / Modify / Delete lifecycle buttons. Shared by the
 -- Spell/Item group and the Buff group — `entryKind` (spell/item/buff) drives which value it shows
 -- (buff resolves as a spell, so the same row works for it).
+-- Shared async hook: GET_ITEM_INFO_RECEIVED re-runs the current spell/item field's live feedback once a
+-- not-yet-cached item's name arrives (only one editor field is live at a time, so one pending callback).
+local itemInfoListener, pendingItemCheck
+local function ensureItemInfoListener()
+    if itemInfoListener then return end
+    itemInfoListener = CreateFrame("Frame")
+    itemInfoListener:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+    -- Capture-and-nil: fire the pending recheck ONCE per request, not on every game-wide item event
+    -- (GET_ITEM_INFO_RECEIVED fires constantly from bags/tooltips). The recheck re-arms itself only if the
+    -- field is still showing "…", so a resolved/closed field stops re-running.
+    itemInfoListener:SetScript("OnEvent", function()
+        local cb = pendingItemCheck; pendingItemCheck = nil
+        if cb then cb() end
+    end)
+end
+
 local function SpellInputEntry(id, rebuild)
-    return { type = "custom", height = 52, build = function(host)
-                -- Row 1: the current spell/item's icon + name.
-                local fs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                fs:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-                local function curId()
-                    return (CC.Get(id, "entryKind") == "item") and CC.Get(id, "itemId") or CC.Get(id, "spellId")
-                end
-                local function showName()
-                    local rawId = curId()
-                    local name  = CC.SpellName(id)
-                    if rawId and rawId ~= 0 then
-                        fs:SetText(string.format("|T%s:20|t %s", tostring(CC.IconTexture(id)), name))
+    -- spell / item / buff all resolve to a spell or item id/name, so they share ONE layout: a grey H6 hint,
+    -- the id/name input + lifecycle buttons, and a live green/red match feedback line under the field.
+    return { type = "custom", height = 64, build = function(host)
+        local function curId()
+            return (CC.Get(id, "entryKind") == "item") and CC.Get(id, "itemId") or CC.Get(id, "spellId")
+        end
+        -- The input shows the current spell/item id, or BLANK for a not-yet-set draft.
+        local function spellText()
+            local rawId = curId()
+            return (rawId and rawId ~= 0) and tostring(rawId) or ""
+        end
+
+        -- Row 1: a grey H6 hint above the field. A buff resolves as a spell, so it reads "Spell ID or name".
+        local fbFS
+        local hintFS = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+        hintFS:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+        hintFS:SetTextColor(0.6, 0.6, 0.6)
+        local function setHint()
+            hintFS:SetText(CC.Get(id, "entryKind") == "item" and L["Item ID or name"] or L["Spell ID or name"])
+        end
+
+        local input  -- forward-declared so updateFeedback can read the live field text
+        -- Live match feedback (spell/item/buff), refreshed on every keystroke: green = the resolved spell/
+        -- item name, red = "No match"; "…" while an item's name is still loading from the server.
+        local function updateFeedback()
+            if not fbFS then return end
+            local text = strtrim(input and input.GetText() or "")
+            if text == "" then fbFS:SetText(""); return end
+            local q = tonumber(text) or text
+            if CC.Get(id, "entryKind") == "item" then
+                local name = C_Item and C_Item.GetItemInfo and C_Item.GetItemInfo(q)
+                if name then
+                    fbFS:SetTextColor(0.35, 0.9, 0.35); fbFS:SetText(name); pendingItemCheck = nil
+                else
+                    -- GetItemInfoInstant resolves an id/itemString/link (NOT a plain name); a not-yet-cached
+                    -- item name therefore reads as "No match" (same limit as the commit path's ResolveItem).
+                    local iid = C_Item and C_Item.GetItemInfoInstant and C_Item.GetItemInfoInstant(q)
+                    if iid then
+                        -- Valid item id, name not cached yet: show "…" and re-check on GET_ITEM_INFO_RECEIVED.
+                        fbFS:SetTextColor(0.6, 0.6, 0.6); fbFS:SetText("…")
+                        pendingItemCheck = updateFeedback; ensureItemInfoListener()
+                        if C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(iid) end
                     else
-                        fs:SetText(name or "")
+                        fbFS:SetTextColor(0.95, 0.3, 0.3); fbFS:SetText(L["No match"])
                     end
                 end
-                -- The input shows the current spell/item id, or BLANK for a not-yet-set draft.
-                local function spellText()
-                    local rawId = curId()
-                    return (rawId and rawId ~= 0) and tostring(rawId) or ""
+            else
+                -- One-shot GetSpellInfo (same check the commit path uses). A valid spell outside the
+                -- spellbook can briefly read nil right after /reload → "No match" until the next keystroke
+                -- re-runs this; acceptable for purely cosmetic feedback.
+                local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(q)
+                if info and info.name then
+                    fbFS:SetTextColor(0.35, 0.9, 0.35); fbFS:SetText(info.name)
+                else
+                    fbFS:SetTextColor(0.95, 0.3, 0.3); fbFS:SetText(L["No match"])
                 end
-                showName()
+            end
+        end
 
-                -- Forward-declared so the input's onEnter (which commits a draft) can use
-                -- the button refresher.
-                -- A draft shows one "Add Icon" button; a committed icon shows "Modify icon" (re-resolve
-                -- the spell from the field, keeping every other setting) + "Delete icon". addBtn / modBtn
-                -- share the same slot (mutually exclusive); delBtn sits to modBtn's right.
-                local input, addBtn, modBtn, delBtn
-                local function updateBtns()
-                    local draft = CC.IsDraft(id)
-                    if addBtn then addBtn.frame:SetShown(draft) end
-                    if modBtn then modBtn.frame:SetShown(not draft) end
-                    if delBtn then delBtn.frame:SetShown(not draft) end
-                end
-                -- Commit a draft (Add) then refresh; a committed icon just refreshes its display. Either
-                -- way re-sync which buttons show.
-                local function commitOrApply()
-                    local ok = true
-                    if CC.IsDraft(id) then
-                        ok = CC.CommitDraft(id)
-                        if ok then showName() end
-                    else
-                        showName()
-                    end
-                    updateBtns()
-                    -- Rebuild the editor so a now-committed / re-resolved spell re-binds the cadres that
-                    -- key off it (the Buff Override section captures spellId, re-evaluates its fallback).
-                    -- Deferred so we don't tear down this input/button frame mid-callback.
-                    if ok and rebuild then C_Timer.After(0, rebuild) end
-                end
+        -- A draft shows one "Add Icon" button; a committed icon shows "Modify icon" + "Delete icon".
+        local addBtn, modBtn, delBtn
+        local function updateBtns()
+            local draft = CC.IsDraft(id)
+            if addBtn then addBtn.frame:SetShown(draft) end
+            if modBtn then modBtn.frame:SetShown(not draft) end
+            if delBtn then delBtn.frame:SetShown(not draft) end
+        end
+        local function commitOrApply()
+            local ok = true
+            if CC.IsDraft(id) then ok = CC.CommitDraft(id) end
+            updateFeedback()
+            updateBtns()
+            -- Rebuild the editor so a now-committed / re-resolved spell re-binds the cadres that key off it.
+            if ok and rebuild then C_Timer.After(0, rebuild) end
+        end
 
-                -- Row 2: the spell-id/name input + the lifecycle buttons.
-                input = ns.ui.CreateTextInput({
-                    parent = host, width = 200, height = 22, maxLetters = 64,
-                    text = spellText(),
-                    -- Enter resolves the spell: commits a draft (Add) or re-resolves a committed icon (Modify).
-                    onEnter = function(v) if CC.SetSpellInput(id, v) then commitOrApply() end end,
-                })
-                input.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -26)
+        -- The spell-id/name input + the lifecycle buttons.
+        input = ns.ui.CreateTextInput({
+            parent = host, width = 200, height = 22, maxLetters = 64,
+            text = spellText(),
+            onEnter = function(v) if CC.SetSpellInput(id, v) then commitOrApply() end end,
+        })
+        input.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -18)
 
-                addBtn = ns.ui.CreateButton({
-                    parent = host, width = 100, height = 22, label = L["Add Icon"],
-                    onClick = function() if CC.SetSpellInput(id, input.GetText() or "") then commitOrApply() end end,
-                })
-                addBtn.frame:SetPoint("LEFT", input.frame, "RIGHT", 8, 0)
+        addBtn = ns.ui.CreateButton({ parent = host, width = 100, height = 22, label = L["Add Icon"],
+            onClick = function() if CC.SetSpellInput(id, input.GetText() or "") then commitOrApply() end end })
+        addBtn.frame:SetPoint("LEFT", input.frame, "RIGHT", 8, 0)
+        modBtn = ns.ui.CreateButton({ parent = host, width = 100, height = 22, label = L["Modify icon"],
+            onClick = function() if CC.SetSpellInput(id, input.GetText() or "") then commitOrApply() end end })
+        modBtn.frame:SetPoint("LEFT", input.frame, "RIGHT", 8, 0)
+        delBtn = ns.ui.CreateButton({ parent = host, width = 100, height = 22, label = L["Delete Icon"],
+            onClick = function() CC.ConfirmRemove(id) end })
+        delBtn.frame:SetPoint("LEFT", modBtn.frame, "RIGHT", 6, 0)
 
-                modBtn = ns.ui.CreateButton({
-                    parent = host, width = 100, height = 22, label = L["Modify icon"],
-                    onClick = function() if CC.SetSpellInput(id, input.GetText() or "") then commitOrApply() end end,
-                })
-                modBtn.frame:SetPoint("LEFT", input.frame, "RIGHT", 8, 0)
+        fbFS = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+        fbFS:SetPoint("TOPLEFT", input.frame, "BOTTOMLEFT", 0, -4)
+        fbFS:SetJustifyH("LEFT")
+        input.editBox:HookScript("OnTextChanged", function() updateFeedback() end)
+        setHint(); updateFeedback()
 
-                delBtn = ns.ui.CreateButton({
-                    parent = host, width = 100, height = 22, label = L["Delete Icon"],
-                    onClick = function() CC.ConfirmRemove(id) end,
-                })
-                delBtn.frame:SetPoint("LEFT", modBtn.frame, "RIGHT", 6, 0)
-
-                updateBtns()
-                return { frame = host, height = 52, Refresh = function()
-                    showName()
-                    input.SetText(spellText())
-                    updateBtns()
-                end }
-            end }
+        updateBtns()
+        return { frame = host, height = 64, Refresh = function()
+            input.SetText(spellText())
+            updateBtns()
+            setHint(); updateFeedback()
+        end }
+    end }
 end
 
 local function SpellGroup(id, rebuild)
@@ -192,7 +229,7 @@ end
 -- Override settings (the BuffGroups per-icon override on the bridged mirror), Free icon settings }.
 -- No Stacks (a cast-triggered buff has no charges).
 local function BuffSpellGroup(id, rebuild)
-    return { type = "group", title = L["Spell"], build = function() return {
+    return { type = "group", title = L["Buff"], build = function() return {
         SpellInputEntry(id, rebuild),
         { type = "textinput", label = L["Duration (s)"], width = 80, numeric = true, min = 1, max = 3600, maxLetters = 4,
           get = function() return CC.Get(id, "duration") or 30 end,
@@ -375,6 +412,11 @@ local function BuffCdmCadres(id, rebuild, refresh, LSM)
           when = function() return not mirrored() end,
           text = L["Check Free icon settings to setup icon"] },
 
+        -- Override = the buff's in-CDM (Buff groups) look. Gated on `mirrored`: editable ONLY when the buff
+        -- is actually mirrored into a group; otherwise the cadres still SHOW (greyed-out preview) so you can
+        -- see the look before committing. With no resolved spell we preview the group defaults (sid 0 →
+        -- GROUP_TEMPLATE via IconGet/GGet); the gate keeps it read-only, so iconCfg[0] is never written
+        -- (a spell-less buff can't be mirrored, hence is always gated off).
         { type = "section", label = L["Override settings"], showCheckbox = false,
           headerExtra = HeaderHint(L["(When in CDM)"]),
           gate = { enabled = mirrored },
@@ -382,11 +424,11 @@ local function BuffCdmCadres(id, rebuild, refresh, LSM)
           onCollapse   = function(c) SetCollapsed(id, "ovCollapsed", c); DeferRebuild(rebuild) end,
           build = function()
               local BG  = ns.BuffGroups
-              local sid = CC.Get(id, "spellId")
-              if not (BG and BG.IconOverrideSections and BG.MakeIconBundle and sid and sid ~= 0) then
+              if not (BG and BG.IconOverrideSections and BG.MakeIconBundle) then
                   return { { type = "label", font = "UnbunkUtilityBody", height = 36,
                       text = L["These apply when the buff is shown in the Buffs viewer (Buff groups)."] } }
               end
+              local sid = CC.Get(id, "spellId") or 0
               local function touch() if BG.ApplyAll then BG.ApplyAll() end end
               local bundle = BG.MakeIconBundle(sid, touch, rebuild)
               return BG.IconOverrideSections(sid, bundle, {
@@ -417,6 +459,9 @@ local function BuffEditorOptions(id, LSM, refresh, rebuild)
                 { type = "checkbox", ref = "showicon", label = L["Show icon"],
                   get = function() return CC.Get(id, "showIcon") ~= false end,
                   set = function(v) CC.Set(id, "showIcon", v) end },
+                { type = "checkbox", label = L["Only show when buff is active"],
+                  get = function() return CC.Get(id, "onlyWhenActive") ~= false end,
+                  set = function(v) CC.Set(id, "onlyWhenActive", v and true or false) end },
                 BuffPlacementGroup(id, rebuild),
             }
             -- Override settings (in-CDM look via the BuffGroups mirror) + Free icon settings (free look).

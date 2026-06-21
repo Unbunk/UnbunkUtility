@@ -100,7 +100,7 @@ end
 local GLOW_FNS = {}
 if LCG then
     GLOW_FNS.pixel = {
-        start = function(nf, c) LCG.PixelGlow_Start(nf, c, nil, nil, nil, nil, nil, nil, nil, GLOW_KEY) end,
+        start = function(nf, c) LCG.PixelGlow_Start(nf, c, nil, nil, nil, 3, nil, nil, nil, GLOW_KEY) end,  -- th=3: 1px is invisible on small icons
         stop  = function(nf)    LCG.PixelGlow_Stop(nf, GLOW_KEY) end,
     }
     GLOW_FNS.autocast = {
@@ -878,7 +878,7 @@ local function EngineFor(I)
     -- ── Glow: LibCustomGlow, gated on the live proc flag ────────────────────────
     -- glowColor is stored as {r,g,b,a}; LibCustomGlow wants an array {r,g,b,a}.
     local function GlowColorArray(spellId)
-        local c = I.IconGet(spellId, "glowColor") or { r = 1, g = 1, b = 1, a = 1 }
+        local c = I.IconGet(spellId, "glowColor") or { r = 0.96, g = 1, b = 0, a = 1 }   -- F5FF00
         return { c.r or 1, c.g or 1, c.b or 1, c.a or 1 }
     end
 

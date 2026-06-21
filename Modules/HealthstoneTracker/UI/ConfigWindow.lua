@@ -177,84 +177,25 @@ local function CreateHealthstoneTrackerPanel(parent)
                     getFree    = function() return HT.CfgGet("freeCollapsed") ~= false end,
                     setFree    = function(c) HT.CfgSet("freeCollapsed", c) end,
                     seedValues = function() return HT.OverrideSeed() end,
-                    freeBuild  = function() return {
-                        { type = "position", ref = "pe",
-                          onBuilt = function(w) HT.pe = w end,
-                          label = L["Icon position (offset from screen center)"],
-                          getX = function() return HT.CfgGet("posX") end,
-                          getY = function() return HT.CfgGet("posY") end,
-                          onApply = function(x, yv) if x then HT.CfgSet("posX", x) end if yv then HT.CfgSet("posY", yv) end HT.ApplyAll() end,
-                          onUnlock = function() HT.SetUnlocked(true) end,
-                          onLock = function() HT.SetUnlocked(false); if HT.pe then HT.pe.Refresh() end end,
-                          isUnlocked = function() return HT.IsUnlocked() end },
-                        { type = "custom", height = 46, build = function(host)
-                            local sizeLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-                            sizeLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); sizeLbl:SetText(L["Icon size"])
-                            local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                            wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
-                            local wInput = ns.ui.CreateTextInput({ parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                                text = tostring(HT.CfgGet("iconWidth") or 30),
-                                onEnter = function(val) if val and val > 0 then HT.CfgSet("iconWidth", val); local t = HT.GetTracker(); if t and t.ApplySize then t.ApplySize() end HT.ApplyAll() end end })
-                            wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-                            local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                            hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
-                            local hInput = ns.ui.CreateTextInput({ parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                                text = tostring(HT.CfgGet("iconHeight") or 30),
-                                onEnter = function(val) if val and val > 0 then HT.CfgSet("iconHeight", val); local t = HT.GetTracker(); if t and t.ApplySize then t.ApplySize() end HT.ApplyAll() end end })
-                            hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-                            return { frame = host, height = 46, Refresh = function()
-                                wInput.SetText(tostring(HT.CfgGet("iconWidth") or 30)); hInput.SetText(tostring(HT.CfgGet("iconHeight") or 30)) end }
-                        end },
-                        { type = "group", title = L["Border"], build = function() return {
-                            { type = "checkbox", label = L["Show border"],
-                              get = function() return HT.CfgGet("borderEnabled") == true end,
-                              set = function(v) HT.CfgSet("borderEnabled", v); HT.ApplyBorder(); rebuildMenu() end },
-                            { type = "textEditor", label = L["Border color"], enabledBy = function() return HT.CfgGet("borderEnabled") == true end,
-                              showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                              getColor = function() return HT.CfgGet("borderColor") end,
-                              onColorChange = function(r, g, b, a) HT.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); HT.ApplyBorder() end },
-                            { type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-                              enabledBy = function() return HT.CfgGet("borderEnabled") == true end,
-                              get = function() return HT.CfgGet("borderSize") or 1 end,
-                              set = function(v) if v and v > 0 then HT.CfgSet("borderSize", v); HT.ApplyBorder() end end },
-                        } end },
-                        { type = "group", title = L["Timer"], build = function() return {
-                            { type = "textEditor", LSM = LSM, label = L["Timer"], showLabel = false,
-                              showText = false, showFont = true, showSize = true, showColor = true, showOutline = true,
-                              getFontKey = function() return HT.CfgGet("timerFontKey") end,
-                              getFontPath = function() return HT.CfgGet("timerFontPath") end,
-                              getFontSize = function() return HT.CfgGet("timerFontSize") end,
-                              getColor = function() return HT.CfgGet("timerColor") end,
-                              getOutline = function() return HT.CfgGet("timerOutline") end,
-                              onFontChange = function(key, path) HT.CfgSet("timerFontKey", key); HT.CfgSet("timerFontPath", path); HT.ApplyTimerVisuals() end,
-                              onSizeChange = function(size) HT.CfgSet("timerFontSize", size); HT.ApplyTimerVisuals() end,
-                              onColorChange = function(r, g, b, a) HT.CfgSet("timerColor", { r = r, g = g, b = b, a = a }); HT.ApplyTimerVisuals() end,
-                              onOutlineChange = function(outline) HT.CfgSet("timerOutline", outline); HT.ApplyTimerVisuals() end },
-                            ns.ui.TiersEntry({ getTiers = function() return HT.CfgGet("timerTiers") end,
-                              apply = function() HT.ApplyTimerVisuals() end, rebuild = rebuildMenu }),
-                        } end },
-                        { type = "group", title = L["Stacks/Charges"], build = function() return {
-                            ns.ui.AnchorOffsetEntry({
-                                getAnchor = function() return HT.CfgGet("stackAnchor") end,
-                                setAnchor = function(m) HT.CfgSet("stackAnchor", m); HT.ApplyStackVisuals() end,
-                                getX = function() return HT.CfgGet("stackOffsetX") end,
-                                setX = function(v) HT.CfgSet("stackOffsetX", v); HT.ApplyStackVisuals() end,
-                                getY = function() return HT.CfgGet("stackOffsetY") end,
-                                setY = function(v) HT.CfgSet("stackOffsetY", v); HT.ApplyStackVisuals() end,
-                            }),
-                            { type = "textEditor", LSM = LSM, label = L["Stacks/Charges"], showLabel = false,
-                              showText = false, showFont = true, showSize = true, showColor = true, showOutline = true,
-                              getFontKey = function() return HT.CfgGet("stackFontKey") end,
-                              getFontPath = function() return HT.CfgGet("stackFontPath") end,
-                              getFontSize = function() return HT.CfgGet("stackFontSize") end,
-                              getColor = function() return HT.CfgGet("stackColor") end,
-                              getOutline = function() return HT.CfgGet("stackOutline") end,
-                              onFontChange = function(key, path) HT.CfgSet("stackFontKey", key); HT.CfgSet("stackFontPath", path); HT.ApplyStackVisuals() end,
-                              onSizeChange = function(size) HT.CfgSet("stackFontSize", size); HT.ApplyStackVisuals() end,
-                              onColorChange = function(r, g, b, a) HT.CfgSet("stackColor", { r = r, g = g, b = b, a = a }); HT.ApplyStackVisuals() end,
-                              onOutlineChange = function(outline) HT.CfgSet("stackOutline", outline); HT.ApplyStackVisuals() end },
-                        } end },
-                    } end,
+                    freeBuild  = function()
+                        return ns.CDMGroups.TrackerFreeCadres({
+                            get       = HT.CfgGet,
+                            set       = HT.CfgSet,
+                            touch     = applyIcon,
+                            rebuild   = rebuildMenu,
+                            sizeApply = function() local t = HT.GetTracker(); if t and t.ApplySize then t.ApplySize() end HT.ApplyAll() end,
+                            LSM       = LSM,
+                            pos = {
+                                getX = function() return HT.CfgGet("posX") end,
+                                getY = function() return HT.CfgGet("posY") end,
+                                onApply = function(x, yv) if x then HT.CfgSet("posX", x) end if yv then HT.CfgSet("posY", yv) end HT.ApplyAll() end,
+                                onUnlock = function() HT.SetUnlocked(true) end,
+                                onLock = function() HT.SetUnlocked(false); if HT.pe then HT.pe.Refresh() end end,
+                                isUnlocked = function() return HT.IsUnlocked() end,
+                                onBuilt = function(w) HT.pe = w end,
+                            },
+                        })
+                    end,
                 }
                 for _, x in ipairs(ns.CDMGroups.TrackerCdmCadres(cfg)) do e[#e + 1] = x end
                 return e

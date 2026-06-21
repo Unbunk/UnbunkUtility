@@ -92,42 +92,17 @@ function PT.OverrideSeed()
     }
 end
 
--- Refreshes the stack-count FontString (text + font/color) below a tracker.
+-- Stacks/charges are now drawn by the shared TimerIcon (result.ApplyDestExtras) in every mode — free (the
+-- potion's own config, via freeExtras=true) and in-CDM (the per-icon override / below-player bucket). We
+-- keep this only to (a) lazily seed the below-player override from this potion's look so the in-CDM look
+-- starts right, and (b) keep our own FontString hidden (no double-draw).
 function PT.ApplyStackVisuals(prefix, tracker)
     if not tracker or not tracker.stackText then return end
     local cfg = PT.CfgGet(prefix)
     if not cfg then return end
-
-    local fs = tracker.stackText
-    -- In the Cooldown Manager the shared icon draws the stacks (from the per-icon override) — hide our own
-    -- to avoid a double-draw, and lazily seed the override from this potion's look (below-player).
-    if ns.TrackerSuppressOwnExtras(tracker.icon, tracker.GetFrame():GetName(), cfg.cdmDest,
-            function() return PT.OverrideSeed(prefix) end) then
-        fs:Hide(); return
-    end
-    local fontPath = ns.ResolveFontPath(cfg.stackFontPath, cfg.stackFontKey)
-    fs:SetFont(fontPath, cfg.stackFontSize or 14, cfg.stackOutline or "OUTLINE")
-    local c = cfg.stackColor or { r=1, g=1, b=1, a=1 }
-    fs:SetTextColor(c.r, c.g, c.b, c.a or 1)
-    -- Re-anchor each pass so the configured anchor (default BOTTOM = below the icon,
-    -- the historical potion position) + nudge stays applied when the config changes.
-    ns.AnchorFS(fs, tracker.GetFrame(), cfg.stackAnchor or "BOTTOM", cfg.stackOffsetX, cfg.stackOffsetY)
-
-    if not cfg.showStack then
-        fs:Hide()
-        return
-    end
-    local itemId = PT.GetActiveItemId(prefix)
-    local count = itemId and (GetItemCount(itemId) or 0) or 0
-    if count > 0 then
-        fs:SetText(tostring(count))
-        fs:Show()
-    elseif cfg.showAtZero then
-        fs:SetText("0")
-        fs:Show()
-    else
-        fs:Hide()
-    end
+    ns.TrackerSuppressOwnExtras(tracker.icon, tracker.GetFrame():GetName(), cfg.cdmDest,
+        function() return PT.OverrideSeed(prefix) end)
+    tracker.stackText:Hide()
 end
 
 function PT.ApplyAll()
