@@ -418,6 +418,9 @@ ns.CDMGroups.SectionKeys   = { timer = TIMER_KEYS, title = TITLE_KEYS, stack = S
 ns.CDMGroups.GrowList      = GrowList
 ns.CDMGroups.GrowLabel     = GrowLabel
 ns.CDMGroups.GrowFromLabel = GrowFromLabel
+ns.CDMGroups.GlowTypeList      = GlowTypeList
+ns.CDMGroups.GlowTypeLabel     = GlowTypeLabel
+ns.CDMGroups.GlowTypeFromLabel = GlowTypeFromLabel
 
 -- ════════════════════════════════════════════════════════════════════════════════
 -- Per-ICON override editor (the pencil), bound to a Config instance `I`. One singleton editor is

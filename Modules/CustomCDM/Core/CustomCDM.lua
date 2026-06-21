@@ -106,10 +106,67 @@ local function SeedTiers(e)
     if e and e.timerTiers == nil then e.timerTiers = ns.DeepCopy(DEFAULT_TIERS) end
 end
 
+-- Buff free look uses the SHARED CDMGroups Timer/Title/Stacks sections (same as the Override cadres),
+-- so a buff entry stores that schema (timerPos / timerThresholds(+Enabled) / titlePos / stackPos …) with
+-- buff-specific defaults that differ from the spell/item ICON_DEFAULTS. Applied force=true on creation
+-- (override the ICON_DEFAULTS just merged) and force=false on build (backfill only the missing keys).
+local BUFF_DEFAULTS = {
+    posX = 0, posY = 0,
+    iconWidth = 36, iconHeight = 36,
+    timerFontSize = 12, timerPos = "CENTER", timerThresholdsEnabled = false,
+    timerColor = { r = 0, g = 1, b = 0, a = 1 },   -- green by default (the "buff up" look), now configurable
+    titlePos = "TOP", titleOffX = 0, titleOffY = 0,
+    stackFontSize = 8, stackPos = "BOTTOMRIGHT", stackOffX = 2, stackOffY = -2,
+    -- buff glow = "while active" (SetColorGlow), off by default (glowEnabled/glowColor from ICON_DEFAULTS).
+}
+-- Spell/Item free look (same shared CDMGroups Timer/Title/Stacks sections as buffs, different defaults +
+-- a glow-ON-PROC with a type). glowEnabled on by default; glow color F5FF00; thresholds ON by default.
+local SPELL_DEFAULTS = {
+    posX = 0, posY = 0,
+    iconWidth = 44, iconHeight = 44,
+    timerFontSize = 14, timerPos = "CENTER", timerThresholdsEnabled = true,
+    titlePos = "TOP", titleOffX = 0, titleOffY = 0, showTitle = false,
+    stackFontSize = 10, stackPos = "BOTTOMRIGHT", stackOffX = 2, stackOffY = -2,
+    glowEnabled = true, glowType = "pixel", glowColor = { r = 0.961, g = 1, b = 0, a = 1 },  -- F5FF00
+}
+-- The 2 default urgency thresholds, in the CDMGroups {time,size,color} shape (yellow @15s, red @5s).
+local DEFAULT_FREE_THRESHOLDS = {
+    { time = 15, size = 1.2,  color = { r = 1, g = 0.82, b = 0, a = 1 } },
+    { time = 5,  size = 1.45, color = { r = 1, g = 0,    b = 0, a = 1 } },
+}
+-- Seed the free-look defaults + schema for a custom icon by kind. force=true on creation (override the
+-- ICON_DEFAULTS just merged); force=false on build (backfill missing only). On the backfill path it also
+-- carries the legacy CC free schema (titleAnchor/stackAnchor/timerTiers) → the shared CDMGroups schema
+-- (titlePos/stackPos/timerThresholds) so a pre-existing icon keeps its customised look.
+local function SeedFreeLookDefaults(e, force)
+    if not e then return end
+    if not force then
+        if e.titlePos == nil and e.titleAnchor ~= nil then
+            e.titlePos = e.titleAnchor; e.titleOffX = e.titleOffsetX; e.titleOffY = e.titleOffsetY
+        end
+        if e.stackPos == nil and e.stackAnchor ~= nil then
+            e.stackPos = e.stackAnchor; e.stackOffX = e.stackOffsetX; e.stackOffY = e.stackOffsetY
+        end
+        if e.timerThresholds == nil and type(e.timerTiers) == "table" then
+            local t = {}
+            for _, x in ipairs(e.timerTiers) do t[#t + 1] = { time = x.at, size = x.scale, color = x.color } end
+            e.timerThresholds = t
+            if e.timerThresholdsEnabled == nil then e.timerThresholdsEnabled = true end
+        end
+    end
+    local d = (e.entryKind == "buff") and BUFF_DEFAULTS or SPELL_DEFAULTS
+    for k, v in pairs(d) do
+        if force or e[k] == nil then e[k] = (type(v) == "table") and ns.DeepCopy(v) or v end
+    end
+    if e.timerThresholds == nil then e.timerThresholds = ns.DeepCopy(DEFAULT_FREE_THRESHOLDS) end
+end
+CC.SeedFreeLookDefaults = SeedFreeLookDefaults
+
 -- live[id] = { icon, titleFS, stackFS, lastUseAt, learnedCd, lastExpiry, hasCooldown }
 local live = {}
 
 local function FrameName(id) return "UnbunkUtilityCustomCDM" .. id end
+CC.FrameName = FrameName   -- the editor's CDM override cadres key by this frame name
 
 -- ── Buff <-> BuffGroups bridge predicates ─────────────────────────────────────
 -- A buff-kind icon can be MIRRORED into the Buffs viewer (drawn there by BuffGroups). These two
@@ -323,10 +380,18 @@ local function ApplyTitle(id)
     local e = Entry(id)
     local fs = d.titleFS
     if not e or not e.showTitle then fs:Hide(); return end
+    -- In CDM (migrated): TimerIcon.ApplyDestExtras draws the title from the per-icon override store, so
+    -- suppress our own draw — the Override-cadre values govern the in-CDM look (mirrors the trackers).
+    -- (A buff reads includeInCdm=false via getCfg, so CDMActive is false and this never fires for buffs.)
+    if ns.TrackerSuppressOwnExtras and ns.TrackerSuppressOwnExtras(d.icon, FrameName(id), e.cdmDest, ns.DefaultTrackerTimerSeed) then
+        fs:Hide(); return
+    end
     fs:SetFont(ns.ResolveFontPath(e.titleFontPath, e.titleFontKey), e.titleFontSize or 16, e.titleOutline or "OUTLINE")
     local c = e.titleColor or { r = 1, g = 1, b = 1, a = 1 }
     fs:SetTextColor(c.r, c.g, c.b, c.a or 1)
-    AnchorFS(fs, d.icon.GetFrame(), e.titleAnchor or "TOP", e.titleOffsetX, e.titleOffsetY)
+    -- Free icons own-draw title from the shared CDMGroups schema (titlePos/titleOffX/Y) — both kinds now
+    -- use the shared Title section; legacy titleAnchor is migrated to titlePos by SeedFreeLookDefaults.
+    AnchorFS(fs, d.icon.GetFrame(), e.titlePos or "TOP", e.titleOffX, e.titleOffY)
     fs:SetText(e.titleText or "")
     fs:Show()
 end
@@ -337,10 +402,14 @@ local function ApplyStack(id)
     local e = Entry(id)
     local fs = d.stackFS
     if not e or not e.showStack then fs:Hide(); return end
+    -- In CDM (migrated): TimerIcon draws stacks from the per-icon override; suppress our own (see ApplyTitle).
+    if ns.TrackerSuppressOwnExtras and ns.TrackerSuppressOwnExtras(d.icon, FrameName(id), e.cdmDest, ns.DefaultTrackerTimerSeed) then
+        fs:Hide(); return
+    end
     fs:SetFont(ns.ResolveFontPath(e.stackFontPath, e.stackFontKey), e.stackFontSize or 12, e.stackOutline or "OUTLINE")
     local c = e.stackColor or { r = 1, g = 1, b = 1, a = 1 }
     fs:SetTextColor(c.r, c.g, c.b, c.a or 1)
-    AnchorFS(fs, d.icon.GetFrame(), e.stackAnchor or "BOTTOMRIGHT", e.stackOffsetX, e.stackOffsetY)
+    AnchorFS(fs, d.icon.GetFrame(), e.stackPos or "BOTTOMRIGHT", e.stackOffX, e.stackOffY)
     -- Item kind: show the bag count (how many of the item you carry); spell kind: the recharging charges.
     if e.entryKind == "item" then
         local n = e.itemId and e.itemId ~= 0 and C_Item and C_Item.GetItemCount and C_Item.GetItemCount(e.itemId)
@@ -379,9 +448,12 @@ local function ApplyOne(id)
         end
         local dur    = tonumber(e.duration) or 0
         local active = d.buffExpiry and dur > 0 and GetTime() < d.buffExpiry
-        if e.showIcon ~= false then d.icon.Show() else d.icon.Hide() end
+        if e.showIcon ~= false then d.icon.Show(); ApplyStack(id) else d.icon.Hide() end
         if active then
-            d.icon.SetTimer(d.buffExpiry, dur, GREEN)
+            -- keepLit (not a locked GREEN): the icon stays lit while the swipe runs, and the timer text
+            -- follows the configured timerColor + urgency thresholds from the Timer cadre (green is just
+            -- the default timerColor for a buff).
+            d.icon.SetTimer(d.buffExpiry, dur, nil, true)
             d.icon.HideCheck()
         else
             d.buffExpiry = nil
@@ -524,6 +596,14 @@ local function EnsureIcon(id)
             if e[key] ~= nil then return e[key] end
             return ICON_DEFAULTS[key]
         end,
+        -- Resolve this icon's item id (item-kind only) so TimerIcon can look up its action-bar keybind
+        -- (for "Show Keybinds" / "Show press overlay") and the below-player item name/charges. Spell-kind
+        -- icons resolve from spellId instead.
+        getItemId = function()
+            local e = Entry(id)
+            if e and e.entryKind == "item" then return e.itemId end
+            return nil
+        end,
         -- Lets the CDM reorder strips flip cdmAtEnd (Front <-> End bucket) on a cross-strip drag.
         setCfg = function(key, val)
             local e = Entry(id)
@@ -605,6 +685,11 @@ local function SyncBuffBridge(id)
     end
 end
 CC.SyncBuffBridge = SyncBuffBridge
+
+-- Is this buff currently RENDERED by the Buffs viewer (the mirror is the live render owner)? The Buff
+-- editor gates its Override (in-CDM) vs Free sections on this — not the bare includeInCdm — so a buff
+-- parked in "Unused" (which renders free) shows the Free section, not an inert Override section.
+function CC.BuffMirrored(id) return BuffMirrored(Entry(id)) end
 
 local function BuildIcon(id)
     local d = EnsureIcon(id)
@@ -812,9 +897,19 @@ function CC.BuildAll()
     if not s then return end
     pcall(MigrateCustoms)   -- one-time, flag-gated; never let a migration error break the build/login
     for id, e in pairs(s.icons) do
+        -- Claim the free-look defaults + shared schema by kind (and migrate the legacy CC free schema)
+        -- FIRST so they win over the generic ICON_DEFAULTS; both are missing-only on the backfill path,
+        -- so MergeDefaults then only fills the remaining keys.
+        SeedFreeLookDefaults(e)
         ns.MergeDefaults(e, ICON_DEFAULTS)   -- backfill any missing visual keys
         SeedTiers(e)                         -- give a never-configured entry the default tiers
         BuildIcon(id)
+        -- Seed/migrate the per-icon CDM override for an in-CDM spell/item icon so its in-CDM appearance
+        -- comes from the Override cadre / group default (like the addon trackers) even before its editor is
+        -- opened. Buffs use the BuffGroups override instead (handled by SyncBuffBridge), so skip them.
+        if e.includeInCdm and e.entryKind ~= "buff" and ns.ReseedTrackerOverride then
+            ns.ReseedTrackerOverride(FrameName(id), e.cdmDest or "essential", ns.DefaultTrackerTimerSeed)
+        end
     end
     CC.UpdateAll()
     if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end   -- lay the (re)built icons out now
@@ -941,7 +1036,9 @@ end
 -- The "+" tile opens the editor on a fresh free draft; "Add Icon" inside commits it.
 function CC.PromptAddFree()
     local id = NewDraft({ includeInCdm = false })
-    if id and CC.OpenEditor then CC.OpenEditor(id) end
+    if not id then return end
+    local e = EntryById(id); if e then SeedFreeLookDefaults(e, true) end
+    if CC.OpenEditor then CC.OpenEditor(id) end
 end
 
 -- The Free-icons "+" -> "Buff" choice: a fresh free draft of the BUFF kind (cast-triggered,
@@ -953,6 +1050,7 @@ function CC.PromptAddFreeBuff()
     if e then
         e.entryKind = "buff"
         if not e.duration or e.duration <= 0 then e.duration = ICON_DEFAULTS.duration end
+        SeedFreeLookDefaults(e, true)   -- buff free-look schema + defaults (override the merged ICON_DEFAULTS)
     end
     if CC.OpenBuffEditor then CC.OpenBuffEditor(id) end
 end
@@ -968,6 +1066,7 @@ function CC.PromptAddBuffToGroup(groupId)
         e.entryKind = "buff"
         if not e.duration or e.duration <= 0 then e.duration = ICON_DEFAULTS.duration end
         e.cdmBuffGroup = (groupId and groupId > 0) and groupId or 1
+        SeedFreeLookDefaults(e, true)   -- buff free-look schema + defaults (override the merged ICON_DEFAULTS)
     end
     if CC.OpenBuffEditor then CC.OpenBuffEditor(id) end
 end
@@ -1045,6 +1144,9 @@ function CC.Remove(id)
             if inst and inst.RemoveTrackerMember then inst.RemoveTrackerMember(FrameName(id)) end
         end
     end
+    -- The entry is gone from the store, so CdmFlag now reads false: re-run ApplyKeybind to drop this
+    -- (now hidden) frame from the shared press-overlay poller instead of leaving it registered.
+    if d and d.icon.ApplyKeybind then d.icon.ApplyKeybind() end
     -- Drop the BuffGroups mirror (if this was a bridged buff). Entry is gone now, so SyncBuffBridge
     -- resolves want=false and removes whatever spellId we registered for this id.
     SyncBuffBridge(id)
@@ -1071,7 +1173,9 @@ end
 -- ── Add (opens the editor on a draft) / edit (opens it on the committed icon) ──
 function CC.PromptAdd(dest, row, atEnd)
     local id = NewDraft({ dest = dest, row = row, atEnd = atEnd, includeInCdm = true })
-    if id and CC.OpenEditor then CC.OpenEditor(id) end
+    if not id then return end
+    local e = EntryById(id); if e then SeedFreeLookDefaults(e, true) end
+    if CC.OpenEditor then CC.OpenEditor(id) end
 end
 
 -- Opened by the essential/utility group "+" tiles: a draft pinned to that group. "Add Icon" in the
@@ -1080,7 +1184,9 @@ end
 function CC.PromptAddToGroup(dest, groupId, rowIndex, colIndex)
     local id = NewDraft({ dest = dest, includeInCdm = true,
         group = { dest = dest, groupId = groupId, rowIndex = rowIndex, colIndex = colIndex } })
-    if id and CC.OpenEditor then CC.OpenEditor(id) end
+    if not id then return end
+    local e = EntryById(id); if e then SeedFreeLookDefaults(e, true) end
+    if CC.OpenEditor then CC.OpenEditor(id) end
 end
 
 -- The pen opens the full per-icon editor window (defined in UI/Editor.lua). Routed by kind so a

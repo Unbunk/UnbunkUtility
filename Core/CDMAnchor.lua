@@ -1216,7 +1216,11 @@ function ns.TrackerSuppressOwnExtras(icon, frameName, cdmDest, seedValues)
         if seedValues then ns.ReseedTrackerOverride(frameName, "belowPlayer", seedValues) end
         return true
     end
-    return ns.TrackerOverrideMigrated(frameName, cdmDest)
+    -- Essential/Utility: only suppress when the groups engine actually OWNS the dest (TimerIcon draws the
+    -- replacement only then). With the engine disabled but the icon migrated + the native viewer shown,
+    -- suppressing would blank the title/stacks in both places, so keep our own draw instead.
+    return (ns.TrackerOverrideMigrated(frameName, cdmDest)
+        and ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(cdmDest)) and true or false
 end
 
 -- Any reason to own this viewer (an offset, any row size, or an active unlock-drag)?

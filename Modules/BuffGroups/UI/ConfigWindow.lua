@@ -454,40 +454,49 @@ local editingSid       -- the spell id currently shown
 local onIconEditChange -- set per-open: re-applies the layout + refreshes the panel strip
 local OpenIconEditor   -- fwd decl: the placeholder toggle re-opens to re-read its state-label
 
-local function IconOptions(sid)
-    local function touch() BG.ApplyAll(); if onIconEditChange then onIconEditChange() end end
-    local function rebuildMenu() if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end
-    -- True if ANY of `keys` is a RAW icon override (not IconGet, which falls back to the group):
-    -- the "Override group settings" checkbox's checked-state + the inner controls' enabledBy.
-    local function sectionOverridden(keys)
-        return function()
+-- Per-icon override accessor bundle (exported so the CustomCDM Buff editor can embed the SAME per-icon
+-- override cadres bound to BG.iconCfg[spellId]): reads inherit the group (IconGet), writes override
+-- (IconSet), reset drops one key, `has` reports raw per-section override state; touch re-applies the
+-- layout; refresh re-renders the host menu.
+function BG.MakeIconBundle(sid, touch, refresh)
+    return {
+        get      = function(key) return BG.IconGet(sid, key) end,
+        groupGet = function(key) return BG.GGet(BG.GroupOf(sid), key) end,
+        set      = function(key, val) BG.IconSet(sid, key, val) end,
+        reset    = function(key) BG.IconReset(sid, key) end,
+        has      = function(keys)
             for _, key in ipairs(keys) do if BG.IconHasOverride(sid, key) then return true end end
             return false
-        end
-    end
-    -- The icon accessor bundle for the shared Timer/Title/Stacks sub-cadres: reads inherit the
-    -- group (IconGet), writes override (IconSet), reset drops one key (IconReset), `has` reports
-    -- raw per-section override state, refresh re-measures the popup after a section reset/toggle.
-    local iconBundle = {
-        get   = function(key) return BG.IconGet(sid, key) end,
-        -- The PURE group value (no per-icon override), used by CopyGroupButton to re-sync the
-        -- section to the group even while it's overriding (bundle.get would return the override).
-        groupGet = function(key) return BG.GGet(BG.GroupOf(sid), key) end,
-        set   = function(key, val) BG.IconSet(sid, key, val) end,
-        reset = function(key) BG.IconReset(sid, key) end,
-        has   = function(keys) return sectionOverridden(keys)() end,
-        touch = touch,
-        refresh = rebuildMenu,
+        end,
+        touch    = touch,
+        refresh  = refresh,
     }
+end
+
+-- The ordered per-icon OVERRIDE cadres (Sound, placeholder, Icon size, Border, Glow, Timer/Title/Stacks,
+-- Copy-all + the not-displayable warning). Parameterised over `bundle` (BG.MakeIconBundle) + `ctx`
+-- (touch / refreshLight / rebuild / reopen / omit) so BOTH the Buff-groups pencil and the CustomCDM Buff
+-- editor render the SAME inner layout. ctx.omit.{label,sound,placeholder} drop those chrome entries.
+function BG.IconOverrideSections(sid, bundle, ctx)
+    ctx = ctx or {}
+    local omit       = ctx.omit or {}
+    local touch      = ctx.touch or function() end
+    local iconBundle = bundle
+    local function menuRefresh() if ctx.refreshLight then ctx.refreshLight() elseif ctx.rebuild then ctx.rebuild() end end
+    local function menuRebuild() if ctx.rebuild then ctx.rebuild() end end
+    local function reopen()      if ctx.reopen then ctx.reopen() elseif ctx.rebuild then ctx.rebuild() end end
+    local function sectionOverridden(keys)
+        return function() return bundle.has(keys) end
+    end
     local entries = {
-        { type = "label", font = "UnbunkUtilityH6", height = 30,
+        { _omit = "label", type = "label", font = "UnbunkUtilityH6", height = 30,
           text = L["Tick \"Override group settings\" in a section to give this icon its own values; untick it to inherit the group again."] },
 
-        -- Sound alert (PER-ICON ONLY — no group panel, no "Override group settings" box: it isn't
+        -- Sound alert (PER-ICON ONLY; no group panel, no "Override group settings" box: it isn't
         -- a group-inherited visual). Two rows reusing the shared "sound" widget (its bundled enable
         -- checkbox IS the row's enable, and its built-in gate greys the picker while unchecked).
         -- Bound to BG.IconGet/IconSet for the soundStart*/soundStop* keys; both off by default.
-        { type = "group", title = L["Sound alert"], build = function() return {
+        { _omit = "sound", type = "group", title = L["Sound alert"], build = function() return {
             { type = "sound", LSM = LSM, label = L["Sound when buff start"],
               getKey    = function() return BG.IconGet(sid, "soundStartSound") end,
               getEnable = function() return BG.IconGet(sid, "soundStartEnabled") == true end,
@@ -515,12 +524,12 @@ local function IconOptions(sid)
         -- active it shows its native frame, inactive a dim desaturated placeholder fills the gap. A plain
         -- button's label is captured at build time, so on click we flip + touch() then re-open the editor
         -- (re-running IconOptions) so the label re-reads its state — the same spell, same onChange.
-        { type = "button", width = 200, hostHeight = 30,
+        { _omit = "placeholder", type = "button", width = 200, hostHeight = 30,
           label = (BG.IconGet(sid, "placeholder") == true) and L["Hide placeholder"] or L["Show placeholder"],
           onClick = function()
               BG.IconSet(sid, "placeholder", BG.IconGet(sid, "placeholder") ~= true)
               touch()
-              OpenIconEditor(sid, onIconEditChange)
+              reopen()
           end },
 
         -- Icon size (W / H). Leading "Override group settings" checkbox seeds/resets iconW/iconH
@@ -565,8 +574,7 @@ local function IconOptions(sid)
             append(e, CopyGroupButton(iconBundle, keys, gated))
             e[#e + 1] = { type = "checkbox", label = L["Show border"], enabledBy = gated,
               get = function() return BG.IconGet(sid, "borderEnabled") ~= false end,
-              set = function(v) BG.IconSet(sid, "borderEnabled", v); touch()
-                  if iconEditor and iconEditor.menu then iconEditor.menu.Refresh() end end }
+              set = function(v) BG.IconSet(sid, "borderEnabled", v); touch(); menuRefresh() end }
             e[#e + 1] = { type = "textEditor", label = L["Border color"],
               showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
               enabledBy = function() return gated() and BG.IconGet(sid, "borderEnabled") ~= false end,
@@ -588,8 +596,7 @@ local function IconOptions(sid)
             append(e, CopyGroupButton(iconBundle, keys, gated))
             e[#e + 1] = { type = "checkbox", label = L["Show glow"], enabledBy = gated,
               get = function() return BG.IconGet(sid, "glowEnabled") == true end,
-              set = function(v) BG.IconSet(sid, "glowEnabled", v); touch()
-                  if iconEditor and iconEditor.menu then iconEditor.menu.Refresh() end end }
+              set = function(v) BG.IconSet(sid, "glowEnabled", v); touch(); menuRefresh() end }
             e[#e + 1] = { type = "textEditor", label = L["Glow color"],
               showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
               enabledBy = function() return gated() and BG.IconGet(sid, "glowEnabled") == true end,
@@ -620,7 +627,7 @@ local function IconOptions(sid)
               copySection(TITLE_KEYS)
               copySection(STACK_KEYS)
               touch()
-              if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end },
+              menuRebuild() end },
     }
     -- For a buff not in the native Cooldown Manager (red in the strip), warn at the TOP of the editor,
     -- between the spell title and the "Overrides..." line.
@@ -629,7 +636,26 @@ local function IconOptions(sid)
             color = { 1, 0.3, 0.3 },
             text = L["Not in the Cooldown Manager's tracked buffs — it won't display."] })
     end
+    -- Drop chrome entries the caller opted out of (the CustomCDM Buff editor omits label/sound/placeholder).
+    if next(omit) then
+        local kept = {}
+        for _, en in ipairs(entries) do
+            if not (en._omit and omit[en._omit]) then kept[#kept + 1] = en end
+        end
+        entries = kept
+    end
     return entries
+end
+
+-- The Buff-groups pencil's option tree: the shared override cadres bound to the singleton editor popup.
+local function IconOptions(sid)
+    local function touch() BG.ApplyAll(); if onIconEditChange then onIconEditChange() end end
+    local function rebuildMenu() if iconEditor and iconEditor.menu then iconEditor.menu.Rebuild() end end
+    local function refreshMenu() if iconEditor and iconEditor.menu then iconEditor.menu.Refresh() end end
+    return BG.IconOverrideSections(sid, BG.MakeIconBundle(sid, touch, rebuildMenu), {
+        touch = touch, rebuild = rebuildMenu, refreshLight = refreshMenu,
+        reopen = function() OpenIconEditor(sid, onIconEditChange) end,
+    })
 end
 
 local function EnsureIconEditor()
