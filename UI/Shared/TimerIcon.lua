@@ -84,6 +84,39 @@ local function EnsurePressPoller()
     end)
 end
 
+-- ── Shared countdown clock (one driver for all TimerIcons) ──────────────────────
+-- Every TimerIcon used to run its OWN OnUpdate every frame (~14 consumers → ~14 handlers firing at
+-- 60-144 Hz, most of them idle). Instead a SINGLE shared frame ticks the countdown for only the icons
+-- with a running timer: an icon registers its per-icon tick closure here on SetTimer and removes it on
+-- ClearTimer / expiry, so an idle-but-shown icon costs nothing. The per-icon rendering logic (lastSecs
+-- cache, tier colour/size, flash, timerText:Hide on idle) is UNCHANGED — it just lives in the closure
+-- the shared driver calls instead of a per-frame per-icon handler.
+-- Re-entrancy: an icon's tick can call result.onExpire (CustomCDM's re-runs ApplyOne → SetTimer/
+-- ClearTimer), which mutates this registry mid-tick. Adding keys during pairs() is undefined in Lua, so
+-- the driver iterates a snapshot array rebuilt each tick (mutations during the tick take effect next tick).
+local clockRegistry = {}    -- [result] = tickFn
+local clockSnapshot = {}    -- reused scratch array (driver is NOT re-entrant: it never ticks itself)
+local clockFrame
+local function EnsureClockDriver()
+    if clockFrame then return end
+    clockFrame = CreateFrame("Frame")
+    clockFrame:SetScript("OnUpdate", function()
+        local n = 0
+        for _, tick in pairs(clockRegistry) do n = n + 1; clockSnapshot[n] = tick end
+        for i = 1, n do
+            clockSnapshot[i]()
+            clockSnapshot[i] = nil   -- drop the reference so a torn-down icon's closure isn't pinned
+        end
+    end)
+end
+local function ClockAdd(key, tick)
+    clockRegistry[key] = tick
+    EnsureClockDriver()
+end
+local function ClockRemove(key)
+    clockRegistry[key] = nil
+end
+
 -- ── Below-player / free glow (LibCustomGlow) ────────────────────────────────────
 -- Draws a LibCustomGlow halo on the icon (below-player tracker while ACTIVE; free CustomCDM spell/item
 -- on a Blizzard proc). Types pixel/autocast/button/proc — proc is the native action-bar flipbook
@@ -396,13 +429,31 @@ function ns.ui.CreateTimerIcon(config)
         timerText:SetFont(path, math.max(8, math.floor(baseFontSize * sizeScale)), outline)
     end
 
-    -- ── OnUpdate ──────────────────────────────────────────────────────────────
+    -- ── Countdown tick (driven by the shared clock; see EnsureClockDriver) ──────
+    -- Cache of the resolved tiers / timerColor / showTimer so the per-second path reads cheap locals
+    -- instead of re-walking TimerTiers() (which allocated a fresh tier table every whole second) and the
+    -- TimerCfg/EngineIconGet config chain on every tick. Invalidated by the config-refresh entry points
+    -- (ApplyFont / ApplyDerivedSizing / ApplyKeybind), which fire on every config edit that can change a
+    -- threshold/colour/showTimer value. timerCacheValid distinguishes "not yet cached" from "cached nil"
+    -- (TimerTiers / timerColor can legitimately resolve to nil).
+    local timerCacheValid = false
+    local cachedTiers, cachedTimerColor, cachedShowTimer
+    local function RefreshTimerCache()
+        cachedTiers      = TimerTiers()
+        cachedTimerColor = TimerCfg("timerColor", nil)
+        cachedShowTimer  = TimerCfg("showTimer", nil)
+        timerCacheValid  = true
+    end
+    -- Invalidate the cache; the next tick re-resolves it lazily.
+    local function InvalidateTimerCache()
+        timerCacheValid = false
+    end
+    result._InvalidateTimerCache = InvalidateTimerCache
 
-    frame:SetScript("OnUpdate", function(self)
-        if not expirationTime then
-            timerText:Hide()
-            return
-        end
+    -- Per-icon countdown step. Called by the shared clock ONLY while this icon has a running timer; the
+    -- icon registers/unregisters in SetTimer / ClearTimer / on expiry, so an idle icon never reaches here.
+    local function ClockTick()
+        if not expirationTime then return end
         local remaining = expirationTime - GetTime()
         if remaining <= 0 then
             timerText:Hide()
@@ -411,8 +462,10 @@ function ns.ui.CreateTimerIcon(config)
             lastSecs = nil
             flashUntil = nil
             sizeScale = 1  -- next timer starts at base size, not a stale grown one
+            ClockRemove(result)   -- stop ticking until the next SetTimer
             if result.onExpire then result.onExpire() end
         else
+            if not timerCacheValid then RefreshTimerCache() end
             -- Only the whole-second value drives the displayed mm:ss, so skip
             -- the format/SetText/SetTextColor work on frames where it is unchanged.
             local total = math.floor(remaining)
@@ -423,7 +476,7 @@ function ns.ui.CreateTimerIcon(config)
                 -- Custom configurable urgency tiers (e.g. the user's custom CDM icons).
                 -- When present they REPLACE the hardcoded yellow@15 / red@5 thresholds;
                 -- absent (every built-in tracker) -> the original behaviour is untouched.
-                local tiers = TimerTiers()
+                local tiers = cachedTiers
                 local scale = 1
                 if result._timerColor then
                     -- Active positive buff (green / PI yellow): keep its colour
@@ -436,14 +489,15 @@ function ns.ui.CreateTimerIcon(config)
                         timerText:SetTextColor(tier.color.r, tier.color.g, tier.color.b, tier.color.a or 1)
                         scale = tier.scale or 1
                     else
-                        local c = TimerCfg("timerColor", nil)
+                        local c = cachedTimerColor
                         if c then timerText:SetTextColor(c.r, c.g, c.b, c.a or 1)
                         else timerText:SetTextColor(1, 1, 1, 1) end
                     end
-                    -- Flash when crossing INTO a more urgent tier (smaller `at`).
+                    -- Flash when crossing INTO a more urgent tier (smaller `at`): reuse the tier resolved
+                    -- above for the current second instead of matching `total` a second time.
                     if prev then
-                        local pT, cT = MatchTier(tiers, prev), MatchTier(tiers, total)
-                        if cT and (not pT or (cT.at or 0) < (pT.at or 0)) then
+                        local pT = MatchTier(tiers, prev)
+                        if tier and (not pT or (tier.at or 0) < (pT.at or 0)) then
                             flashUntil = GetTime() + FLASH_DURATION
                         end
                     end
@@ -454,7 +508,7 @@ function ns.ui.CreateTimerIcon(config)
                     timerText:SetTextColor(1, 0.82, 0, 1)     -- yellow <=15s
                     scale = SIZE_YELLOW
                 else
-                    local c = TimerCfg("timerColor", nil)
+                    local c = cachedTimerColor
                     if c then
                         timerText:SetTextColor(c.r, c.g, c.b, c.a or 1)
                     else
@@ -474,7 +528,7 @@ function ns.ui.CreateTimerIcon(config)
                     end
                 end
                 -- "Show timer" toggle (per-dest for below-player, else the tracker's); absent -> shown.
-                if TimerCfg("showTimer", nil) ~= false then
+                if cachedShowTimer ~= false then
                     timerText:Show()
                 else
                     timerText:Hide()
@@ -491,7 +545,7 @@ function ns.ui.CreateTimerIcon(config)
                 end
             end
         end
-    end)
+    end
 
     -- ── API ───────────────────────────────────────────────────────────────────
 
@@ -503,10 +557,33 @@ function ns.ui.CreateTimerIcon(config)
         iconTex:SetTexture(texture)
     end
 
+    -- "Darken icon when on cd with stacks" (resolved per-dest in ApplyDestExtras; default OFF). When OFF, a
+    -- plain cooldown does NOT grey the icon while a charge/stack is still usable -- it greys only once none
+    -- remain (matching Blizzard's charge-spell look). ResolveCharges is forward-declared: it needs the
+    -- config/dest helpers defined further down.
+    local ResolveCharges
+    local darkenOnCdWithStacks = false
+    local function ChargesAvailable()
+        local n = ResolveCharges and ResolveCharges()
+        return n ~= nil and n > 0
+    end
+    local function ApplyCdDesat(keepLit)
+        if keepLit then iconTex:SetDesaturated(false); return end
+        if (not darkenOnCdWithStacks) and ChargesAvailable() then
+            iconTex:SetDesaturated(false)   -- on cooldown but a charge/stack is still usable -> stay lit
+        else
+            iconTex:SetDesaturated(true)    -- plain cooldown -> grey out
+        end
+    end
+
     function result.SetTimer(expiry, duration, color, keepLit)
         expirationTime = expiry
-        lastSecs = nil  -- force a re-render of text/color on the next OnUpdate
+        lastSecs = nil  -- force a re-render of text/color on the next tick
         flashUntil = nil
+        -- Join the shared clock so the countdown ticks; idle icons stay unregistered.
+        -- A nil expiry means "no timer": leave the clock and hide the text now, since the icon
+        -- won't be ticked to clear it (the old per-frame idle branch did this every frame).
+        if expiry then ClockAdd(result, ClockTick) else ClockRemove(result); timerText:Hide() end
         timerText:SetAlpha(1)
         checkTex:Hide()
         if expiry and duration then
@@ -522,8 +599,9 @@ function ns.ui.CreateTimerIcon(config)
             result._timerColor = nil
             -- keepLit: an ACTIVE state (e.g. a cast-triggered free buff) that wants its CONFIGURED timer
             -- colour + urgency thresholds (not a locked colour) — keep the icon lit but leave the text
-            -- colour to the tiers/timerColor path. Without keepLit it's a cooldown -> grey the icon out.
-            iconTex:SetDesaturated(keepLit and false or true)
+            -- colour to the tiers/timerColor path. Without keepLit it's a cooldown -> grey the icon out,
+            -- UNLESS a charge/stack is still usable and "darken on cd with stacks" is off (ApplyCdDesat).
+            ApplyCdDesat(keepLit)
         end
         if result.ApplyDestGlow then result.ApplyDestGlow() end
     end
@@ -531,6 +609,7 @@ function ns.ui.CreateTimerIcon(config)
     function result.ClearTimer()
         expirationTime = nil
         lastSecs = nil
+        ClockRemove(result)   -- leave the shared clock; nothing to count down
         timerText:Hide()
         cooldown:Clear()
         iconTex:SetDesaturated(false)  -- restore full colour once the CD/timer ends
@@ -561,6 +640,7 @@ function ns.ui.CreateTimerIcon(config)
     end
 
     function result.ApplyFont()
+        InvalidateTimerCache()   -- timer colour / thresholds / showTimer may have changed
         baseFontSize = TimerCfg("timerFontSize", nil) or 20
         SetTimerFont()
         -- React to the "show timer" toggle immediately: hide now if off, else clear the
@@ -602,6 +682,7 @@ function ns.ui.CreateTimerIcon(config)
     -- ApplySize (config size) and SetSlotSize (native row size) so the look stays
     -- consistent whatever drives the size.
     local function ApplyDerivedSizing()
+        InvalidateTimerCache()   -- runs on every relayout tick; catches dest / config changes
         local w, h = frame:GetSize()
         iconTex:SetTexCoord(IconTexCoordFor(w, h))   -- aspect-aware crop, matches native CDM icons (no stretch)
         -- The user-configured timer font size wins; we only auto-derive from the
@@ -749,7 +830,9 @@ function ns.ui.CreateTimerIcon(config)
     -- keeps its own id), so skip the spell lookup for items and resolve the item binding directly.
     local function KbText()
         if not ns.CDGKeybinds then return nil end
-        local sid = getCfg("entryKind") ~= "item" and getCfg("spellId")
+        -- Spell trackers (Racial/Defensive/BL/PI) resolve their tracked spell at RUNTIME, so they expose it
+        -- via config.getSpellId; a free CustomCDM spell icon keeps it under "spellId". Items skip the spell path.
+        local sid = getCfg("entryKind") ~= "item" and ((config.getSpellId and config.getSpellId()) or getCfg("spellId"))
         local txt = sid and ns.CDGKeybinds.GetKeybindText(sid)
         if not txt and config.getItemId then
             local iid = config.getItemId()
@@ -759,7 +842,7 @@ function ns.ui.CreateTimerIcon(config)
     end
     local function KbCombos()
         if not ns.CDGKeybinds then return nil end
-        local sid = getCfg("entryKind") ~= "item" and getCfg("spellId")
+        local sid = getCfg("entryKind") ~= "item" and ((config.getSpellId and config.getSpellId()) or getCfg("spellId"))
         local c = sid and ns.CDGKeybinds.GetRawCombos(sid)
         if not c and config.getItemId then
             local iid = config.getItemId()
@@ -779,6 +862,7 @@ function ns.ui.CreateTimerIcon(config)
     -- Refresh the keybind text + the press-overlay registration from the icon's CDM dest. Called every
     -- ApplyDerivedSizing pass (size / relayout tick) so a rebind or config change repaints within a tick.
     function result.ApplyKeybind()
+        InvalidateTimerCache()   -- a CDM dest / per-icon override repaint can change timer cfg too
         if CdmFlag("showKeybinds") then
             local fontKey, fontPath, fontSize, outline, color, pos, ox, oy
             if EngineOwns() then
@@ -865,7 +949,7 @@ function ns.ui.CreateTimerIcon(config)
         end
         return nil
     end
-    local function ResolveCharges()
+    function ResolveCharges()   -- assigns the forward-declared upvalue (used by SetTimer's ApplyCdDesat)
         local sid = getCfg("spellId")
         if sid and sid ~= 0 and C_Spell and C_Spell.GetSpellCharges then
             local ci = C_Spell.GetSpellCharges(sid)
@@ -914,6 +998,9 @@ function ns.ui.CreateTimerIcon(config)
             if v ~= nil then return v end
             return default
         end
+        -- This icon's "darken on cd with stacks" flag for its current dest (default OFF) -> drives the
+        -- on-cooldown greying decided in SetTimer / ApplyCdDesat.
+        darkenOnCdWithStacks = XCfg("darkenOnCdWithStacks", false) == true
         -- Title: free text (titleText), styled with the title* keys.
         if drawExtras and XCfg("showTitle", false) then
             titleFS:SetFont(ns.ResolveFontPath(XCfg("titleFontPath", nil), XCfg("titleFontKey", "Fira Mono")),
@@ -940,7 +1027,7 @@ function ns.ui.CreateTimerIcon(config)
             local minStack = config.minStack or 1
             if ch and ch >= minStack then
                 stacksFS:SetText(tostring(ch)); stacksFS:Show()
-            elseif XCfg("showAtZero", false) and (ch == 0 or config.getItemId ~= nil) then   -- "0" only for a real 0 charge count or an item that can be 0 in bags (not for a chargeless spell)
+            elseif XCfg("stackShowZero", true) and (ch == 0 or config.getItemId ~= nil) then   -- "Show at 0 stacks" (default ON): "0" for a real 0 charge count or an item that can be 0 in bags (not a chargeless spell)
                 stacksFS:SetText("0"); stacksFS:Show()
             else
                 stacksFS:Hide()
