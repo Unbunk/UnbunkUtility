@@ -128,6 +128,17 @@ function BR.CfgInit()
 end
 ns.RegisterCfgInitHook(BR.CfgInit)
 
+-- ── Style version (engine restyle gate) ──────────────────────────────────────────
+-- A monotonic counter bumped on EVERY write that can change a bar's resolved style (the pencil
+-- per-bar overrides + the group settings). The engine stamps each native frame with the version it
+-- was last styled at, so RefreshLayout re-runs the (cheap but non-trivial) StyleBarFrame only when
+-- the config actually changed (or Blizzard re-filled the bar, tracked separately by _uuBarStyled) —
+-- not on every aura tick. Note: not all bumped keys are visual (e.g. spacing/growDir), but
+-- over-bumping only costs one extra restyle, never a stale style.
+local styleVersion = 1
+function BR.StyleVersion() return styleVersion end
+local function BumpStyleVersion() styleVersion = styleVersion + 1 end
+
 -- ── Enable ─────────────────────────────────────────────────────────────────────
 function BR.Enabled() local s = Store(); return not s or s.enabled ~= false end
 function BR.SetEnabled(v) local s = Store(); if s then s.enabled = v and true or false end end
@@ -178,7 +189,7 @@ function BR.GGet(id, key)
 end
 function BR.GSet(id, key, val)
     local g = BR.GetGroup(id)
-    if g then g[key] = val end
+    if g then g[key] = val; BumpStyleVersion() end
 end
 
 -- ── Bar → group assignment ──────────────────────────────────────────────────────
@@ -202,6 +213,7 @@ end
 function BR.SetGroup(spellId, groupId)
     local s = Store(); if not s then return end
     s.assign[spellId] = groupId
+    BumpStyleVersion()  -- a bar's resolved style inherits its group, so a move can change it
 end
 
 -- Raw assignment (nil = never classified yet); the engine's default seed uses this.
@@ -237,6 +249,7 @@ function BR.MoveBuff(spellId, targetGroupId, insertIdx)
     local pos = math.max(1, math.min(#vis + 1, (insertIdx or #vis) + 1))
     table.insert(vis, pos, spellId)
     s.order[targetGroupId] = vis
+    BumpStyleVersion()  -- moved across groups -> resolved style may change (group inheritance)
 end
 
 -- Bars assigned to a group (groupId 0 = Unused), in saved order; any assigned bar not yet in
@@ -283,6 +296,7 @@ function BR.IconSet(spellId, key, val)
     s.iconCfg = s.iconCfg or {}
     s.iconCfg[spellId] = s.iconCfg[spellId] or {}
     s.iconCfg[spellId][key] = val
+    BumpStyleVersion()
 end
 
 -- True if the bar has a per-bar override. With no `key`, reports ANY override (so the strip can
@@ -305,4 +319,5 @@ function BR.IconReset(spellId, key)
         s.iconCfg[spellId][key] = nil
         if next(s.iconCfg[spellId]) == nil then s.iconCfg[spellId] = nil end
     end
+    BumpStyleVersion()
 end

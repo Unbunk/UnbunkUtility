@@ -398,7 +398,13 @@ local function ApplyTitle(id)
     fs:Show()
 end
 
-local function ApplyStack(id)
+-- ApplyStack runs HOT (every live icon, every 0.5s tick + each coalesced cooldown update), so font/colour/
+-- anchor — all static between edits — are applied only when their signature changes (cached on d.stackLook);
+-- a steady-state tick then does just SetText + Show/Hide. The spell path passes haveCharges=true with the
+-- cur/maxc it already fetched in ApplyOne (so we drop a duplicate GetSpellCharges even when the spell has no
+-- charges → both nil); the item/buff paths omit it, and the buff path falls back to GetCharges (item kind
+-- never reaches the charge branch) so their behaviour is unchanged.
+local function ApplyStack(id, curIn, maxcIn, haveCharges)
     local d = live[id]
     if not d or not d.stackFS then return end
     local e = Entry(id)
@@ -408,17 +414,29 @@ local function ApplyStack(id)
     if ns.TrackerSuppressOwnExtras and ns.TrackerSuppressOwnExtras(d.icon, FrameName(id), e.cdmDest, ns.DefaultTrackerTimerSeed) then
         fs:Hide(); return
     end
-    fs:SetFont(ns.ResolveFontPath(e.stackFontPath, e.stackFontKey), e.stackFontSize or 12, e.stackOutline or "OUTLINE")
+    -- Re-apply font/colour/anchor only on a real change: the look signature captures every font/colour/
+    -- anchor input, so an editor edit shifts it and the next call re-applies, while steady-state ticks skip it.
+    local path = ns.ResolveFontPath(e.stackFontPath, e.stackFontKey)
+    local size = e.stackFontSize or 12
+    local outline = e.stackOutline or "OUTLINE"
     local c = e.stackColor or { r = 1, g = 1, b = 1, a = 1 }
-    fs:SetTextColor(c.r, c.g, c.b, c.a or 1)
-    AnchorFS(fs, d.icon.GetFrame(), e.stackPos or "BOTTOMRIGHT", e.stackOffX, e.stackOffY)
+    local pos = e.stackPos or "BOTTOMRIGHT"
+    local sig = path .. "|" .. size .. "|" .. outline .. "|" .. (c.r or 1) .. "," .. (c.g or 1) .. ","
+        .. (c.b or 1) .. "," .. (c.a or 1) .. "|" .. pos .. "|" .. (e.stackOffX or 0) .. "," .. (e.stackOffY or 0)
+    if d.stackLook ~= sig then
+        fs:SetFont(path, size, outline)
+        fs:SetTextColor(c.r, c.g, c.b, c.a or 1)
+        AnchorFS(fs, d.icon.GetFrame(), pos, e.stackOffX, e.stackOffY)
+        d.stackLook = sig
+    end
     -- Item kind: show the bag count (how many of the item you carry); spell kind: the recharging charges.
     if e.entryKind == "item" then
         local n = e.itemId and e.itemId ~= 0 and C_Item and C_Item.GetItemCount and C_Item.GetItemCount(e.itemId)
         if n and n > 0 then fs:SetText(tostring(n)); fs:Show() else fs:Hide() end
         return
     end
-    local cur, maxc = GetCharges(e.spellId)
+    local cur, maxc = curIn, maxcIn
+    if not haveCharges then cur, maxc = GetCharges(e.spellId) end
     if cur and maxc and maxc > 1 and (cur > 0 or e.showAtZero) then
         fs:SetText(tostring(cur))
         fs:Show()
@@ -431,6 +449,10 @@ end
 local function ApplyOne(id)
     local d = live[id]
     if not d then return end
+    -- Removed: the frame is kept (reused if this id ever resolves again) but stays inert. Bail BEFORE the
+    -- Entry() lookup so UpdateAll's per-tick sweep doesn't keep paying for a dead icon (the live[] entry
+    -- lingers by design, so without this flag every tick would re-look-up + Hide it forever).
+    if d.removed then return end
     local e = Entry(id)
     if not e then d.icon.Hide(); return end   -- removed / not in this profile -> inert
 
@@ -506,7 +528,7 @@ local function ApplyOne(id)
     local hideForZero = cur and maxc and maxc > 1 and cur == 0 and not e.showAtZero
     if e.showIcon ~= false and not hideForZero then
         d.icon.Show()
-        ApplyStack(id)
+        ApplyStack(id, cur, maxc, true)   -- reuse the charges fetched just above (no second GetSpellCharges)
     else
         d.icon.Hide()
     end
@@ -585,7 +607,7 @@ end
 -- Create (once) the TimerIcon + title/stack FontStrings for an id.
 local function EnsureIcon(id)
     local d = live[id]
-    if d then return d end
+    if d then d.removed = nil; return d end   -- re-Add of a removed id: clear the inert flag so it renders again
     local icon = ns.ui.CreateTimerIcon({
         name   = FrameName(id),
         getCfg = function(key)
@@ -719,7 +741,24 @@ end
 
 -- ── Public API ────────────────────────────────────────────────────────────────
 function CC.UpdateAll()
+    if next(live) == nil then return end   -- nothing built yet: skip the sweep entirely
     for id in pairs(live) do ApplyOne(id) end
+end
+
+-- SPELL_UPDATE_COOLDOWN fires in dense bursts (every GCD, every charge tick). Rather than run a full
+-- UpdateAll per event, coalesce them behind a dirty flag drained at ~5Hz: the first event arms a single
+-- debounced flush, later events in the window are free. The 0.5s ticker still runs UpdateAll on its own
+-- cadence, so this just makes a cooldown change land faster without N sweeps per burst.
+local cdDirty = false
+local function FlushCooldownDirty()
+    cdDirty = false
+    CC.UpdateAll()
+end
+local function MarkCooldownDirty()
+    if cdDirty then return end
+    cdDirty = true
+    if AceTimer and CC.ScheduleTimer then CC:ScheduleTimer(FlushCooldownDirty, 0.2)
+    else FlushCooldownDirty() end
 end
 
 -- Re-apply every visual of one icon after a config edit (used by the editor).
@@ -1138,6 +1177,7 @@ function CC.Remove(id)
     local e = s.icons[id]
     local d = live[id]
     if d then
+        d.removed = true   -- mark inert: ApplyOne bails early so UpdateAll skips this dead-but-kept icon
         d.icon.Hide()
         local f = d.icon.GetFrame()
         if f then f:Hide() end
@@ -1231,7 +1271,7 @@ CC:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(_, unit, _, spellId)
         end
     end
 end)
-CC:RegisterEvent("SPELL_UPDATE_COOLDOWN", function() CC.UpdateAll() end)
+CC:RegisterEvent("SPELL_UPDATE_COOLDOWN", function() MarkCooldownDirty() end)
 -- A buff drops on death (mirrors the buff-groups custom buffs): clear every armed swipe.
 CC:RegisterEvent("PLAYER_DEAD", function()
     for id, d in pairs(live) do

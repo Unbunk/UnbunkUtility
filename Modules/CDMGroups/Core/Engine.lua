@@ -367,8 +367,14 @@ local function EngineFor(I)
         return false
     end
 
+    -- `seen` is a reusable de-dup scratch (CollectDisplayed is not re-entrant). `out` stays freshly
+    -- allocated each call: it is the RETURNED value (AllBuffs appends to it and memoizes it, the
+    -- displayed-cache iterates it), so sharing one upvalue would alias two callers' results.
+    local collectSeen = {}
     local function CollectDisplayed()
-        local out, seen, count = {}, {}, 0
+        local out, count = {}, 0
+        local seen = collectSeen
+        wipe(seen)
         wipe(keyToDisplay)
         -- (1) settle gate: don't accumulate until the viewer has applied its layout (see block comment).
         local settled = I.poolAccumulates and viewerReadyAt and (GetTime() >= viewerReadyAt + SETTLE)
@@ -391,7 +397,7 @@ local function EngineFor(I)
         -- Return the ACCUMULATED set (so a ready-but-already-seen cooldown stays in the universe). `count`
         -- stays the LIVE frame count so RefreshDisplayedCache's empty-pool defer (poolCount == 0 and
         -- #displayed == 0) still tells "viewer not built yet" from "all ready" (accumulated, don't clobber).
-        wipe(out); seen = {}
+        wipe(out)   -- `seen` no longer needed past this point (accumDisplayed is already deduped)
         for key in pairs(accumDisplayed) do out[#out + 1] = key end
         return out, count
     end
@@ -587,7 +593,18 @@ local function EngineFor(I)
     -- pool) UNION customs (none this phase) UNION the addon-tracker member keys (strings) for this
     -- dest. Mirrors BuffGroups' "displayed ∪ assigned ∪ custom". The displayed set comes first, in pool
     -- enumeration order; GetGroupBuffs re-ranks Group 1 by NativeOrder (natives first, then trackers).
+    -- Per-pass memo for the two expensive universe enumerators (AllBuffs + NativeOrder). RefreshLayout
+    -- calls GroupRows once per group and GroupRows re-derives BOTH every call; within a single
+    -- (synchronous) layout pass the live pool is stable, so the engine ARMS this memo around the group
+    -- loop (BeginPass/EndPass) and AllBuffs/NativeOrder return the cached result instead of re-enumerating
+    -- the whole pool + re-sorting per group. The memo is OFF outside a pass (passMemo == nil) so every
+    -- other caller (the config UI, drag, SortGroupNativeOrder) still gets a fresh read.
+    local passMemo
+    function I.BeginPass() passMemo = {} end
+    function I.EndPass()   passMemo = nil end
+
     function I.AllBuffs()
+        if passMemo and passMemo.allBuffs then return passMemo.allBuffs end
         local out, seen = CollectDisplayed(), {}
         for _, sid in ipairs(out) do seen[sid] = true end
         local s = I.Store and I.Store()
@@ -601,6 +618,19 @@ local function EngineFor(I)
         end
         for _, td in ipairs(I.TrackerMembers()) do
             if not seen[td.key or td.name] then seen[td.key or td.name] = true; out[#out + 1] = td.name end
+        end
+        if passMemo then passMemo.allBuffs = out end
+        return out
+    end
+
+    -- Unused (group 0) members, UNORDERED. RefreshLayout only pins these offscreen / hides them, so their
+    -- on-screen order is irrelevant — skip GetGroupBuffs(0)'s full GroupRows ordering+chunking machinery
+    -- (NativeOrder sort, row packing) and just scan the memoized AllBuffs once for GroupOf == 0. (out is a
+    -- fresh table, never the memoized AllBuffs list, so the caller can't mutate the memo.)
+    function I.UnusedMembers()
+        local out = {}
+        for _, sid in ipairs(I.AllBuffs()) do
+            if I.GroupOf(sid) == 0 then out[#out + 1] = sid end
         end
         return out
     end
@@ -634,8 +664,13 @@ local function EngineFor(I)
     end
 
     function I.NativeOrder()
+        -- nil is a valid result (empty pool), so memo a SEPARATE "computed" flag, not the value itself.
+        if passMemo and passMemo.nativeOrderDone then return passMemo.nativeOrder end
         local v = Viewer()
-        if not (v and v.itemFramePool and v.itemFramePool.EnumerateActive) then return nil end
+        if not (v and v.itemFramePool and v.itemFramePool.EnumerateActive) then
+            if passMemo then passMemo.nativeOrderDone = true; passMemo.nativeOrder = nil end
+            return nil
+        end
         local entries, n = {}, 0
         for f in v.itemFramePool:EnumerateActive() do
             local sid = FrameKey(f)   -- order entries key on the STABLE BASE key (matches the group store)
@@ -644,7 +679,10 @@ local function EngineFor(I)
                 entries[n] = { sid = sid, li = FrameLayoutIndex(f) or math.huge, seq = n }
             end
         end
-        if n == 0 then return nil end
+        if n == 0 then
+            if passMemo then passMemo.nativeOrderDone = true; passMemo.nativeOrder = nil end
+            return nil
+        end
         table.sort(entries, function(a, b)
             if a.li ~= b.li then return a.li < b.li end
             return a.seq < b.seq
@@ -653,6 +691,7 @@ local function EngineFor(I)
         for _, e in ipairs(entries) do
             if not seen[e.sid] then seen[e.sid] = true; out[#out + 1] = e.sid end
         end
+        if passMemo then passMemo.nativeOrderDone = true; passMemo.nativeOrder = out end
         return out
     end
 
@@ -1291,6 +1330,33 @@ local function EngineFor(I)
     local HORIZONTAL_GROW = { RIGHT = true, LEFT = true, CENTER_H = true }
     local function IsHorizontal(grow) return grow == nil or HORIZONTAL_GROW[grow] or false end
 
+    -- Per-pass scratch tables, HOISTED to instance upvalues + wipe()d at the top of each pass instead of
+    -- reallocated every 0.2s tick (the same allocation-churn mitigation as trackerKeys/accumDisplayed
+    -- above). RefreshLayout is NOT re-entrant — it runs only from the 0.2s ticker and the ScheduleRelayout
+    -- C_Timer, both async (never nested synchronously; the viewer RefreshLayout hook only SCHEDULES a
+    -- deferred pass), and nothing it calls re-enters it — so a single shared scratch set is safe.
+    -- `sizes` reuses its per-member { w, h } value tables across passes via the sizePool (wiped, not
+    -- re-allocated). laidRows/rowMembers are pooled per ROW inside the group loop (rowPool).
+    local rl_frameOf, rl_activeOf, rl_liveSet = {}, {}, {}
+    local rl_trackerOf = {}
+    local rl_placed, rl_placeholderNeeded = {}, {}
+    local rl_sizes = {}
+    local sizePool = {}   -- reusable { w, h } tables, recycled into rl_sizes each pass
+    local rowPool  = {}   -- reusable per-row member arrays (the inner {sid,...} of each laid row)
+    -- Recycle every { w, h } size table back to sizePool and clear rl_sizes (called per group, since a
+    -- size table is only needed while that group is being packed; sids are unique per group anyway).
+    local function recycleSizes()
+        for sid, sz in pairs(rl_sizes) do sizePool[#sizePool + 1] = sz; rl_sizes[sid] = nil end
+    end
+    -- Recycle a group's row member arrays (the .members of each laidRows entry) back to rowPool.
+    local function recycleRows(laidRows)
+        for i = 1, #laidRows do
+            local m = laidRows[i].members
+            if m then wipe(m); rowPool[#rowPool + 1] = m end
+            laidRows[i] = nil
+        end
+    end
+
     function I.RefreshLayout()
         if not I.Enabled() then
             HideAll()
@@ -1316,7 +1382,8 @@ local function EngineFor(I)
 
         -- Build baseKey -> native frame (the live pool) and baseKey -> active(shown) for sounds. Keyed by
         -- the STABLE BASE key (FrameKey) so a transformed cooldown still maps to its grouped slot.
-        local frameOf, activeOf, liveSet = {}, {}, {}
+        local frameOf, activeOf, liveSet = rl_frameOf, rl_activeOf, rl_liveSet
+        wipe(frameOf); wipe(activeOf); wipe(liveSet)
         local nativeN, keyedNativeN = 0, 0
         for _, nf in ipairs(EnumNativeFrames()) do
             nativeN = nativeN + 1
@@ -1348,7 +1415,8 @@ local function EngineFor(I)
         -- (mirrors a native whose pool frame is absent → it simply takes no slot when hidden). We
         -- record it in trackerOf so the placement branches treat it as a tracker (SetPoint + setSize,
         -- NO StyleFrame / PinNative / border / placeholder — a tracker keeps its own look).
-        local trackerOf = {}
+        local trackerOf = rl_trackerOf
+        wipe(trackerOf)
         for _, td in ipairs(I.TrackerMembers()) do
             local f = td.frame
             trackerOf[td.name] = td
@@ -1369,9 +1437,14 @@ local function EngineFor(I)
         -- Unused (group 0) + frames whose group was deleted: a native is pinned offscreen so the
         -- viewer's relayout can't reveal it in place (native item frames aren't protected → taint-free);
         -- a custom (addon-drawn) frame is just hidden.
-        local placed = {}
-        local placeholderNeeded = {}
-        for _, sid in ipairs(I.GetGroupBuffs(0)) do
+        -- Arm the per-pass universe memo: AllBuffs() + NativeOrder() are now computed ONCE and reused by
+        -- every GroupRows call below (the Unused scan + each group's pack), instead of re-enumerating the
+        -- whole pool + re-sorting per group. Cleared at EndPass after the group loop.
+        I.BeginPass()
+        local placed = rl_placed
+        local placeholderNeeded = rl_placeholderNeeded
+        wipe(placed); wipe(placeholderNeeded)
+        for _, sid in ipairs(I.UnusedMembers()) do
             local nf = frameOf[sid]
             if trackerOf[sid] then
                 -- A TRACKER parked in Unused: the engine never hides it (its module owns visibility +
@@ -1409,15 +1482,18 @@ local function EngineFor(I)
             -- a dim ghost while absent. Build, per ROW, the laid-out members + their sizes, the row's
             -- MAIN extent (packed along the grow axis) and its CROSS extent (max icon size across the axis).
             local staticDisplay = g.staticDisplay == true
-            local sizes = {}
+            local sizes = rl_sizes     -- recycled at the end of this group iteration (recycleSizes)
             local laidRows = {}     -- { { members = {sid,...}, mainExt, crossExt }, ... }
             local count = 0
             for _, srcRow in ipairs(groupRows) do
-                local rowMembers = {}
+                local rowMembers = table.remove(rowPool) or {}   -- pooled per-row member array
                 for _, sid in ipairs(srcRow) do
                     if staticDisplay or frameOf[sid] or I.IconGet(sid, "placeholder") == true then
                         rowMembers[#rowMembers + 1] = sid
-                        sizes[sid] = { w = I.IconGet(sid, "iconW") or 44, h = I.IconGet(sid, "iconH") or 44 }
+                        local sz = table.remove(sizePool) or {}   -- pooled { w, h } size table
+                        sz.w = I.IconGet(sid, "iconW") or 44
+                        sz.h = I.IconGet(sid, "iconH") or 44
+                        sizes[sid] = sz
                     end
                 end
                 local mainExt, crossExt = 0, 0
@@ -1429,9 +1505,12 @@ local function EngineFor(I)
                     if cross > crossExt then crossExt = cross end
                 end
                 count = count + #rowMembers
-                -- An EMPTY row contributes NO height (skip it entirely from the layout extent + stack).
+                -- An EMPTY row contributes NO height (skip it entirely from the layout extent + stack);
+                -- return its unused pooled member array straight back to the pool so it isn't leaked.
                 if #rowMembers > 0 then
                     laidRows[#laidRows + 1] = { members = rowMembers, mainExt = mainExt, crossExt = crossExt }
+                else
+                    rowPool[#rowPool + 1] = rowMembers
                 end
             end
 
@@ -1503,7 +1582,13 @@ local function EngineFor(I)
             end
 
             container:SetShown(count > 0 or g.unlocked)
+            -- Recycle this group's scratch (size tables + row member arrays) before the next group.
+            recycleSizes()
+            recycleRows(laidRows)
         end
+        -- Done consuming the universe (no AllBuffs/NativeOrder/GroupRows below) — drop the per-pass memo so
+        -- the next caller (UI / drag / next tick) reads fresh.
+        I.EndPass()
 
         -- Anti-flash / anti-stray: a LIVE pool native we did NOT place this pass is parked OFFSCREEN so it
         -- can neither flash in Blizzard's default grid nor linger DETACHED at a stale slot. Two cases:
@@ -1695,11 +1780,23 @@ local function EngineFor(I)
         if I.Enabled() then I.RefreshLayout() end
     end)
 
+    -- Is the addon's config window open? When the engine is DISABLED the displayed-set cache only
+    -- feeds the config strip (its dynamic GroupOf + red flags); with the window closed nothing reads
+    -- it, so the 0.2s tick can do ZERO work that pass. Cheap named-frame IsShown, nil-safe pre-window.
+    local function ConfigOpen()
+        local w = _G.UnbunkUtilityWindow
+        return w and w.IsShown and w:IsShown() and true or false
+    end
+
     local accum = 0
     ev:SetScript("OnUpdate", function(_, dt)
         accum = accum + dt
         if accum < 0.2 then return end
         accum = accum - 0.2
+        -- DISABLED + config CLOSED: nothing consumes the displayed cache, so skip the whole pass (no
+        -- pool enumeration, no RefreshDisplayedCache). It re-freshes the instant the user opens the
+        -- config or enables the engine (both fall through below) -- matching the BuffGroups/BarGroups tick.
+        if not I.Enabled() and not ConfigOpen() then return end
         -- Keep the displayed-set cache fresh from the pool (catches EditMode tracked-cooldown edits /
         -- spec change) even while the engine is disabled, so GroupOf's unassigned default + the red flag
         -- stay correct the moment the user enables it; notify the config only on an actual change.

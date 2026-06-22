@@ -388,13 +388,26 @@ end
 
 -- All buffs the config knows about: the tracked (CDM) buffs + user-added customs (deduped),
 -- computed live so the list always reflects the current CDM tracked set.
+-- Per-pass memo: RefreshLayout calls GetGroupBuffs once per group plus once for Unused (G+1 times),
+-- and each GetGroupBuffs walks AllBuffs() -> CollectTracked() (a full CDM category scan + table
+-- alloc). Within a single synchronous layout pass the tracked + custom set is stable, so the engine
+-- ARMS this memo around the group loop (BeginPass/EndPass) and AllBuffs returns the cached list
+-- instead of re-scanning per group. The memo is OFF outside a pass (passMemo == nil) so every other
+-- caller (config UI, RefreshTracked, drag) still gets a fresh read. The memoized list is read-only to
+-- callers (GetGroupBuffs only iterates it), so sharing it across the pass is safe.
+local passMemo
+function BG.BeginPass() passMemo = {} end
+function BG.EndPass()   passMemo = nil end
+
 function BG.AllBuffs()
+    if passMemo and passMemo.allBuffs then return passMemo.allBuffs end
     local out = CollectTracked()
     local seen = {}
     for _, sid in ipairs(out) do seen[sid] = true end
     for _, sid in ipairs(BG.CustomList()) do
         if not seen[sid] then seen[sid] = true; out[#out + 1] = sid end
     end
+    if passMemo then passMemo.allBuffs = out end
     return out
 end
 
@@ -675,14 +688,24 @@ local function EnsureGlow(nf)
         dots[i] = dot
     end
     glow.dots = dots
-    local elapsed = 0
+    -- Throttled marching: advance only once ~STEP seconds of dt have accumulated (a ~30 Hz cap)
+    -- instead of moving all 8 dots EVERY frame (60-140 Hz). At a 1.5s cycle the dots travel <1px
+    -- between 30 Hz steps, so the motion is visually identical while we do ~half the SetPoint work.
+    -- w/h/perimeter are cached and only recomputed when the frame size actually changes (our pinned
+    -- numbers don't move mid-cycle), saving a GetWidth/GetHeight + the perimeter math every step.
+    local STEP = 1 / 30
+    local elapsed, accum = 0, 0
+    local cw, ch, perimeter = 0, 0, 0
     glow:SetScript("OnUpdate", function(self, dt)
         elapsed = elapsed + dt
-        local progress = (elapsed % CYCLE) / CYCLE
+        accum = accum + dt
+        if accum < STEP then return end
+        accum = accum - STEP
         local w, h = nf:GetWidth(), nf:GetHeight()
         -- Width/height are OUR pinned numbers, but guard anyway: never compare a secret.
         if not (w and h) or not canaccessvalue(w) or not canaccessvalue(h) or w == 0 or h == 0 then return end
-        local perimeter = 2 * (w + h)
+        if w ~= cw or h ~= ch then cw, ch, perimeter = w, h, 2 * (w + h) end
+        local progress = (elapsed % CYCLE) / CYCLE
         for i, dot in ipairs(dots) do
             local p = (progress + (i - 1) / DOT_COUNT) % 1
             local d = p * perimeter
@@ -932,6 +955,17 @@ local OFFSCREEN = -10000
 local HORIZONTAL_GROW = { RIGHT = true, LEFT = true, CENTER_H = true }
 local function IsHorizontal(grow) return grow == nil or HORIZONTAL_GROW[grow] or false end
 
+-- Per-pass scratch tables hoisted to upvalues + wipe()'d each RefreshLayout (mirrors CDMGroups):
+-- RefreshLayout is NOT re-entrant (it runs only from the ticker / the deferred ScheduleRelayout /
+-- an event handler — never nested in itself; the custom-buff teardown deliberately avoids re-entering
+-- it), so reusing these is safe and saves the per-pass allocation churn. frameOf/placed/placeholderNeeded
+-- live across the whole pass; lmScratch/sizeScratch are rebuilt (wiped) per GROUP inside the pack loop.
+local rlFrameOf          = {}
+local rlPlaced           = {}
+local rlPlaceholderNeeded = {}
+local rlLayoutMembers    = {}
+local rlSizes            = {}
+
 -- Play a per-icon alert sound. Resolves the LSM "sound" key (icon override -> group ->
 -- default) to a file and PlaySoundFile(..., "Master") — the same path > LSM-key logic as
 -- ns.PlaySoundFromCfg, but reading through BG.IconGet rather than a flat cfg table. Guarded
@@ -985,14 +1019,16 @@ function BG.RefreshLayout()
     end
 
     -- Build spellId -> native frame (the live displayed set). Custom buffs have no native
-    -- frame; their drawn frame stands in.
-    local frameOf = {}
+    -- frame; their drawn frame stands in. (frameOf is a hoisted per-pass scratch table; wipe it.)
+    local frameOf = rlFrameOf
+    wipe(frameOf)
     for _, nf in ipairs(ns.CDMAnchor and ns.CDMAnchor.EnumBuffIcons and ns.CDMAnchor.EnumBuffIcons() or {}) do
         local sid = FrameSpellId(nf)
         if sid then frameOf[sid] = nf end
     end
     if BG.EnumActiveCustomFrames then
-        for spellId, f in pairs(BG.EnumActiveCustomFrames()) do frameOf[spellId] = f end
+        -- Fill our scratch frameOf directly (no fresh table per pass).
+        BG.EnumActiveCustomFrames(frameOf)
     end
 
     -- Per-icon start/stop sound alerts off the active transition (frameOf = the active set).
@@ -1007,11 +1043,17 @@ function BG.RefreshLayout()
     -- frames just Hide. Native frames are PINNED offscreen (not released) so the viewer's
     -- relayout can't reveal them in place — the re-impose hook keeps fighting Blizzard, which
     -- is taint-free (item frames aren't protected). Their own visuals/border/glow go too.
-    local placed = {}
+    local placed = rlPlaced
+    wipe(placed)
     -- Which spellIds want a dim placeholder this pass (effective `placeholder` on + inactive, in a
     -- real shown group). Drawn in the per-slot walk; any active placeholder NOT in here is released
     -- at the end (covers buffs that became active, lost the flag, moved to Unused or a deleted group).
-    local placeholderNeeded = {}
+    local placeholderNeeded = rlPlaceholderNeeded
+    wipe(placeholderNeeded)
+    -- Arm the per-pass AllBuffs memo: the tracked set is read ONCE here and reused by every
+    -- GetGroupBuffs below (Unused + each group) instead of a full CDM scan per group. Dropped at the
+    -- end of the group loop (no AllBuffs reads after it).
+    BG.BeginPass()
     for _, sid in ipairs(BG.GetGroupBuffs(0)) do
         local nf = frameOf[sid]
         if nf then
@@ -1048,7 +1090,9 @@ function BG.RefreshLayout()
         -- Each frame's EFFECTIVE size is its own per-icon override (-> group -> default), so we measure
         -- up front to size the box and pack a variable cursor.
         local staticDisplay = g.staticDisplay == true
-        local layoutMembers, sizes = {}, {}
+        -- layoutMembers/sizes are hoisted scratch tables, rebuilt (wiped) per GROUP.
+        local layoutMembers, sizes = rlLayoutMembers, rlSizes
+        wipe(layoutMembers); wipe(sizes)
         for _, sid in ipairs(members) do
             if staticDisplay or frameOf[sid] or BG.IconGet(sid, "placeholder") == true then
                 layoutMembers[#layoutMembers + 1] = sid
@@ -1127,6 +1171,7 @@ function BG.RefreshLayout()
 
         container:SetShown(count > 0 or g.unlocked)
     end
+    BG.EndPass()  -- done consuming the universe; drop the memo so other callers read fresh
 
     -- Any displayed buff we didn't place (its group resolved to something with no container,
     -- shouldn't happen, but be safe) is released so it isn't left mis-pinned.
@@ -1266,17 +1311,20 @@ local function HookNativeViewer()
 end
 
 -- ── Events ────────────────────────────────────────────────────────────────────
--- The tracked-buff SET changes on spec / talent change (and at load). UNIT_AURA "player"
--- triggers an immediate refresh for snappiness; the ticker re-imposes + packs procs.
--- The custom-buff cast trigger + PLAYER_DEAD deactivation live in the CustomBuffs module.
+-- The tracked-buff SET changes on spec / talent change (and at load). A player aura change
+-- triggers a refresh for snappiness; the ticker re-imposes + packs procs. The custom-buff cast
+-- trigger + PLAYER_DEAD deactivation live in the CustomBuffs module.
+-- The player UNIT_AURA path moves to the SHARED ns.AuraDispatch (one coalescing broadcaster for
+-- the whole addon): the callback fires at most ONCE per frame no matter how many UNIT_AURA the
+-- game bursts (a ~1-frame latency vs the old immediate handler, intended). All the OTHER events
+-- stay on this module's own event frame.
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 ev:RegisterEvent("TRAIT_CONFIG_UPDATED")
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
-ev:RegisterUnitEvent("UNIT_AURA", "player")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")   -- replay native writes deferred during combat
 ev:SetScript("OnEvent", function(_, event)
-    if event == "UNIT_AURA" or event == "PLAYER_REGEN_ENABLED" then
+    if event == "PLAYER_REGEN_ENABLED" then
         if BG.Enabled() then HookNativeViewer(); BG.RefreshLayout() end
     else
         HookNativeViewer()
@@ -1288,15 +1336,33 @@ ev:SetScript("OnEvent", function(_, event)
     end
 end)
 
+-- Player aura change -> coalesced refresh (shared dispatcher, fired next frame).
+ns.AuraDispatch.Register("player", function()
+    if BG.Enabled() then HookNativeViewer(); BG.RefreshLayout() end
+end)
+
+-- Is the addon's config window currently open? When the module is DISABLED the displayed-set
+-- cache only matters for the config strip (the dynamic GroupOf + red flags read it); if the
+-- window is closed there is nothing to keep fresh, so the ticker can do ZERO work that pass.
+-- Cheap (a named-frame IsShown), nil-safe before the window exists.
+local function ConfigOpen()
+    local w = _G.UnbunkUtilityWindow
+    return w and w.IsShown and w:IsShown() and true or false
+end
+
 local accum = 0
 ev:SetScript("OnUpdate", function(_, dt)
     accum = accum + dt
     if accum < 0.2 then return end
     accum = accum - 0.2
-    -- Keep the displayed set fresh on EVERY profile, even when the module is DISABLED: the config's
-    -- dynamic GroupOf + red flags read it, so a profile with the module off must still classify
-    -- Group 1 vs Unused correctly (otherwise the strip looks frozen/empty). Also catches EditMode
-    -- "Tracked Buffs" edits (which don't fire RefreshTracked); notify the config only on a real change.
+    -- DISABLED + config CLOSED: nothing reads the displayed cache, so skip the whole pass (no
+    -- pool enumeration, no RefreshDisplayedCache). The cache re-freshes the instant the user opens
+    -- the config or enables the module (both fall through below).
+    if not BG.Enabled() and not ConfigOpen() then return end
+    -- Keep the displayed set fresh: the config's dynamic GroupOf + red flags read it, so an OPEN
+    -- config with the module off must still classify Group 1 vs Unused correctly (otherwise the
+    -- strip looks frozen/empty). Also catches EditMode "Tracked Buffs" edits (which don't fire
+    -- RefreshTracked); notify the config only on a real change.
     if BG.RefreshDisplayedCache() and BG.onDisplayedChanged then BG.onDisplayedChanged() end
     if not BG.Enabled() then return end
     -- Replay a seed that had to defer (e.g. enabled mid-session after a disabled-at-login defer) once

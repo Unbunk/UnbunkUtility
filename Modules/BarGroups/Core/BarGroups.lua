@@ -110,10 +110,14 @@ end
 
 -- Active pool frames of the native bar viewer (one per DISPLAYED bar; the viewer toggles each
 -- frame's shown state as the buff comes / goes, so we must NOT filter on IsShown here).
-local function EnumBarFrames()
+-- `out` (optional): a caller-supplied scratch array to fill (wiped here) so a hot caller can reuse
+-- one table instead of allocating per call. Omitted (the exported BR.EnumBarFrames path) -> a fresh
+-- table. The two internal hot callers each pass their OWN dedicated scratch (never live at once).
+local function EnumBarFrames(out)
+    out = out or {}
+    wipe(out)
     local v = _G[BAR_VIEWER]
-    if not v then return {} end
-    local out = {}
+    if not v then return out end
     local pool = v.itemFramePool
     if pool and pool.EnumerateActive then
         for f in pool:EnumerateActive() do if f then out[#out + 1] = f end end
@@ -304,8 +308,22 @@ end
 
 -- All bars the config knows about: the tracked (CDM) buffs, computed live so the list always
 -- reflects the current CDM tracked set.
+-- Per-pass memo: RefreshLayout calls GetGroupBuffs once per group plus once for Unused (G+1 times),
+-- and each GetGroupBuffs walks AllBuffs() -> CollectTracked() (a full CDM category scan + table
+-- alloc). Within a single synchronous layout pass the tracked set is stable, so the engine ARMS this
+-- memo around the group loop (BeginPass/EndPass) and AllBuffs returns the cached list instead of
+-- re-scanning per group. The memo is OFF outside a pass (passMemo == nil) so every other caller
+-- (config UI, RefreshTracked, drag) still gets a fresh read. The memoized list is read-only to
+-- callers (GetGroupBuffs only iterates it), so sharing it across the pass is safe.
+local passMemo
+function BR.BeginPass() passMemo = {} end
+function BR.EndPass()   passMemo = nil end
+
 function BR.AllBuffs()
-    return CollectTracked()
+    if passMemo and passMemo.allBuffs then return passMemo.allBuffs end
+    local out = CollectTracked()
+    if passMemo then passMemo.allBuffs = out end
+    return out
 end
 
 -- ── Group containers (anchor target only — native frames are NOT reparented) ────
@@ -537,6 +555,7 @@ local function StyleBarFrame(nf, spellId)
     end
 
     nf._uuBarStyled = true
+    nf._uuStyleVer  = BR.StyleVersion()
 end
 
 -- Drop our pin on a native bar (module off / bar moved out): Blizzard repositions it normally.
@@ -544,8 +563,9 @@ local function ReleaseNative(nf)
     if ns.CDMAnchor and ns.CDMAnchor.ReleaseNativePin then ns.CDMAnchor.ReleaseNativePin(nf) end
 end
 
+local hideAllScratch = {}
 local function HideAll()
-    for _, nf in ipairs(EnumBarFrames()) do ReleaseNative(nf) end
+    for _, nf in ipairs(EnumBarFrames(hideAllScratch)) do ReleaseNative(nf) end
     for _, c in pairs(containers) do c:Hide() end
 end
 
@@ -566,14 +586,27 @@ end
 -- a SHOWN group (Unused / deleted) are pinned offscreen so the viewer can't re-show them in place.
 local OFFSCREEN = -10000
 
+-- Reused scratch tables for RefreshLayout (it is NOT re-entrant — it is only ever called from the
+-- event/timer handlers and the deferred relayout, never nested within itself, and none of the
+-- helpers it calls re-enter it), so we wipe() and refill these instead of allocating per pass.
+-- `rlFrameOf`/`rlPlaced` span the whole pass; `rlLayout`/`rlWidths`/`rlHeights` are per-group (wiped
+-- at the top of each group iteration). `rlEnum` is RefreshLayout's own EnumBarFrames scratch.
+local rlEnum    = {}
+local rlFrameOf = {}
+local rlPlaced  = {}
+local rlLayout  = {}
+local rlWidths  = {}
+local rlHeights = {}
+
 function BR.RefreshLayout()
     if not BR.Enabled() then
         HideAll()
         return
     end
 
-    local frameOf = {}
-    for _, nf in ipairs(EnumBarFrames()) do
+    local frameOf = rlFrameOf
+    wipe(frameOf)
+    for _, nf in ipairs(EnumBarFrames(rlEnum)) do
         local sid = FrameSpellId(nf)
         if sid then frameOf[sid] = nf end
     end
@@ -585,7 +618,12 @@ function BR.RefreshLayout()
 
     -- Unused (group 0) + any bar whose group no longer exists: pin offscreen (not released) so
     -- the viewer's relayout can't reveal them in place.
-    local placed = {}
+    local placed = rlPlaced
+    wipe(placed)
+    -- Arm the per-pass AllBuffs memo: the tracked set is read ONCE here and reused by every
+    -- GetGroupBuffs below (Unused + each group) instead of a full CDM scan per group. Dropped at the
+    -- end of the group loop (no AllBuffs reads after it).
+    BR.BeginPass()
     for _, sid in ipairs(BR.GetGroupBuffs(0)) do
         local nf = frameOf[sid]
         if nf then
@@ -610,7 +648,8 @@ function BR.RefreshLayout()
         -- so the active bars pack together and re-flow as buffs proc / expire. Static Display: lay out
         -- EVERY assigned member so each keeps a fixed slot (an inactive one reserves its slot but stays
         -- invisible). Each bar's effective width/height is its own per-bar override (-> group -> default).
-        local layoutMembers, widths, heights = {}, {}, {}
+        local layoutMembers, widths, heights = rlLayout, rlWidths, rlHeights
+        wipe(layoutMembers); wipe(widths); wipe(heights)
         local maxW, sumH = 0, 0
         for _, sid in ipairs(members) do
             local nf = frameOf[sid]
@@ -652,7 +691,14 @@ function BR.RefreshLayout()
             end
             if nf then
                 placed[sid] = true
-                StyleBarFrame(nf, sid)
+                -- Re-style only when something changed: the bar is dirty (Blizzard re-filled it, which
+                -- clears _uuBarStyled via the SetBarContent hook) OR the config moved on (StyleVersion
+                -- bumped by any per-bar/group write). Per aura tick neither changes, so the bar keeps its
+                -- style and only Blizzard's own fill/value updates — the pin below re-imposes geometry
+                -- every pass regardless, so a skipped restyle never leaves the size wrong.
+                if not nf._uuBarStyled or nf._uuStyleVer ~= BR.StyleVersion() then
+                    StyleBarFrame(nf, sid)
+                end
                 if ns.CDMAnchor and ns.CDMAnchor.PinNativeTo then
                     ns.CDMAnchor.PinNativeTo(nf, container, 0, yTop, w, h)
                 end
@@ -661,6 +707,7 @@ function BR.RefreshLayout()
 
         container:SetShown(count > 0 or g.unlocked)
     end
+    BR.EndPass()  -- done consuming the universe; drop the memo so other callers read fresh
 
     -- Any displayed bar we didn't place is released so it isn't left mis-pinned.
     for sid, nf in pairs(frameOf) do
@@ -770,10 +817,14 @@ local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 ev:RegisterEvent("TRAIT_CONFIG_UPDATED")
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
-ev:RegisterUnitEvent("UNIT_AURA", "player")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+-- UNIT_AURA goes through the shared coalescing dispatcher (one next-frame round per burst)
+-- instead of a per-module RegisterUnitEvent; same body as PLAYER_REGEN_ENABLED below.
+ns.AuraDispatch.Register("player", function()
+    if BR.Enabled() then HookNativeViewer(); BR.RefreshLayout() end
+end)
 ev:SetScript("OnEvent", function(_, event)
-    if event == "UNIT_AURA" or event == "PLAYER_REGEN_ENABLED" then
+    if event == "PLAYER_REGEN_ENABLED" then
         if BR.Enabled() then HookNativeViewer(); BR.RefreshLayout() end
     else
         HookNativeViewer()
@@ -787,6 +838,12 @@ end)
 
 local accum = 0
 ev:SetScript("OnUpdate", function(_, dt)
+    -- Gate: the only consumer of this poll while the module is DISABLED is the config strip's
+    -- displayed-set red flags, which read displayedCache via BR.onDisplayedChanged. When the module
+    -- is off AND no config consumer is registered (the panel was never opened), there is nothing to
+    -- keep fresh — skip ALL work (no accum bookkeeping, no native pool scan) so a disabled module is
+    -- truly idle.
+    if not (BR.Enabled() or BR.onDisplayedChanged) then return end
     accum = accum + dt
     if accum < 0.2 then return end
     accum = accum - 0.2
