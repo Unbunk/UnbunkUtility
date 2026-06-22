@@ -66,10 +66,13 @@ local function EnsureLockText(selection)
 end
 
 local function ShowLockText(frame, shown)
-    if InCombatLockdown() then return end
     local selection = frame.Selection
     if not selection then return end
     if not shown then
+        -- The hide path must ALWAYS run, even in combat: skipping it (e.g. the 2s
+        -- auto-hide firing mid-fight) would leave the overlay stuck on screen. These
+        -- are display-only regions (a plain Frame + a FontString, never protected),
+        -- so hiding them in combat is safe.
         local st = lockState[selection]
         if st then
             if st.text then st.text:Hide() end
@@ -77,6 +80,9 @@ local function ShowLockText(frame, shown)
         end
         return
     end
+    -- Show creates the overlay/FontString on first use (CreateFrame is taint-safe but
+    -- can taint a protected parent's execution path), so keep the combat guard here.
+    if InCombatLockdown() then return end
     local st = EnsureLockText(selection)
     st.overlay:Show()
     st.text:SetText(Loc("Managed by UnbunkUtility (/ubu)"))

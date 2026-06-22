@@ -2,7 +2,7 @@
 ## Title: Unbunk Utility
 ## Notes: Utility addon
 ## Author: Unbunk
-## Version: 4.5.8
+## Version: 5.0.0
 ## SavedVariables: HealerRangeDB, DeathAlertDB, BLTrackerDB, PotionTrackerDB, TrinketTrackerDB, UnbunkUtilityDB, PITrackerDB, PlayerDeathDB, BResTrackerDB, HealthstoneTrackerDB, UnbunkUtilityAceDB
 ## IconTexture: Interface\AddOns\UnbunkUtility\Media\Icons\UnbunkUtility.tga
 
@@ -17,6 +17,7 @@ Libs/Ace3-master/AceEvent-3.0/AceEvent-3.0.lua
 Libs/Ace3-master/AceDB-3.0/AceDB-3.0.lua
 Libs/LibDeflate-1.0.2-release/LibDeflate.lua
 Core/Shared.lua
+Core/AuraDispatch.lua
 Core/DB.lua
 Core/Welcome.lua
 Core/CDMAnchor.lua
