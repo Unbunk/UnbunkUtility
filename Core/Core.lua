@@ -818,9 +818,17 @@ local function CreateMainWindow()
     sb.track:Show()
 
     window:HookScript("OnShow", function()
-        -- Re-measure the active panel now the window is actually laid out (it was
-        -- first built while hidden, where widths/positions can read back as 0).
-        ns.ResizeActiveModule()
+        -- The heavier panels (Essential / Utility / Buffs / Bars) rebuild AND re-measure
+        -- their content from their OWN frame's OnShow hook, which fires on a tab switch but
+        -- NOT reliably when the WINDOW itself is re-opened (the panel's shown state never
+        -- changed, and the rebuild that does run races the window's layout). The result: the
+        -- panel that was active when the window closed can come back empty until you switch
+        -- tabs and back. Re-show the active panel on the next frame — once the window is laid
+        -- out — to run the exact same rebuild + re-measure path a tab switch uses. This also
+        -- covers the plain "re-measure after first built while hidden" case.
+        C_Timer.After(0, function()
+            if window:IsShown() then UnbunkUtility.ShowActiveModule() end
+        end)
         C_Timer.After(0.1, function() sb.Update() end)
     end)
 
