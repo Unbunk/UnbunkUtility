@@ -177,6 +177,22 @@ local function CreateCastBarPanel(parent)
             colorGroupEntry(L["Channel color"],         "channelColor"),
             colorGroupEntry(L["Uninterruptible color"], "uninterruptibleColor"),
         } end },
+
+        -- ════════════ Border (Enable greys colour + thickness) ════════════
+        { type = "group", title = L["Border"], build = function() return {
+            { type = "checkbox", label = L["Enable"],
+              get = function() return CB.CfgGet("borderEnabled") ~= false end,
+              set = function(v) CB.CfgSet("borderEnabled", v); CB.ApplyConfig(); if menu then menu.Refresh() end end },
+            { type = "textEditor", label = L["Color"],
+              enabledBy = function() return CB.CfgGet("borderEnabled") ~= false end,
+              showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+              getColor = function() return CB.CfgGet("borderColor") end,
+              onColorChange = function(r, g, b, a) CB.CfgSet("borderColor", { r = r, g = g, b = b, a = a }); CB.ApplyConfig() end },
+            { type = "textinput", label = L["Border thickness"], width = 60, numeric = true, min = 1, max = 16, maxLetters = 2,
+              enabledBy = function() return CB.CfgGet("borderEnabled") ~= false end,
+              get = function() return CB.CfgGet("borderThickness") end,
+              set = function(v) if v and v >= 1 then CB.CfgSet("borderThickness", v); CB.ApplyConfig() end end },
+        } end },
     }
 
     menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })

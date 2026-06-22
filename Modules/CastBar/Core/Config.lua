@@ -41,9 +41,13 @@ local DEFAULTS = {
     timerColor    = { r = 1, g = 1, b = 1, a = 1 },
     timerXOffset  = -3, timerYOffset = 0,
     -- Bar fill colours per cast state.
-    castColor          = { r = 1.0, g = 0.7,  b = 0.0,  a = 1 },  -- normal cast (gold)
-    channelColor       = { r = 0.0, g = 0.9,  b = 0.3,  a = 1 },  -- channelled (green)
-    uninterruptibleColor = { r = 0.6, g = 0.6, b = 0.6, a = 1 },  -- not interruptible (grey)
+    castColor          = { r = 0.20, g = 0.55, b = 1.0, a = 1 },  -- #338CFF (brand blue)
+    channelColor       = { r = 0.20, g = 0.72, b = 1.0, a = 1 },  -- #33B8FF
+    uninterruptibleColor = { r = 0.20, g = 0.55, b = 1.0, a = 1 },  -- #338CFF (brand blue)
+    -- Border around the whole bar (icon + fill).
+    borderEnabled   = true,
+    borderColor     = { r = 0, g = 0, b = 0, a = 1 },             -- black
+    borderThickness = 1,
 }
 
 function CB.CfgInit()
@@ -62,6 +66,24 @@ function CB.CfgInit()
                 if s.fontSize  then s[p .. "FontSize"] = s.fontSize end
                 if s.outline   then s[p .. "Outline"]  = s.outline  end
                 if s.textColor then s[p .. "Color"]    = ns.DeepCopy(s.textColor) end
+            end
+        end
+    end
+    -- One-shot: bump the stock cast/channel/uninterruptible colours to the brand palette for
+    -- setups still sitting on the old gold/green/grey defaults. Anything the user customised
+    -- (i.e. not matching the old default) is left untouched.
+    if not s.brandColorsV1 then
+        s.brandColorsV1 = true
+        local OLD = {
+            castColor            = { r = 1.0, g = 0.7, b = 0.0 },
+            channelColor         = { r = 0.0, g = 0.9, b = 0.3 },
+            uninterruptibleColor = { r = 0.6, g = 0.6, b = 0.6 },
+        }
+        local function near(a, b) return a and math.abs((a or 0) - b) < 0.01 end
+        for key, o in pairs(OLD) do
+            local c = s[key]
+            if c and near(c.r, o.r) and near(c.g, o.g) and near(c.b, o.b) then
+                s[key] = ns.CopyDefault(DEFAULTS[key])
             end
         end
     end
