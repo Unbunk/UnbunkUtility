@@ -1,16 +1,37 @@
 -- Modules/DetailsProfile/UI/ConfigWindow.lua
--- The owner-only "Personal utilities" sub-tab (gated in Core.lua by debug-unlock AND
--- IsAccountOwner). Hosts the Details! profile auto-switch (ns.DetailsProfile) — a
--- dynamic list of profile cadres, each with a group-based and an instance-based
--- criterion — plus a one-click "Restore my profile" button whose baked-in blob and
--- import logic live in Modules/Profiles/Core/OwnerProfile.lua (ns.RestoreOwnerProfile).
+-- The owner-only "Personal utilities" sub-category (gated in Core.lua by debug-unlock
+-- AND IsAccountOwner). It holds two tabs:
+--   * "Restore my profile"        — a one-click import of the baked-in UnbunkUtility
+--                                    profile (blob + logic in Modules/Profiles/Core/
+--                                    OwnerProfile.lua, ns.RestoreOwnerProfile).
+--   * "Details! special settings" — the Details! profile auto-switch (ns.DetailsProfile):
+--                                    a dynamic list of profile cadres, each with a
+--                                    group-based and an instance-based criterion.
 
 local _, ns = ...
 local L = ns.L
 
 local function dcfg() return ns.DetailsProfile and ns.DetailsProfile.Cfg() end
 
-local function CreatePersonalPanel(parent)
+-- A wrapping, grey H6 description that fits the cadre width (no horizontal overflow)
+-- and self-sizes its height (so it leaves no stray gap below). Shared by both tabs.
+local function GreyDescription(text)
+    return { type = "custom", build = function(host)
+        local fs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+        fs:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+        fs:SetPoint("TOPRIGHT", host, "TOPRIGHT", 0, 0)
+        fs:SetJustifyH("LEFT")
+        fs:SetWordWrap(true)
+        fs:SetTextColor(0.6, 0.6, 0.6)
+        fs:SetText(text)
+        local h = math.max(16, math.ceil((fs:GetStringHeight() or 14) + 4))
+        host:SetHeight(h)
+        return { frame = host, height = h }
+    end }
+end
+
+-- ── "Details! special settings" tab ────────────────────────────────────────────
+local function CreateDetailsPanel(parent)
     local menu                                   -- forward ref so closures can rebuild
     local function rebuild() if menu then menu.Rebuild() end end
     local function touch()
@@ -44,23 +65,6 @@ local function CreatePersonalPanel(parent)
                 end,
             })
         end)
-    end
-
-    -- A wrapping, grey H6 description that fits the cadre width (no horizontal overflow)
-    -- and self-sizes its height (so it leaves no stray gap below).
-    local function GreyDescription(text)
-        return { type = "custom", build = function(host)
-            local fs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
-            fs:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-            fs:SetPoint("TOPRIGHT", host, "TOPRIGHT", 0, 0)
-            fs:SetJustifyH("LEFT")
-            fs:SetWordWrap(true)
-            fs:SetTextColor(0.6, 0.6, 0.6)
-            fs:SetText(text)
-            local h = math.max(16, math.ceil((fs:GetStringHeight() or 14) + 4))
-            host:SetHeight(h)
-            return { frame = host, height = h }
-        end }
     end
 
     -- The per-profile fade control: "Fade Details!" + a numeric opacity input + a grey
@@ -269,47 +273,60 @@ local function CreatePersonalPanel(parent)
             end }
     end
 
+    -- The dynamic body: a description, an optional "not detected" warning, the master
+    -- Enable, every saved profile cadre, then the "Create profile" button. Returned by
+    -- the group's `build` so menu.Rebuild() regenerates it after add/remove.
+    local function BuildBody()
+        local entries = {
+            GreyDescription(L["Create profiles that switch your Details! profile and/or fade the meter based on your group and the instance you are in."]),
+        }
+
+        -- Only show (and reserve space for) the warning when Details! is actually absent.
+        if not (ns.DetailsProfile and ns.DetailsProfile.DetailsReady()) then
+            entries[#entries + 1] = { type = "custom", height = 18, build = function(host)
+                local fs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+                fs:SetPoint("LEFT", host, "LEFT", 0, 0)
+                fs:SetTextColor(1, 0.5, 0.2)
+                fs:SetText(L["Details! not detected — install / enable it for this to work."])
+                return { frame = host, height = 18 }
+            end }
+        end
+
+        entries[#entries + 1] = { type = "checkbox", label = L["Enable"],
+            get = function() local c = dcfg(); return c and c.enabled end,
+            set = function(v) local c = dcfg(); if c then c.enabled = v and true or false end; touch() end }
+
+        local c = dcfg()
+        if c and c.profiles then
+            for i, p in ipairs(c.profiles) do
+                entries[#entries + 1] = ProfileCadre(p, i)
+            end
+        end
+
+        -- "Create profile" sits below the existing profiles. Settings apply live (every
+        -- set calls touch()), so there is no separate "Apply now" button.
+        entries[#entries + 1] = { type = "button", label = L["Create profile"], width = 160, hostHeight = 30,
+            onClick = function()
+                if ns.DetailsProfile and ns.DetailsProfile.NewProfile then ns.DetailsProfile.NewProfile() end
+                rebuild()
+            end }
+        return entries
+    end
+
     local options = {
-        { type = "label", font = "UnbunkUtilityH2", height = 28, text = L["Personal utilities"] },
+        { type = "label", font = "UnbunkUtilityH2", height = 28, text = L["Details! special settings"] },
+        { type = "group", build = BuildBody },
+    }
 
-        { type = "group", title = L["Details! special settings"], build = function()
-            local entries = {
-                GreyDescription(L["Create profiles that switch your Details! profile and/or fade the meter based on your group and the instance you are in."]),
-            }
+    menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
+    return menu
+end
 
-            -- Only show (and reserve space for) the warning when Details! is actually absent.
-            if not (ns.DetailsProfile and ns.DetailsProfile.DetailsReady()) then
-                entries[#entries + 1] = { type = "custom", height = 18, build = function(host)
-                    local fs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
-                    fs:SetPoint("LEFT", host, "LEFT", 0, 0)
-                    fs:SetTextColor(1, 0.5, 0.2)
-                    fs:SetText(L["Details! not detected — install / enable it for this to work."])
-                    return { frame = host, height = 18 }
-                end }
-            end
-
-            entries[#entries + 1] = { type = "checkbox", label = L["Enable"],
-                get = function() local c = dcfg(); return c and c.enabled end,
-                set = function(v) local c = dcfg(); if c then c.enabled = v and true or false end; touch() end }
-
-            local c = dcfg()
-            if c and c.profiles then
-                for i, p in ipairs(c.profiles) do
-                    entries[#entries + 1] = ProfileCadre(p, i)
-                end
-            end
-
-            -- "Create profile" sits below the existing profiles. Settings apply live (every
-            -- set calls touch()), so there is no separate "Apply now" button.
-            entries[#entries + 1] = { type = "button", label = L["Create profile"], width = 160, hostHeight = 30,
-                onClick = function()
-                    if ns.DetailsProfile and ns.DetailsProfile.NewProfile then ns.DetailsProfile.NewProfile() end
-                    rebuild()
-                end }
-            return entries
-        end },
-
-        { type = "group", title = L["Restore my profile"], build = function()
+-- ── "Restore my profile" tab ───────────────────────────────────────────────────
+local function CreateRestorePanel(parent)
+    local options = {
+        { type = "label", font = "UnbunkUtilityH2", height = 28, text = L["Restore my profile"] },
+        { type = "group", build = function()
             return {
                 GreyDescription(L["Imports the UnbunkUtility profile hardcoded in the addon into a new profile (non-destructive), in case you lose your settings."]),
                 { type = "button", label = L["Import my profile"], width = 180, hostHeight = 28,
@@ -317,15 +334,14 @@ local function CreatePersonalPanel(parent)
             }
         end },
     }
-
-    menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
-    return menu
+    return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
 end
 
 local initDP = CreateFrame("Frame")
 initDP:RegisterEvent("ADDON_LOADED")
 initDP:SetScript("OnEvent", function(self, _, addon)
     if addon ~= "UnbunkUtility" then return end
-    UnbunkUtility.RegisterModule(L["Personal utilities"], nil, CreatePersonalPanel)
+    UnbunkUtility.RegisterModule(L["Restore my profile"],        nil, CreateRestorePanel)
+    UnbunkUtility.RegisterModule(L["Details! special settings"], nil, CreateDetailsPanel)
     self:UnregisterEvent("ADDON_LOADED")
 end)

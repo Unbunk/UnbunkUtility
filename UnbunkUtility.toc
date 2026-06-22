@@ -2,7 +2,7 @@
 ## Title: Unbunk Utility
 ## Notes: Utility addon
 ## Author: Unbunk
-## Version: 4.5.5
+## Version: 4.5.7
 ## SavedVariables: HealerRangeDB, DeathAlertDB, BLTrackerDB, PotionTrackerDB, TrinketTrackerDB, UnbunkUtilityDB, PITrackerDB, PlayerDeathDB, BResTrackerDB, HealthstoneTrackerDB, UnbunkUtilityAceDB
 ## IconTexture: Interface\AddOns\UnbunkUtility\Media\Icons\UnbunkUtility.tga
 
@@ -116,6 +116,8 @@ Modules/Fader/Core/Fader.lua
 Modules/Fader/UI/ConfigWindow.lua
 Modules/DetailsProfile/Core/DetailsProfile.lua
 Modules/DetailsProfile/UI/ConfigWindow.lua
+Modules/DisableKeybinds/Core/DisableKeybinds.lua
+Modules/DisableKeybinds/UI/ConfigWindow.lua
 Modules/ReloadAnnounce/Core/ReloadAnnounce.lua
 Modules/ReloadAnnounce/UI/ConfigWindow.lua
 Modules/ShowIDs/Core/ShowIDs.lua

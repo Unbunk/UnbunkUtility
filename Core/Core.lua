@@ -155,6 +155,7 @@ local function BuildNavTree()
             { panel = L["Death Anim"] },
             { panel = L["Boss reset sound"] },
             { panel = L["Reloading announcement"] },
+            { panel = L["Show IDs"] },
         } },
         { name = L["Debug Utilities"], subs = (function()
             -- The "Debug" sub-tab is always present (it hosts the "I know what I'm
@@ -173,7 +174,11 @@ local function BuildNavTree()
                 -- developer's Battle.net account.
                 if ns.IsAccountOwner and ns.IsAccountOwner() then
                     subs[#subs + 1] = { cat = L["Unbunk"], subs = {
-                        { panel = L["Personal utilities"] },
+                        { cat = L["Personal utilities"], subs = {
+                            { panel = L["Restore my profile"] },
+                            { panel = L["Details! special settings"] },
+                            { panel = L["Disable keybinds"] },
+                        } },
                     } }
                 end
             end
@@ -331,10 +336,21 @@ local ROW_GAP  = 2
 -- sub-tab menu (not above it). BuildMainTabs also uses it to size the tabs.
 local CONTENT_X = 16 + MENU_W + 17
 
+-- A row is hidden when ANY of its ancestor categories is folded. `row.ancestors`
+-- is the ordered list of enclosing category names (outermost first); a top-level
+-- row has none. This supports categories nested inside categories.
+local function RowHidden(row)
+    if not row.ancestors then return false end
+    for _, c in ipairs(row.ancestors) do
+        if collapsed[c] then return true end
+    end
+    return false
+end
+
 local function LayoutLeftMenu()
     local y = 0
     for _, row in ipairs(menuRows) do
-        local hide = row.catName and collapsed[row.catName]   -- sub under a folded category
+        local hide = RowHidden(row)
         if hide then
             row:Hide()
         else
@@ -355,10 +371,14 @@ local function MakeRow()
     return btn
 end
 
-local function MakeSubRow(panelName, catName)
+-- Each nesting level (an enclosing category) indents a row by this many px.
+local NEST_INDENT = 14
+
+local function MakeSubRow(panelName, ancestors)
     local btn = MakeRow()
     btn.panelName = panelName
-    btn.catName   = catName
+    btn.ancestors = ancestors            -- enclosing categories (folded => row hidden)
+    local depth   = ancestors and #ancestors or 0
 
     -- Left accent bar: shown ONLY on the active sub-tab, so the selection stays
     -- distinct from a mere hover (which only recolours the label).
@@ -370,11 +390,22 @@ local function MakeSubRow(panelName, catName)
     accent:Hide()
     btn.accent = accent
 
+    local indent = 20 + depth * NEST_INDENT
     local lbl = btn:CreateFontString(nil, "OVERLAY", "UnbunkUtilityBody")
-    lbl:SetPoint("LEFT", btn, "LEFT", catName and 34 or 20, 0)
+    lbl:SetPoint("LEFT", btn, "LEFT", indent, 0)
     lbl:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
     lbl:SetJustifyH("LEFT")
+    lbl:SetWordWrap(false)                       -- keep the row a single line (deep nesting => narrow)
     lbl:SetText(panelName)
+    -- Shrink a too-long label to fit the remaining menu width (deeply nested sub-tabs
+    -- have little room), the way the main tabs do — down to an 8px floor.
+    local avail = MENU_W - indent - 6
+    local fp, fsz, ffl = lbl:GetFont()
+    local fs = fsz or 11
+    while fs > 8 and lbl:GetStringWidth() > avail do
+        fs = fs - 1
+        lbl:SetFont(fp, fs, ffl)
+    end
     btn.label = lbl
 
     btn:SetScript("OnEnter", function() lbl:SetTextColor(BR, BG, BB) end)
@@ -389,13 +420,16 @@ local function MakeSubRow(panelName, catName)
     return btn
 end
 
-local function MakeCatRow(catName)
+local function MakeCatRow(catName, ancestors)
     local btn = MakeRow()
-    btn.catName = nil    -- a category header is never hidden by collapse
+    -- A category header is itself hidden only when an ENCLOSING category is folded
+    -- (nested categories); folding the header's own category hides its children, not it.
+    btn.ancestors = ancestors
+    local depth   = ancestors and #ancestors or 0
 
     local arrow = btn:CreateTexture(nil, "OVERLAY")
     arrow:SetSize(8, 8)
-    arrow:SetPoint("LEFT", btn, "LEFT", 6, 0)
+    arrow:SetPoint("LEFT", btn, "LEFT", 6 + depth * NEST_INDENT, 0)
     if UNBUNK_ICON_DROPDOWN_ARROW then
         arrow:SetTexture(UNBUNK_ICON_DROPDOWN_ARROW)
         ns.SetBrandVertex(arrow)   -- white glyph -> brand blue (re-tinted live)
@@ -442,18 +476,24 @@ local function BuildLeftMenu(mainIndex)
     else
         menuRows = {}
         local tab = navTree[mainIndex]
-        if tab then
-            for _, item in ipairs(tab.subs) do
+        -- Walk the subs recursively so a category can itself hold sub-categories.
+        -- `ancestors` is the ordered list of enclosing category names (nil at the top).
+        local function addItems(items, ancestors)
+            for _, item in ipairs(items) do
                 if item.cat then
-                    table.insert(menuRows, MakeCatRow(item.cat))
-                    for _, sub in ipairs(item.subs) do
-                        table.insert(menuRows, MakeSubRow(sub.panel, item.cat))
+                    table.insert(menuRows, MakeCatRow(item.cat, ancestors))
+                    local childAncestors = {}
+                    if ancestors then
+                        for _, a in ipairs(ancestors) do childAncestors[#childAncestors + 1] = a end
                     end
+                    childAncestors[#childAncestors + 1] = item.cat
+                    addItems(item.subs, childAncestors)
                 else
-                    table.insert(menuRows, MakeSubRow(item.panel, nil))
+                    table.insert(menuRows, MakeSubRow(item.panel, ancestors))
                 end
             end
         end
+        if tab then addItems(tab.subs, nil) end
         menuCache[mainIndex] = menuRows
     end
     LayoutLeftMenu()
@@ -477,23 +517,29 @@ end
 -- its category if needed. Used by the Free-icons tab to click through to a tracker.
 function ns.NavigateToPanel(panelName)
     if not (navTree and panelName) then return end
-    for mi, tab in ipairs(navTree) do
-        for _, item in ipairs(tab.subs) do
+    -- Find the panel anywhere in the (possibly nested) tree, collecting the chain of
+    -- enclosing categories so they can all be revealed.
+    local function search(items, cats)
+        for _, item in ipairs(items) do
             if item.panel == panelName then
-                if activeMain ~= mi then ShowMainTab(mi) end
-                ShowSubTab(panelName)
-                return true
+                return cats
             elseif item.subs then
-                for _, s in ipairs(item.subs) do
-                    if s.panel == panelName then
-                        if activeMain ~= mi then ShowMainTab(mi) end
-                        collapsed[item.cat] = false   -- reveal the category holding it
-                        LayoutLeftMenu()
-                        ShowSubTab(panelName)
-                        return true
-                    end
-                end
+                local nc = {}
+                for _, c in ipairs(cats) do nc[#nc + 1] = c end
+                nc[#nc + 1] = item.cat
+                local found = search(item.subs, nc)
+                if found then return found end
             end
+        end
+    end
+    for mi, tab in ipairs(navTree) do
+        local cats = search(tab.subs, {})
+        if cats then
+            if activeMain ~= mi then ShowMainTab(mi) end
+            for _, c in ipairs(cats) do collapsed[c] = false end   -- reveal every enclosing category
+            LayoutLeftMenu()
+            ShowSubTab(panelName)
+            return true
         end
     end
 end
