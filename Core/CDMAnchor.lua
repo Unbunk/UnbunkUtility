@@ -1431,8 +1431,16 @@ end
 -- x,y = TOPLEFT offset from the viewer; w,h (optional) = the row's icon-size override,
 -- re-imposed alongside the position so Blizzard's relayout can't reset it.
 local function PinNative(nf, viewer, x, y, w, h)
-    nf._uuPin = { viewer = viewer, x = x, y = y, w = w, h = h }
+    -- Reuse the pin table in place (this runs per member per tick from BarGroups +
+    -- BuffGroups — a fresh table each call was a steady allocation drip). If nothing
+    -- placement-relevant changed since last pin, we can also skip the raw re-anchor /
+    -- SetSize entirely (the hooks already keep Blizzard from moving it).
+    local p = nf._uuPin or {}
+    local unchanged = p.viewer == viewer and p.x == x and p.y == y and p.w == w and p.h == h
+    p.viewer, p.x, p.y, p.w, p.h = viewer, x, y, w, h
+    nf._uuPin = p
     if not CanWrite(nf) then return end
+    if unchanged and nf._uuPinHook then return end
     if nf:GetScale() ~= 1 then nf:SetScale(1) end
     if not nf._uuPinHook then
         nf._uuPinHook = true
@@ -1861,34 +1869,35 @@ local function ComputeSig()
     return table.concat(p, "|")
 end
 
-local refreshing = false
-local function DoRefresh(force)
-    if refreshing then return end  -- re-entrancy guard (ApplyPosition calls back)
-    -- We DON'T bail in combat: only the viewer glue is protected (skipped in combat
-    -- inside LayoutCDMRow); everything else (container/pins/our icons) updates live
-    -- so the slot row stays in sync when natives appear/disappear mid-fight.
-    refreshing = true
-    -- Whole body in a pcall so a throwing getCfg can never leave `refreshing`
-    -- stuck true (which would soft-lock every later refresh until /reload).
-    local rok, rerr = pcall(function()
-    local sig = ComputeSig()
-    if not force and sig == lastSig then return end  -- nothing placement-relevant changed
-    lastSig = sig
+-- Hoisted out of DoRefresh so the per-pass pcall doesn't allocate a fresh closure
+-- (this runs up to ~10x/sec). owned() is likewise module-level — it captured nothing.
+-- OWNERSHIP GUARD: when the NEW "Cooldown groups" engine is enabled for a dest
+-- (ns.CDMGroups.OwnsDest), it takes over that native viewer (e.g. EssentialCooldownViewer)
+-- and drives its frames into movable group containers. The OLD bucket system here must then
+-- NOT also route icons into that viewer or take it over.
+local function owned(dest)
+    return ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest) or false
+end
+
+local function DoRefreshBody(force)
+    if force then
+        -- Forced pass re-pins unconditionally; its ComputeSig result is unused, so skip
+        -- the cost. Drop the baseline too: the next non-forced pass recomputes from scratch.
+        lastSig = nil
+    else
+        local sig = ComputeSig()
+        if sig == lastSig then return end  -- nothing placement-relevant changed
+        lastSig = sig
+    end
     local groups, hasBelow = {}, false
     -- Cooldown Manager off in the options -> treat every icon as free (inc=false),
     -- so they all fall to the d.apply free-placement branch and any owned viewer is
     -- released below. Evaluated once per pass.
     local cdmOn = ns.IsCDMEnabled()
-    -- OWNERSHIP GUARD: when the NEW "Cooldown groups" engine is enabled for a dest
-    -- (ns.CDMGroups.OwnsDest), it takes over that native viewer (e.g. EssentialCooldownViewer)
-    -- and drives its frames into movable group containers. The OLD bucket system here must then
-    -- NOT also route icons into that viewer or take it over: an icon destined for an owned dest
-    -- falls through to free placement (d.apply), and the override-takeover below skips it. The
-    -- release loop further down still gives a one-time clean handoff (UnpinNatives) the first time
+    -- owned() (module-level): an icon destined for an owned dest falls through to free
+    -- placement (d.apply), and the override-takeover below skips it. The release loop
+    -- further down still gives a one-time clean handoff (UnpinNatives) the first time
     -- ownership flips, after which the viewer is no longer _uuGlued and the loop is inert.
-    local function owned(dest)
-        return ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest) or false
-    end
     for _, d in ipairs(appliers) do
         local inc  = cdmOn and d.getCfg and d.getCfg("includeInCdm")
         local dest = (d.getCfg and d.getCfg("cdmDest")) or "essential"
@@ -1942,7 +1951,18 @@ local function DoRefresh(force)
     -- Keep our icons matching the reference addon's current fade alpha (icons just (re)laid out
     -- would otherwise pop to full opacity mid-fade).
     pcall(ReapplyFade)
-    end)  -- pcall body
+end
+
+local refreshing = false
+local function DoRefresh(force)
+    if refreshing then return end  -- re-entrancy guard (ApplyPosition calls back)
+    -- We DON'T bail in combat: only the viewer glue is protected (skipped in combat
+    -- inside LayoutCDMRow); everything else (container/pins/our icons) updates live
+    -- so the slot row stays in sync when natives appear/disappear mid-fight.
+    refreshing = true
+    -- Body in a pcall so a throwing getCfg can never leave `refreshing` stuck true
+    -- (which would soft-lock every later refresh until /reload).
+    local rok, rerr = pcall(DoRefreshBody, force)
     refreshing = false
     if not rok then ns.Print("CDM refresh error: " .. tostring(rerr)) end
 end
@@ -2020,8 +2040,12 @@ f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
 f:RegisterEvent("PLAYER_REGEN_ENABLED")
 f:RegisterEvent("CVAR_UPDATE")
-f:SetScript("OnEvent", function(_, event)
+f:SetScript("OnEvent", function(_, event, cvarName)
     if event == "CVAR_UPDATE" then
+        -- CVAR_UPDATE fires for EVERY CVar; only the cooldown-viewer toggle can change
+        -- our placement. Early-out on the changed-CVar name so unrelated events don't
+        -- even pay the GetCVarBool read below.
+        if cvarName and cvarName ~= "cooldownViewerEnabled" then return end
         -- React only when the Cooldown Manager enable state flips: force a re-layout
         -- (every icon moves between CDM and free placement) and rebuild any open
         -- tracker config so its greyed checkbox + CDM/free controls update live.

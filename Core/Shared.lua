@@ -87,13 +87,24 @@ end
 -- Resolves a usable font path: explicit path > LSM key > FRIZQT fallback.
 -- Prevents the default font (stored as an LSM key like "2002 Bold") from
 -- silently falling back to FRIZQT until the user reopens the font picker.
+-- Per-key memo: LSM font registration is static once a key is registered and
+-- SetAddonFont re-faces the font objects directly, so caching each key's resolved
+-- path avoids an uncached LibStub + LSM:Fetch on every call. We only cache a
+-- SUCCESSFUL Fetch: a key that doesn't resolve yet (queried before its registering
+-- addon's ADDON_LOADED, or before LSM loaded) is left uncached so a later call can
+-- still pick it up once it's registered — caching `false` would pin it to the
+-- FRIZQT fallback for the whole session. A failed Fetch is cheap and rare.
+local fontPathCache = {}
 function ns.ResolveFontPath(path, key)
     if path then return path end
     if key then
+        local c = fontPathCache[key]
+        if c then return c end
         local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-        if LSM then
-            local fetched = LSM:Fetch("font", key)
-            if fetched then return fetched end
+        local resolved = LSM and LSM:Fetch("font", key)
+        if resolved then
+            fontPathCache[key] = resolved
+            return resolved
         end
     end
     return "Fonts\\FRIZQT__.TTF"
