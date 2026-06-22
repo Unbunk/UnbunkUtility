@@ -139,7 +139,7 @@ local function MakeGroup1(dest)
         g.anchorTo = "essential"
         g.relPos   = "below"
         g.posX     = 0
-        g.posY     = 0
+        g.posY     = -2   -- small downward nudge below the Essential block
     else
         g.posX = 0
         g.posY = -220   -- sits below screen center (where the Essential CDM normally lives); other groups default to 0
@@ -225,6 +225,13 @@ function CDG.Make(dest)
         if dest == "essential" and not s.g1DefaultYApplied then
             s.g1DefaultYApplied = true
             if s.groups[1] then s.groups[1].posY = -222 end
+        end
+        -- One-time: the UTILITY Group 1's default Y becomes -2 (a small downward nudge below the
+        -- Essential block). Applied once to a profile whose Group 1 predates this default (it was 0).
+        -- UTILITY-ONLY (essential's Group 1 uses the -222 screen-center offset above).
+        if dest == "utility" and not s.utilityG1YV1 then
+            s.utilityG1YV1 = true
+            if s.groups[1] then s.groups[1].posY = -2 end
         end
         -- One-time: the engine is now ON by default (it replaces the old bucket placement). Flip a
         -- profile that predates this default ON once; the user can still toggle it off afterward. Each

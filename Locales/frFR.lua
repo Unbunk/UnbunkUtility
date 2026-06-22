@@ -651,6 +651,30 @@ L["Show placeholder"] = "Afficher l'espace réservé"
 L["Hide placeholder"] = "Masquer l'espace réservé"
 L["Enable time thresholds"] = "Activer les paliers de temps"
 
+-- ── Bar groups ───────────────────────────────────────────────────────────────
+L["Bars"] = "Barres"
+L["Enable custom CDM Bars"] = "Activer les barres CDM personnalisées"
+L["Bar groups"] = "Groupes de barres"
+L["A custom layout built from the native bar Cooldown Manager. Enable the \"Buff Bar\" viewer in Blizzard's Edit Mode for bars to appear."] = "Une disposition personnalisée construite à partir du Cooldown Manager natif des barres. Activez l'afficheur « Buff Bar » dans le mode Édition de Blizzard pour que les barres apparaissent."
+L["Bars here are hidden. Drag them onto a group to show them."] = "Les barres ici sont masquées. Glissez-les sur un groupe pour les afficher."
+L["Bar style"] = "Style de la barre"
+L["Bar colors"] = "Couleurs de la barre"
+L["Bar layout"] = "Disposition de la barre"
+L["Bar size"] = "Taille de la barre"
+L["Bar color"] = "Couleur de la barre"
+L["Background color"] = "Couleur de fond"
+L["Icon position"] = "Position de l'icône"
+L["Fill direction"] = "Sens de remplissage"
+L["Invert fill"] = "Inverser le remplissage"
+L["Bar height"] = "Hauteur de la barre"
+L["Bar width"] = "Largeur de la barre"
+L["Hidden"] = "Masquée"
+L["Name"] = "Nom"
+L["Override name"] = "Remplacer le nom"
+L["Custom name"] = "Nom personnalisé"
+L["Tick \"Override group settings\" in a section to give this bar its own values; untick it to inherit the group again."] = "Cochez « Surcharger les réglages du groupe » dans une section pour donner à cette barre ses propres valeurs ; décochez pour hériter de nouveau du groupe."
+L["Not in the Cooldown Manager's bar viewer — it won't display."] = "Pas dans l'afficheur de barres du Cooldown Manager — ne s'affichera pas."
+
 -- Apply now so a frFR client shows French at load time (before ns.db exists). Core/
 -- DB.lua re-applies once the saved account-wide override is known.
 ns.ApplyLocale()
