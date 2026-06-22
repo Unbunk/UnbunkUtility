@@ -178,6 +178,7 @@ local function BuildNavTree()
                             { panel = L["Restore my profile"] },
                             { panel = L["Details! special settings"] },
                             { panel = L["Disable keybinds"] },
+                            { panel = L["Focus buffs"] },
                         } },
                     } }
                 end

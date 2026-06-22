@@ -118,6 +118,8 @@ Modules/DetailsProfile/Core/DetailsProfile.lua
 Modules/DetailsProfile/UI/ConfigWindow.lua
 Modules/DisableKeybinds/Core/DisableKeybinds.lua
 Modules/DisableKeybinds/UI/ConfigWindow.lua
+Modules/FocusBuffs/Core/FocusBuffs.lua
+Modules/FocusBuffs/UI/ConfigWindow.lua
 Modules/ReloadAnnounce/Core/ReloadAnnounce.lua
 Modules/ReloadAnnounce/UI/ConfigWindow.lua
 Modules/ShowIDs/Core/ShowIDs.lua
