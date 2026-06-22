@@ -72,23 +72,24 @@ local function ParseAndFormat(raw)
     return text, parsed
 end
 
--- Scan the standard bars; matchFn(actionType, id) decides whether a slot holds our target. Returns the
--- SHORTEST binding text + the list of raw keyboard combos found.
-local function ResolveByButtons(matchFn)
+-- Scan the standard bars; matchSlot(slot) decides whether an action slot holds our target. Returns the
+-- SHORTEST binding text + the list of raw keyboard combos found. Matching by SLOT (not by GetActionInfo's
+-- id) lets the spell matcher use C_ActionBar.FindSpellActionButtons, which resolves a spell to its action
+-- slots OVERRIDE-AWARE: a cooldown tracked by its BASE spellId still finds the binding when the bar holds
+-- the talent/override form (and vice-versa). The old exact id-equality missed those, so some spells never
+-- showed a keybind. (Approach mirrors the reference addon the reference CDM addon.)
+local function ResolveByButtons(matchSlot)
     local shortest, raws
     for _, bar in ipairs(BARS) do
         local btnPrefix, bindPrefix = bar[1], bar[2]
         for i = 1, 12 do
             local btn = _G[btnPrefix .. i]
             local slot = btn and (btn.action or (btn.GetAttribute and btn:GetAttribute("action")))
-            if slot then
-                local atype, id = GetActionInfo(slot)
-                if matchFn(atype, id) then
-                    for _, rawKey in ipairs({ GetBindingKey(bindPrefix .. i) }) do
-                        local text, parsed = ParseAndFormat(rawKey)
-                        if text and (not shortest or #text < #shortest) then shortest = text end
-                        if parsed then raws = raws or {}; raws[#raws + 1] = parsed end
-                    end
+            if slot and matchSlot(slot) then
+                for _, rawKey in ipairs({ GetBindingKey(bindPrefix .. i) }) do
+                    local text, parsed = ParseAndFormat(rawKey)
+                    if text and (not shortest or #text < #shortest) then shortest = text end
+                    if parsed then raws = raws or {}; raws[#raws + 1] = parsed end
                 end
             end
         end
@@ -96,15 +97,31 @@ local function ResolveByButtons(matchFn)
     return shortest, raws
 end
 
+-- The action slots that cast this spell, resolved override-aware by Blizzard. Returns { [slot]=true } or nil.
+local function SpellSlotSet(spellID)
+    local slots = C_ActionBar and C_ActionBar.FindSpellActionButtons and C_ActionBar.FindSpellActionButtons(spellID)
+    if not slots or #slots == 0 then return nil end
+    local set = {}
+    for _, s in ipairs(slots) do set[s] = true end
+    return set
+end
+
 local function SpellMatch(spellID)
-    return function(atype, id)
+    local set = SpellSlotSet(spellID)
+    return function(slot)
+        if set and set[slot] then return true end
+        -- Fallback for what FindSpellActionButtons can't see (e.g. a macro that casts the spell).
+        local atype, id = GetActionInfo(slot)
         if atype == "spell" then return id == spellID end
         if atype == "macro" and GetMacroSpell then return GetMacroSpell(id) == spellID end
         return false
     end
 end
 local function ItemMatch(itemID)
-    return function(atype, id) return atype == "item" and id == itemID end
+    return function(slot)
+        local atype, id = GetActionInfo(slot)
+        return atype == "item" and id == itemID
+    end
 end
 
 function KB.GetKeybindText(spellID)
