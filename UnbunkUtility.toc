@@ -120,6 +120,8 @@ Modules/DisableKeybinds/Core/DisableKeybinds.lua
 Modules/DisableKeybinds/UI/ConfigWindow.lua
 Modules/FocusBuffs/Core/FocusBuffs.lua
 Modules/FocusBuffs/UI/ConfigWindow.lua
+Modules/DecursiveMove/Core/DecursiveMove.lua
+Modules/DecursiveMove/UI/ConfigWindow.lua
 Modules/ReloadAnnounce/Core/ReloadAnnounce.lua
 Modules/ReloadAnnounce/UI/ConfigWindow.lua
 Modules/ShowIDs/Core/ShowIDs.lua

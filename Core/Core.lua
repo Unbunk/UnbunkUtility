@@ -179,6 +179,7 @@ local function BuildNavTree()
                             { panel = L["Details! special settings"] },
                             { panel = L["Disable keybinds"] },
                             { panel = L["Focus buffs"] },
+                            { panel = L["Decursive special settings"] },
                         } },
                     } }
                 end
