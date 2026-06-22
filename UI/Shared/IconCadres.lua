@@ -376,10 +376,14 @@ local function TitleSection(bundle)
 end
 
 local STACK_KEYS = {
-    "showStack", "showAtZero", "stackFontKey", "stackFontPath", "stackFontSize", "stackOutline",
+    "showStack", "showAtZero", "stackShowZero", "darkenOnCdWithStacks",
+    "stackFontKey", "stackFontPath", "stackFontSize", "stackOutline",
     "stackColor", "stackPos", "stackOffX", "stackOffY",
 }
-local function StacksSection(bundle)
+-- opts.cd = true for the spell/item variants (cooldowns + charges): adds the "Show at 0 stacks" (count text)
+-- and "Darken icon when on cd with stacks" toggles. Buffs pass nothing (those two don't apply to them).
+local function StacksSection(bundle, opts)
+    opts = opts or {}
     local gated = SectionOverridden(bundle, STACK_KEYS)
     return { type = "group", title = L["Stacks/Charges"],
       gate = (not bundle.has) and { enabled = function() return bundle.get("showStack") ~= false end, master = "showstack" } or nil,
@@ -390,6 +394,17 @@ local function StacksSection(bundle)
         e[#e + 1] = { type = "checkbox", ref = "showstack", label = L["Show stacks"], enabledBy = gated,
               get = function() return bundle.get("showStack") ~= false end,
               set = function(v) bundle.set("showStack", v); bundle.touch() end }
+        if opts.cd then
+            -- Draw the count as "0" when it reaches zero instead of hiding it. Default ON.
+            e[#e + 1] = { type = "checkbox", ref = "stackshowzero", label = L["Show at 0 stacks"], enabledBy = gated,
+                  get = function() return bundle.get("stackShowZero") ~= false end,
+                  set = function(v) bundle.set("stackShowZero", v); bundle.touch() end }
+            -- OFF (default): a cooldown keeps the icon lit while a charge/stack is still usable, greying it
+            -- only once none remain. ON: the icon greys on cooldown regardless of remaining charges.
+            e[#e + 1] = { type = "checkbox", ref = "darkenoncdwithstacks", label = L["Darken icon when on cd with stacks"], enabledBy = gated,
+                  get = function() return bundle.get("darkenOnCdWithStacks") == true end,
+                  set = function(v) bundle.set("darkenOnCdWithStacks", v and true or false); bundle.touch() end }
+        end
         local style = StyleEditorFor(bundle, "stack"); style.enabledBy = gated; e[#e + 1] = style
         local pos = PosOffsetFor(bundle, "stack"); pos.enabledBy = gated; e[#e + 1] = pos
         return e
@@ -627,7 +642,7 @@ function IC.OverrideSet(bundle, ctx, opts)
     entries[#entries + 1] = IC.Glow(bundle, { variant = glowVariant, keys = glowKeys, ctx = ctx })
     entries[#entries + 1] = IC.Timer(bundle)
     entries[#entries + 1] = IC.Title(bundle)
-    entries[#entries + 1] = IC.Stacks(bundle)
+    entries[#entries + 1] = IC.Stacks(bundle, { cd = typ ~= "buff" })
     entries[#entries + 1] = { type = "button", label = L["Copy all group settings"], width = 180, hostHeight = 30,
         onClick = function()
             local function copySection(keys) for _, k in ipairs(keys) do bundle.set(k, CloneVal(bundle.groupGet(k))) end end
@@ -670,7 +685,7 @@ function IC.FreeSet(bundle, opts)
             IC.IconSize(bundle, { bare = true, kw = "iconWidth", kh = "iconHeight", max = 512, sizeApply = opts.sizeApply }),
             IC.Timer(bundle),
             IC.Title(bundle),
-            IC.Stacks(bundle),
+            IC.Stacks(bundle, { cd = typ ~= "buff" }),
         }
     end }
     return out
