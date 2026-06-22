@@ -28,7 +28,7 @@ local CAST_EVENTS = {
 
 local container, bar, bg, icon, nameFS, timeFS, spark
 local enabled = false                 -- our events currently registered
-local cast = { active = false }       -- { active, channel(=fill down), startT, endT, notInt }
+local cast = { active = false }       -- { active, channel(=fill down), startKind, castID, startT, endT, notInt }
 
 local function C(key) return CB.CfgGet(key) end
 
@@ -51,11 +51,21 @@ local function ResolveTexture(key)
     return p or BAR_TEXTURE
 end
 
--- The live frame a CDM destination anchors / sizes against (belowPlayer has no native
--- viewer, so we use the PlayerFrame it sits under).
+-- The live frame a CDM destination anchors / sizes against. For essential / utility we follow
+-- the CDMGroups "Group 1" container (the user-configured primary row), NOT the whole native
+-- viewer — so both adapt-width and anchor track Group 1 specifically. We only use it once the
+-- engine has it live (shown + positioned); until then (CDM off, empty Group 1, or the brief
+-- window right after a /reload) we fall back to the native viewer. belowPlayer -> PlayerFrame.
+local function GroupOneBox(dest)
+    local inst = ns.CDMGroups and ns.CDMGroups[dest]
+    local box  = inst and inst.GetContainer and inst.GetContainer(1)
+    if box and box:IsShown() and box:GetLeft() then return box end
+    return nil
+end
+
 local function AnchorDestFrame(dest)
     if dest == "belowPlayer" then return _G.PlayerFrame end
-    return ns.GetCDMViewer(dest)
+    return GroupOneBox(dest) or ns.GetCDMViewer(dest)
 end
 
 -- Container point + anchor-frame point for the saved "position relative to anchor".
@@ -114,7 +124,9 @@ local function ApplyLayout()
     if C("adaptWidth") then
         local af = AnchorDestFrame(C("adaptWidthTo") or "essential")
         local aw = af and af.GetWidth and af:GetWidth()
-        if aw and aw > 0 then w = math.max(20, aw) end
+        -- > 1, not > 0: a freshly-created Group 1 box sits at 1px until the engine sizes it;
+        -- ignore that so we keep the saved width rather than collapsing to nearly nothing.
+        if aw and aw > 1 then w = math.max(20, aw) end
     end
     container:SetSize(w, h)
 
@@ -162,6 +174,13 @@ local function ApplyLayout()
 
     spark:SetSize(C("sparkThickness") or 20, h * 1.8)
     spark:SetShown(C("showSpark") ~= false)
+
+    -- Border around the whole bar (icon + fill). Reuses the shared 4-edge helper; outset so it
+    -- frames the bar from just outside instead of being painted over by the advancing fill.
+    if ns.CDMAnchor and ns.CDMAnchor.ApplyFrameBorder then
+        local bc = C("borderColor") or { r = 0, g = 0, b = 0, a = 1 }
+        ns.CDMAnchor.ApplyFrameBorder(container, C("borderEnabled") ~= false, bc, C("borderThickness") or 1, true)
+    end
 end
 
 function CB.ApplyPosition()
@@ -177,16 +196,44 @@ function CB.ApplyPosition()
     end
 end
 
+-- ── Follow Group 1's box size (fixes adapt-width / anchor not updating after a /reload) ──
+-- The CDMGroups engine makes Group 1's container at 1px and only sizes + positions it a moment
+-- later (and again on spec change / icon add-remove). The cast bar's first layout pass reads a
+-- stale/empty box, so without this it never re-adapts after a reload. Hook each Group 1 box's
+-- OnSizeChanged once and re-apply, coalesced to the next frame (after the engine's layout pass).
+local sizePending = false
+local function OnAnchorSizeChanged()
+    if sizePending then return end
+    sizePending = true
+    C_Timer.After(0, function()
+        sizePending = false
+        if not container then return end
+        ApplyLayout()
+        CB.ApplyPosition()
+    end)
+end
+
+local hookedBoxes = {}
+local function HookGroupOneBoxes()
+    for _, dest in ipairs({ "essential", "utility" }) do
+        local inst = ns.CDMGroups and ns.CDMGroups[dest]
+        local box  = inst and inst.GetContainer and inst.GetContainer(1)
+        if box and not hookedBoxes[box] then
+            hookedBoxes[box] = true
+            box:HookScript("OnSizeChanged", OnAnchorSizeChanged)
+        end
+    end
+end
+
 -- ── Start / stop a cast ───────────────────────────────────────────────────────
 -- kind: "cast" (fill up) | "channel" (channel/empower; non-empower fills down).
 local function StartCast(kind)
     if not container or not enabled then return end
-    local name, text, texture, startMs, endMs, notInt, channel
+    local name, text, texture, startMs, endMs, notInt, channel, castID, isEmpowered
     if kind == "cast" then
-        name, text, texture, startMs, endMs, _, _, notInt = UnitCastingInfo("player")
+        name, text, texture, startMs, endMs, _, castID, notInt = UnitCastingInfo("player")
         channel = false
     else
-        local isEmpowered
         name, text, texture, startMs, endMs, _, notInt, _, isEmpowered = UnitChannelInfo("player")
         channel = not isEmpowered   -- empowered casts build up like a normal cast
     end
@@ -194,6 +241,10 @@ local function StartCast(kind)
 
     cast.active  = true
     cast.channel = channel and true or false
+    -- Which START fired, so the matching STOP family is the only one that ends the bar:
+    -- "cast" (UNIT_SPELLCAST_STOP), "channel" (CHANNEL_STOP), "empower" (EMPOWER_STOP).
+    cast.startKind = (kind == "cast") and "cast" or (isEmpowered and "empower" or "channel")
+    cast.castID  = castID   -- nil for channels/empowers (UnitChannelInfo carries no cast GUID)
     cast.startT  = startMs / 1000
     cast.endT    = endMs / 1000
     cast.notInt  = notInt and true or false
@@ -216,7 +267,19 @@ function CB.StopCast()
 end
 
 -- ── Event routing ─────────────────────────────────────────────────────────────
-local function OnEvent(_, event, unit)
+-- castGUID is the event's own cast token (2nd payload arg after unit). We gate the
+-- "end" events on it + on which START opened the bar, so a stale STOP can't blank the
+-- bar before the cast finishes — the cause of "disappears before the end of some casts":
+--   * an instant / off-GCD spell fired mid-cast sends its OWN UNIT_SPELLCAST_STOP with a
+--     different GUID — it must NOT kill the real cast (matches Blizzard's CastingBarFrame);
+--   * a channel's brief lead-in UNIT_SPELLCAST_STOP arrives right after CHANNEL_START — it
+--     must be ignored while we're channelling.
+-- A nil castID (channels carry none) or nil castGUID falls through the guard (still ends).
+local function GuidMatches(castGUID)
+    return (not cast.castID) or (not castGUID) or (cast.castID == castGUID)
+end
+
+local function OnEvent(_, event, unit, castGUID)
     if unit ~= "player" then return end
     if event == "UNIT_SPELLCAST_START" then
         StartCast("cast")
@@ -230,9 +293,15 @@ local function OnEvent(_, event, unit)
         cast.notInt = false; if cast.active then ApplyColor() end
     elseif event == "UNIT_SPELLCAST_NOT_INTERRUPTIBLE" then
         cast.notInt = true; if cast.active then ApplyColor() end
-    else
-        -- STOP / FAILED / INTERRUPTED / CHANNEL_STOP / EMPOWER_STOP
-        CB.StopCast()
+    elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED" then
+        -- Only a plain cast's own STOP/FAILED ends it (channels/empowers use their own STOP).
+        if cast.active and cast.startKind == "cast" and GuidMatches(castGUID) then CB.StopCast() end
+    elseif event == "UNIT_SPELLCAST_INTERRUPTED" then
+        if cast.active and GuidMatches(castGUID) then CB.StopCast() end
+    elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
+        if cast.active and cast.startKind == "channel" then CB.StopCast() end
+    elseif event == "UNIT_SPELLCAST_EMPOWER_STOP" then
+        if cast.active and cast.startKind == "empower" then CB.StopCast() end
     end
 end
 
@@ -296,6 +365,7 @@ end
 
 function CB.ApplyConfig()
     EnsureFrames()
+    HookGroupOneBoxes()
     ApplyLayout()
     CB.ApplyPosition()
     if cast.active then ApplyColor() end
