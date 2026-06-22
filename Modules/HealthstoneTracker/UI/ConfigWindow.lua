@@ -34,38 +34,16 @@ local function CreateHealthstoneTrackerPanel(parent)
                         end,
                     },
 
-                    -- ── Test button (toggles Test / Stop Test) ────────────────────────────
+                    -- ── Test button (timed preview: a 2-charge stone with the cooldown
+                    -- recharging, auto-stops — not a toggle) ──────────────────────────────
                     {
-                        type   = "custom",
-                        height = 30,
-                        build  = function(host)
-                            local testBtn
-                            local function RefreshTestBtn()
-                                testBtn.SetText(HT.IsTesting() and L["Stop Test"] or L["Test"])
-                            end
-
-                            testBtn = ns.ui.CreateButton({
-                                parent  = host,
-                                label   = L["Test"],
-                                width   = 100,
-                                height  = 22,
-                                onClick = function()
-                                    if HT.IsTesting() then
-                                        HT.StopTest()
-                                    else
-                                        HT.RunTest()
-                                    end
-                                    RefreshTestBtn()
-                                end,
-                            })
-                            testBtn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -4)
-
-                            return {
-                                frame   = host,
-                                height  = 30,
-                                Refresh = RefreshTestBtn,
-                            }
-                        end,
+                        type       = "button",
+                        label      = L["Test"],
+                        width      = 100,
+                        height     = 22,
+                        hostHeight = 30,
+                        btnOffsetY = -4,
+                        onClick    = function() if HT.RunTest then HT.RunTest() end end,
                     },
 
                     -- ── Instance filter ───────────────────────────────────────────────────

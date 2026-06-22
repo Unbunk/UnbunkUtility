@@ -147,7 +147,10 @@ local function CreateTracker(index)
         getItemId = function() return t.assignedId end,
         -- The shared icon's in-CDM stacks must count CHARGES (includeUses=true), not plain item stacks,
         -- just like the module's own draw below — otherwise a multi-charge healthstone shows the wrong number.
-        getCount  = function() return t.assignedId and (GetItemCount(t.assignedId, false, true) or 0) or 0 end,
+        getCount  = function()
+            if HT.testMode then return 2 end   -- preview shows a 2-charge stone (see HT.RunTest)
+            return t.assignedId and (GetItemCount(t.assignedId, false, true) or 0) or 0
+        end,
         hasItem   = function(itemId)
             -- includeUses=true: count charges (a healthstone has several).
             return itemId ~= nil and (GetItemCount(itemId, false, true) or 0) > 0
@@ -303,6 +306,11 @@ end
 
 function HT.ApplyAll()
     if HT.testMode then
+        -- Timed preview: auto-stop once the duration elapses (like the BRez test).
+        if GetTime() >= HT.testEndsAt then
+            HT.StopTest()
+            return
+        end
         ApplyLayout()
         ApplyStackVisualsFor(trackers[1])
         return
@@ -405,11 +413,19 @@ end
 
 -- ── Test mode (single-icon preview) ───────────────────────────────────────────
 
-HT.testMode = false
+HT.testMode   = false
+HT.testEndsAt = 0
+local TEST_DURATION = 8   -- seconds: the preview cooldown fully recharges over this, then auto-stops
 
-function HT.RunTest()
+-- Timed preview (like the BRez test, not a toggle): show the primary healthstone on
+-- COOLDOWN — a 2-charge stack with the radial cooldown sweep recharging over `duration`
+-- seconds — then auto-stop with the ready flash. The earlier preview showed the in-combat
+-- "C" marker; this one shows the real cooldown coming back instead.
+function HT.RunTest(duration)
+    duration = duration or TEST_DURATION
     local t = EnsureTracker(1)
-    HT.testMode = true
+    HT.testMode   = true
+    HT.testEndsAt = GetTime() + duration
 
     -- Only the primary is visible during preview; hide the rest of the row.
     for i = 2, #trackers do
@@ -418,21 +434,17 @@ function HT.RunTest()
     end
 
     local id = HT.GetActiveItemId() or FALLBACK_PREVIEW_ID
-    t.assignedId = id
+    t.assignedId   = id
+    t.usedInCombat = false
+    t.combatC:Hide()                              -- this preview shows a real CD, not the "C"
     local _, _, _, _, iconID = C_Item.GetItemInfoInstant(id)
     if iconID then t.icon.SetIcon(iconID) end
-    t.icon.ApplySize()
+
+    ApplyStackVisualsFor(t)                        -- keep our own FS hidden; the shared stacks draw the "2"
+    t.icon.ApplySize()                             -- ApplyDestExtras here draws the forced "2" (getCount → 2 in test)
     t.icon.Show()
     t.icon.HideCheck()
-    t.icon.ClearTimer()
-
-    -- Show the "C" marker (simulates in-combat use, the visual real users
-    -- see when they pop a healthstone mid-fight). Stack count is also
-    -- refreshed so the full layout is visible.
-    ApplyCombatCFont(t)
-    t.combatC:Show()
-
-    ApplyStackVisualsFor(t)
+    t.icon.SetTimer(HT.testEndsAt, duration)       -- radial cooldown sweep + countdown text, greys the icon
     ApplyLayout()
 
     if HT.CfgGet("soundOnUse") then
@@ -443,9 +455,11 @@ end
 function HT.StopTest()
     local t = trackers[1]
     if not t or not HT.testMode then return end
-    HT.testMode = false
+    HT.testMode   = false
+    HT.testEndsAt = 0
     t.combatC:Hide()
-    t.icon.BlinkCheck()
+    t.icon.ClearTimer()        -- the preview cooldown is done; drop the sweep + countdown
+    t.icon.BlinkCheck()        -- ready flash, as the recharge completes
     if HT.CfgGet("soundOnReady") then
         HT.PlaySound("soundReady")
     end
