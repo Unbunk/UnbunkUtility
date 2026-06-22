@@ -52,7 +52,7 @@ local GROUP_TEMPLATE = {
     borderColor   = { r = 0, g = 0, b = 0, a = 1 },
     borderSize    = 1,
     -- glow (LibCustomGlow-style highlight around an active icon); colour defaults to F5FF00 even off
-    glowEnabled = true,
+    glowEnabled = false,
     glowColor   = { r = 0.96, g = 1, b = 0, a = 1 },   -- F5FF00
     -- timer / countdown text (restyle of the native Cooldown countdown)
     showTimer     = true,
@@ -103,7 +103,7 @@ local DEFAULT_GROUP1 = ns.DeepCopy(GROUP_TEMPLATE)
 DEFAULT_GROUP1.id   = 1
 DEFAULT_GROUP1.name = "Group 1"
 DEFAULT_GROUP1.posX = 0
-DEFAULT_GROUP1.posY = 0
+DEFAULT_GROUP1.posY = 2   -- small upward nudge above the Essential block (the default anchor)
 
 local DEFAULTS = {
     enabled = true,
@@ -224,6 +224,23 @@ function BG.CfgInit()
         for _, g in pairs(s.groups) do
             g.glowEnabled = true
         end
+    end
+    -- One-shot: glow now defaults OFF again (the V11 flip to ON is reversed). The changed scalar
+    -- default won't retro-apply to existing groups, so flip it false ONCE on every existing group.
+    -- Per-icon overrides keep their own value (iconCfg untouched); a group's icons that inherit then
+    -- re-read false via IconGet — so "Show glow" is unchecked by default in both the group settings
+    -- and the per-icon override editor.
+    if not s.classifyGlowOffV12 then
+        s.classifyGlowOffV12 = true
+        for _, g in pairs(s.groups) do
+            g.glowEnabled = false
+        end
+    end
+    -- One-shot: Group 1's default Y becomes 2 (a small upward nudge above the Essential block, the
+    -- default anchor). Applied once to a profile whose Group 1 predates this default (it was 0).
+    if not s.g1DefaultYV1 then
+        s.g1DefaultYV1 = true
+        if s.groups[1] then s.groups[1].posY = 2 end
     end
     -- One-shot: re-sort every EXISTING group's saved order so its NATIVE buffs follow the native
     -- on-screen order (the EditMode "Tracked Buffs" arrangement, read via BG.NativeOrder), with the

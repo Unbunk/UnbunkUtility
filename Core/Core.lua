@@ -121,6 +121,7 @@ local function BuildNavTree()
                 -- OLD bucket panel under the same name. One "Utility" nav entry → the new groups panel.
                 { panel = L["Utility"] },
                 { panel = L["Buffs"] },
+                { panel = L["Bars"] },
                 { panel = L["Below player frame"] },
                 { panel = L["Free icons"] },
             } },
