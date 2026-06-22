@@ -16,7 +16,7 @@ local DEFAULTS = {
     tankFontSize     = 26,
     tankOutline      = "OUTLINE",
     tankMessage      = L["Tank died"],
-    tankColor        = { r = 1.0, g = 0.5, b = 0.0, a = 1.0 },
+    tankColor        = { r = 0.1961, g = 0.2941, b = 0.4118, a = 1.0 },   -- #324B69
     tankPosX         = 0,
     tankPosY         = 350,
     tankAlertDuration   = 3,
@@ -30,7 +30,7 @@ local DEFAULTS = {
     healerFontSize    = 22,
     healerOutline     = "OUTLINE",
     healerMessage     = L["Healer died"],
-    healerColor       = { r = 0.0, g = 0.5, b = 1.0, a = 1.0 },
+    healerColor       = { r = 0.0, g = 0.3529, b = 0.0, a = 1.0 },   -- #005A00
     healerPosX        = 0,
     healerPosY        = 275,
     healerAlertDuration = 3,
@@ -44,7 +44,7 @@ local DEFAULTS = {
     dpsFontSize    = 18,
     dpsOutline     = "OUTLINE",
     dpsMessage     = L["DPS died"],
-    dpsColor       = { r = 0.4, g = 0.8, b = 1.0, a = 1.0 },
+    dpsColor       = { r = 0.3529, g = 0.0, b = 0.0, a = 1.0 },   -- #5A0000
     dpsPosX        = 0,
     dpsPosY        = 215,
     dpsAlertDuration = 2,
@@ -101,9 +101,28 @@ local DEFAULTS = {
 }
 
 function DA.CfgInit()
-    ns.db.profile.DeathAlert = ns.db.profile.DeathAlert or {}
-    ns.MigrateSoundKeys(ns.db.profile.DeathAlert)
-    ns.MergeDefaults(ns.db.profile.DeathAlert, DEFAULTS)
+    local s = ns.db.profile.DeathAlert or {}
+    ns.db.profile.DeathAlert = s
+    ns.MigrateSoundKeys(s)
+    -- One-shot: bump the stock tank/healer/DPS text colours to the new darker palette for
+    -- setups still sitting on the old orange/blue/light-blue defaults. Anything the user
+    -- customised (i.e. not matching the old default) is left untouched.
+    if not s.deathAlertColorsV1 then
+        s.deathAlertColorsV1 = true
+        local OLD = {
+            tankColor   = { r = 1.0, g = 0.5, b = 0.0 },
+            healerColor = { r = 0.0, g = 0.5, b = 1.0 },
+            dpsColor    = { r = 0.4, g = 0.8, b = 1.0 },
+        }
+        local function near(a, b) return a and math.abs((a or 0) - b) < 0.01 end
+        for key, o in pairs(OLD) do
+            local c = s[key]
+            if c and near(c.r, o.r) and near(c.g, o.g) and near(c.b, o.b) then
+                s[key] = ns.CopyDefault(DEFAULTS[key])
+            end
+        end
+    end
+    ns.MergeDefaults(s, DEFAULTS)
 end
 
 ns.RegisterCfgInitHook(DA.CfgInit)
