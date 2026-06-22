@@ -76,8 +76,11 @@ local function ChannelList(host)
         local lbl = f:CreateFontString(nil, "OVERLAY", "UnbunkUtilityBody")
         lbl:SetPoint("LEFT", cb.frame, "RIGHT", 6, 0)
         lbl:SetText(RA.CHANNELS[key] and RA.CHANNELS[key].label or key)
-        local grip = f:CreateFontString(nil, "OVERLAY", "UnbunkUtilityBody")
-        grip:SetPoint("RIGHT", f, "RIGHT", -8, 0); grip:SetTextColor(0.5, 0.5, 0.5); grip:SetText("= =")
+        local grip = f:CreateTexture(nil, "OVERLAY")
+        grip:SetSize(16, 16)
+        grip:SetPoint("RIGHT", f, "RIGHT", -8, 0)
+        grip:SetTexture(UNBUNK_ICON_DRAG_WHITE)
+        ns.SetBrandVertex(grip)   -- white glyph -> brand colour, re-tinted live
         f:SetScript("OnDragStart", function() startDrag(key, f) end)
         f:SetScript("OnDragStop",  function() stopDrag(key, f) end)
         f:SetPoint("TOPLEFT", host, "TOPLEFT", 0, slotY(indexOf(key)))
@@ -90,30 +93,28 @@ local function CreateReloadAnnouncePanel(parent)
         { type = "label", font = "UnbunkUtilityH2", height = 28, text = L["Reloading announcement"] },
 
         -- Master enable (top).
-        { type = "checkbox", label = L["Announce a reload in group chat"],
+        { type = "checkbox", label = L["Announce a reload"],
           get = function() local c = cfg(); return c and c.enabled end,
           set = function(v) local c = cfg(); if c then c.enabled = v and true or false end end },
 
         { type = "group", title = L["Reloading announcement"], build = function()
+            -- Group-type checkbox: `default` is the unset fallback (group/raid ON, solo OFF).
+            local function GroupTypeCheck(label, key, default)
+                return { type = "checkbox", label = label,
+                    get = function()
+                        local c = cfg(); local gt = c and c.groupTypes
+                        local v = gt and gt[key]
+                        if v == nil then return default end
+                        return v == true
+                    end,
+                    set = function(v)
+                        local c = cfg()
+                        if c then c.groupTypes = c.groupTypes or {}; c.groupTypes[key] = v and true or false end
+                    end }
+            end
+
             return {
-                -- Sub-cadre: the message.
-                { type = "group", title = L["Message"], build = function() return {
-                    { type = "textinput", label = L["Message sent on reload"], width = 280, maxLetters = 120,
-                      get = function() local c = cfg(); return c and c.message or "" end,
-                      set = function(v) local c = cfg(); if c then c.message = v or "" end end },
-                } end },
-
-                -- Sub-cadre: the channels, with a header explaining the drag priority.
-                { type = "group", title = L["Channels"], build = function() return {
-                    { type = "label", font = "UnbunkUtilityH6", height = 32,
-                      text = L["Drag a row up/down to set priority. The message is sent to the highest CHECKED channel available in your group."] },
-                    { type = "custom", height = 3 * ROW_H + 4, build = function(host)
-                        ChannelList(host)
-                        return { frame = host, height = 3 * ROW_H + 4 }
-                    end },
-                } end },
-
-                -- Sub-cadre: where it is active.
+                -- Sub-cadre: where it is active (instances), above the message.
                 { type = "group", title = L["Active in instances"], build = function() return {
                     { type = "instanceFilter",
                       getConfig = function() local c = cfg(); return c and c.instanceFilter end,
@@ -121,6 +122,31 @@ local function CreateReloadAnnouncePanel(parent)
                           local c = cfg()
                           if c then c.instanceFilter = c.instanceFilter or {}; c.instanceFilter[fk] = fv end
                       end },
+                } end },
+
+                -- Sub-cadre: which group contexts may announce.
+                { type = "group", title = L["Active in group types"], build = function() return {
+                    GroupTypeCheck(L["Group"],      "group", true),
+                    GroupTypeCheck(L["Raid Group"], "raid",  true),
+                    GroupTypeCheck(L["Solo"],       "solo",  false),
+                } end },
+
+                -- Sub-cadre: the message.
+                { type = "group", title = L["Message"], build = function() return {
+                    { type = "textinput", label = L["Message sent on reload"], width = 280, maxLetters = 120,
+                      get = function() local c = cfg(); return c and c.message or "" end,
+                      set = function(v) local c = cfg(); if c then c.message = v or "" end end },
+                } end },
+
+                -- Sub-cadre: the channels, a grey drag hint + the priority list header.
+                { type = "group", title = L["Channels"], build = function() return {
+                    { type = "label", font = "UnbunkUtilityH6", height = 16, color = { 0.6, 0.6, 0.6 },
+                      text = L["Drag to reorder"] },
+                    { type = "label", font = "UnbunkUtilityH5", height = 20, text = L["Priority list :"] },
+                    { type = "custom", height = 3 * ROW_H + 4, build = function(host)
+                        ChannelList(host)
+                        return { frame = host, height = 3 * ROW_H + 4 }
+                    end },
                 } end },
             }
         end },

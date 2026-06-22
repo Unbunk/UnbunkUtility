@@ -20,6 +20,9 @@ local DEFAULTS = {
     channels       = { say = true, party = true, raid = true },  -- which channels are enabled
     order          = { "raid", "party", "say" },                 -- priority (drag-reorderable)
     instanceFilter = { dungeon = true, raid = true, battleground = true, outdoor = true },
+    -- Which group contexts may announce. Defaults reproduce the old "only when grouped"
+    -- behaviour (party + raid, never solo); enabling solo posts to /say while alone.
+    groupTypes     = { group = true, raid = true, solo = false },
 }
 
 -- Channel definitions: SendChatMessage target, display label, and an availability test.
@@ -60,6 +63,15 @@ function RA.SaveOrder(order)
     local c = Cfg(); if c then c.order = order end
 end
 
+-- Whether the CURRENT group context (raid / party / solo) is one the user allows. Raid and
+-- party default ON, solo OFF, so an unset/legacy profile keeps the old "groups only" rule.
+function RA.GroupTypeAllowed(c)
+    local gt = c.groupTypes
+    if IsInRaid()  then return not gt or gt.raid ~= false  end
+    if IsInGroup() then return not gt or gt.group ~= false end
+    return gt ~= nil and gt.solo == true
+end
+
 -- Send the announce to the top-priority enabled+available channel (one channel only).
 -- `announced` is a one-shot guard so the ReloadUI + C_UI.Reload hooks can't double-send
 -- (the flag is naturally reset by the imminent reload).
@@ -68,7 +80,7 @@ function RA.Announce()
     if announced then return end
     local c = Cfg()
     if not c or not c.enabled then return end
-    if not IsInGroup() then return end                                  -- only when grouped
+    if not RA.GroupTypeAllowed(c) then return end                       -- gated by group type
     if not ns.IsActiveInInstance(c.instanceFilter) then return end
     local msg = (c.message and c.message ~= "") and c.message or DEFAULT_MESSAGE
     for _, key in ipairs(RA.CurrentOrder()) do
