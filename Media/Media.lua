@@ -100,6 +100,7 @@ UNBUNK_ICON_CROSS_BLUE     = ICON_PATH .. "BlueCross.tga"
 UNBUNK_ICON_PEPE_EZ        = ICON_PATH .. "PepeEz.tga"
 UNBUNK_ICON_PLUS_GREEN     = ICON_PATH .. "GreenPlus.tga"
 UNBUNK_ICON_PEN_WHITE      = ICON_PATH .. "WhitePen.tga"
+UNBUNK_ICON_DRAG_WHITE     = ICON_PATH .. "WhiteDragIcon.tga"
 
 -- Icon list for the icon pickers. These are plain .tga files and do not
 -- depend on LibSharedMedia, so populate them unconditionally at load time
