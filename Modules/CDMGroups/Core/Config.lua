@@ -397,8 +397,12 @@ function CDG.Make(dest)
     -- empty group still has row 1). So an UNSEEDED Group 1 yields rows of maxPerRow in native order.
     -- Returns { {sid,...}, {sid,...} }.
     function I.GroupRows(groupId)
+        -- I.AllBuffs() walks the whole universe (pool enumeration + assigned + customs + trackers) — it's
+        -- the expensive input here, so compute it ONCE and reuse it for both the assigned-set filter and
+        -- the native-rank fallback below (it was called twice, doubling the per-group enumeration cost).
+        local allBuffs = I.AllBuffs()
         local assigned = {}
-        for _, spellId in ipairs(I.AllBuffs()) do
+        for _, spellId in ipairs(allBuffs) do
             if I.GroupOf(spellId) == groupId then assigned[spellId] = true end
         end
         local rows, seen = {}, {}
@@ -420,7 +424,7 @@ function CDG.Make(dest)
                 if rank[sid] == nil then r = r + 1; rank[sid] = r end
             end
         end
-        for _, sid in ipairs(I.AllBuffs()) do
+        for _, sid in ipairs(allBuffs) do
             if rank[sid] == nil then r = r + 1; rank[sid] = r end
         end
         local rest = {}

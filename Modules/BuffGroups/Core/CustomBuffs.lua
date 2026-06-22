@@ -150,8 +150,11 @@ end
 -- alongside the native pool frames. A buff the user has REMOVED (no longer registered) is
 -- auto-deactivated here so its drawn frame doesn't linger after BG.RemoveCustom cleared the
 -- data without touching this module.
-function BG.EnumActiveCustomFrames()
-    local out = {}
+-- `out` (optional): the engine passes its per-pass frameOf scratch so we ADD our frames into it
+-- in place (no fresh allocation each RefreshLayout). We do NOT wipe it — it already holds the
+-- native frames the caller merged before us. With no `out` we allocate + return a fresh table.
+function BG.EnumActiveCustomFrames(out)
+    out = out or {}
     for spellId in pairs(active) do
         if BG.IsCustom and not BG.IsCustom(spellId) then
             -- Tear down inline (NOT via Deactivate, which would re-enter RefreshLayout while
