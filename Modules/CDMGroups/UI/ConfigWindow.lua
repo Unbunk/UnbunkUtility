@@ -65,24 +65,10 @@ local function GrowFromLabel(label)
     return "RIGHT"
 end
 
-local GLOWTYPE_ORDER = { "pixel", "autocast", "button", "proc" }
-local function GlowTypeLabel(key)
-    if key == "autocast" then return L["Autocast Glow"] end
-    if key == "button"   then return L["Button Glow"]   end
-    if key == "proc"     then return L["Proc Glow"]     end
-    return L["Pixel Glow"]
-end
-local function GlowTypeList()
-    local t = {}
-    for _, k in ipairs(GLOWTYPE_ORDER) do t[#t + 1] = GlowTypeLabel(k) end
-    return t
-end
-local function GlowTypeFromLabel(label)
-    for _, k in ipairs(GLOWTYPE_ORDER) do
-        if GlowTypeLabel(k) == label then return k end
-    end
-    return "pixel"
-end
+-- Glow-type enum now lives in ns.ui.IconCadres (single source); alias the locals this panel uses.
+local GlowTypeLabel     = ns.ui.IconCadres.GlowTypeLabel
+local GlowTypeList      = ns.ui.IconCadres.GlowTypeList
+local GlowTypeFromLabel = ns.ui.IconCadres.GlowTypeFromLabel
 
 local RELPOS_ORDER = { "above", "below", "left", "right", "topleft", "topright", "bottomleft", "bottomright" }
 local function RelPosLabel(key)
@@ -107,305 +93,14 @@ local function RelPosFromLabel(label)
     return "above"
 end
 
--- ── Shared Timer / Title / Stacks sub-cadre builders (bundle-driven, like Buffs) ──
-local function append(list, extra)
-    if extra then list[#list + 1] = extra end
-    return list
-end
-
-local function CloneVal(v)
-    if type(v) ~= "table" then return v end
-    local out = {}
-    for k, val in pairs(v) do out[k] = CloneVal(val) end
-    return out
-end
-
-local function StyleEditorFor(bundle, prefix)
-    local function k(suffix) return prefix .. suffix end
-    return {
-        type        = "textEditor", LSM = LSM,
-        showLabel   = false, showText = false,
-        showFont    = true,  showSize = true, showColor = true, showOutline = true,
-        getFontKey      = function() return bundle.get(k("FontKey"))  end,
-        getFontPath     = function() return bundle.get(k("FontPath")) end,
-        getFontSize     = function() return bundle.get(k("FontSize")) end,
-        getColor        = function() return bundle.get(k("Color"))    end,
-        getOutline      = function() return bundle.get(k("Outline"))  end,
-        onFontChange    = function(key, path) bundle.set(k("FontKey"), key); bundle.set(k("FontPath"), path); bundle.touch() end,
-        onSizeChange    = function(size)       bundle.set(k("FontSize"), size); bundle.touch() end,
-        onColorChange   = function(r, g, b, a) bundle.set(k("Color"), { r = r, g = g, b = b, a = a }); bundle.touch() end,
-        onOutlineChange = function(outline)    bundle.set(k("Outline"), outline); bundle.touch() end,
-    }
-end
-
-local function PosOffsetFor(bundle, prefix)
-    return {
-        type = "custom", height = 48,
-        build = function(host)
-            local lbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
-            lbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); lbl:SetText(L["Anchor"])
-
-            local ddAnchor = host:CreateFontString(nil, "ARTWORK")
-            ddAnchor:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -18)
-            local dd
-            dd = ns.ui.CreateDropdown({
-                parent = host, anchorFrame = ddAnchor, width = 130, itemHeight = 20, visibleItems = 5,
-                getList = ns.AnchorList,
-                getCurrentKey = function() return ns.AnchorLabel(bundle.get(prefix .. "Pos")) end,
-                onSelect = function(label)
-                    bundle.set(prefix .. "Pos", ns.AnchorFromLabel(label)); bundle.touch()
-                    dd.selectedText:SetText(label)
-                end,
-            })
-            dd.selectedText:SetText(ns.AnchorLabel(bundle.get(prefix .. "Pos")))
-
-            local function offInput(after, gap, axisText, key)
-                local axis = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                axis:SetPoint("LEFT", after, "RIGHT", gap, 0); axis:SetText(axisText)
-                local inp = ns.ui.CreateTextInput({
-                    parent = host, width = 44, height = 22, numeric = true, allowNegative = true,
-                    min = -512, max = 512, maxLetters = 4,
-                    text = tostring(bundle.get(key) or 0),
-                    onEnter = function(v) if v ~= nil then bundle.set(key, v); bundle.touch() end end,
-                })
-                inp.frame:SetPoint("LEFT", axis, "RIGHT", 4, 0)
-                return inp
-            end
-            local xInput = offInput(dd.toggleBtn, 14, "X", prefix .. "OffX")
-            local yInput = offInput(xInput.frame, 10, "Y", prefix .. "OffY")
-
-            return {
-                frame = host, height = 48, dropFrame = dd.dropFrame,
-                Refresh = function()
-                    dd.selectedText:SetText(ns.AnchorLabel(bundle.get(prefix .. "Pos")))
-                    xInput.SetText(tostring(bundle.get(prefix .. "OffX") or 0))
-                    yInput.SetText(tostring(bundle.get(prefix .. "OffY") or 0))
-                end,
-            }
-        end,
-    }
-end
-
--- The per-icon "remembered while disabled" stash is now PERSISTED on the override store (Config
--- I.IconStashGet/Set, CDMAnchor BelowIconStashGet/Set) so it survives /reload; each bundle binds
--- stashGet/stashSet to its own icon below.
-
--- Toggle a section between "override the group" and "inherit the group". Non-destructive: disabling
--- STASHES the current override values (per icon, this session) and then clears them so the section inherits
--- the group; re-enabling RESTORES the stashed values (not the group), so flipping the checkbox off and back
--- on doesn't silently lose your customisation. Falls back to the group only when there's nothing stashed.
-local function OverrideToggle(bundle, keys, label)
-    if not bundle.reset or not bundle.has then return nil end
-    return { type = "checkbox", label = label or L["Override group settings"],
-        get = function() return bundle.has(keys) end,
-        set = function(v)
-            if v then
-                for _, key in ipairs(keys) do
-                    local prev = bundle.stashGet and bundle.stashGet(key)
-                    -- NB: explicit nil test, NOT `prev ~= nil and prev or group` — a stashed boolean `false`
-                    -- (showTitle/showStack/borderEnabled/...) would collapse through the and/or idiom.
-                    local val; if prev ~= nil then val = prev else val = bundle.get(key) end
-                    bundle.set(key, CloneVal(val))
-                end
-            else
-                for _, key in ipairs(keys) do
-                    if bundle.stashSet then bundle.stashSet(key, CloneVal(bundle.get(key))) end
-                    bundle.reset(key)
-                end
-            end
-            bundle.touch()
-            if bundle.refresh then bundle.refresh() end
-        end }
-end
-
-local function CopyGroupButton(bundle, keys, gated)
-    if not bundle.reset or not bundle.has then return nil end
-    local groupGet = bundle.groupGet or bundle.get
-    return { type = "button", label = L["Copy group settings"], width = 180, hostHeight = 30, enabledBy = gated,
-        onClick = function()
-            for _, key in ipairs(keys) do bundle.set(key, CloneVal(groupGet(key))) end
-            bundle.touch()
-            if bundle.refresh then bundle.refresh() end
-        end }
-end
-
-local function SectionOverridden(bundle, keys)
-    if not bundle.has then return nil end
-    return function() return bundle.has(keys) end
-end
-
-local function CloneThresholds(list)
-    local out = {}
-    for _, t in ipairs(list or {}) do
-        local c = t.color
-        out[#out + 1] = {
-            time  = t.time or 0,
-            size  = t.size or 1,
-            color = c and { r = c.r, g = c.g, b = c.b, a = c.a or 1 } or { r = 1, g = 1, b = 1, a = 1 },
-        }
-    end
-    return out
-end
-
-local function ThresholdsEditor(bundle, sectionGate)
-    return {
-        type   = "custom", height = 60,
-        enabledBy = function()
-            if sectionGate and not sectionGate() then return false end
-            return bundle.get("timerThresholdsEnabled") == true
-        end,
-        build  = function(host)
-            local list  = bundle.get("timerThresholds") or {}
-            local ROW_H = 30
-
-            local hdr = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
-            hdr:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-            hdr:SetText(L["Time thresholds (size + colour as the timer drops)"])
-
-            local y = 22
-            for i, tier in ipairs(list) do
-                local atLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                atLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
-                atLbl:SetText(L["At (s)"])
-                local atInput = ns.ui.CreateTextInput({
-                    parent = host, width = 42, height = 22, numeric = true, min = 0, max = 3600, maxLetters = 4,
-                    text = tostring(tier.time or 0),
-                    onEnter = function(v)
-                        if v ~= nil then
-                            local nl = CloneThresholds(list); nl[i].time = v
-                            bundle.set("timerThresholds", nl); bundle.touch()
-                        end
-                    end,
-                })
-                atInput.frame:SetPoint("LEFT", atLbl, "RIGHT", 4, 0)
-
-                local szLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                szLbl:SetPoint("LEFT", atInput.frame, "RIGHT", 12, 0)
-                szLbl:SetText(L["Size x"])
-                local szInput = ns.ui.CreateTextInput({
-                    parent = host, width = 46, height = 22, numeric = true, min = 0, max = 10, maxLetters = 4,
-                    text = tostring(tier.size or 1),
-                    onEnter = function(v)
-                        if v and v > 0 then
-                            local nl = CloneThresholds(list); nl[i].size = v
-                            bundle.set("timerThresholds", nl); bundle.touch()
-                        end
-                    end,
-                })
-                szInput.frame:SetPoint("LEFT", szLbl, "RIGHT", 4, 0)
-
-                local swatch = ns.ui.CreateColorSwatch({
-                    parent = host, width = 24, height = 22,
-                    getColor = function() return tier.color end,
-                    onChange = function(r, g, b, a)
-                        local nl = CloneThresholds(list); nl[i].color = { r = r, g = g, b = b, a = a }
-                        bundle.set("timerThresholds", nl); bundle.touch()
-                    end,
-                })
-                swatch.frame:SetPoint("LEFT", szInput.frame, "RIGHT", 12, 0)
-
-                local rm = ns.ui.CreateButton({
-                    parent = host, label = "X", width = 24, height = 22,
-                    onClick = function()
-                        local nl = CloneThresholds(list); table.remove(nl, i)
-                        bundle.set("timerThresholds", nl); bundle.touch()
-                        if bundle.refresh then bundle.refresh() end
-                    end,
-                })
-                rm.frame:SetPoint("LEFT", swatch.frame, "RIGHT", 12, 0)
-
-                y = y + ROW_H
-            end
-
-            local add = ns.ui.CreateButton({
-                parent = host, label = L["Add threshold"], width = 140, height = 22,
-                onClick = function()
-                    local nl = CloneThresholds(list)
-                    nl[#nl + 1] = { time = 10, size = 1, color = { r = 1, g = 1, b = 1, a = 1 } }
-                    bundle.set("timerThresholds", nl); bundle.touch()
-                    if bundle.refresh then bundle.refresh() end
-                end,
-            })
-            add.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
-            y = y + 30
-
-            host:SetHeight(math.max(60, y))
-            return { frame = host, height = math.max(60, y) }
-        end,
-    }
-end
-
-local TIMER_KEYS = {
-    "showTimer", "timerFontKey", "timerFontPath", "timerFontSize", "timerOutline",
-    "timerColor", "timerPos", "timerOffX", "timerOffY",
-    "timerThresholdsEnabled", "timerThresholds",
-}
-local function TimerSection(bundle)
-    local gated = SectionOverridden(bundle, TIMER_KEYS)
-    return { type = "group", title = L["Timer"],
-      gate = (not bundle.has) and { enabled = function() return bundle.get("showTimer") ~= false end, master = "showtimer" } or nil,
-      build = function()
-        local e = {}
-        append(e, OverrideToggle(bundle, TIMER_KEYS))
-        append(e, CopyGroupButton(bundle, TIMER_KEYS, gated))
-        e[#e + 1] = { type = "checkbox", ref = "showtimer", label = L["Show timer"], enabledBy = gated,
-              get = function() return bundle.get("showTimer") ~= false end,
-              set = function(v) bundle.set("showTimer", v); bundle.touch() end }
-        local style = StyleEditorFor(bundle, "timer"); style.enabledBy = gated; e[#e + 1] = style
-        local pos = PosOffsetFor(bundle, "timer"); pos.enabledBy = gated; e[#e + 1] = pos
-        e[#e + 1] = { type = "checkbox", label = L["Enable time thresholds"], enabledBy = gated,
-              get = function() return bundle.get("timerThresholdsEnabled") == true end,
-              set = function(v) bundle.set("timerThresholdsEnabled", v and true or false); bundle.touch()
-                  if bundle.refresh then bundle.refresh() end end }
-        local thr = ThresholdsEditor(bundle, gated); e[#e + 1] = thr
-        return e
-      end }
-end
-
-local TITLE_KEYS = {
-    "showTitle", "titleText", "titleFontKey", "titleFontPath", "titleFontSize",
-    "titleOutline", "titleColor", "titlePos", "titleOffX", "titleOffY",
-}
-local function TitleSection(bundle)
-    local gated = SectionOverridden(bundle, TITLE_KEYS)
-    return { type = "group", title = L["Title"],
-      gate = (not bundle.has) and { enabled = function() return bundle.get("showTitle") == true end, master = "showtitle" } or nil,
-      build = function()
-        local e = {}
-        append(e, OverrideToggle(bundle, TITLE_KEYS))
-        append(e, CopyGroupButton(bundle, TITLE_KEYS, gated))
-        e[#e + 1] = { type = "checkbox", ref = "showtitle", label = L["Show title"], enabledBy = gated,
-              get = function() return bundle.get("showTitle") == true end,
-              set = function(v) bundle.set("showTitle", v); bundle.touch() end }
-        e[#e + 1] = { type = "textinput", label = L["Title text"], width = 240, maxLetters = 64, enabledBy = gated,
-              get = function() return bundle.get("titleText") or "" end,
-              set = function(v) bundle.set("titleText", v or ""); bundle.touch() end }
-        local style = StyleEditorFor(bundle, "title"); style.enabledBy = gated; e[#e + 1] = style
-        local pos = PosOffsetFor(bundle, "title"); pos.enabledBy = gated; e[#e + 1] = pos
-        return e
-      end }
-end
-
-local STACK_KEYS = {
-    "showStack", "showAtZero", "stackFontKey", "stackFontPath", "stackFontSize", "stackOutline",
-    "stackColor", "stackPos", "stackOffX", "stackOffY",
-}
-local function StacksSection(bundle)
-    local gated = SectionOverridden(bundle, STACK_KEYS)
-    return { type = "group", title = L["Stacks/Charges"],
-      gate = (not bundle.has) and { enabled = function() return bundle.get("showStack") ~= false end, master = "showstack" } or nil,
-      build = function()
-        local e = {}
-        append(e, OverrideToggle(bundle, STACK_KEYS))
-        append(e, CopyGroupButton(bundle, STACK_KEYS, gated))
-        e[#e + 1] = { type = "checkbox", ref = "showstack", label = L["Show stacks"], enabledBy = gated,
-              get = function() return bundle.get("showStack") ~= false end,
-              set = function(v) bundle.set("showStack", v); bundle.touch() end }
-        local style = StyleEditorFor(bundle, "stack"); style.enabledBy = gated; e[#e + 1] = style
-        local pos = PosOffsetFor(bundle, "stack"); pos.enabledBy = gated; e[#e + 1] = pos
-        return e
-      end }
-end
+-- ── Shared icon-customization cadres now live in ns.ui.IconCadres (UI/Shared/IconCadres.lua),
+-- bundle-driven and reused across CDMGroups / BuffGroups / CustomCDM / the trackers. The local
+-- aliases below keep the rest of this file (the Essential/Utility group panel + the exports)
+-- reading the same names it always has.
+local IC            = ns.ui.IconCadres
+local TimerSection  = IC.Timer
+local TitleSection  = IC.Title
+local StacksSection = IC.Stacks
 
 -- Exposed so the below-player panel (and later the shared custom-icon window) can reuse the SAME
 -- Timer/Title/Stacks sections fed a per-dest bundle — pixel-identical to essential, with the show-gate
@@ -414,7 +109,7 @@ ns.CDMGroups = ns.CDMGroups or {}
 ns.CDMGroups.TimerSection  = TimerSection
 ns.CDMGroups.TitleSection  = TitleSection
 ns.CDMGroups.StacksSection = StacksSection
-ns.CDMGroups.SectionKeys   = { timer = TIMER_KEYS, title = TITLE_KEYS, stack = STACK_KEYS }
+ns.CDMGroups.SectionKeys   = IC.SectionKeys
 ns.CDMGroups.GrowList      = GrowList
 ns.CDMGroups.GrowLabel     = GrowLabel
 ns.CDMGroups.GrowFromLabel = GrowFromLabel
@@ -431,181 +126,15 @@ local editingI, editingSid
 local onIconEditChange
 local OpenIconEditor   -- fwd decl
 
--- The icon's option tree, fully parameterised over a `bundle` (config get/set/reset/has/groupGet +
--- touch/refresh) and a `ctx` (editor-frame coupling). This SHARED body backs both the per-icon override
--- editor (the pencil, below) and the standalone CustomCDM editor — each supplies its own bundle + ctx.
--- A control is editable when its section is overridden (bundle.has) OR when the bundle has no override
--- mechanism at all (standalone: bundle.has nil -> always editable). `bundle.refresh` is the full menu
--- re-render the shared section helpers expect; `ctx.refresh`/`ctx.rebuild` are the editor's light/full
--- re-renders and `ctx.reopen` re-opens it. `I`/`sid` are carried for sections that need them in later
--- increments (spell/item resolution); the body reads config only through the bundle.
+-- The per-ICON "Override settings" cadre set (Sound + CDM settings + Icon size + Border + Glow +
+-- Timer/Title/Stacks + Copy all). Now a thin wrapper over the shared assembler
+-- ns.ui.IconCadres.OverrideSet (spell/item variant) — the SAME body backs the per-icon pencil editor
+-- and the standalone CustomCDM editor (each supplies its own bundle + ctx). `I`/`sid` are unused here
+-- (kept for call-site compatibility); opts.omit drops chrome entries (trackers omit
+-- sound/placeholder/label; below-player omits size).
 local function IconSections(I, sid, bundle, ctx, opts)
     opts = opts or {}
-    local omit = opts.omit or {}   -- omit.label / omit.sound / omit.placeholder skip those entries
-    local function gatedFor(keys)
-        return function()
-            if bundle.has then return bundle.has(keys) end
-            return true
-        end
-    end
-    local entries = {
-        { _omit = "label", type = "label", font = "UnbunkUtilityH6", height = 30,
-          text = L["Tick \"Override group settings\" in a section to give this icon its own values; untick it to inherit the group again."] },
-
-        { _omit = "sound", type = "group", title = L["Sound alert"], build = function() return {
-            { type = "sound", LSM = LSM, label = L["Sound on use"],
-              getKey    = function() return bundle.get("soundStartSound") end,
-              getEnable = function() return bundle.get("soundStartEnabled") == true end,
-              onSelect  = function(key, path) bundle.set("soundStartSound", key); bundle.set("soundStartPath", path) end,
-              onToggle  = function(v) bundle.set("soundStartEnabled", v and true or false) end,
-              onTest    = function()
-                  local p = bundle.get("soundStartPath")
-                  if p then PlaySoundFile(p, "Master")
-                  else local k = bundle.get("soundStartSound"); local r = LSM and k and LSM:Fetch("sound", k); if r then PlaySoundFile(r, "Master") end end
-              end },
-            { type = "sound", LSM = LSM, label = L["Sound when ready"],
-              getKey    = function() return bundle.get("soundStopSound") end,
-              getEnable = function() return bundle.get("soundStopEnabled") == true end,
-              onSelect  = function(key, path) bundle.set("soundStopSound", key); bundle.set("soundStopPath", path) end,
-              onToggle  = function(v) bundle.set("soundStopEnabled", v and true or false) end,
-              onTest    = function()
-                  local p = bundle.get("soundStopPath")
-                  if p then PlaySoundFile(p, "Master")
-                  else local k = bundle.get("soundStopSound"); local r = LSM and k and LSM:Fetch("sound", k); if r then PlaySoundFile(r, "Master") end end
-              end },
-        } end },
-
-        { _omit = "placeholder", type = "button", width = 200, hostHeight = 30,
-          label = (bundle.get("placeholder") == true) and L["Hide placeholder"] or L["Show placeholder"],
-          onClick = function()
-              bundle.set("placeholder", bundle.get("placeholder") ~= true)
-              bundle.touch()
-              ctx.reopen()
-          end },
-
-        { type = "group", title = L["CDM settings"], build = function()
-            local keys = { "showPressOverlay", "showKeybinds" }
-            local gated = gatedFor(keys)
-            local e = {}
-            append(e, OverrideToggle(bundle, keys, L["Override CDM settings"]))
-            append(e, CopyGroupButton(bundle, keys, gated))
-            e[#e + 1] = { type = "checkbox", label = L["Show press overlay"], enabledBy = gated,
-              get = function() return bundle.get("showPressOverlay") == true end,
-              set = function(v) bundle.set("showPressOverlay", v and true or false); bundle.touch() end }
-            e[#e + 1] = { type = "checkbox", label = L["Show Keybinds"], enabledBy = gated,
-              get = function() return bundle.get("showKeybinds") == true end,
-              set = function(v) bundle.set("showKeybinds", v and true or false); bundle.touch() end }
-            return e
-        end },
-
-        { _omit = "size", type = "group", title = L["Icon size"], build = function()
-            local keys = { "iconW", "iconH" }
-            local gated = gatedFor(keys)
-            local e = {}
-            append(e, OverrideToggle(bundle, keys))
-            append(e, CopyGroupButton(bundle, keys, gated))
-            e[#e + 1] = { type = "custom", height = 30, enabledBy = gated, build = function(host)
-                local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); wLbl:SetText(L["W"])
-                local wInput = ns.ui.CreateTextInput({
-                    parent = host, width = 46, height = 22, numeric = true, min = 8, max = 256, maxLetters = 3,
-                    text = tostring(bundle.get("iconW") or 44),
-                    onEnter = function(v) if v and v > 0 then bundle.set("iconW", v); bundle.touch() end end,
-                })
-                wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-                local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
-                local hInput = ns.ui.CreateTextInput({
-                    parent = host, width = 46, height = 22, numeric = true, min = 8, max = 256, maxLetters = 3,
-                    text = tostring(bundle.get("iconH") or 44),
-                    onEnter = function(v) if v and v > 0 then bundle.set("iconH", v); bundle.touch() end end,
-                })
-                hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-                return { frame = host, height = 30, Refresh = function()
-                    wInput.SetText(tostring(bundle.get("iconW") or 44))
-                    hInput.SetText(tostring(bundle.get("iconH") or 44))
-                end }
-            end }
-            return e
-        end },
-
-        { type = "group", title = L["Border"], build = function()
-            local keys = { "borderEnabled", "borderColor", "borderSize" }
-            local gated = gatedFor(keys)
-            local e = {}
-            append(e, OverrideToggle(bundle, keys))
-            append(e, CopyGroupButton(bundle, keys, gated))
-            e[#e + 1] = { type = "checkbox", label = L["Show border"], enabledBy = gated,
-              get = function() return bundle.get("borderEnabled") ~= false end,
-              set = function(v) bundle.set("borderEnabled", v); bundle.touch(); ctx.refresh() end }
-            e[#e + 1] = { type = "textEditor", label = L["Border color"],
-              showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-              enabledBy = function() return gated() and bundle.get("borderEnabled") ~= false end,
-              getColor = function() return bundle.get("borderColor") end,
-              onColorChange = function(r, g, b, a) bundle.set("borderColor", { r = r, g = g, b = b, a = a }); bundle.touch() end }
-            e[#e + 1] = { type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-              enabledBy = function() return gated() and bundle.get("borderEnabled") ~= false end,
-              get = function() return bundle.get("borderSize") or 1 end,
-              set = function(v) if v and v > 0 then bundle.set("borderSize", v); bundle.touch() end end }
-            return e
-        end },
-
-        { type = "group", title = L["Glow"], build = function()
-            local keys = { "glowEnabled", "glowType", "glowColor" }
-            local gated = gatedFor(keys)
-            local e = {}
-            append(e, OverrideToggle(bundle, keys))
-            append(e, CopyGroupButton(bundle, keys, gated))
-            e[#e + 1] = { type = "checkbox", label = L["Show glow on proc"], enabledBy = gated,
-              get = function() return bundle.get("glowEnabled") == true end,
-              set = function(v) bundle.set("glowEnabled", v); bundle.touch(); ctx.refresh() end }
-            e[#e + 1] = { type = "dropdown", label = L["Glow type"], width = 180, height = 50,
-              getList = GlowTypeList,
-              enabledBy = function() return gated() and bundle.get("glowEnabled") == true end,
-              getCurrentKey = function() return GlowTypeLabel(bundle.get("glowType")) end,
-              -- Rebuild (NOT refresh) so the Glow color picker's `when` re-evaluates: refresh only re-runs
-              -- value refreshers, not the show/hide gates, so the picker wouldn't hide on a type change.
-              onSelect = function(label) bundle.set("glowType", GlowTypeFromLabel(label)); bundle.touch(); ctx.rebuild() end }
-            e[#e + 1] = { type = "textEditor", label = L["Glow color"],
-              showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-              -- The proc + button glows use the NATIVE (uncolored) look, so the color picker doesn't apply.
-              when = function() local gt = bundle.get("glowType"); return gt ~= "proc" and gt ~= "button" end,
-              enabledBy = function() return gated() and bundle.get("glowEnabled") == true end,
-              getColor = function() return bundle.get("glowColor") end,
-              onColorChange = function(r, g, b, a) bundle.set("glowColor", { r = r, g = g, b = b, a = a }); bundle.touch() end }
-            return e
-        end },
-
-        TimerSection(bundle),
-        TitleSection(bundle),
-        StacksSection(bundle),
-
-        { type = "button", label = L["Copy all group settings"], width = 180, hostHeight = 30,
-          onClick = function()
-              local function copySection(keys)
-                  for _, key in ipairs(keys) do bundle.set(key, CloneVal(bundle.groupGet(key))) end
-              end
-              copySection({ "showPressOverlay", "showKeybinds" })
-              if not omit.size then copySection({ "iconW", "iconH" }) end   -- size omitted (e.g. below-player)
-              copySection({ "borderEnabled", "borderColor", "borderSize" })
-              copySection({ "glowEnabled", "glowType", "glowColor" })
-              copySection(TIMER_KEYS)
-              copySection(TITLE_KEYS)
-              copySection(STACK_KEYS)
-              bundle.touch()
-              ctx.rebuild()
-          end },
-    }
-    -- Drop any entries the caller opted out of (the tracker "Override settings" cadre omits sound +
-    -- placeholder + the inheritance label, since trackers have their own separate Sound alert cadre).
-    if next(omit) then
-        local kept = {}
-        for _, e in ipairs(entries) do
-            if not (e._omit and omit[e._omit]) then kept[#kept + 1] = e end
-        end
-        entries = kept
-    end
-    return entries
+    return IC.OverrideSet(bundle, ctx, { type = "spellitem", omit = opts.omit })
 end
 ns.CDMGroups.IconSections = IconSections
 
@@ -764,102 +293,19 @@ function ns.CDMGroups.TrackerFreeCadres(cfg)
         touch   = cfg.touch,
         refresh = cfg.rebuild,
     }
-    local function setApply(key, val) cfg.set(key, val); if cfg.touch then cfg.touch() end end
     local function sizeApply() if cfg.sizeApply then cfg.sizeApply() elseif cfg.touch then cfg.touch() end end
-
-    local function cdmSettings()
-        return { type = "group", title = L["CDM settings"], build = function() return {
-            { type = "checkbox", label = L["Show press overlay"],
-              get = function() return cfg.get("showPressOverlay") == true end,
-              set = function(v) setApply("showPressOverlay", v and true or false) end },
-            { type = "checkbox", label = L["Show Keybinds"],
-              get = function() return cfg.get("showKeybinds") == true end,
-              set = function(v) setApply("showKeybinds", v and true or false) end },
-        } end }
-    end
-    local function borderGroup()
-        return { type = "group", title = L["Border"], build = function() return {
-            { type = "checkbox", label = L["Show border"],
-              get = function() return cfg.get("borderEnabled") == true end,
-              set = function(v) cfg.set("borderEnabled", v and true or false); if cfg.touch then cfg.touch() end; cfg.rebuild() end },
-            { type = "textEditor", label = L["Border color"],
-              showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-              enabledBy = function() return cfg.get("borderEnabled") == true end,
-              getColor = function() return cfg.get("borderColor") end,
-              onColorChange = function(r, g, b, a) setApply("borderColor", { r = r, g = g, b = b, a = a }) end },
-            { type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-              enabledBy = function() return cfg.get("borderEnabled") == true end,
-              get = function() return cfg.get("borderSize") or 1 end,
-              set = function(v) if v and v > 0 then setApply("borderSize", v) end end },
-        } end }
-    end
-    local function glowGroup()
-        return { type = "group", title = L["Glow"], build = function()
-            local e = {
-                { type = "checkbox", label = L["Show glow on proc"],
-                  get = function() return cfg.get("glowEnabled") == true end,
-                  set = function(v) setApply("glowEnabled", v and true or false) end },
-                { type = "dropdown", label = L["Glow type"], width = 200, height = 50,
-                  enabledBy = function() return cfg.get("glowEnabled") == true end,
-                  getList = GlowTypeList,
-                  getCurrentKey = function() return GlowTypeLabel(cfg.get("glowType")) end,
-                  onSelect = function(label) cfg.set("glowType", GlowTypeFromLabel(label)); if cfg.touch then cfg.touch() end; cfg.rebuild() end },
-                { type = "textEditor", label = L["Glow color"],
-                  showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                  -- button/proc glows ignore colour (native look) — hide the swatch for those.
-                  when = function() local gt = cfg.get("glowType"); return gt ~= "proc" and gt ~= "button" end,
-                  enabledBy = function() return cfg.get("glowEnabled") == true end,
-                  getColor = function() return cfg.get("glowColor") end,
-                  onColorChange = function(r, g, b, a) setApply("glowColor", { r = r, g = g, b = b, a = a }) end },
-            }
-            return e
-        end }
-    end
-    local function sizeRow()
-        return { type = "custom", height = 46, build = function(host)
-            local sLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
-            sLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); sLbl:SetText(L["Icon size"])
-            local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-            wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -20); wLbl:SetText(L["W"])
-            local wInput = ns.ui.CreateTextInput({
-                parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                text = tostring(cfg.get("iconWidth") or 44),
-                onEnter = function(v) if v and v > 0 then cfg.set("iconWidth", v); sizeApply() end end,
-            })
-            wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-            local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-            hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
-            local hInput = ns.ui.CreateTextInput({
-                parent = host, width = 46, height = 22, numeric = true, min = 8, max = 512, maxLetters = 3,
-                text = tostring(cfg.get("iconHeight") or 44),
-                onEnter = function(v) if v and v > 0 then cfg.set("iconHeight", v); sizeApply() end end,
-            })
-            hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-            return { frame = host, height = 46, Refresh = function()
-                wInput.SetText(tostring(cfg.get("iconWidth") or 44))
-                hInput.SetText(tostring(cfg.get("iconHeight") or 44))
-            end }
-        end }
-    end
-    return {
-        { type = "position", ref = "pe",
-          onBuilt = cfg.pos and cfg.pos.onBuilt,
-          label = L["Icon position (offset from screen center)"],
-          getX = cfg.pos and cfg.pos.getX, getY = cfg.pos and cfg.pos.getY,
-          onApply = cfg.pos and cfg.pos.onApply,
-          onUnlock = cfg.pos and cfg.pos.onUnlock, onLock = cfg.pos and cfg.pos.onLock,
-          isUnlocked = cfg.pos and cfg.pos.isUnlocked },
-        cdmSettings(),
-        borderGroup(),
-        glowGroup(),
-        { type = "group", title = L["Icon"], build = function()
-            local e = { sizeRow() }
-            if TimerSection then e[#e + 1] = TimerSection(bundle) end
-            if TitleSection then e[#e + 1] = TitleSection(bundle) end
-            if StacksSection then e[#e + 1] = StacksSection(bundle) end
-            return e
-        end },
-    }
+    return IC.FreeSet(bundle, {
+        type      = "spellitem",
+        sizeApply = sizeApply,
+        position  = {
+            onBuilt    = cfg.pos and cfg.pos.onBuilt,
+            label      = L["Icon position (offset from screen center)"],
+            getX       = cfg.pos and cfg.pos.getX,     getY = cfg.pos and cfg.pos.getY,
+            onApply    = cfg.pos and cfg.pos.onApply,
+            onUnlock   = cfg.pos and cfg.pos.onUnlock, onLock = cfg.pos and cfg.pos.onLock,
+            isUnlocked = cfg.pos and cfg.pos.isUnlocked,
+        },
+    })
 end
 
 -- The per-icon override editor's option tree: binds IconSections to the Config instance `I` + the
@@ -1553,32 +999,14 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
         end
 
         -- ── Per-group Icon size (W / H) ────────────────────────────────────────────
+        -- Group icon size (W/H) — the shared IC.IconSize fed a plain group bundle (no override
+        -- toggle); IconsGroup prints its own "Icon size" label above, so opts.label = false.
         local function IconSizeEntry(id)
-            return {
-                type = "custom", height = 30,
-                build = function(host)
-                    local wLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                    wLbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0); wLbl:SetText(L["W"])
-                    local wInput = ns.ui.CreateTextInput({
-                        parent = host, width = 46, height = 22, numeric = true, min = 8, max = 256, maxLetters = 3,
-                        text = tostring(I.GGet(id, "iconW") or 44),
-                        onEnter = function(v) if v and v > 0 then I.GSet(id, "iconW", v); touch() end end,
-                    })
-                    wInput.frame:SetPoint("LEFT", wLbl, "RIGHT", 4, 0)
-                    local hLbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
-                    hLbl:SetPoint("LEFT", wInput.frame, "RIGHT", 12, 0); hLbl:SetText(L["H"])
-                    local hInput = ns.ui.CreateTextInput({
-                        parent = host, width = 46, height = 22, numeric = true, min = 8, max = 256, maxLetters = 3,
-                        text = tostring(I.GGet(id, "iconH") or 44),
-                        onEnter = function(v) if v and v > 0 then I.GSet(id, "iconH", v); touch() end end,
-                    })
-                    hInput.frame:SetPoint("LEFT", hLbl, "RIGHT", 4, 0)
-                    return { frame = host, height = 30, Refresh = function()
-                        wInput.SetText(tostring(I.GGet(id, "iconW") or 44))
-                        hInput.SetText(tostring(I.GGet(id, "iconH") or 44))
-                    end }
-                end,
-            }
+            return IC.IconSize({
+                get   = function(key) return I.GGet(id, key) end,
+                set   = function(key, val) I.GSet(id, key, val) end,
+                touch = touch,
+            }, { bare = true, label = false, kw = "iconW", kh = "iconH", max = 256 })
         end
 
         local function GroupBundle(id)
@@ -1590,6 +1018,14 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                 refresh = rebuild,
             }
         end
+
+        -- Light vs full menu re-render for the shared Border/Glow cadres in the GROUP panel:
+        -- a checkbox toggle re-greys via Refresh; a glow-type change rebuilds so the colour
+        -- picker's `when` re-evaluates (mirrors what these inline cadres did before).
+        local groupCtx = {
+            refresh = function() if menu then menu.Refresh() end end,
+            rebuild = function() if menu then menu.Rebuild() end end,
+        }
 
         -- The X / Y numeric inputs + Unlock/Lock toggle (the `position` widget). Lives at the TOP of the
         -- Position sub-cadre now. Drag writes posX/posY (the group's screen-center offset).
@@ -1652,45 +1088,10 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
             } end }
         end
 
-        local function BorderGroup(id)
-            return { type = "group", title = L["Border"], build = function() return {
-                { type = "checkbox", label = L["Show border"],
-                  get = function() return I.GGet(id, "borderEnabled") ~= false end,
-                  set = function(v) I.GSet(id, "borderEnabled", v); touch(); if menu then menu.Refresh() end end },
-                { type = "textEditor", label = L["Border color"],
-                  showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                  enabledBy = function() return I.GGet(id, "borderEnabled") ~= false end,
-                  getColor = function() return I.GGet(id, "borderColor") end,
-                  onColorChange = function(r, g, b, a) I.GSet(id, "borderColor", { r = r, g = g, b = b, a = a }); touch() end },
-                { type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
-                  enabledBy = function() return I.GGet(id, "borderEnabled") ~= false end,
-                  get = function() return I.GGet(id, "borderSize") or 1 end,
-                  set = function(v) if v and v > 0 then I.GSet(id, "borderSize", v); touch() end end },
-            } end }
-        end
-
-        local function GlowGroup(id)
-            return { type = "group", title = L["Glow"], build = function() return {
-                { type = "checkbox", label = L["Show glow on proc"],
-                  get = function() return I.GGet(id, "glowEnabled") == true end,
-                  set = function(v) I.GSet(id, "glowEnabled", v); touch(); if menu then menu.Refresh() end end },
-                { type = "dropdown", label = L["Glow type"], width = 180, height = 50,
-                  getList = GlowTypeList,
-                  enabledBy = function() return I.GGet(id, "glowEnabled") == true end,
-                  getCurrentKey = function() return GlowTypeLabel(I.GGet(id, "glowType")) end,
-                  -- Rebuild (NOT Refresh) so the Glow color picker's `when` re-evaluates (Refresh only
-                  -- re-runs value refreshers, not the show/hide gates).
-                  onSelect = function(label) I.GSet(id, "glowType", GlowTypeFromLabel(label)); touch()
-                      if menu then menu.Rebuild() end end },
-                { type = "textEditor", label = L["Glow color"],
-                  showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
-                  -- The proc + button glows use the NATIVE (uncolored) look, so the color picker doesn't apply.
-                  when = function() local gt = I.GGet(id, "glowType"); return gt ~= "proc" and gt ~= "button" end,
-                  enabledBy = function() return I.GGet(id, "glowEnabled") == true end,
-                  getColor = function() return I.GGet(id, "glowColor") end,
-                  onColorChange = function(r, g, b, a) I.GSet(id, "glowColor", { r = r, g = g, b = b, a = a }); touch() end },
-            } end }
-        end
+        -- Group Border / Glow — shared IC builders fed a plain group bundle. Border default ON
+        -- (~= false); Glow = proc variant (type dropdown + colour hidden for proc/button looks).
+        local function BorderGroup(id) return IC.Border(GroupBundle(id), { defaultOn = true, ctx = groupCtx }) end
+        local function GlowGroup(id)   return IC.Glow(GroupBundle(id), { variant = "proc", ctx = groupCtx }) end
 
         local function IconsGroup(id)
             return { type = "group", title = L["Icons"], build = function()
