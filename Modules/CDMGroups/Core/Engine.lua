@@ -1297,15 +1297,50 @@ local function EngineFor(I)
             return
         end
 
+        -- Blizzard hides the native CooldownViewer (the PARENT of every pool item frame) during a
+        -- zone-transition rebuild and DEFERS re-showing it until combat ends (a combat-locked action) —
+        -- so leaving an instance in combat drops the WHOLE grid even though the pool still holds its
+        -- frames (the dump showed viewer:IsShown()==false while GetNumActive()==10; only the parent is
+        -- hidden). Re-show it ourselves: if the viewer is NOT protected this works in combat too; if it
+        -- IS protected we leave it (Blizzard restores it at PLAYER_REGEN_ENABLED, same as before). Gated
+        -- on the CDM being enabled so we never fight a user / EditMode / disabled-feature hide; pcall
+        -- guards against a protected-Show throw. Runs every pass (0.2s ticker) so recovery is ~prompt.
+        do
+            local v = Viewer()
+            if v and v.IsShown and not v:IsShown()
+                and ns.IsCDMEnabled and ns.IsCDMEnabled()
+                and not (InCombatLockdown() and v.IsProtected and v:IsProtected()) then
+                pcall(v.Show, v)
+            end
+        end
+
         -- Build baseKey -> native frame (the live pool) and baseKey -> active(shown) for sounds. Keyed by
         -- the STABLE BASE key (FrameKey) so a transformed cooldown still maps to its grouped slot.
-        local frameOf, activeOf = {}, {}
+        local frameOf, activeOf, liveSet = {}, {}, {}
+        local nativeN, keyedNativeN = 0, 0
         for _, nf in ipairs(EnumNativeFrames()) do
+            nativeN = nativeN + 1
+            liveSet[nf] = true                 -- key-independent "still a live pool member" set (release guard)
             local sid = FrameKey(nf)
             if sid then
+                keyedNativeN = keyedNativeN + 1
                 frameOf[sid] = nf
                 if FrameShown(nf) then activeOf[sid] = true end
             end
+        end
+        -- BLIND-PASS GUARD: during a zone-transition / spec rebuild the native pool frames are briefly
+        -- PRESENT but their cooldownInfo.spellID reads as a SECRET value, so FrameKey returns nil for
+        -- every native and frameOf holds no native this pass. Laying out now would (a) collapse every
+        -- group count to 0 and (b) make the release pass below drop EVERY pin (FrameKey nil there too) —
+        -- stranding the whole grid until combat ends (this is the "leave an instance in combat -> CDM
+        -- vanishes" path). Detect that exact transient — natives present, none keyable, and we DID have a
+        -- working layout (pinnedFrames non-empty) — and defer to a fresh, untainted relayout instead of
+        -- tearing it down. A genuinely empty viewer (nativeN == 0, e.g. utility with everything ready)
+        -- is NOT caught here, so normal reflow-out still works. Taint-safe: counts only (no secret reads);
+        -- I.ScheduleRelayout is a plain C_Timer deferral that re-reads in a clean context.
+        if nativeN > 0 and keyedNativeN == 0 and next(pinnedFrames) then
+            if I.ScheduleRelayout then I.ScheduleRelayout() end
+            return
         end
         -- Fold the addon-TRACKER frames (BL Tracker, Trinket, …) keyed by their global NAME (string).
         -- A tracker is its module's own frame: the engine NEVER Show/Hides it — it only positions +
@@ -1470,12 +1505,35 @@ local function EngineFor(I)
             container:SetShown(count > 0 or g.unlocked)
         end
 
-        -- Any frame WE previously pinned that isn't placed this pass is released (it dropped from the
-        -- pool / moved to a deleted group). Guarded to frames we own so the old system's pins are safe.
+        -- Anti-flash / anti-stray: a LIVE pool native we did NOT place this pass is parked OFFSCREEN so it
+        -- can neither flash in Blizzard's default grid nor linger DETACHED at a stale slot. Two cases:
+        --   • READABLE but unplaced (FrameKey ok, yet in no group and not in Unused) = a RECYCLED frame
+        --     whose new content isn't in the universe yet (e.g. a utility cooldown not re-accumulated during
+        --     the SETTLE window after a spec swap). Its re-impose hook would otherwise hold it at its OLD
+        --     slot -> the "detached icon". Park it (it reappears the moment it re-enters the universe), so a
+        --     recycled frame now behaves exactly like a brand-new one in the same state instead of straying.
+        --   • UNREADABLE and NEVER pinned (FrameKey nil, brand-new pool frame at Blizzard's default slot) =
+        --     park so the un-styled default grid doesn't flash before we can key + classify it.
+        -- An UNREADABLE frame we ALREADY pinned is LEFT alone: its re-impose hook holds it at its last good
+        -- slot through a brief un-keyable blip, so it doesn't blink offscreen. Taint-safe: CDM item frames
+        -- are not protected, so SetPoint on them is allowed in combat.
+        for nf in pairs(liveSet) do
+            local sid = FrameKey(nf)
+            if sid then
+                if not placed[sid] then PinNative(nf, UIParent, OFFSCREEN, OFFSCREEN) end
+            elseif not pinnedFrames[nf] then
+                PinNative(nf, UIParent, OFFSCREEN, OFFSCREEN)
+            end
+        end
+
+        -- Release ONLY natives that have genuinely LEFT the live pool (recycled for new content / dropped).
+        -- A frame still in the pool but momentarily unkeyable (secret spellID mid zone-rebuild) is KEPT:
+        -- the old `not (sid and placed[sid])` test released every unkeyable frame, dropping its pin and
+        -- letting Blizzard strand it at the default grid — the core of the "CDM vanishes in combat" bug.
+        -- liveSet was built from the pool above, so membership is key-independent.
         local toReleaseNF
         for nf in pairs(pinnedFrames) do
-            local sid = FrameKey(nf)   -- match the placed[] set, which is keyed by the stable base key
-            if not (sid and placed[sid]) then
+            if not liveSet[nf] then
                 toReleaseNF = toReleaseNF or {}
                 toReleaseNF[#toReleaseNF + 1] = nf
             end
