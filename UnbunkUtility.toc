@@ -118,3 +118,5 @@ Modules/DetailsProfile/Core/DetailsProfile.lua
 Modules/DetailsProfile/UI/ConfigWindow.lua
 Modules/ReloadAnnounce/Core/ReloadAnnounce.lua
 Modules/ReloadAnnounce/UI/ConfigWindow.lua
+Modules/ShowIDs/Core/ShowIDs.lua
+Modules/ShowIDs/UI/ConfigWindow.lua
