@@ -85,8 +85,18 @@ if not ns._consoleHooked then
     print = function(...)
         origPrint(...)
         if not ns.IsDebugUnlocked() then return end   -- locked: don't mirror
+        -- Secret values (WoW 11.x) stay secret through tostring() and would blow up
+        -- table.concat ("invalid value (secret)") — e.g. BigWigs print()ing a gossip
+        -- string. Substitute a placeholder so the mirror never errors on them.
         local n, parts = select("#", ...), {}
-        for i = 1, n do parts[i] = tostring((select(i, ...))) end
+        for i = 1, n do
+            local v = select(i, ...)
+            if issecretvalue and issecretvalue(v) then
+                parts[i] = "<secret>"
+            else
+                parts[i] = tostring(v)
+            end
+        end
         AddLine(table.concat(parts, " "))
     end
 end
@@ -442,6 +452,21 @@ local function EnsureConsole()
     input:SetScript("OnEnterPressed", function(self) RunConsoleInput(self:GetText()); self:SetText("") end)
     input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     f.input = input
+
+    -- ── Swallow C / V while the console is open ────────────────────────────────
+    -- Pressing C or V here must NOT fire a game keybind (cast a spell, open a bound
+    -- window). Copy (Ctrl+C on the selectable log) is handled by the engine's text-copy
+    -- system and paste (Ctrl+V) by the input EditBox, BOTH before this binding gate — so
+    -- copy/paste keep working while the bare C / V keybinds are eaten. Every other key is
+    -- propagated so normal keybinds still fire. While the input EditBox has focus this
+    -- handler doesn't run (the EditBox owns the keystrokes), so typing c / v and Ctrl+V
+    -- paste behave normally. EnableKeyboard only intercepts while the frame is shown.
+    f:EnableKeyboard(true)
+    local function KeyGate(self, key)
+        self:SetPropagateKeyboardInput(key ~= "C" and key ~= "V")
+    end
+    f:SetScript("OnKeyDown", KeyGate)
+    f:SetScript("OnKeyUp", KeyGate)
 
     -- Bottom-right resize triangle: drag to size the window freely; the new size is
     -- saved (account-wide) and restored on the next open.
