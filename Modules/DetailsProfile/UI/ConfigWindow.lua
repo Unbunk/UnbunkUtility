@@ -67,12 +67,14 @@ local function CreateDetailsPanel(parent)
         end)
     end
 
-    -- The per-profile fade control: "Fade Details!" + a numeric opacity input + a grey
-    -- "% opacity" hint. When checked and any criterion matches, the meter dims to that %.
+    -- The per-profile fade control: "Details! Opacity" toggle + a faded % input, and a "Mouse over Opacity"
+    -- % input below (the alpha while the cursor is over the meter). When the toggle is on and any criterion
+    -- matches, the meter dims to the faded %, rising to the mouse-over % on hover.
     local function FadeEntry(p)
-        return { type = "custom", height = 26, build = function(host)
+        return { type = "custom", height = 52, build = function(host)
+            -- Row 1: "Details! Opacity" toggle + the faded % input.
             local cb = ns.ui.CreateCheckbox({
-                parent = host, label = L["Fade Details!"], checked = p.fadeDetails,
+                parent = host, label = L["Details! Opacity"], checked = p.fadeDetails,
                 onClick = function(v) p.fadeDetails = v; touch() end,
             })
             cb.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
@@ -86,8 +88,26 @@ local function CreateDetailsPanel(parent)
             local pct = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
             pct:SetPoint("LEFT", inp.frame, "RIGHT", 6, 0)
             pct:SetTextColor(0.6, 0.6, 0.6)
-            pct:SetText(L["% opacity"])
-            return { frame = host, height = 26, Refresh = function() cb.SetChecked(p.fadeDetails) end }
+            pct:SetText("%")
+            -- Row 2: "Mouse over Opacity" toggle (default off) + its % input (the opacity while the cursor
+            -- is over the meter). When unchecked, hovering leaves the meter at its faded opacity.
+            local mcb = ns.ui.CreateCheckbox({
+                parent = host, label = L["Mouse over Opacity"], checked = p.mouseOverEnabled == true,
+                onClick = function(v) p.mouseOverEnabled = v; touch() end,
+            })
+            mcb.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -28)
+            local moInp = ns.ui.CreateTextInput({
+                parent = host, width = 46, height = 22,
+                numeric = true, min = 0, max = 100, maxLetters = 3,
+                text = tostring(p.mouseOverOpacity or 100),
+                onEnter = function(v) if v then p.mouseOverOpacity = v; touch() end end,
+            })
+            moInp.frame:SetPoint("LEFT", mcb.label, "RIGHT", 12, 0)
+            local moPct = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+            moPct:SetPoint("LEFT", moInp.frame, "RIGHT", 6, 0)
+            moPct:SetTextColor(0.6, 0.6, 0.6)
+            moPct:SetText("%")
+            return { frame = host, height = 52, Refresh = function() cb.SetChecked(p.fadeDetails); mcb.SetChecked(p.mouseOverEnabled == true) end }
         end }
     end
 

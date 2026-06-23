@@ -35,6 +35,8 @@ local PROFILE_DEFAULTS = {
     profileName   = "",                    -- Details! profile to apply when a criterion matches
     fadeDetails   = false,                 -- fade the meter (instead of hide) when a criterion matches
     fadeOpacity   = DEFAULT_FADE_OPACITY,  -- % opacity to fade to
+    mouseOverEnabled = false,              -- reveal on hover at all (master for the mouse-over opacity); default off
+    mouseOverOpacity = 100,                -- % opacity while the cursor is over the meter (hover reveal)
     group = {                              -- "Change with group" cadre
         enabled = false,
         solo    = false,                   -- not in a group
@@ -133,7 +135,54 @@ function DP.SetDetailsAlpha(a)
         elseif inst.SetBackgroundAlpha then
             inst:SetBackgroundAlpha(a)
         end
+        -- The bar rows live on a SEPARATE frame (inst.rowframe), NOT a child of baseframe, so the
+        -- window-frame alpha above never reaches them. Dim the row container too so the bars share the
+        -- same opacity (their own per-bar alpha stays 1, so effective alpha = rowframe alpha = a).
+        -- Details! only resets rowframe alpha on window show/hide (lock/unlock), not on data refreshes,
+        -- so this sticks; DP.Apply re-applies on the relevant events.
+        local rf = inst.rowframe
+        if rf and rf.SetAlpha then rf:SetAlpha(a) end
     end)
+end
+
+-- ── Mouse-over reveal ─────────────────────────────────────────────────────────
+-- While we hold Details! at its faded alpha, hovering any meter window raises it to the matching
+-- profile's "Mouse over Opacity" so it stays readable on demand, dropping back on leave. The poller only
+-- runs while we are actively fading (hidden otherwise) and is throttled, so it costs ~nothing at rest.
+local curFadeAlpha, curMouseAlpha = 1, 1   -- winning profile's faded / hovered alphas
+local hovering = false
+
+local function AnyWindowHovered()
+    local hot = false
+    EachWindow(function(inst, frame)
+        -- baseframe covers the window chrome + title/header (baseframe.cabecalho); the bar ROWS sit on a
+        -- separate frame (rowframe), so check BOTH -- otherwise hovering the bars themselves wouldn't
+        -- register as "over the window" and the reveal would only fire over the title bar.
+        if frame and frame.IsMouseOver and frame:IsMouseOver() then hot = true end
+        local rf = inst.rowframe
+        if rf and rf.IsMouseOver and rf:IsMouseOver() then hot = true end
+    end)
+    return hot
+end
+
+local hoverPoller = CreateFrame("Frame")
+hoverPoller:Hide()
+local hoverAccum = 0
+hoverPoller:SetScript("OnUpdate", function(_, dt)
+    hoverAccum = hoverAccum + dt
+    if hoverAccum < 0.1 then return end
+    hoverAccum = 0
+    local now = AnyWindowHovered()
+    if now ~= hovering then
+        hovering = now
+        DP.SetDetailsAlpha(now and curMouseAlpha or curFadeAlpha)
+    end
+end)
+
+-- Stop the hover reveal and forget the hover state (fading ended / module off).
+local function StopHoverReveal()
+    hoverPoller:Hide()
+    hovering = false
 end
 
 -- ── Context evaluation ────────────────────────────────────────────────────────
@@ -182,18 +231,20 @@ function DP.Apply()
     local c = Cfg()
     if not c or not c.enabled then
         -- Module off: undo any fade we are still holding.
-        if fadedByUs and DP.DetailsReady() then DP.SetDetailsAlpha(1); fadedByUs = false end
+        if fadedByUs and DP.DetailsReady() then StopHoverReveal(); DP.SetDetailsAlpha(1); fadedByUs = false end
         return
     end
     if not DP.DetailsReady() then return end
 
-    local wantFade, fadeAlpha, wantProfile = false, 1, nil
+    local wantFade, fadeAlpha, mouseAlpha, hoverOn, wantProfile = false, 1, 1, false, nil
     for _, p in ipairs(c.profiles or {}) do
         -- Group/instance decide WHAT matches; the combat gate (if on) restricts WHEN.
         if (GroupMet(p.group) or InstanceMet(p.instance)) and CombatGateOk(p.combat) then
             if p.fadeDetails then
-                wantFade  = true
-                fadeAlpha = PctToAlpha(p.fadeOpacity)   -- later matching profiles win
+                wantFade   = true
+                fadeAlpha  = PctToAlpha(p.fadeOpacity)        -- later matching profiles win
+                hoverOn    = p.mouseOverEnabled == true       -- mouse-over reveal toggle (default off)
+                mouseAlpha = hoverOn and PctToAlpha(p.mouseOverOpacity) or fadeAlpha
             end
             if p.changeProfile and p.profileName and p.profileName ~= "" then
                 wantProfile = p.profileName             -- later matching profiles win
@@ -211,20 +262,63 @@ function DP.Apply()
     -- Fade: dim to the matching profile's opacity, else restore full opacity once we
     -- leave the fade context (only if we were the one holding it faded).
     if wantFade then
-        DP.SetDetailsAlpha(fadeAlpha); fadedByUs = true
+        curFadeAlpha, curMouseAlpha = fadeAlpha, mouseAlpha
+        fadedByUs = true
+        if hoverOn then hoverPoller:Show() else StopHoverReveal() end   -- only poll when the reveal is on
+        DP.SetDetailsAlpha(hovering and curMouseAlpha or curFadeAlpha)
     elseif fadedByUs then
-        DP.SetDetailsAlpha(1);         fadedByUs = false
+        StopHoverReveal()
+        DP.SetDetailsAlpha(1); fadedByUs = false
     end
 end
 
--- Combat enter/leave are registered so the "only in combat state" gate (and any
--- combat-gated fade) re-evaluate; the rest cover zone/instance/roster transitions.
+-- After login/reload Details! restores each window's saved alpha at SEVERAL points -- synchronously
+-- during profile load AND on delayed startup timers (+1s/+2s plus a hard +5s refresh loop) -- so a fixed
+-- timer burst always lost the race past +4s. Every one of those restore/refresh paths (AtivarInstancia,
+-- ChangeSkin, the +5s refresh, profile apply, skin/mode changes) funnels through instance:SetMenuAlpha,
+-- which sets baseframe + rowframe alpha back to Details!'s own value AFTER us. So instead of racing the
+-- timers we HOOK SetMenuAlpha and re-land our dim the instant Details! clobbers it -- no timing guesses.
+local hookInstalled = false
+local reasserting   = false
+local function ReassertFade()
+    -- DP.Apply may call Details:ApplyProfile -> re-skin -> SetMenuAlpha -> back here; the flag breaks that.
+    if reasserting or not DP.DetailsReady() then return end
+    reasserting = true
+    DP.Apply()
+    reasserting = false
+end
+
+local function EnsureDetailsHook()
+    if hookInstalled then return end
+    if not (Details and Details.SetMenuAlpha and hooksecurefunc) then return end
+    hooksecurefunc(Details, "SetMenuAlpha", ReassertFade)
+    hookInstalled = true
+end
+
+-- Login/reload: install the hook (once Details! exposes SetMenuAlpha) + apply now, plus a short bounded
+-- retry to catch the first window build. Once the hook is live it self-heals against Details!'s late
+-- refreshes, so the old long +4s burst is no longer needed.
+local function ReapplyAfterLoad()
+    EnsureDetailsHook()
+    DP.Apply()
+    C_Timer.After(0.5, function() EnsureDetailsHook(); DP.Apply() end)
+    C_Timer.After(2.0, function() EnsureDetailsHook(); DP.Apply() end)
+end
+
+-- Combat enter/leave are registered so the "only in combat state" gate (and any combat-gated fade)
+-- re-evaluate; the rest cover zone/instance/roster transitions. Login/reload burst-reapply (above).
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 f:RegisterEvent("GROUP_ROSTER_UPDATE")
 f:RegisterEvent("PLAYER_REGEN_DISABLED")
 f:RegisterEvent("PLAYER_REGEN_ENABLED")
-f:SetScript("OnEvent", function() DP.Apply() end)
+f:SetScript("OnEvent", function(_, event, isInitialLogin, isReloadingUi)
+    if event == "PLAYER_ENTERING_WORLD" and (isInitialLogin or isReloadingUi) then
+        ReapplyAfterLoad()
+    else
+        DP.Apply()
+    end
+end)
 
-ns.RegisterReloadHook(function() DP.Apply() end)
+ns.RegisterReloadHook(ReapplyAfterLoad)
