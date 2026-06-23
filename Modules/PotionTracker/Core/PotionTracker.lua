@@ -394,7 +394,16 @@ eventFrame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "BAG_UPDATE" or event == "PLAYER_ENTERING_WORLD" or event == "ITEM_DATA_LOAD_RESULT" then
+        -- Cache invalidation is UNCONDITIONAL (must happen even while disabled so a
+        -- late-loaded spellId is picked up once re-enabled).
         InvalidateActiveCache()
+    end
+    if event == "ITEM_DATA_LOAD_RESULT" then
+        -- Global event that bursts on login / bag scans / tooltips / AH. Don't
+        -- relayout here: just invalidate (above) and let the 0.5s ticker pick up
+        -- the freshly resolved spellId. A full ApplyAll per burst was a churn
+        -- source for no visible benefit.
+        return
     end
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, _, spellId = ...
@@ -420,13 +429,28 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         -- on every player cast (fires many times per second in combat).
         return
     end
-    PT.ApplyAll()
+    -- Event-driven relayout (BAG_UPDATE / PEW): gate on enabled (the ticker does
+    -- too); the cache invalidation above already ran unconditionally.
+    if PT.CfgGet("enabled") then PT.ApplyAll() end
 end)
+
+-- True when `prefix` could draw something this pass: an active potion is in bags,
+-- or show-at-zero keeps its icon up as a restock reminder.
+local function PrefixHasWork(prefix)
+    if PT.CfgGet(prefix) and PT.CfgGet(prefix).showAtZero then return true end
+    return PT.GetActiveItemId(prefix) ~= nil
+end
 
 C_Timer.NewTicker(0.5, function()
     -- Steady state: when the module is disabled the frames are already
     -- hidden, no need to redo the work every tick.
     if not PT.CfgGet("enabled") then return end
+    -- Short-circuit a pass that can produce no visible change: outside an active
+    -- instance, OR neither potion has anything to draw (nothing in bags and
+    -- show-at-zero off). A bag/cast/zone event re-runs ApplyAll to flush any
+    -- pending hide, so skipping the steady-state empty pass is safe.
+    if not IsActiveInCurrentInstance() then return end
+    if not PrefixHasWork("health") and not PrefixHasWork("combat") then return end
     PT.ApplyAll()
 end)
 

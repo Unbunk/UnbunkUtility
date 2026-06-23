@@ -384,6 +384,9 @@ local function EnsureIcon(spellId)
             if e[key] ~= nil then return e[key] end
             return DEFAULTS[key]
         end,
+        -- This defensive's own castable spellId -> keybind text / press overlay (resolved override-aware
+        -- by ns.CDGKeybinds). Per-icon via the spellId closure.
+        getSpellId = function() return spellId end,
         -- In-CDM stacks: the shared icon draws this defensive's charge count (matching the own-draw's
         -- maxCharges>1 gate). Isolated to ResolveCharges — no spellId exposure (keybind/glow unaffected).
         getCount = function()
@@ -502,7 +505,11 @@ end
 DT.ApplyAll = DT.Rebuild
 
 -- ── Events ────────────────────────────────────────────────────────────────────
-DT:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(_, unit, _, spellId)
+-- UNIT_SPELLCAST_SUCCEEDED on its own RegisterUnitEvent("player") frame: AceEvent has no
+-- unit filter, so an unfiltered registration would wake for every unit's cast in a raid.
+local castFrame = CreateFrame("Frame")
+castFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+castFrame:SetScript("OnEvent", function(_, _, unit, _, spellId)
     if unit ~= "player" then return end
     local d = live[spellId]
     if d then
@@ -511,13 +518,33 @@ DT:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(_, unit, _, spellId)
         if e and e.enabled ~= false and e.soundOnUse and DT.Enabled() then PlaySound(spellId, "use") end
     end
 end)
-DT:RegisterEvent("SPELL_UPDATE_COOLDOWN", function() DT.UpdateAll() end)
+
+-- SPELL_UPDATE_COOLDOWN fires on essentially every cast/GCD; running the full UpdateAll
+-- synchronously per event (stacked on the 0.5s ticker) is wasteful. Debounce: set a dirty
+-- flag and flush once on the next frame, coalescing a burst of events into one UpdateAll.
+local cdDirty = false
+local function FlushCooldown()
+    cdDirty = false
+    DT.UpdateAll()
+end
+DT:RegisterEvent("SPELL_UPDATE_COOLDOWN", function()
+    if cdDirty then return end
+    cdDirty = true
+    C_Timer.After(0, FlushCooldown)
+end)
 DT:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", function(_, unit)
     if unit == "player" then DT.Rebuild() end
 end)
 DT:RegisterEvent("SPELLS_CHANGED", function() DT.Rebuild() end)
 
 DT:ScheduleRepeatingTimer(function() DT.UpdateAll() end, 0.5)
+
+-- Coalesced player-aura subscription (shared dispatcher, at most one fire per frame): lets the
+-- green "active buff up" timer react instantly out of combat instead of lagging up to ~0.5s for
+-- the next ticker. Just calls the existing UpdateAll — cheap and additive (no unfiltered UNIT_AURA).
+if ns.AuraDispatch then
+    ns.AuraDispatch.Register("player", function() DT.UpdateAll() end)
+end
 
 ns.RegisterReloadHook(function() DT.Rebuild() end)
 

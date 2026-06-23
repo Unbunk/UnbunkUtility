@@ -175,12 +175,12 @@ TT:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit, _, spellId)
         -- Start the icon's in-combat heuristic green timer now (independent of
         -- the sound toggle); the live buff aura is unreadable in combat.
         if trinket1Tracker then trinket1Tracker.NotifyUsed() end
-        if TT.CfgGet("trinket1").soundOnUse then
+        if t1Cfg and t1Cfg.soundOnUse then
             ns.combo.Notify("trinket", function() TT.PlaySound("trinket1", "soundUse") end)
         end
     elseif t2Spell and spellId == t2Spell then
         if trinket2Tracker then trinket2Tracker.NotifyUsed() end
-        if TT.CfgGet("trinket2").soundOnUse then
+        if t2Cfg and t2Cfg.soundOnUse then
             ns.combo.Notify("trinket", function() TT.PlaySound("trinket2", "soundUse") end)
         end
     end
@@ -188,9 +188,24 @@ TT:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit, _, spellId)
     -- player cast (UNIT_SPELLCAST_SUCCEEDED fires many times/sec in combat).
 end)
 
+-- True when `prefix` could draw something this pass: a trinket is equipped in the
+-- configured slot, or show-at-zero keeps an icon up.
+local function PrefixHasWork(prefix)
+    local cfg = TT.CfgGet(prefix)
+    if not cfg then return false end
+    if cfg.showAtZero then return true end
+    return (GetSlotInfo(cfg.slot)) ~= nil
+end
+
 TT:ScheduleRepeatingTimer(function()
     -- Steady state: when the module is disabled the frames are already hidden.
     if not TT.CfgGet("enabled") then return end
+    -- Short-circuit a pass that can produce no visible change: outside an active
+    -- instance, OR neither configured slot has an equipped trinket to draw (and
+    -- show-at-zero off). An equipment/zone event re-runs ApplyAll to flush any
+    -- pending hide, so skipping the steady-state empty pass is safe.
+    if not IsActiveInCurrentInstance() then return end
+    if not PrefixHasWork("trinket1") and not PrefixHasWork("trinket2") then return end
     TT.ApplyAll()
 end, 0.5)
 

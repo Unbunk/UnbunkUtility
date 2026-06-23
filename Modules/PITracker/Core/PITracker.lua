@@ -27,6 +27,7 @@ local piIcon = ns.ui.CreateTimerIcon({
     name    = "PITrackerFrame",
     getCfg  = function(key) return PI.CfgGet(key) end,
     setCfg  = function(key, val) PI.CfgSet(key, val) end,   -- cdmAtEnd flip on a cross-strip drag
+    getSpellId = function() return PI_SPELL_ID end,        -- your own Power Infusion -> keybind (nil-resolved if unbound)
     onDragStop = function(x, y)
         PI.CfgSet("posX", x)
         PI.CfgSet("posY", y)
@@ -168,13 +169,11 @@ end
 PI:RegisterEvent("PLAYER_ENTERING_WORLD", OnPlayerStateRefresh)
 PI:RegisterEvent("SPELLS_CHANGED", OnPlayerStateRefresh)
 
--- Instant detection: UNIT_AURA on the player fires the moment Power Infusion is
--- applied or removed, so the glow / sound / timer react immediately instead of
--- waiting up to 0.5s for the next ticker pass (matches BLTracker's auraFrame).
--- AceEvent has no unit filter (no RegisterUnitEvent equivalent), so register
--- UNIT_AURA unfiltered and discard every fire whose unit token isn't "player".
-PI:RegisterEvent("UNIT_AURA", function(event, unit)
-    if unit ~= "player" then return end
+-- Near-instant detection: a player aura change drives the glow / sound / timer
+-- on the next frame instead of waiting up to 0.5s for the next ticker pass. The
+-- shared coalescing dispatcher owns the unit-filtered UNIT_AURA frame, so we no
+-- longer wake for every raid member's aura change (matches BLTracker).
+ns.AuraDispatch.Register("player", function()
     SyncBuff()
 end)
 

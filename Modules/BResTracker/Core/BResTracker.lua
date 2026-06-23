@@ -69,6 +69,14 @@ local lastMax     = nil   -- pool size at the last tick, to tell a real consume
                           -- from the pool shrinking (raid losing members)
 local lastCooldownStart = 0
 
+-- Cache the last-applied icon texture and charge-count text/colour so the 0.5s
+-- ticker only touches the textures when they actually change (the icon is
+-- session-constant; the charge count rarely moves). SetTexture / SetText /
+-- SetTextColor each re-upload or re-shape, so guarding them off saves per-tick work.
+local lastIconTex = nil
+local lastCur     = nil
+local lastCurColor = nil   -- "g" (green) / "r" (red) / "d" (dimmed dash)
+
 -- Test mode state (shared with PlayerList via the BR namespace).
 BR.testMode          = false
 BR.testEndsAt        = 0
@@ -123,9 +131,17 @@ function BR.IconShouldShow()
     return (BR.CfgGet("enabled") and BR.CfgGet("showIcon") and BR.IsContextActive()) and true or false
 end
 
+-- The BRes pool icon is constant for the session, so resolve it once and cache
+-- it (mirrors PITracker.GetPIIcon). C_Spell.GetSpellInfo can return nil while
+-- spell data is still loading, so keep trying (don't cache the nil) until it
+-- resolves.
+local resolvedIconID
 local function ResolveIcon()
-    local info = C_Spell.GetSpellInfo(BRES_SPELL_ID)
-    return (info and info.iconID) or BRES_ICON_ID
+    if not resolvedIconID then
+        local info = C_Spell.GetSpellInfo(BRES_SPELL_ID)
+        resolvedIconID = info and info.iconID
+    end
+    return resolvedIconID or BRES_ICON_ID
 end
 
 -- ── Apply visuals ────────────────────────────────────────────────────────────
@@ -177,16 +193,28 @@ function BR.ApplyVisuals()
     -- runs below regardless of showIcon, so the ready/used sounds stay independent.
     if BR.CfgGet("showIcon") then
         frame:Show()
-        iconTex:SetTexture(ResolveIcon())
+        local iconTexID = ResolveIcon()
+        if iconTexID ~= lastIconTex then
+            iconTex:SetTexture(iconTexID)
+            lastIconTex = iconTexID
+        end
         iconTex:SetDesaturated(not havePool)
 
         if havePool then
             -- Charge counter (green when at least one available, red otherwise).
-            countText:SetText(tostring(cur))
-            if cur > 0 then
-                countText:SetTextColor(0, 1, 0, 1)
-            else
-                countText:SetTextColor(1, 0, 0, 1)
+            -- Only re-set the text/colour when the count actually changes.
+            if cur ~= lastCur then
+                countText:SetText(tostring(cur))
+                lastCur = cur
+            end
+            local color = cur > 0 and "g" or "r"
+            if color ~= lastCurColor then
+                if cur > 0 then
+                    countText:SetTextColor(0, 1, 0, 1)
+                else
+                    countText:SetTextColor(1, 0, 0, 1)
+                end
+                lastCurColor = color
             end
             countText:Show()
 
@@ -212,8 +240,16 @@ function BR.ApplyVisuals()
             end
         else
             -- No pool yet (raid out of combat): dimmed icon, greyed "-", no timer.
-            countText:SetText("-")
-            countText:SetTextColor(0.6, 0.6, 0.6, 1)
+            -- lastCur uses the literal "-" as its sentinel so re-entering this
+            -- branch on later ticks skips the SetText/SetTextColor churn.
+            if lastCur ~= "-" then
+                countText:SetText("-")
+                lastCur = "-"
+            end
+            if lastCurColor ~= "d" then
+                countText:SetTextColor(0.6, 0.6, 0.6, 1)
+                lastCurColor = "d"
+            end
             countText:Show()
             timerText:Hide()
             cooldown:Clear()
@@ -427,6 +463,12 @@ function BR.SetUnlocked(val)
         frame:SetScript("OnDragStop", nil)
         frame:SetBackdrop(nil)
         lastCharges = nil
+        -- The unlock preview wrote the icon/count textures directly (bypassing the
+        -- per-tick caches), so invalidate them: ApplyVisuals below must re-apply
+        -- the real icon/count even if they happen to match the cached values.
+        lastIconTex  = nil
+        lastCur      = nil
+        lastCurColor = nil
         -- Restore the real state immediately (group / cooldown / list).
         BR.ApplyVisuals()
         if BR.RefreshList then BR.RefreshList() end
