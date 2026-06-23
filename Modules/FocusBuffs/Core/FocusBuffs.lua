@@ -111,17 +111,28 @@ local function DimKnownDebuffs(f)
 end
 
 -- ── Apply ─────────────────────────────────────────────────────────────────────
-function FB.Apply()
-    if not FocusFrame then return end
-    -- Restore everything we previously faded, then re-fade the current debuffs (or, when
-    -- disabled, just leave them restored).
-    for btn in pairs(touched) do SetVisualAlpha(btn, 1) end
-    wipe(touched)
-    if not FB.Get("enabled") then return end
-
+-- The dim pass, isolated so FB.Apply can pcall it: an enemy focus's aura buttons can carry
+-- "secret" fields (auraInstanceID) whose USE would throw. We skip that case up front, but the
+-- pcall keeps any unforeseen secret-value error from propagating (and spamming) per aura tick.
+local function DimPass()
     DimKnownDebuffs(FocusFrame)
     -- If none of the known debuff fields matched this client, fall back to classifying.
     if next(touched) == nil then DimHarmful(FocusFrame, 0) end
+end
+
+function FB.Apply()
+    if not FocusFrame then return end
+    -- Restore everything we previously faded, then re-fade the current debuffs (or, when
+    -- disabled, just leave them restored). The restore loop only SetAlphas buttons WE dimmed,
+    -- so it never reads a (possibly secret) aura field.
+    for btn in pairs(touched) do SetVisualAlpha(btn, 1) end
+    wipe(touched)
+    if not FB.Get("enabled") then return end
+    -- Enemy focus IN COMBAT: Blizzard makes its aura buttons/data "secret" — reading
+    -- auraInstanceID or the aura data to classify it would error or taint. Skip the dim pass;
+    -- it's re-applied on PLAYER_REGEN_ENABLED, when those values are readable again.
+    if InCombatLockdown() and UnitExists("focus") and UnitCanAttack("player", "focus") then return end
+    pcall(DimPass)
 end
 
 -- ── Triggers ──────────────────────────────────────────────────────────────────
@@ -137,6 +148,7 @@ end
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_FOCUS_CHANGED")
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
+ev:RegisterEvent("PLAYER_REGEN_ENABLED")   -- combat end: re-apply (the enemy-focus dim is skipped during combat)
 ev:SetScript("OnEvent", function()
     if not FB.Get("enabled") then return end
     -- One-frame defer so we run after Blizzard repaints the (new) focus's auras.

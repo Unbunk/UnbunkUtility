@@ -37,6 +37,7 @@ end
 -- ── Unlock overlay ────────────────────────────────────────────────────────────
 local unlocked = false
 local overlay
+local dragging = false   -- true while an OnDragStart move is in flight (cleaned up if combat interrupts it)
 
 local function EnsureOverlay()
     if overlay then return overlay end
@@ -64,11 +65,12 @@ local function EnsureOverlay()
             return
         end
         local _, _, f = GetMUF()
-        if f then f:SetMovable(true); f:StartMoving() end
+        if f then f:SetMovable(true); f:StartMoving(); dragging = true end
     end)
     o:SetScript("OnDragStop", function()
+        dragging = false
         local _, muf, f = GetMUF()
-        if f then f:StopMovingOrSizing() end
+        if f then f:StopMovingOrSizing(); f:SetMovable(false) end   -- don't leave the movable flag on the secure frame
         if muf and muf.SavePos then muf:SavePos() end   -- store new pos (Decursive's convention)
         if muf and muf.Place   then muf:Place()   end   -- re-anchor cleanly
     end)
@@ -117,6 +119,15 @@ end
 -- MUFs, i.e. block curing) and on reload.
 local guard = CreateFrame("Frame")
 guard:RegisterEvent("PLAYER_REGEN_DISABLED")
-guard:SetScript("OnEvent", function() if unlocked then DM.SetUnlocked(false) end end)
+guard:SetScript("OnEvent", function()
+    -- Combat starting mid-drag: end the move cleanly so StartMoving / SetMovable(true) don't
+    -- linger on Decursive's secure container into the lockdown.
+    if dragging then
+        local _, _, f = GetMUF()
+        if f then f:StopMovingOrSizing(); f:SetMovable(false) end
+        dragging = false
+    end
+    if unlocked then DM.SetUnlocked(false) end
+end)
 
 ns.RegisterReloadHook(function() if unlocked then DM.SetUnlocked(false) end end)
