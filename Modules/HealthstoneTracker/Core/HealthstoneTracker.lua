@@ -590,17 +590,18 @@ local function TickerPass()
     HT.ApplyAll()
 end
 
--- Start/Stop the steady-state ticker. Cancellable handle kept on HT._ticker so
--- the disabled module is fully stopped (not just early-returning each tick), and
--- re-enabling fully restarts it. Idempotent: safe to call repeatedly.
+-- Start/Stop the steady-state poll via the shared 0.5s driver. HT._ticker is a truthy
+-- sentinel kept while registered, so the disabled module is fully stopped (not just early-
+-- returning each tick) and re-enabling fully restarts it. Idempotent: safe to call repeatedly.
 function HT.Start()
     if HT._ticker then return end
-    HT._ticker = C_Timer.NewTicker(0.5, TickerPass)
+    ns.SharedTick.Register("healthstone", TickerPass)
+    HT._ticker = true
 end
 
 function HT.Stop()
     if HT._ticker then
-        HT._ticker:Cancel()
+        ns.SharedTick.Unregister("healthstone")
         HT._ticker = nil
     end
 end

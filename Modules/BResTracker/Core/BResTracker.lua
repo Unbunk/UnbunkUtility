@@ -519,7 +519,7 @@ local VISUALS_EVENTS = {
     "SPELL_UPDATE_CHARGES",
 }
 
-local tickerHandle   -- AceTimer handle for the 0.5s refresh ticker
+local tickerHandle   -- truthy while the shared-tick "bres" callback is registered
 
 function BR.StartDrivers()
     for _, ev in ipairs(VISUALS_EVENTS) do
@@ -527,10 +527,11 @@ function BR.StartDrivers()
     end
     -- Ticker: refreshes the mm:ss countdown and catches charge regained.
     if not tickerHandle then
-        tickerHandle = BR:ScheduleRepeatingTimer(function()
+        ns.SharedTick.Register("bres", function()
             BR.ApplyVisuals()
             if BR.RefreshList then BR.RefreshList() end
-        end, 0.5)
+        end)
+        tickerHandle = true
     end
     -- Player-list roster/cast listeners (separate event object, in PlayerList.lua).
     if BR.StartListDrivers then BR.StartListDrivers() end
@@ -541,7 +542,7 @@ function BR.StopDrivers()
         BR:UnregisterEvent(ev)
     end
     if tickerHandle then
-        BR:CancelTimer(tickerHandle)
+        ns.SharedTick.Unregister("bres")
         tickerHandle = nil
     end
     if BR.StopListDrivers then BR.StopListDrivers() end

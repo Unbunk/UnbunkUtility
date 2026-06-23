@@ -306,12 +306,13 @@ end
 -- The 0.5s sync ticker and the player-aura subscription are the two continuous drivers. When
 -- disabled we Cancel()/Unregister() them outright (not just early-out per tick), so a disabled
 -- BL Tracker costs ~zero. BL.Start/Stop are idempotent; BL.Sync (login / reload / toggle) drives them.
-local syncTicker          -- AceTimer handle for the 0.5s SyncDebuff ticker
+local syncTicker          -- truthy while the shared-tick "bl" callback is registered
 local auraCb              -- our AuraDispatch("player") callback handle
 
 function BL.Start()
     if not syncTicker then
-        syncTicker = BL:ScheduleRepeatingTimer(function() SyncDebuff() end, 0.5)
+        ns.SharedTick.Register("bl", function() SyncDebuff() end)
+        syncTicker = true
     end
     -- Instant aura detection: UNIT_AURA fires the moment the player gains/loses an aura, so
     -- SyncDebuff runs (and ns.combo.Notify("bl", ...) fires) without waiting up to 500ms for the
@@ -323,7 +324,7 @@ function BL.Start()
 end
 
 function BL.Stop()
-    if syncTicker then BL:CancelTimer(syncTicker); syncTicker = nil end
+    if syncTicker then ns.SharedTick.Unregister("bl"); syncTicker = nil end
     if ns.AuraDispatch and auraCb then ns.AuraDispatch.Unregister("player", auraCb); auraCb = nil end
     moduleActive = false   -- re-enabling re-adopts the current lust state silently (SyncDebuff sets it true)
 end

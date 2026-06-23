@@ -553,12 +553,13 @@ DT:RegisterEvent("SPELLS_CHANGED", function() DT.Rebuild() end)
 -- The 0.5s sync ticker and the player-aura subscription are the two continuous drivers.
 -- When disabled we Cancel()/Unregister() them outright (not just early-out), so a disabled
 -- Defensive Tracker costs ~zero. DT.Start/Stop are idempotent; SetEnabled + login drive them.
-local syncTicker          -- AceTimer handle for the 0.5s UpdateAll ticker
+local syncTicker          -- truthy while the shared-tick "defensive" callback is registered
 local auraCb              -- our AuraDispatch("player") callback handle
 
 function DT.Start()
     if not syncTicker then
-        syncTicker = DT:ScheduleRepeatingTimer(function() DT.UpdateAll() end, 0.5)
+        ns.SharedTick.Register("defensive", function() DT.UpdateAll() end)
+        syncTicker = true
     end
     -- Coalesced player-aura subscription (shared dispatcher, at most one fire per frame): lets the
     -- green "active buff up" timer react instantly out of combat instead of lagging up to ~0.5s for
@@ -569,7 +570,7 @@ function DT.Start()
 end
 
 function DT.Stop()
-    if syncTicker then DT:CancelTimer(syncTicker); syncTicker = nil end
+    if syncTicker then ns.SharedTick.Unregister("defensive"); syncTicker = nil end
     if ns.AuraDispatch and auraCb then ns.AuraDispatch.Unregister("player", auraCb); auraCb = nil end
 end
 
