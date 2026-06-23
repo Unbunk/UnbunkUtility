@@ -237,22 +237,22 @@ local function BuildPotionSectionOptions(prefix, LSM)
                 local e = {
                     { type = "checkbox", ref = "showicon", label = L["Show icon"], height = 24,
                       get = function() return GetCfg("showIcon") ~= false end,
-                      set = function(val) SetCfg("showIcon", val); tracker.ApplyVisuals() end,
+                      set = function(val) SetCfg("showIcon", val); if tracker then tracker.ApplyVisuals() end end,
                       inline = { { type = "checkbox", label = L["Show at 0 stacks"],
                           get = function() return GetCfg("showAtZero") == true end,
-                          set = function(val) SetCfg("showAtZero", val); tracker.ApplyVisuals(); PT.ApplyStackVisuals(prefix, tracker) end,
+                          set = function(val) SetCfg("showAtZero", val); if tracker then tracker.ApplyVisuals(); PT.ApplyStackVisuals(prefix, tracker) end end,
                           point = { "LEFT", "LEFT", 150, 0 } } } },
 
                     { type = "group", title = L["Placement"], build = function() return {
                         { type = "checkbox", label = L["Include in cdm"],
                           disabled = function() return not ns.IsCDMEnabled() end,
                           get = function() return inCdm() end,
-                          set = function(v) SetCfg("includeInCdm", v); tracker.ApplySize(); tracker.ApplyPosition(); PT.ApplyStackVisuals(prefix, tracker); rebuildMenu() end },
+                          set = function(v) SetCfg("includeInCdm", v); if tracker then tracker.ApplySize(); tracker.ApplyPosition(); PT.ApplyStackVisuals(prefix, tracker) end rebuildMenu() end },
                         { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
                           when = function() return inCdm() end,
                           getList = function() return ns.CDMDestList() end,
                           getCurrentKey = function() return ns.CDMDestChoiceLabel(GetCfg) end,
-                          onSelect = function(label) ns.CDMApplyDestChoice(label, SetCfg); tracker.ApplySize(); tracker.ApplyPosition(); rebuildMenu() end },
+                          onSelect = function(label) ns.CDMApplyDestChoice(label, SetCfg); if tracker then tracker.ApplySize(); tracker.ApplyPosition() end rebuildMenu() end },
                     } end },
                 }
 

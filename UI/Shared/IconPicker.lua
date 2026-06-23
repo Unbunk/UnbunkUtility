@@ -76,7 +76,7 @@ function ns.ui.CreateIconPicker(config)
     previewTex:SetPoint("BOTTOMRIGHT", previewFrame, "BOTTOMRIGHT", -4, 4)
 
     local function RefreshPreview()
-        local cfg = getConfig()
+        local cfg = getConfig() or {}
         if cfg.useCustom and cfg.customId and tonumber(cfg.customId) then
             previewTex:SetTexture(tonumber(cfg.customId))
         elseif cfg.iconPath then
@@ -253,7 +253,7 @@ function ns.ui.CreateIconPicker(config)
     result.dropFrames = { iconDD.dropFrame, posDD.dropFrame }
 
     function result.Refresh()
-        local cfg = getConfig()
+        local cfg = getConfig() or {}
         enableCb.SetChecked(cfg.enabled ~= false)
         customCb.SetChecked(cfg.useCustom or false)
         -- Clear the field too when customId went back to nil (was sticky before).

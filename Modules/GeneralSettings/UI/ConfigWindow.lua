@@ -538,7 +538,7 @@ local function CreateBelowPlayerPanel(parent)
                 -- (writes to cdmBelowRow.<bucket>, defaults seeded above). Pixel-identical to essential.
                 ns.CDMGroups.TimerSection(bundle),
                 ns.CDMGroups.TitleSection(bundle),
-                ns.CDMGroups.StacksSection(bundle),
+                ns.CDMGroups.StacksSection(bundle, { cd = true }),
             } end },
 
           } end }

@@ -106,7 +106,12 @@ function ns.ui.CreatePositionEditor(parent, config)
         end
     end)
 
-    parent:HookScript("OnHide", function()
+    -- Hook our OWN container, not the persistent BuildMenu content frame:
+    -- container is orphaned (and GC'd) on every Rebuild, so its closure goes
+    -- with it. Hooking parent leaked one OnHide closure per Rebuild. The
+    -- container hides whenever parent does (it's a child with no independent
+    -- hide state), so the lock-on-hide below still fires for the live widget.
+    container:HookScript("OnHide", function()
         -- If the panel is hidden (tab switch / window close) while still
         -- unlocked, run the lock callback so the target frame is actually
         -- re-locked via the consumer's SetUnlocked(false). Without this it
