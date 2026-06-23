@@ -8,6 +8,12 @@ local PI = ns.PITracker
 local function CreatePITrackerPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local menu  -- forward declare so closures can reach menu.refs.pe
+    local function rebuildMenu() if menu then menu.Rebuild() end end
+    local function applyIcon()
+        if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- in-CDM size override -> force the engine to re-pack (its layout sig folds the epoch)
+        PI.ApplyVisuals(); PI.ApplyFont(); PI.ApplyBorder(); PI.ApplySize()
+        if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
+    end
 
     local options = {
         { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["PI Tracker"] },
@@ -85,79 +91,27 @@ local function CreatePITrackerPanel(parent)
         },
 
         -- ════════════ Icon ════════════
-        {
-            type  = "group",
-            title = L["Icon"],
+        -- Default override-set (seedValues): ONLY Timer (size 14 + urgency thresholds); the rest inherits the group.
+        ns.CDMGroups.TrackerIconGroup({
+            get = PI.CfgGet, set = PI.CfgSet,
+            frameName = "PITrackerFrame", defaultDest = "essential", LSM = LSM,
+            showIconHeight = 24,
             enabledBy = function() return PI.CfgGet("enabled") ~= false end,
-            -- Unchecking "Show icon" greys the rest of the Icon box (placement / border /
-            -- timer text) since there is no icon to configure; the checkbox stays live.
-            gate      = { enabled = function() return PI.CfgGet("showIcon") ~= false end, master = "showicon" },
-            build = function()
-                local frameName = "PITrackerFrame"
-                local function inCdm() return ns.CDMIncludedVal(PI.CfgGet("includeInCdm")) end
-                local function curDest() return PI.CfgGet("cdmDest") or "essential" end
-                local function rebuildMenu() if menu then menu.Rebuild() end end
-                local function applyIcon()
-                    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- in-CDM size override -> force the engine to re-pack (its layout sig folds the epoch)
-                    PI.ApplyVisuals(); PI.ApplyFont(); PI.ApplyBorder(); PI.ApplySize()
-                    if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
-                end
-
-                local e = {
-                    { type = "checkbox", ref = "showicon", label = L["Show icon"], height = 24,
-                      get = function() return PI.CfgGet("showIcon") ~= false end,
-                      set = function(val) PI.CfgSet("showIcon", val); PI.ApplyVisuals() end },
-
-                    { type = "group", title = L["Placement"], build = function() return {
-                        { type = "checkbox", label = L["Include in cdm"],
-                          disabled = function() return not ns.IsCDMEnabled() end,
-                          get = function() return inCdm() end,
-                          set = function(v) PI.CfgSet("includeInCdm", v); PI.ApplySize(); PI.ApplyPosition(); rebuildMenu() end },
-                        { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
-                          when = function() return inCdm() end,
-                          getList = function() return ns.CDMDestList() end,
-                          getCurrentKey = function() return ns.CDMDestChoiceLabel(PI.CfgGet) end,
-                          onSelect = function(label) ns.CDMApplyDestChoice(label, PI.CfgSet); PI.ApplySize(); PI.ApplyPosition(); rebuildMenu() end },
-                    } end },
-                }
-
-                local cfg = {
-                    frameName  = frameName,
-                    getDest    = curDest,
-                    cdmAtEnd   = function() return PI.CfgGet("cdmAtEnd") end,
-                    inCdm      = inCdm,
-                    applyIcon  = applyIcon,
-                    rebuild    = rebuildMenu,
-                    getOv      = function() return PI.CfgGet("ovCollapsed") ~= false end,
-                    setOv      = function(c) PI.CfgSet("ovCollapsed", c) end,
-                    getFree    = function() return PI.CfgGet("freeCollapsed") ~= false end,
-                    setFree    = function(c) PI.CfgSet("freeCollapsed", c) end,
-                    -- Default override-set: ONLY Timer (size 14 + urgency thresholds). Rest inherits the group.
-                    seedValues = function() return ns.DefaultTrackerTimerSeed() end,
-                    freeBuild  = function()
-                        return ns.CDMGroups.TrackerFreeCadres({
-                            get       = PI.CfgGet,
-                            set       = PI.CfgSet,
-                            touch     = applyIcon,
-                            rebuild   = rebuildMenu,
-                            sizeApply = function() PI.ApplySize() end,
-                            LSM       = LSM,
-                            pos = {
-                                getX = function() return PI.CfgGet("posX") end,
-                                getY = function() return PI.CfgGet("posY") end,
-                                onApply = function(x, yv) if x then PI.CfgSet("posX", x) end if yv then PI.CfgSet("posY", yv) end PI.ApplyPosition() end,
-                                onUnlock = function() PI.SetUnlocked(true) end,
-                                onLock = function() PI.SetUnlocked(false); if PI.pe then PI.pe.Refresh() end end,
-                                isUnlocked = function() return PI.IsUnlocked() end,
-                                onBuilt = function(w) PI.pe = w end,
-                            },
-                        })
-                    end,
-                }
-                for _, x in ipairs(ns.CDMGroups.TrackerCdmCadres(cfg)) do e[#e + 1] = x end
-                return e
-            end,
-        },
+            rebuild = rebuildMenu, applyIcon = applyIcon,
+            onShowIcon = function() PI.ApplyVisuals() end,
+            afterInclude = function() PI.ApplySize(); PI.ApplyPosition(); rebuildMenu() end,
+            sizeApply = function() PI.ApplySize() end,
+            seedValues = function() return ns.DefaultTrackerTimerSeed() end,
+            pos = {
+                getX = function() return PI.CfgGet("posX") end,
+                getY = function() return PI.CfgGet("posY") end,
+                onApply = function(x, yv) if x then PI.CfgSet("posX", x) end if yv then PI.CfgSet("posY", yv) end PI.ApplyPosition() end,
+                onUnlock = function() PI.SetUnlocked(true) end,
+                onLock = function() PI.SetUnlocked(false); if PI.pe then PI.pe.Refresh() end end,
+                isUnlocked = function() return PI.IsUnlocked() end,
+                onBuilt = function(w) PI.pe = w end,
+            },
+        }),
     }
 
     -- gap=12, width=518, autoHook=true -> OnShow re-sync is generated automatically.
