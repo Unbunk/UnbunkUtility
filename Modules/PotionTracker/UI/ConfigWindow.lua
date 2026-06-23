@@ -414,10 +414,6 @@ end
 
 -- ── Enregistrement ────────────────────────────────────────────────────────────
 
-local initPTUI = CreateFrame("Frame")
-initPTUI:RegisterEvent("ADDON_LOADED")
-initPTUI:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Potion Tracker"], nil, CreatePotionTrackerPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

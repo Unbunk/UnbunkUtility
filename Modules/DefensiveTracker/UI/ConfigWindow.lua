@@ -358,10 +358,6 @@ local function CreateDefensiveTrackerPanel(parent)
     return DT.configMenu
 end
 
-local initDTUI = CreateFrame("Frame")
-initDTUI:RegisterEvent("ADDON_LOADED")
-initDTUI:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Defensive Tracker"], nil, CreateDefensiveTrackerPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

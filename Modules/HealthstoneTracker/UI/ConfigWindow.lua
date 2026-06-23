@@ -202,10 +202,6 @@ end
 
 -- ── Registration ──────────────────────────────────────────────────────────────
 
-local initHTUI = CreateFrame("Frame")
-initHTUI:RegisterEvent("ADDON_LOADED")
-initHTUI:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Healthstone Tracker"], nil, CreateHealthstoneTrackerPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

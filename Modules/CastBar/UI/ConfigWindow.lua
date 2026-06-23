@@ -199,10 +199,6 @@ local function CreateCastBarPanel(parent)
     return menu
 end
 
-local initCB = CreateFrame("Frame")
-initCB:RegisterEvent("ADDON_LOADED")
-initCB:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Cast bar"], nil, CreateCastBarPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

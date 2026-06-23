@@ -132,10 +132,6 @@ local function CreateFaderPanel(parent)
 end
 
 -- Register the Beta sub-tab (the nav entry is gated by the debug unlock in Core.lua).
-local initF = CreateFrame("Frame")
-initF:RegisterEvent("ADDON_LOADED")
-initF:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Beta"], nil, CreateFaderPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

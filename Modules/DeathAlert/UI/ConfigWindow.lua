@@ -268,12 +268,8 @@ local function MakeRolePanel(prefix, titleText)
 end
 
 -- ── Registration (three role sub-tabs) ─────────────────────────────────────────
-local initDA = CreateFrame("Frame")
-initDA:RegisterEvent("ADDON_LOADED")
-initDA:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Tank Death Alert"],   nil, MakeRolePanel("tank",   L["Tank Death Alert"]))
     UnbunkUtility.RegisterModule(L["Healer Death Alert"], nil, MakeRolePanel("healer", L["Healer Death Alert"]))
     UnbunkUtility.RegisterModule(L["DPS Death Alert"],    nil, MakeRolePanel("dps",    L["DPS Death Alert"]))
-    self:UnregisterEvent("ADDON_LOADED")
 end)

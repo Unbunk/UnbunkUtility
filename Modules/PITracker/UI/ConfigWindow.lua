@@ -185,10 +185,6 @@ end
 
 -- ── Enregistrement ──────────────────────────────────────────────────────────────
 
-local initPIUI = CreateFrame("Frame")
-initPIUI:RegisterEvent("ADDON_LOADED")
-initPIUI:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["PI Tracker"], nil, CreatePITrackerPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

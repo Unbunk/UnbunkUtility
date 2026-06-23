@@ -363,10 +363,6 @@ end
 
 -- ── Enregistrement ────────────────────────────────────────────────────────────
 
-local initPDA = CreateFrame("Frame")
-initPDA:RegisterEvent("ADDON_LOADED")
-initPDA:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Death Anim"], nil, CreatePlayerDeathPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

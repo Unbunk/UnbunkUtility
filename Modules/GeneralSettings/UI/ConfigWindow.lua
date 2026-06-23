@@ -1018,10 +1018,7 @@ local function CreateFreeIconsPanel(parent)
 end
 
 -- ── Registration (sub-tabs) ────────────────────────────────────────────────────
-local initGS = CreateFrame("Frame")
-initGS:RegisterEvent("ADDON_LOADED")
-initGS:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Addon settings"],          nil, CreateAddonSettingsPanel)
     UnbunkUtility.RegisterModule(L["Player speed display"],    nil, CreatePlayerSpeedPanel)
     UnbunkUtility.RegisterModule(L["Multi-alert combo"],       nil, CreateComboPanel)
@@ -1029,5 +1026,4 @@ initGS:SetScript("OnEvent", function(self, event, addonName)
     UnbunkUtility.RegisterModule(L["Death alert anti-spam"],   nil, CreateDeathAntiSpamPanel)
     UnbunkUtility.RegisterModule(L["Below player frame"],      nil, CreateBelowPlayerPanel)
     UnbunkUtility.RegisterModule(L["Free icons"],             nil, CreateFreeIconsPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

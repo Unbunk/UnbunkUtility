@@ -371,11 +371,7 @@ local function CreatePrintPanel(parent)
 end
 
 -- Register the panel + start the background ticker once the addon (and ns.db) loaded.
-local initPP = CreateFrame("Frame")
-initPP:RegisterEvent("ADDON_LOADED")
-initPP:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Print"], nil, CreatePrintPanel)
     if ns.Debug_ApplyUsageOptions then ns.Debug_ApplyUsageOptions() end
-    self:UnregisterEvent("ADDON_LOADED")
 end)

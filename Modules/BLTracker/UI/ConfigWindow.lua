@@ -231,10 +231,6 @@ end
 
 -- ── Enregistrement ────────────────────────────────────────────────────────────
 
-local initBLUI = CreateFrame("Frame")
-initBLUI:RegisterEvent("ADDON_LOADED")
-initBLUI:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["BL Tracker"], nil, CreateBLTrackerPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

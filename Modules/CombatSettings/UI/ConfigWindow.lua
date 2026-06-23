@@ -248,10 +248,6 @@ local function CreateCombatSettingsPanel(parent)
 end
 
 -- ── Registration ───────────────────────────────────────────────────────────────
-local initCSUI = CreateFrame("Frame")
-initCSUI:RegisterEvent("ADDON_LOADED")
-initCSUI:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Combat settings"], nil, CreateCombatSettingsPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

@@ -308,10 +308,6 @@ end
 
 -- ── Enregistrement ────────────────────────────────────────────────────────────
 
-local initTTUI = CreateFrame("Frame")
-initTTUI:RegisterEvent("ADDON_LOADED")
-initTTUI:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Trinket Tracker"], nil, CreateTrinketTrackerPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)
