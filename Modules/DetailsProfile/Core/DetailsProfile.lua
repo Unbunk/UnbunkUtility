@@ -150,14 +150,19 @@ end
 -- profile's "Mouse over Opacity" so it stays readable on demand, dropping back on leave. The poller only
 -- runs while we are actively fading (hidden otherwise) and is throttled, so it costs ~nothing at rest.
 local curFadeAlpha, curMouseAlpha = 1, 1   -- winning profile's faded / hovered alphas
+local curHoverOn = false                   -- winning profile's mouse-over reveal toggle
 local hovering = false
 
 local function AnyWindowHovered()
     local hot = false
     EachWindow(function(inst, frame)
-        -- baseframe covers the window chrome + title/header (baseframe.cabecalho); the bar ROWS sit on a
-        -- separate frame (rowframe), so check BOTH -- otherwise hovering the bars themselves wouldn't
-        -- register as "over the window" and the reveal would only fire over the title bar.
+        -- Details! maintains inst.is_interacting = "mouse is over this window", set by its OWN
+        -- OnEnter/OnLeaveMainWindow across EVERY part of the window (the title-bar header "Damage Done"
+        -- + its option buttons, the background, and the bars). It's the authoritative signal -- a
+        -- geometric IsMouseOver on baseframe misses the title-bar strip, which sits above baseframe's hit
+        -- rect. Keep IsMouseOver on baseframe + rowframe as a fallback for any skin/mode where the flag
+        -- isn't set.
+        if inst.is_interacting then hot = true end
         if frame and frame.IsMouseOver and frame:IsMouseOver() then hot = true end
         local rf = inst.rowframe
         if rf and rf.IsMouseOver and rf:IsMouseOver() then hot = true end
@@ -165,6 +170,13 @@ local function AnyWindowHovered()
     return hot
 end
 
+-- Maintenance ticker: runs ONLY while we hold a dim. Details! restores its OWN saved window alpha at
+-- several points after a /reload (synchronously during profile load AND on delayed timers -- including a
+-- hard +5s refresh loop) and on every skin/mode change, so a one-shot apply (or even a hook on one of its
+-- restore funcs) can lose that race. Re-asserting the target alpha every tick -- but ONLY on windows that
+-- have actually drifted off it, so we never fight Details!'s own animations or waste SetAlpha calls --
+-- makes the dim self-heal within ~0.1s no matter which path Details! used to overwrite it. The same tick
+-- tracks the hover state for the mouse-over reveal.
 local hoverPoller = CreateFrame("Frame")
 hoverPoller:Hide()
 local hoverAccum = 0
@@ -172,11 +184,17 @@ hoverPoller:SetScript("OnUpdate", function(_, dt)
     hoverAccum = hoverAccum + dt
     if hoverAccum < 0.1 then return end
     hoverAccum = 0
-    local now = AnyWindowHovered()
-    if now ~= hovering then
-        hovering = now
-        DP.SetDetailsAlpha(now and curMouseAlpha or curFadeAlpha)
-    end
+    hovering = curHoverOn and AnyWindowHovered() or false
+    local target = hovering and curMouseAlpha or curFadeAlpha
+    EachWindow(function(inst, frame)
+        if frame and frame.SetAlpha then
+            if math.abs((frame:GetAlpha() or 1) - target) > 0.01 then frame:SetAlpha(target) end
+        elseif inst.SetBackgroundAlpha then
+            inst:SetBackgroundAlpha(target)
+        end
+        local rf = inst.rowframe
+        if rf and rf.SetAlpha and math.abs((rf:GetAlpha() or 1) - target) > 0.01 then rf:SetAlpha(target) end
+    end)
 end)
 
 -- Stop the hover reveal and forget the hover state (fading ended / module off).
@@ -262,9 +280,9 @@ function DP.Apply()
     -- Fade: dim to the matching profile's opacity, else restore full opacity once we
     -- leave the fade context (only if we were the one holding it faded).
     if wantFade then
-        curFadeAlpha, curMouseAlpha = fadeAlpha, mouseAlpha
+        curFadeAlpha, curMouseAlpha, curHoverOn = fadeAlpha, mouseAlpha, hoverOn
         fadedByUs = true
-        if hoverOn then hoverPoller:Show() else StopHoverReveal() end   -- only poll when the reveal is on
+        hoverPoller:Show()   -- maintenance ticker: holds the dim against Details!'s restores + tracks hover
         DP.SetDetailsAlpha(hovering and curMouseAlpha or curFadeAlpha)
     elseif fadedByUs then
         StopHoverReveal()
