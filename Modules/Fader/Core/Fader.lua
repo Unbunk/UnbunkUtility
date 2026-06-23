@@ -97,15 +97,15 @@ end
 
 -- One pass over a group: build the union of all its frames AND decide whether it is
 -- revealed (1 alpha) by its own conditions (combat / target / a hovered enabled component)
--- and whether the fade is active here at all. Returns reveal, active, frameList. The final
--- target alpha is decided by the driver (so the optional link can OR reveals across groups).
-local function Evaluate(g, c)
+-- and whether the fade is active here at all. Fills the caller-owned `all` list with the
+-- union of the group's live frames and returns reveal, active. The final target alpha is
+-- decided by the driver (so the optional link can OR reveals across groups).
+local function Evaluate(g, c, all)
     local active = ns.IsActiveInInstance(c.instanceFilter)
     local reveal = active and (
         (c.revealCombat and InCombatLockdown()) or
         (c.revealTarget and UnitExists("target"))
     ) or false
-    local all = {}
     for _, comp in ipairs(g.components) do
         local hoverOn = active and not reveal and c.hover and c.hover[comp.key]
         local n0 = #all
@@ -117,7 +117,7 @@ local function Evaluate(g, c)
             end
         end
     end
-    return reveal, active, all
+    return reveal, active
 end
 
 -- ── Smooth fade driver ──────────────────────────────────────────────────────────
@@ -127,19 +127,34 @@ local FADE_SPEED = 3.5                -- alpha units / second (~0.3s for a full 
 local driver = CreateFrame("Frame")
 driver:Hide()
 local accum = 0
+-- Scratch tables reused every tick to avoid per-tick allocations (the driver runs
+-- at ~10-20Hz). The driver's OnUpdate is the only writer and never re-enters
+-- itself, so plain hoisted upvalues are safe. `info`/`records`/`frameLists` are
+-- keyed by group key (cdm/player), so each group keeps its OWN frame list — a
+-- single shared `all` would let the two groups clobber each other in Pass 2.
+local info       = {}
+local records    = {}
+local frameLists = {}
 driver:SetScript("OnUpdate", function(_, dt)
     accum = accum + dt
-    if accum < 0.03 then return end
+    if accum < 0.05 then return end
     local step = FADE_SPEED * accum
     accum = 0
     -- Pass 1: evaluate each enabled group's reveal/active state + frames.
-    local info, anyEnabled, anyReveal = {}, false, false
+    local anyEnabled, anyReveal = false, false
+    wipe(info)
     for key, g in pairs(GROUPS) do
         local c = F.GroupCfg(key)
         if c and c.enabled then
             anyEnabled = true
-            local reveal, active, frames = Evaluate(g, c)
-            info[key] = { c = c, reveal = reveal, active = active, frames = frames }
+            local frames = frameLists[key] or {}
+            frameLists[key] = frames
+            wipe(frames)
+            local reveal, active = Evaluate(g, c, frames)
+            local rec = records[key] or {}
+            records[key] = rec
+            rec.c, rec.reveal, rec.active, rec.frames = c, reveal, active, frames
+            info[key] = rec
             if reveal then anyReveal = true end
         end
     end

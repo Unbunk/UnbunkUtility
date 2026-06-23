@@ -18,6 +18,13 @@ local mainFrame      = CreateFrame("Frame")
 
 local RangeCheck = LibStub("LibRangeCheck-3.0")
 
+-- Precomputed unit tokens (raid1..40 / party1..4) so the range tick indexes a
+-- table by i instead of building "raid"..i / "party"..i strings every iteration.
+local RAID_UNITS  = {}
+local PARTY_UNITS = {}
+for i = 1, 40 do RAID_UNITS[i]  = "raid"  .. i end
+for i = 1, 4  do PARTY_UNITS[i] = "party" .. i end
+
 local function IsActiveInCurrentInstance()
     return ns.IsActiveInInstance(HR.CfgGet("instanceFilter"))
 end
@@ -66,13 +73,14 @@ local function IsHealerInRange()
     if not IsInGroup() and not IsInRaid() then return nil end
     if not HR.HasCombatProbe() then return nil end
 
-    local prefix = IsInRaid() and "raid" or "party"
-    local count  = IsInRaid() and GetNumGroupMembers() or GetNumSubgroupMembers()
+    local inRaid = IsInRaid()
+    local units  = inRaid and RAID_UNITS or PARTY_UNITS
+    local count  = inRaid and GetNumGroupMembers() or GetNumSubgroupMembers()
 
     -- Check whether there is at least one non-Evoker healer.
     local hasNonEvokerHealer = false
     for i = 1, count do
-        local unit = prefix .. i
+        local unit = units[i]
         if UnitExists(unit) and not UnitIsDeadOrGhost(unit) then
             if HEALER_ROLES[UnitGroupRolesAssigned(unit)] then
                 if not IsEvoker(unit) then
@@ -88,7 +96,7 @@ local function IsHealerInRange()
 
     -- Only run range checks against the non-Evoker healers.
     for i = 1, count do
-        local unit = prefix .. i
+        local unit = units[i]
         if UnitExists(unit) and not UnitIsDeadOrGhost(unit) then
             if HEALER_ROLES[UnitGroupRolesAssigned(unit)] and not IsEvoker(unit) then
                 local minRange, maxRange = RangeCheck:GetRange(unit, false, true)
@@ -119,6 +127,12 @@ end
 local function StartChecking()
     timer = 0
     mainFrame:SetScript("OnUpdate", function(self, elapsed)
+        -- Throttle FIRST so the per-tick guards below (CfgGet + IsActiveInCurrentInstance's
+        -- IsInInstance C call + IsUnlocked/IsTesting) run at ~10Hz, not full framerate.
+        timer = timer + elapsed
+        if timer < CHECK_INTERVAL then return end
+        timer = 0
+
         -- Clear any stuck alert BEFORE the early-return guards below, otherwise a
         -- shown alert would freeze on screen when one of these conditions trips.
         if not HR.CfgGet("enabled")
@@ -127,10 +141,6 @@ local function StartChecking()
             ForceClearAlert()
             return
         end
-
-        timer = timer + elapsed
-        if timer < CHECK_INTERVAL then return end
-        timer = 0
 
         local alertFrame = HR.GetFrame()
         local result = IsHealerInRange()

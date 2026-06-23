@@ -94,10 +94,11 @@ local function OnUpdate()
     if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
     bar:SetValue(frac)
     if spark:IsShown() then
-        spark:ClearAllPoints()
+        -- The spark's single point was set at cast start; only its x-offset moves each
+        -- frame. SetPoint with the same anchor replaces that one point (no ClearAllPoints).
         spark:SetPoint("CENTER", bar, "LEFT", (bar:GetWidth() or 0) * frac, 0)
     end
-    if C("showTimer") ~= false then
+    if cast.showTimer then
         local remaining = cast.endT - now
         if remaining < 0 then remaining = 0 end
         timeFS:SetFormattedText("%.1f", remaining)
@@ -248,12 +249,17 @@ local function StartCast(kind)
     cast.startT  = startMs / 1000
     cast.endT    = endMs / 1000
     cast.notInt  = notInt and true or false
+    -- Cache showTimer here instead of CfgGet-ing it every OnUpdate frame.
+    cast.showTimer = C("showTimer") ~= false
 
     if C("showIcon") ~= false then icon:SetTexture(texture); icon:Show() end
     if C("showSpellName") ~= false then nameFS:SetText(text or name) end
     bar:SetMinMaxValues(0, 1)
     bar:SetValue(cast.channel and 1 or 0)
     ApplyColor()
+    -- Anchor the spark once at cast start; OnUpdate then only adjusts its x-offset.
+    spark:ClearAllPoints()
+    spark:SetPoint("CENTER", bar, "LEFT", 0, 0)
     container:SetScript("OnUpdate", OnUpdate)
     container:Show()
 end
@@ -384,11 +390,14 @@ function CB.StartTest()
     cast.notInt  = false
     cast.startT  = GetTime()
     cast.endT    = GetTime() + 2.5
+    cast.showTimer = C("showTimer") ~= false
     ApplyLayout()
     if C("showIcon") ~= false then icon:SetTexture(PREVIEW_ICON); icon:Show() end
     if C("showSpellName") ~= false then nameFS:SetText((ns.L and ns.L["Cast bar"]) or "Cast bar") end
     bar:SetMinMaxValues(0, 1); bar:SetValue(0)
     ApplyColor()
+    spark:ClearAllPoints()
+    spark:SetPoint("CENTER", bar, "LEFT", 0, 0)
     container:SetScript("OnUpdate", OnUpdate)
     container:Show()
 end
