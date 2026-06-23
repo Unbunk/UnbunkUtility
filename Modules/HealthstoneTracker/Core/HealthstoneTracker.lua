@@ -262,7 +262,9 @@ local function ApplyCombatMarkerFor(t)
     -- so show the red "C" in place of the (deferred / not-yet-running) timer.
     ApplyCombatCFont(t)
     -- Suppress anything ApplyVisuals may have drawn for the deferred cooldown
-    -- (swipe / timer text / ready blink) so only the "C" is visible.
+    -- (swipe / timer text / ready blink) so only the "C" is visible. Forget the
+    -- ItemTracker timer cache too so the real countdown re-applies once the "C" clears.
+    if t.InvalidateTimerCache then t.InvalidateTimerCache() end
     t.icon.ClearTimer()
     t.icon.HideCheck()
     t.combatC:Show()
@@ -370,6 +372,9 @@ function HT.ApplyAll()
                 t.icon.ApplySize()
                 t.icon.Show()
                 t.icon.HideCheck()
+                -- Direct path bypasses ItemTracker.ApplyVisuals' timer cache, so forget
+                -- it here too — otherwise a later identical SetTimer there could be skipped.
+                if t.InvalidateTimerCache then t.InvalidateTimerCache() end
                 t.icon.ClearTimer()
             else
                 t.icon.Hide()
@@ -458,6 +463,7 @@ function HT.StopTest()
     HT.testMode   = false
     HT.testEndsAt = 0
     t.combatC:Hide()
+    if t.InvalidateTimerCache then t.InvalidateTimerCache() end  -- preview used SetTimer directly; forget the cache
     t.icon.ClearTimer()        -- the preview cooldown is done; drop the sweep + countdown
     t.icon.BlinkCheck()        -- ready flash, as the recharge completes
     if HT.CfgGet("soundOnReady") then
@@ -484,6 +490,7 @@ function HT.SetUnlocked(val)
         local _, _, _, _, iconID = C_Item.GetItemInfoInstant(id)
         if iconID then t.icon.SetIcon(iconID) end
         t.icon.ApplySize()
+        if t.InvalidateTimerCache then t.InvalidateTimerCache() end  -- unlock preview clears the timer outside ApplyVisuals' cache
         t.icon.ClearTimer()
         t.icon.ShowCheck()
         t.SetUnlocked(true)
@@ -547,16 +554,33 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                         -- PLAYER_REGEN_ENABLED). See ApplyAll.
                         usedInCombatById[id] = true
                     end
+                    -- Only relayout when THIS player cast was actually one of our
+                    -- healthstones; an unrelated cast leaves the row unchanged and
+                    -- the 0.5s ticker keeps it in sync — no need to relayout on
+                    -- every player cast (fires many times/sec in combat).
+                    if HT.CfgGet("enabled") then HT.ApplyAll() end
                     break
                 end
             end
         end
+        return
     end
-    HT.ApplyAll()
+    -- Cache invalidation (BAG_UPDATE / PEW) above must run unconditionally; only
+    -- gate the relayout on enabled (the ticker already guards on enabled too).
+    if HT.CfgGet("enabled") then HT.ApplyAll() end
 end)
 
 C_Timer.NewTicker(0.5, function()
     if not HT.CfgGet("enabled") then return end
+    -- Short-circuit a pass that can produce no visible change: not in an active
+    -- instance, OR nothing to draw (no healthstone in bags, no sticky in-combat
+    -- variant, and show-at-zero off). Skipping avoids a full relayout when the row
+    -- is empty anyway. A bag/cast event flips it back on via the event ApplyAll.
+    if not IsActiveInCurrentInstance() then return end
+    if not HT.testMode and #GetActiveItemIds() == 0 and not next(usedInCombatById)
+       and not HT.CfgGet("showAtZero") then
+        return
+    end
     HT.ApplyAll()
 end)
 

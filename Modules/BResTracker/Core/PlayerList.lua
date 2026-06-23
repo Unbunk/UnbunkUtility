@@ -279,71 +279,94 @@ function BR.RefreshList()
     for i = 1, total do
         local m = members[i]
         local row = GetRow(i)
-        row:SetSize(cellWidth, cellHeight)
-        row:ClearAllPoints()
-
-        -- 0-based index of the cell within its primary track, and the index of
-        -- the wrap (column for vertical, row for horizontal).
-        local primaryIdx   = (i - 1) % primaryCap
-        local secondaryIdx = math.floor((i - 1) / primaryCap)
-
-        -- Cells grow AWAY from the icon along the secondary axis, so the first
-        -- member is always closest to the icon.
-        if horizontal then
-            if listSide == "Above" then
-                -- Rows grow upward from the BOTTOMLEFT of the list.
-                row:SetPoint("BOTTOMLEFT", listFrame, "BOTTOMLEFT",
-                    primaryIdx * cellWidth,
-                    secondaryIdx * cellHeight)
-            else  -- "Below"
-                row:SetPoint("TOPLEFT", listFrame, "TOPLEFT",
-                    primaryIdx * cellWidth,
-                    -secondaryIdx * cellHeight)
-            end
-        else
-            if listSide == "Left" then
-                -- Columns grow leftward from the TOPRIGHT of the list.
-                row:SetPoint("TOPRIGHT", listFrame, "TOPRIGHT",
-                    -secondaryIdx * cellWidth,
-                    -primaryIdx * cellHeight)
-            else  -- "Right"
-                row:SetPoint("TOPLEFT", listFrame, "TOPLEFT",
-                    secondaryIdx * cellWidth,
-                    -primaryIdx * cellHeight)
-            end
-        end
-        row:Show()
-
-        -- Name, colored by class.
-        local r, g, b = ClassColor(m.class)
-        row.name:SetFont(fontPath, fontSize, outline)
-        row.name:SetText(m.name)
-        row.name:SetTextColor(r, g, b, 1)
-        row.name:ClearAllPoints()
 
         -- Status: green check when ready, red timer when on cooldown.
         local cdEnd = cooldowns[m.guid]
         local remain = cdEnd and (cdEnd - now) or 0
-        row.timer:ClearAllPoints()
-        row.check:ClearAllPoints()
-        row.check:SetSize(checkSize, checkSize)
+        local onCD = remain > 0
 
-        if remain > 0 then
-            row.check:Hide()
-            row.timer:SetFont(fontPath, fontSize, outline)
+        -- Structural signature for this row. Everything that drives the per-row
+        -- SetSize / SetPoint / SetFont / SetText / check-size / LayoutCell work is
+        -- folded in: cacheKey (font/size/outline/statusSide/rowHeight/#members),
+        -- the member identity, its position (i/primaryCap/listSide), and the
+        -- status mode (timer vs check). On a pure 0.5s timer tick none of these
+        -- change — only the timer's mm:ss text — so we skip all the layout calls
+        -- and just refresh row.timer below.
+        local sig = cacheKey .. "|" .. i .. "|" .. primaryCap .. "|" .. listSide
+            .. "|" .. m.guid .. "|" .. (onCD and "t" or "c")
+
+        if row.layoutSig ~= sig then
+            row.layoutSig = sig
+
+            row:SetSize(cellWidth, cellHeight)
+            row:ClearAllPoints()
+
+            -- 0-based index of the cell within its primary track, and the index of
+            -- the wrap (column for vertical, row for horizontal).
+            local primaryIdx   = (i - 1) % primaryCap
+            local secondaryIdx = math.floor((i - 1) / primaryCap)
+
+            -- Cells grow AWAY from the icon along the secondary axis, so the first
+            -- member is always closest to the icon.
+            if horizontal then
+                if listSide == "Above" then
+                    -- Rows grow upward from the BOTTOMLEFT of the list.
+                    row:SetPoint("BOTTOMLEFT", listFrame, "BOTTOMLEFT",
+                        primaryIdx * cellWidth,
+                        secondaryIdx * cellHeight)
+                else  -- "Below"
+                    row:SetPoint("TOPLEFT", listFrame, "TOPLEFT",
+                        primaryIdx * cellWidth,
+                        -secondaryIdx * cellHeight)
+                end
+            else
+                if listSide == "Left" then
+                    -- Columns grow leftward from the TOPRIGHT of the list.
+                    row:SetPoint("TOPRIGHT", listFrame, "TOPRIGHT",
+                        -secondaryIdx * cellWidth,
+                        -primaryIdx * cellHeight)
+                else  -- "Right"
+                    row:SetPoint("TOPLEFT", listFrame, "TOPLEFT",
+                        secondaryIdx * cellWidth,
+                        -primaryIdx * cellHeight)
+                end
+            end
+            row:Show()
+
+            -- Name, colored by class.
+            local r, g, b = ClassColor(m.class)
+            row.name:SetFont(fontPath, fontSize, outline)
+            row.name:SetText(m.name)
+            row.name:SetTextColor(r, g, b, 1)
+            row.name:ClearAllPoints()
+
+            row.timer:ClearAllPoints()
+            row.check:ClearAllPoints()
+            row.check:SetSize(checkSize, checkSize)
+
+            if onCD then
+                row.check:Hide()
+                row.timer:SetFont(fontPath, fontSize, outline)
+                row.timer:SetText(ns.FormatMMSS(remain))
+                row.timer:Show()
+                LayoutCell(row, row.name, row.timer, statusSide, cellWidth)
+            else
+                row.timer:Hide()
+                row.check:Show()
+                LayoutCell(row, row.name, row.check, statusSide, cellWidth)
+            end
+        elseif onCD then
+            -- Pure timer tick: structure is unchanged, only the countdown text moves.
             row.timer:SetText(ns.FormatMMSS(remain))
-            row.timer:Show()
-            LayoutCell(row, row.name, row.timer, statusSide, cellWidth)
-        else
-            row.timer:Hide()
-            row.check:Show()
-            LayoutCell(row, row.name, row.check, statusSide, cellWidth)
         end
     end
 
     -- Hide leftover rows from the pool (members count may have decreased).
+    -- Clear layoutSig so a later reuse of the same row always re-runs the
+    -- structural pass (which re-Shows it) even if its signature would match.
     for i = total + 1, #rows do
         rows[i]:Hide()
+        rows[i].layoutSig = nil
     end
 end
 

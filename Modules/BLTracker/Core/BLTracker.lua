@@ -97,6 +97,8 @@ local blIcon = ns.ui.CreateTimerIcon({
     name    = "BLTrackerFrame",
     getCfg  = function(key) return BL.CfgGet(key) end,
     setCfg  = function(key, val) BL.CfgSet(key, val) end,   -- cdmAtEnd flip on a cross-strip drag
+    -- Your own class lust (Bloodlust/Heroism/Time Warp/...) -> keybind; nil-resolved if you don't have it bound.
+    getSpellId = function() return playerClass and DEFAULT_CLASS_SPELLS[playerClass] or nil end,
     onDragStop = function(x, y)
         BL.CfgSet("posX", x)
         BL.CfgSet("posY", y)
@@ -315,12 +317,9 @@ end, 0.5)
 -- aura, so SyncDebuff runs (and ns.combo.Notify("bl", ...) fires) without
 -- waiting up to 500ms for the next ticker. Without this, a near-simultaneous
 -- potion cast would flush as "potion combo" before BL is even detected.
--- AceEvent has no unit filter (no RegisterUnitEvent equivalent), so register
--- UNIT_AURA unfiltered and discard every fire whose unit token isn't "player".
-BL:RegisterEvent("UNIT_AURA", function(event, unit)
-    if unit ~= "player" then return end
-    SyncDebuff()
-end)
+-- Routed through the shared dispatcher, which is already player-filtered and
+-- coalesces a burst of aura changes into one next-frame callback.
+ns.AuraDispatch.Register("player", function() SyncDebuff() end)
 
 ns.RegisterReloadHook(function()
     -- Apply the current default override-set at login (no need to open the config), version-checked.

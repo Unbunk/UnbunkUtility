@@ -137,10 +137,17 @@ end
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_FOCUS_CHANGED")
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
-if ev.RegisterUnitEvent then ev:RegisterUnitEvent("UNIT_AURA", "focus") else ev:RegisterEvent("UNIT_AURA") end
-ev:SetScript("OnEvent", function(_, event, unit)
-    if event == "UNIT_AURA" and unit and unit ~= "focus" then return end
+ev:SetScript("OnEvent", function()
+    if not FB.Get("enabled") then return end
+    -- One-frame defer so we run after Blizzard repaints the (new) focus's auras.
     C_Timer.After(0, FB.Apply)
+end)
+
+-- Focus aura changes go through the shared dispatcher, which already coalesces a
+-- burst of UNIT_AURA into a single next-frame callback — so no per-event timer.
+ns.AuraDispatch.Register("focus", function()
+    if not FB.Get("enabled") then return end
+    FB.Apply()
 end)
 
 ns.RegisterReloadHook(function() FB.Apply() end)

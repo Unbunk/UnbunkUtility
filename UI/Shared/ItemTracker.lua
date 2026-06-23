@@ -44,7 +44,46 @@ function ns.ui.CreateItemTracker(config)
     -- Invalidated when the tracked itemId changes.
     local cachedItemId, cachedIconId, cachedSpellName = nil, nil, nil
 
-    local icon = ns.ui.CreateTimerIcon({
+    -- Last-applied visual state, so the steady-state 0.5s tick is a no-op when
+    -- nothing changed (SetIcon/Show/SetTimer all push work to the engine/Cooldown
+    -- frame even when the value is identical). One CreateItemTracker closure per
+    -- tracker (never re-entrant) → plain upvalues are safe.
+    local appliedIconId  = nil   -- last id passed to icon.SetIcon
+    local tExpiry, tDuration, tColor = nil, nil, nil  -- last SetTimer args
+
+    -- The TimerIcon is created further down (it needs getCfg / cdmEligible defined first), but the
+    -- cache helpers just below close over it. Forward-declare the local here so they capture THIS
+    -- upvalue instead of the nil GLOBAL `icon` (they're only ever CALLED after the assignment below).
+    local icon
+
+    -- SetTimer is a no-op when (expiry, duration, color) match the last applied
+    -- timer; identical args just re-push the same SetCooldown to the engine.
+    local function SetTimerCached(expiry, duration, color)
+        if expiry == tExpiry and duration == tDuration and color == tColor then return end
+        tExpiry, tDuration, tColor = expiry, duration, color
+        icon.SetTimer(expiry, duration, color)
+    end
+    -- Any state that ends/changes the timer outside SetTimerCached (ClearTimer,
+    -- the direct-driven healthstone path) must forget the cached args so a later
+    -- identical SetTimer re-applies instead of being skipped.
+    local function InvalidateTimerCache() tExpiry, tDuration, tColor = nil, nil, nil end
+    tracker.InvalidateTimerCache = InvalidateTimerCache
+    -- Clear + forget the cached args together, so a later identical SetTimer
+    -- (e.g. the same cooldown re-appearing) re-applies instead of being skipped.
+    local function ClearTimerCached() InvalidateTimerCache(); icon.ClearTimer() end
+
+    -- Show/Hide only when the REAL frame visibility differs (reading the actual
+    -- frame state, not a believed flag, so external direct Show/Hide from the
+    -- owning module — healthstone's direct-draw path, SetUnlocked, RunTest — can't
+    -- leave a stale cache that swallows a needed flip).
+    local function ShowCached()
+        if not icon.GetFrame():IsShown() then icon.Show() end
+    end
+    local function HideCached()
+        if icon.GetFrame():IsShown() then icon.Hide() end
+    end
+
+    icon = ns.ui.CreateTimerIcon({
         name    = frameName,
         getCfg  = getCfg,
         setCfg  = config.setCfg,   -- optional: forwarded to the CDM descriptor (cdmAtEnd on drag)
@@ -65,7 +104,7 @@ function ns.ui.CreateItemTracker(config)
 
     function tracker.ApplyVisuals()
         if not getCfg("enabled") then
-            icon.Hide()
+            HideCached()
             return
         end
 
@@ -75,7 +114,7 @@ function ns.ui.CreateItemTracker(config)
         local itemExists = itemId and (getCfg("showAtZero") or hasItem(itemId))
 
         if not itemExists or not getCfg("showIcon") then
-            icon.Hide()
+            HideCached()
             return
         end
 
@@ -101,12 +140,12 @@ function ns.ui.CreateItemTracker(config)
                 cachedSpellName = false        -- loaded, genuinely no on-use → stop retrying
             else
                 C_Item.RequestLoadItemDataByID(itemId)  -- not loaded yet → retry next tick
-                icon.Hide()
+                HideCached()
                 return
             end
         end
         if not cachedSpellName then             -- false sentinel: item isn't usable
-            icon.Hide()
+            HideCached()
             return
         end
 
@@ -117,16 +156,19 @@ function ns.ui.CreateItemTracker(config)
         if not iconId then
             iconId = select(5, C_Item.GetItemInfoInstant(itemId))
             if not iconId then
-                icon.Hide()
+                HideCached()
                 return
             end
             cachedIconId = iconId
         end
 
-        icon.SetIcon(iconId)
+        if iconId ~= appliedIconId then
+            icon.SetIcon(iconId)
+            appliedIconId = iconId
+        end
         local wasHidden = not icon.GetFrame():IsShown()
         icon.ApplySize()
-        icon.Show()
+        ShowCached()
         -- An item tracker becomes group-ELIGIBLE only once its on-use spell resolves, so the FIRST time it
         -- shows it may not be in the engine's layout snapshot yet — it would then render at its un-sized 64px
         -- birth size instead of the group's slot size. Kick one relayout on the hidden->shown transition (in
@@ -151,7 +193,7 @@ function ns.ui.CreateItemTracker(config)
             if aura and ns.AuraTimerReadable(spellId) then
                 foundBuff = true
                 ns.LearnAuraDuration(spellId, aura.duration)
-                icon.SetTimer(aura.expirationTime, aura.duration, GREEN)
+                SetTimerCached(aura.expirationTime, aura.duration, GREEN)
                 icon.HideCheck()
             elseif lastUseAt and UnitAffectingCombat("player") then
                 -- Aura nil: only fall back to the heuristic IN COMBAT (where the
@@ -161,7 +203,7 @@ function ns.ui.CreateItemTracker(config)
                 local dur = ns.GetAuraDuration(spellId)
                 if dur and GetTime() < lastUseAt + dur then
                     foundBuff = true
-                    icon.SetTimer(lastUseAt + dur, dur, GREEN)
+                    SetTimerCached(lastUseAt + dur, dur, GREEN)
                     icon.HideCheck()
                 end
             end
@@ -174,7 +216,7 @@ function ns.ui.CreateItemTracker(config)
                     hasCooldown = true
                 end
                 lastExpiry = start + duration
-                icon.SetTimer(start + duration, duration)
+                SetTimerCached(start + duration, duration)
                 icon.HideCheck()
             elseif duration and duration > 0 then
                 -- start == 0 with a duration = an unstarted / not-yet-populated
@@ -192,14 +234,14 @@ function ns.ui.CreateItemTracker(config)
                     local completed = lastExpiry and (GetTime() >= lastExpiry - ns.READY_EPSILON)
                     if completed and not ns.RecentlyZoned() then
                         if config.onReady then config.onReady() end
-                        icon.ClearTimer()
+                        ClearTimerCached()
                         icon.BlinkCheck()  -- flash once, then auto-hide
                     else
-                        icon.ClearTimer()
+                        ClearTimerCached()
                         icon.HideCheck()
                     end
                 else
-                    icon.ClearTimer()
+                    ClearTimerCached()
                 end
             end
         end

@@ -133,6 +133,7 @@ local racialIcon = ns.ui.CreateTimerIcon({
     name    = "RacialTrackerFrame",
     getCfg  = function(key) return RT.CfgGet(key) end,
     setCfg  = function(key, val) RT.CfgSet(key, val) end,   -- cdmAtEnd flip on a cross-strip drag
+    getSpellId = function() return racialSpellId end,        -- runtime-resolved racial -> keybind / press overlay
     onDragStop = function(x, y)
         RT.CfgSet("posX", x)
         RT.CfgSet("posY", y)
@@ -348,8 +349,11 @@ RT:RegisterEvent("SPELLS_CHANGED", OnSpellsRefresh)
 
 -- The player's OWN cast spellId is readable (unlike another unit's, which is a
 -- secret value). UNIT_SPELLCAST_SUCCEEDED fires many times/sec in combat, so do
--- the cheap unit/spell test first and only act on the racial.
-RT:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit, _, spellId)
+-- the cheap spell test first and only act on the racial. A dedicated unit-filtered
+-- frame ("player") so it never wakes for other units' casts.
+local castFrame = CreateFrame("Frame")
+castFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+castFrame:SetScript("OnEvent", function(self, event, unit, _, spellId)
     if unit ~= "player" then return end
     if racialSpellId and spellId == racialSpellId then
         lastUseAt = GetTime()
@@ -357,10 +361,13 @@ RT:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit, _, spellId)
     end
 end)
 
--- Instant buff detection: UNIT_AURA on the player fires the moment the racial's
+-- Instant buff detection: a player aura change fires the moment the racial's
 -- buff is gained/lost, so the green timer reacts without waiting for the ticker.
-RT:RegisterEvent("UNIT_AURA", function(event, unit)
-    if unit ~= "player" then return end
+-- Coalesced through the shared dispatcher (one player UNIT_AURA wakes everyone
+-- once per frame). Non-buff racials (no RACIAL_BUFF_AURA entry) show only the
+-- cooldown, so they skip ApplyVisuals on aura churn — the 0.5s ticker covers them.
+ns.AuraDispatch.Register("player", function()
+    if not racialSpellId or not RACIAL_BUFF_AURA[racialSpellId] then return end
     if RT.CfgGet("enabled") then RT.ApplyVisuals() end
 end)
 
