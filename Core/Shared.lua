@@ -978,6 +978,14 @@ ns.StyleEpoch = ns.StyleEpoch or 1
 function ns.BumpStyleEpoch() ns.StyleEpoch = (ns.StyleEpoch or 0) + 1 end
 -- A live brand-colour change can alter brand-derived icon defaults → invalidate the cache.
 ns.RegisterBrandColorHook(ns.BumpStyleEpoch)
+-- A native (Blizzard keybinding UI) rebind fires UPDATE_BINDINGS but never passes through a
+-- module's config path, so it wouldn't otherwise invalidate the per-icon style gate (which
+-- caches the displayed keybind text). Bump the epoch so the next pass re-reads GetBindingKey.
+do
+    local bindWatch = CreateFrame("Frame")
+    bindWatch:RegisterEvent("UPDATE_BINDINGS")
+    bindWatch:SetScript("OnEvent", function() ns.BumpStyleEpoch() end)
+end
 
 -- ── Addon font: single source of truth + live re-face ─────────────────────────
 -- ns.SetAddonFont(lsmKey) stores an account-wide font override; ns.ApplyAddonFont

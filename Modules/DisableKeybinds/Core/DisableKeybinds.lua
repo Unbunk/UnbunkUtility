@@ -181,9 +181,11 @@ function DK.Apply()
     header:Execute([[ self:RunAttribute("apply", "out") ]])
 end
 
--- Instance / group / login transitions all happen out of combat (or are re-synced when
--- combat ends), so these are enough to keep the precomputed sets fresh. Entering combat is
--- handled by the secure driver — no PLAYER_REGEN_DISABLED handler needed.
+-- Keep the precomputed disable-sets fresh on instance / group / login transitions. Note
+-- GROUP_ROSTER_UPDATE can fire DURING combat (a member goes offline / dies): DK.Apply then
+-- early-outs on InCombatLockdown, so the instance/group predicate is frozen at its last
+-- out-of-combat value until combat ends — PLAYER_REGEN_ENABLED re-runs Apply and re-syncs.
+-- Entering combat needs no handler: the secure state driver re-runs the last compiled snippet.
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("ZONE_CHANGED_NEW_AREA")

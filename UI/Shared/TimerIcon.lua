@@ -100,6 +100,7 @@ local clockFrame
 local function EnsureClockDriver()
     if clockFrame then return end
     clockFrame = CreateFrame("Frame")
+    clockFrame:Hide()   -- shown only while ≥1 icon has a running timer (an empty registry = no OnUpdate)
     clockFrame:SetScript("OnUpdate", function()
         local n = 0
         for _, tick in pairs(clockRegistry) do n = n + 1; clockSnapshot[n] = tick end
@@ -112,9 +113,13 @@ end
 local function ClockAdd(key, tick)
     clockRegistry[key] = tick
     EnsureClockDriver()
+    clockFrame:Show()   -- at least one timer now runs → drive OnUpdate
 end
 local function ClockRemove(key)
     clockRegistry[key] = nil
+    -- Last timer gone: park the driver so an all-idle UI costs no per-frame work. A re-entrant
+    -- tick that removes the final entry then re-adds another will Show() it again this same frame.
+    if clockFrame and next(clockRegistry) == nil then clockFrame:Hide() end
 end
 
 -- ── Below-player / free glow (LibCustomGlow) ────────────────────────────────────
