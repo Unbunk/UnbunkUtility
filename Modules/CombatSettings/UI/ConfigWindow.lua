@@ -53,7 +53,7 @@ local function CreateCombatSettingsPanel(parent)
                         get    = function() return CS.CfgGet("enabled") == true end,
                         set    = function(val)
                             CS.CfgSet("enabled", val)
-                            CS.ApplyEnabled()
+                            CS.SetEnabled(val == true)   -- live start/stop the combat watcher
                             if menu then menu.Refresh() end
                         end,
                     },

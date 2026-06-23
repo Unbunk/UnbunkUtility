@@ -161,7 +161,9 @@ function BR.ApplyVisuals()
     -- Show whenever we're in a relevant context (group + instance, per the filter)
     -- — NOT only when a charge pool is currently active. Outside that, hide and
     -- reset so the first later pool tick is adopted silently.
-    if not BR.CfgGet("enabled") or not BR.IsContextActive() then
+    -- Master context toggle OFF (below-player row / free icons disabled) -> the icon simply doesn't
+    -- render, even when it would otherwise be active.
+    if BR.ContextHidden() or not BR.CfgGet("enabled") or not BR.IsContextActive() then
         frame:Hide()
         lastCharges = nil
         lastMax     = nil
@@ -307,10 +309,27 @@ function BR.EngineOwns()
     return ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest) or false
 end
 
+-- True when this tracker's PLACEMENT CONTEXT is master-disabled (below-player row off, or free icons
+-- off) -> it must not render. Config-based (raw includeInCdm), independent of the CM CVar; mirrors
+-- TimerIcon.ContextHidden for the other trackers. Default-true accessors keep it visible if absent.
+function BR.ContextHidden()
+    if not ns.CDMAnchor then return false end
+    if BR.CfgGet("includeInCdm") == true then
+        if BR.CfgGet("cdmDest") == "belowPlayer" then
+            return ns.CDMAnchor.IsBelowEnabled and not ns.CDMAnchor.IsBelowEnabled() or false
+        end
+        return false
+    end
+    return ns.CDMAnchor.IsFreeEnabled and not ns.CDMAnchor.IsFreeEnabled() or false
+end
+
 function BR.ApplyPosition()
     -- The NEW groups engine owns this dest: it positions + sizes the frame in its own RefreshLayout
     -- (2x/sec). Do NOTHING here — re-anchoring it would fight the engine's SetPoint/SetSize.
     if BR.EngineOwns() then return end
+    -- Master context toggle OFF -> hide and stop, so a forced RefreshAll (the dispatch routes a free
+    -- BRes here via d.apply) hides it at once instead of re-positioning it. ApplyVisuals also gates.
+    if BR.ContextHidden() then frame:Hide(); return end
     -- Cooldown Manager integration: ns.CDMAnchor owns this frame's position (and,
     -- for native-row destinations, its size). The below-player artificial row is
     -- always available; the essential/utility rows only when their viewer exists.
@@ -481,23 +500,67 @@ end
 
 function BR.GetFrame() return frame end
 
--- ── Events ───────────────────────────────────────────────────────────────────
+-- ── Events / drivers (start/stop with the enable toggle) ─────────────────────
+-- When the module is disabled every always-on driver is FULLY STOPPED (no 0.5s
+-- ticker, no visuals events, no roster/cast listeners) instead of merely
+-- early-outing, so a turned-off module costs ~zero CPU/memory. Re-enable (which
+-- is always UI-driven via the enable checkbox's set handler) restarts them.
 
 local function OnVisualsRefresh(event)
     BR.ApplyVisuals()
 end
-BR:RegisterEvent("PLAYER_ENTERING_WORLD", OnVisualsRefresh)
-BR:RegisterEvent("ZONE_CHANGED_NEW_AREA", OnVisualsRefresh)
-BR:RegisterEvent("GROUP_ROSTER_UPDATE", OnVisualsRefresh)
-BR:RegisterEvent("SPELL_UPDATE_CHARGES", OnVisualsRefresh)
 
--- Ticker: refreshes the mm:ss countdown and catches charge regained.
--- Early-out when disabled so a turned-off module does ~zero per-tick work.
-BR:ScheduleRepeatingTimer(function()
-    if not BR.CfgGet("enabled") then return end
+-- The 4 visuals events fire ApplyVisuals; SPELL_UPDATE_CHARGES in particular can
+-- fire frequently in combat, so they are registered only while enabled.
+local VISUALS_EVENTS = {
+    "PLAYER_ENTERING_WORLD",
+    "ZONE_CHANGED_NEW_AREA",
+    "GROUP_ROSTER_UPDATE",
+    "SPELL_UPDATE_CHARGES",
+}
+
+local tickerHandle   -- AceTimer handle for the 0.5s refresh ticker
+
+function BR.StartDrivers()
+    for _, ev in ipairs(VISUALS_EVENTS) do
+        BR:RegisterEvent(ev, OnVisualsRefresh)
+    end
+    -- Ticker: refreshes the mm:ss countdown and catches charge regained.
+    if not tickerHandle then
+        tickerHandle = BR:ScheduleRepeatingTimer(function()
+            BR.ApplyVisuals()
+            if BR.RefreshList then BR.RefreshList() end
+        end, 0.5)
+    end
+    -- Player-list roster/cast listeners (separate event object, in PlayerList.lua).
+    if BR.StartListDrivers then BR.StartListDrivers() end
+end
+
+function BR.StopDrivers()
+    for _, ev in ipairs(VISUALS_EVENTS) do
+        BR:UnregisterEvent(ev)
+    end
+    if tickerHandle then
+        BR:CancelTimer(tickerHandle)
+        tickerHandle = nil
+    end
+    if BR.StopListDrivers then BR.StopListDrivers() end
+    -- Make sure nothing is left on screen once the drivers stop.
     BR.ApplyVisuals()
     if BR.RefreshList then BR.RefreshList() end
-end, 0.5)
+end
+
+-- Live enable/disable transition, called by the enable checkbox's set handler.
+function BR.SetEnabled(val)
+    BR.CfgSet("enabled", val)
+    if val then
+        BR.StartDrivers()
+        BR.ApplyVisuals()
+        if BR.RefreshList then BR.RefreshList() end
+    else
+        BR.StopDrivers()
+    end
+end
 
 -- Reload hook: re-applies everything when a profile is loaded.
 ns.RegisterReloadHook(function()
@@ -517,5 +580,8 @@ initBR:SetScript("OnEvent", function(self)
     BR.ApplyFont()
     BR.ApplySize()
     BR.ApplyVisuals()
+    -- Start the always-on drivers (ticker + events) ONLY if currently enabled;
+    -- a disabled module wires up nothing. Re-enable is UI-driven (BR.SetEnabled).
+    if BR.CfgGet("enabled") then BR.StartDrivers() end
     self:UnregisterEvent("PLAYER_LOGIN")
 end)

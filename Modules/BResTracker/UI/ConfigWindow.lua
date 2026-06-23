@@ -45,9 +45,10 @@ local function CreateBResTrackerPanel(parent)
                         height = 28,
                         get    = function() return BR.CfgGet("enabled") ~= false end,
                         set    = function(val)
-                            BR.CfgSet("enabled", val)
-                            BR.ApplyVisuals()
-                            if BR.RefreshList then BR.RefreshList() end
+                            -- SetEnabled drives the live transition: it starts/stops every
+                            -- always-on driver (0.5s ticker, visuals events, roster + hot
+                            -- cast listeners) and refreshes visuals/list.
+                            BR.SetEnabled(val)
                             if menu then menu.Refresh() end
                         end,
                     },

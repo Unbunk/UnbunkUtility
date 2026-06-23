@@ -450,7 +450,11 @@ end
 -- We ignore the spellId argument entirely (it's secret for other players).
 -- Hot path in raids (hundreds of casts/sec): the class lookup is served from
 -- the cached classByGUID map populated on GROUP_ROSTER_UPDATE.
-plEvents:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit)
+local function OnCastSucceeded(event, unit)
+    -- Defensive early-out: this is the single hottest event in the addon. The
+    -- listener is unregistered entirely when the module is disabled (see
+    -- BR.StopListDrivers), so this guard only matters across a tiny race window.
+    if not BR.CfgGet("enabled") then return end
     -- Classify + remap pet→owner in a single pass; nil means "not a group unit".
     unit = ResolveGroupOwnerUnit(unit)
     if not unit then return end
@@ -460,16 +464,40 @@ plEvents:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit)
     local class = classByGUID[guid]
     if not class or not BRES_CLASSES[class] then return end
     lastCastByGUID[guid] = GetTime()
-end)
+end
 
 -- ── Roster events ────────────────────────────────────────────────────────────
 
 local function OnRosterRefresh(event)
+    if not BR.CfgGet("enabled") then return end
     RefreshRoster()
     BR.RefreshList()
 end
-plEvents:RegisterEvent("GROUP_ROSTER_UPDATE", OnRosterRefresh)
-plEvents:RegisterEvent("PLAYER_ENTERING_WORLD", OnRosterRefresh)
+
+-- Start/stop the player-list event listeners (hot cast path + roster), driven by
+-- the module's enable toggle via BResTracker's StartDrivers/StopDrivers. Fully
+-- unregistering the UNIT_SPELLCAST_SUCCEEDED listener is the big win: a disabled
+-- module does ZERO work on every cast in a raid. Idempotent.
+local listDriversOn = false
+function BR.StartListDrivers()
+    if listDriversOn then return end
+    listDriversOn = true
+    plEvents:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", OnCastSucceeded)
+    plEvents:RegisterEvent("GROUP_ROSTER_UPDATE", OnRosterRefresh)
+    plEvents:RegisterEvent("PLAYER_ENTERING_WORLD", OnRosterRefresh)
+    -- Rebuild the roster now so re-enabling mid-session repopulates immediately.
+    RefreshRoster()
+    BR.RefreshList()
+end
+
+function BR.StopListDrivers()
+    if not listDriversOn then return end
+    listDriversOn = false
+    plEvents:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+    plEvents:UnregisterEvent("GROUP_ROSTER_UPDATE")
+    plEvents:UnregisterEvent("PLAYER_ENTERING_WORLD")
+    if listFrame then listFrame:Hide() end
+end
 
 -- ── Init ─────────────────────────────────────────────────────────────────────
 
@@ -486,7 +514,13 @@ init:SetScript("OnEvent", function(self)
     BR.list = { frame = listFrame }
 
     BR.ApplyListPosition()
-    RefreshRoster()
-    BR.RefreshList()
+    -- If the enable toggle already started the list drivers before this frame
+    -- created listFrame (PLAYER_LOGIN order between the two init frames is
+    -- undefined), re-run roster/list now that listFrame exists. Otherwise the
+    -- drivers (started by BResTracker.StartDrivers when enabled) own this.
+    if BR.CfgGet("enabled") then
+        RefreshRoster()
+        BR.RefreshList()
+    end
     self:UnregisterEvent("PLAYER_LOGIN")
 end)

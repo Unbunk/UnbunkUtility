@@ -20,6 +20,18 @@ local BR = ns.BarGroups
 
 local FALLBACK_ICON = 134400
 
+-- ── Pass-level layout early-out ───────────────────────────────────────────────
+-- RefreshLayout runs on every driver pass (0.2s ticker + every coalesced player-aura + the native
+-- viewer RefreshLayout hook), but in steady-state combat the membership + config are unchanged and
+-- only each bar's VALUE animates (driven by Blizzard, not us). lastLayoutSig caches a cheap signature
+-- of the NATIVE state (which bars are present + shown); a non-dirty pass whose sig is unchanged returns
+-- immediately — the PinNative re-impose hooks hold every bar's geometry across skipped passes.
+-- layoutDirty forces a full pass after any CONFIG change: set by ApplyAll (the UI touch choke point),
+-- RefreshTracked (universe / spec), and SetGroupUnlocked (unlock + the drag reposition that follows).
+local layoutDirty   = true
+local lastLayoutSig = nil
+local rlSigParts    = {}
+
 local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
 -- In combat the player's own aura fields can be "secret values": reading/comparing one taints +
@@ -82,6 +94,24 @@ local function CollectTracked()
     ResolveCategorySet(
         C_CooldownViewer.GetCooldownViewerCategorySet(Enum.CooldownViewerCategory.TrackedBuff, true),
         seen, out)
+    return out
+end
+
+-- Cached resolved TrackedBuff category (the ordered {sid,...}), CONSTANT per spec/talents. The
+-- displayed-cache ticker (BR.RefreshDisplayedCache, 5/s) re-fetched the category set + a per-id
+-- GetCooldownViewerCooldownInfo (a fresh C table EACH) every pass = the dominant Bars churn (~215+ kB/s;
+-- the pool keeps a shown=false frame per configured bar, so it runs even out of combat / unshown).
+-- Cache it; invalidated by RefreshTracked (spec/talent/data-loaded). Only the per-tick POOL scan stays live.
+local trackedCategory = nil
+local function GetTrackedCategory()
+    if trackedCategory then return trackedCategory end
+    local out = {}
+    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
+        and Enum and Enum.CooldownViewerCategory then
+        local seen = {}
+        ResolveCategorySet(C_CooldownViewer.GetCooldownViewerCategorySet(Enum.CooldownViewerCategory.TrackedBuff, true), seen, out)
+    end
+    if #out > 0 then trackedCategory = out end   -- don't cache an empty (not-yet-loaded) result
     return out
 end
 
@@ -242,17 +272,12 @@ function BR.RefreshDisplayedCache()
         if sid then inPool[sid] = true; poolCount = poolCount + 1 end
     end
     if poolCount == 0 then return false end
+    -- Use the CACHED resolved category instead of re-fetching the category set + per-id cooldownInfo C
+    -- tables every 0.2s tick (the ~215+ kB/s churn — runs even out of combat since poolCount > 0 above).
     local newSet, newCount, seen = {}, 0, {}
-    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
-        and Enum and Enum.CooldownViewerCategory then
-        local full = C_CooldownViewer.GetCooldownViewerCategorySet(Enum.CooldownViewerCategory.TrackedBuff, true)
-        if type(full) == "table" then
-            for _, id in ipairs(full) do
-                local sid = CooldownInfoSpellId(id)
-                if sid and not seen[sid] and inPool[sid] then
-                    seen[sid] = true; newSet[sid] = true; newCount = newCount + 1
-                end
-            end
+    for _, sid in ipairs(GetTrackedCategory()) do
+        if not seen[sid] and inPool[sid] then
+            seen[sid] = true; newSet[sid] = true; newCount = newCount + 1
         end
     end
     local oldCount = 0
@@ -280,6 +305,8 @@ function BR.MigrateNativeOrder()
 end
 
 function BR.RefreshTracked(force)
+    layoutDirty = true       -- the tracked universe / order may have changed -> force a full relayout pass
+    trackedCategory = nil    -- spec/talent/data-loaded changed the category -> recompute the cache
     -- ORDER seed: append each unassigned DISPLAYED bar to order[1] in native on-screen order so
     -- Group 1 lists them in the user's EditMode arrangement. Membership comes from the dynamic
     -- GroupOf (never written here), so a not-displayed bar defaults to Unused and needs no order.
@@ -567,6 +594,18 @@ local hideAllScratch = {}
 local function HideAll()
     for _, nf in ipairs(EnumBarFrames(hideAllScratch)) do ReleaseNative(nf) end
     for _, c in pairs(containers) do c:Hide() end
+    -- Un-park: when we ran while enabled we parked Unused/unassigned bars OFFSCREEN, so on a runtime
+    -- toggle-off we must ask the viewer to re-lay-out to bring them back to their EditMode positions.
+    -- BUT only when WE actually drove the viewer this session — `viewerLaidOut` is set true ONLY by the
+    -- native viewer's RefreshLayout hook, which is installed only by HookNativeViewer() (enabled path).
+    -- On a fresh /reload while DISABLED that hook was never installed (viewerLaidOut == false) and nothing
+    -- was ever pinned, so poking Blizzard's not-yet-laid-out viewer would COLLAPSE the native bars. A
+    -- disabled module must do zero work and hand the viewer fully back to Blizzard (matches BuffGroups).
+    -- Combat-guarded — a protected relayout could taint.
+    if viewerLaidOut then
+        local v = _G[BAR_VIEWER]
+        if v and v.RefreshLayout and not InCombatLockdown() then pcall(v.RefreshLayout, v) end
+    end
 end
 
 -- Is a native bar frame currently VISIBLE (its buff is active)? Unlike the buff ICON viewer (which
@@ -606,10 +645,33 @@ function BR.RefreshLayout()
 
     local frameOf = rlFrameOf
     wipe(frameOf)
+    local sp = rlSigParts; wipe(sp)
     for _, nf in ipairs(EnumBarFrames(rlEnum)) do
         local sid = FrameSpellId(nf)
-        if sid then frameOf[sid] = nf end
+        if sid then
+            frameOf[sid] = nf
+            sp[#sp + 1] = sid .. (FrameShown(nf) and "+" or "-")
+        end
     end
+    -- Pass-level early-out: when not dirtied by a config change AND the native bar set (which bars are
+    -- present + shown) is unchanged since the last full pass, the whole grouping/layout/pin body below
+    -- is a no-op — the PinNative hooks hold every bar's geometry. Sorted so pool iteration order can't
+    -- spoof a change. (A bar VALUE tick changes neither membership nor shown-state, so it skips.)
+    table.sort(sp)
+    local sig = table.concat(sp, ",")
+    if not layoutDirty and sig == lastLayoutSig then
+        -- Layout unchanged, but Blizzard's SetBarContent refill clears _uuBarStyled on a still-present
+        -- bar; re-style just the dirtied bars (no layout / no re-pin) so the refill can't revert our
+        -- texture/colour. The StyleBarFrame gate skips bars already styled at the current StyleVersion.
+        for sid, nf in pairs(frameOf) do
+            if not nf._uuBarStyled or nf._uuStyleVer ~= BR.StyleVersion() then
+                StyleBarFrame(nf, sid)
+            end
+        end
+        return
+    end
+    layoutDirty   = false
+    lastLayoutSig = sig
 
     -- Hide containers of deleted groups.
     for gid, c in pairs(containers) do
@@ -714,7 +776,9 @@ function BR.RefreshLayout()
         if not placed[sid] then ReleaseNative(nf) end
     end
 end
-BR.ApplyAll = BR.RefreshLayout
+-- The config UI's touch() calls this after every edit; force a full relayout pass since config
+-- changes are not in the native-state signature.
+function BR.ApplyAll() layoutDirty = true; BR.RefreshLayout() end
 
 function BR.Rebuild()
     BR.RefreshTracked()
@@ -732,6 +796,7 @@ end
 
 function BR.SetGroupUnlocked(groupId, val)
     local g = BR.GetGroup(groupId); if not g then return end
+    layoutDirty = true   -- unlock/lock + the resulting drag reposition need a full relayout pass
     local c = GetContainer(groupId)
     if val then
         g.unlocked = true
@@ -812,10 +877,16 @@ local function HookNativeViewer()
     end
 end
 
+-- Exported so the enable toggle can (re)install the native-viewer hooks on re-enable. Idempotent
+-- (refreshHooked / _uuScaleHooked guards), so a repeat call is a no-op. Login + events now skip the
+-- bring-up while disabled, so this is the restart path together with BR.Rebuild.
+function BR.HookNativeViewerPublic() HookNativeViewer() end
+
 -- ── Events ────────────────────────────────────────────────────────────────────
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 ev:RegisterEvent("TRAIT_CONFIG_UPDATED")
+ev:RegisterEvent("COOLDOWN_VIEWER_DATA_LOADED")   -- an EditMode "Tracked Buffs" edit changes the category set
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 -- UNIT_AURA goes through the shared coalescing dispatcher (one next-frame round per burst)
@@ -824,8 +895,12 @@ ns.AuraDispatch.Register("player", function()
     if BR.Enabled() then HookNativeViewer(); BR.RefreshLayout() end
 end)
 ev:SetScript("OnEvent", function(_, event)
+    -- Disabled module does ZERO event work: the secure hooks / seed are (re)installed by the enable
+    -- toggle's set handler (BR.HookNativeViewerPublic + BR.Rebuild) and by login when enabled, so a
+    -- spec/zone change while off needs no handling. Re-enable is UI-driven, so skipping here is safe.
+    if not BR.Enabled() then return end
     if event == "PLAYER_REGEN_ENABLED" then
-        if BR.Enabled() then HookNativeViewer(); BR.RefreshLayout() end
+        HookNativeViewer(); BR.RefreshLayout()
     else
         HookNativeViewer()
         if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "TRAIT_CONFIG_UPDATED" then
@@ -860,8 +935,11 @@ ns.RegisterReloadHook(function() BR.Rebuild() end)
 local init = CreateFrame("Frame")
 init:RegisterEvent("PLAYER_LOGIN")
 init:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_LOGIN")
+    -- Only stand up the engine (native-viewer hooks, tracked seed, layout) at login if currently
+    -- enabled. When disabled, the enable toggle's set handler does this on re-enable (BR.Rebuild).
+    if not BR.Enabled() then return end
     HookNativeViewer()
     BR.Rebuild()
-    self:UnregisterEvent("PLAYER_LOGIN")
     DeferSeedUntilViewerReady()
 end)

@@ -226,10 +226,14 @@ end
 -- the aura comes and goes — so we must NOT filter on IsShown (an inactive buff's frame is
 -- shown=false but still needs pre-positioning in its group; Blizzard reveals it in place when
 -- the buff procs). Every active pool frame is returned; the caller resolves the spell id.
-function ns.CDMAnchor.EnumBuffIcons()
+-- `out` (optional): a caller-supplied scratch reused across passes instead of allocating a fresh
+-- array each call (the BuffGroups RefreshLayout enum runs ~60 Hz on cooldown-swipe frames). Mirrors
+-- BarGroups.EnumBarFrames(out). Callers that pass no scratch still get a fresh table.
+function ns.CDMAnchor.EnumBuffIcons(out)
+    out = out or {}
+    wipe(out)
     local v = _G.BuffIconCooldownViewer
-    if not v then return {} end
-    local out = {}
+    if not v then return out end
     local pool = v.itemFramePool
     if pool and pool.EnumerateActive then
         for f in pool:EnumerateActive() do
@@ -567,6 +571,39 @@ function ns.CDMAnchor.SetBelowUnlocked(val)
     ns.CDMAnchor.RefreshAll()
 end
 function ns.CDMAnchor.IsBelowUnlocked() return belowUnlocked end
+
+-- Master toggle for the entire below-player row. Default ON: nil/true -> enabled, only an explicit
+-- false disables it (mirrors IsAtEnd's `~= false` default-true sentinel + the Essential/Utility/Buffs
+-- engines' default-ON convention). When disabled, the row's icons simply DON'T render — you can still
+-- assign icons to the row, they just won't show while it's off (NOT reverted to free placement). The
+-- hide is enforced by the DoRefreshBody dispatch (immediate) + each tracker's own Show/ApplyVisuals
+-- gate (TimerIcon.ContextHidden, BResTracker.ApplyVisuals) so the owner can't re-show them.
+function ns.CDMAnchor.IsBelowEnabled()
+    local c = ns.db and ns.db.profile and ns.db.profile.cdmBelowRow
+    return not c or c.enabled ~= false
+end
+function ns.CDMAnchor.SetBelowEnabled(val)
+    local p = ns.db and ns.db.profile
+    if not p then return end
+    p.cdmBelowRow = p.cdmBelowRow or {}
+    p.cdmBelowRow.enabled = val and true or false
+end
+
+-- Master toggle for FREE icons (those taken OUT of the Cooldown Manager, placed by their own
+-- posX/posY — the "Free icons" tab). Same default-ON / hide-when-off semantics as the below-player
+-- row: OFF -> every free icon simply doesn't render (you can still add / configure them). Stored flat
+-- on the profile (no containing table); the hide is enforced by TimerIcon.ContextHidden +
+-- BResTracker.ApplyVisuals, with the free icons' own ApplyPosition (run via the dispatch's d.apply)
+-- hiding them on a forced RefreshAll.
+function ns.CDMAnchor.IsFreeEnabled()
+    local p = ns.db and ns.db.profile
+    return not p or p.cdmFreeEnabled ~= false
+end
+function ns.CDMAnchor.SetFreeEnabled(val)
+    local p = ns.db and ns.db.profile
+    if not p then return end
+    p.cdmFreeEnabled = val and true or false
+end
 
 -- Per-profile order map for reorderable CDM icons. ONE map (id = frame name ->
 -- order number) drives ordering both for the below-player row AND for the
@@ -987,8 +1024,10 @@ function ns.CDMAnchor.SetDestBorder(dest, key, val)
     local c = DestBorderCfg(dest)
     if not c then return end
     c[key] = val
-    -- A forced refresh re-lays-out the dest, and each icon's setSize -> ApplyDerivedSizing
-    -- -> ApplyBorder then re-reads this border.
+    -- Cold-path config edit. The forced relayout repaints icons via setSize -> the GATED
+    -- ApplyDerivedSizing, which would skip a style-only (border) change; bump the shared style epoch so
+    -- every tracker icon's gate re-derives once and re-reads this border.
+    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end
     ns.CDMAnchor.RefreshAll(true)
 end
 
@@ -1013,7 +1052,9 @@ function ns.CDMAnchor.SetDestCdmFlag(dest, key, val)
     local c = DestFlagCfg(dest)
     if not c then return end
     c[key] = val and true or false
-    -- Re-lay-out the dest so every icon's setSize -> ApplyDerivedSizing -> ApplyKeybind re-reads it.
+    -- Cold-path config edit: bump the shared style epoch so the gated ApplyDerivedSizing re-runs
+    -- ApplyKeybind for every below-player icon (the forced relayout's setSize alone is gated), then relayout.
+    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end
     ns.CDMAnchor.RefreshAll(true)
 end
 
@@ -1031,6 +1072,7 @@ function ns.CDMAnchor.SetDestGlow(dest, key, val)
     local c = DestFlagCfg(dest)
     if not c then return end
     c[key] = val
+    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- cold-path edit: re-derive the gated tracker icons
     ns.CDMAnchor.RefreshAll(true)
 end
 
@@ -1047,6 +1089,7 @@ function ns.CDMAnchor.SetDestCfg(dest, key, val)
     local c = DestFlagCfg(dest)
     if not c then return end
     c[key] = val
+    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- cold-path edit: re-derive the gated tracker icons
     ns.CDMAnchor.RefreshAll(true)
 end
 
@@ -1088,13 +1131,18 @@ function ns.CDMAnchor.BelowIconSet(frameName, key, val)
     if not s or not frameName then return end
     s[frameName] = s[frameName] or {}
     s[frameName][key] = val
+    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- cold-path per-icon below override edit
     ns.CDMAnchor.RefreshAll(true)
 end
 
 function ns.CDMAnchor.BelowIconReset(frameName, key)
     local s = BelowIconStore()
     local ic = s and frameName and s[frameName]
-    if ic then ic[key] = nil; ns.CDMAnchor.RefreshAll(true) end
+    if ic then
+        ic[key] = nil
+        if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- cold-path per-icon below override reset
+        ns.CDMAnchor.RefreshAll(true)
+    end
 end
 
 function ns.CDMAnchor.BelowIconHasOverride(frameName, key)
@@ -1837,6 +1885,7 @@ local function ComputeSig()
         -- (size / spacing / grow / static) so a per-bucket edit re-lays-out on a non-forced refresh.
         p[#p + 1] = "B" .. tostring(c.offsetX) .. "," .. tostring(c.offsetY)
             .. "," .. tostring(c.endOffsetX) .. "," .. tostring(c.endOffsetY)
+            .. "," .. (c.enabled ~= false and "1" or "0")   -- master row toggle (default-true)
         for _, bucket in ipairs({ "front", "end" }) do
             local w, h, gap, grow, static = BelowBucketLayout(bucket)
             p[#p + 1] = bucket:sub(1, 1) .. tostring(w) .. "x" .. tostring(h)
@@ -1909,7 +1958,14 @@ local function DoRefreshBody(force)
             -- ownership it falls through to the branches below exactly as before. (Tested against
             -- includeInCdm directly, not cdmOn — the engine ignores the legacy CDM-enabled CVar.)
         elseif d.frame and inc and not owned(dest) and dest == "belowPlayer" then
-            hasBelow = true
+            if ns.CDMAnchor.IsBelowEnabled() then
+                hasBelow = true
+            else
+                -- Master below-player toggle OFF: the row is disabled, so its icons simply DON'T
+                -- render (you can still assign them; they just won't show). Hide immediately for a
+                -- snappy toggle; each tracker's own Show/ApplyVisuals gate keeps them hidden after.
+                d.frame:Hide()
+            end
         elseif d.frame and inc and not owned(dest) and ns.GetCDMViewer(dest) then
             local g = groups[dest]
             if not g then g = { viewer = ns.GetCDMViewer(dest), list = {} }; groups[dest] = g end

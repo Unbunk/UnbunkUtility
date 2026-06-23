@@ -162,7 +162,18 @@ local function EnsureAlertManagerHook()
     hooksecurefunc(mgr, "ShowAlert", function(_, frame)
         if frame then
             frame._uuCdgProcced = true
-            if frame._uuCdgGlowUpdate then frame._uuCdgGlowUpdate() end
+            if frame._uuCdgGlowUpdate then
+                -- A managed frame: re-hide Blizzard's own proc-glow region right here (we draw our
+                -- own glow). StyleFrame used to re-hide it ~5x/sec, but it's now GATED, so suppress
+                -- it live on the proc instead — otherwise the native flash leaks on our resized /
+                -- re-anchored frames between full restyles.
+                local alert = frame.SpellActivationAlert
+                if alert then
+                    if alert.Hide then alert:Hide() end
+                    if alert.SetAlpha then alert:SetAlpha(0) end
+                end
+                frame._uuCdgGlowUpdate()
+            end
         end
     end)
     hooksecurefunc(mgr, "HideAlert", function(_, frame)
@@ -281,10 +292,15 @@ local function EngineFor(I)
     -- Enumerate the dest's native item frames (the pool's ACTIVE frames; like CDMAnchor.EnumBuffIcons
     -- but for THIS viewer). Returns every active pool frame regardless of IsShown — a not-currently-up
     -- cooldown's frame is shown=false but still needs positioning; the caller resolves the spell id.
-    local function EnumNativeFrames(activeOnly)
+    -- `out` (optional): a caller-supplied scratch reused across passes instead of a fresh array each
+    -- call (RefreshLayout enumerates ~60Hz on cooldown-swipe frames). The two hot callers pass SEPARATE
+    -- scratches (rl_nativeEnum / cd_nativeEnum) — never the same buffer, and never CollectDisplayed's
+    -- RESULT (which is memoized). Callers passing no scratch still get a fresh table.
+    local function EnumNativeFrames(activeOnly, out)
+        out = out or {}
+        wipe(out)
         local v = Viewer()
-        if not v then return {} end
-        local out = {}
+        if not v then return out end
         local pool = v.itemFramePool
         if pool and pool.EnumerateActive then
             for f in pool:EnumerateActive() do
@@ -371,6 +387,7 @@ local function EngineFor(I)
     -- allocated each call: it is the RETURNED value (AllBuffs appends to it and memoizes it, the
     -- displayed-cache iterates it), so sharing one upvalue would alias two callers' results.
     local collectSeen = {}
+    local cd_nativeEnum = {}   -- reused EnumNativeFrames scratch for CollectDisplayed (NOT its result `out`, which stays fresh + memoized)
     local function CollectDisplayed()
         local out, count = {}, 0
         local seen = collectSeen
@@ -380,7 +397,7 @@ local function EngineFor(I)
         local settled = I.poolAccumulates and viewerReadyAt and (GetTime() >= viewerReadyAt + SETTLE)
         -- activeOnly=true: the displayed-set must come from the REAL pool only, never the GetChildren
         -- fallback (which returns the full category and pollutes the accumulated universe).
-        for _, nf in ipairs(EnumNativeFrames(true)) do
+        for _, nf in ipairs(EnumNativeFrames(true, cd_nativeEnum)) do
             count = count + 1
             -- IDENTITY is the STABLE BASE key; the live form's DISPLAY spellId is cached in keyToDisplay so
             -- the config tile can show the current form's icon/name even though the slot keys on the base.
@@ -984,8 +1001,70 @@ local function EngineFor(I)
         end
     end
 
+    -- ── Gated-restyle helpers (the CPU fix) ────────────────────────────────────
+    -- StyleFrame is heavy (≈50 IconGet + ~20 SetFont/border/glow per icon) and used to run on
+    -- EVERY RefreshLayout (the 0.2s ticker + every UNIT_AURA + every native-viewer relayout =
+    -- 5-20x/sec in combat) even though nothing about the styling changed. It's now GATED by
+    -- (style epoch + the slot's spellId) at the call site; the two genuinely-per-tick concerns
+    -- it covered are handled cheaply here instead:
+    --   • the icon texcoord (so a non-square icon doesn't stretch after a Blizzard relayout),
+    --   • the time-threshold tier (countdown font size/colour as the cooldown winds down).
+    -- Size + position are already re-imposed by PinNative's own raw SetSize/SetPoint hooks.
+
+    -- Re-font a Cooldown's region FontStrings (the countdown number) WITHOUT re-anchoring them —
+    -- init=false so a per-icon timer position set by the full StyleFrame is preserved.
+    local function RefontCooldownRegions(cd, fontPath, size, outline, color)
+        if not cd then return end
+        StyleFontString(cd.Text or cd.text, fontPath, size, outline, color, false)
+        for _, region in ipairs({ cd:GetRegions() }) do
+            if region and region.IsObjectType and region:IsObjectType("FontString") then
+                StyleFontString(region, fontPath, size, outline, color, false)
+            end
+        end
+    end
+
+    -- Re-apply ONLY the countdown font (size + colour for the current tier) from a frame's cached
+    -- timer style — no IconGet, no re-anchor. Called only when the tier actually changes.
+    local function ApplyTierFont(tc, effSize, effColor)
+        local cd = tc.cd
+        if cd and tc.fontObj then
+            tc.fontObj:SetFont(tc.path, effSize, tc.outline)
+            if effColor then tc.fontObj:SetTextColor(effColor.r, effColor.g, effColor.b, effColor.a or 1) end
+            if cd.SetCountdownFont and tc.fontName then cd:SetCountdownFont(tc.fontName) end
+            RefontCooldownRegions(cd, tc.path, effSize, tc.outline, effColor)
+        end
+        if tc.time     then StyleFontString(tc.time,     tc.path, effSize, tc.outline, effColor, false) end
+        if tc.duration then StyleFontString(tc.duration, tc.path, effSize, tc.outline, effColor, false) end
+    end
+
+    -- Per-pass timer-tier refresh for a gated frame: recompute the tier from remaining time and
+    -- re-apply the countdown font ONLY when the tier changed (identity compare on the stable tier
+    -- table from the threshold list). Cheap: one guarded remaining-time read + a tiny list scan;
+    -- no SetFont unless a tier boundary is actually crossed. No-op for frames without thresholds.
+    local function UpdateTimerTier(nf)
+        local tc = nf._uuTier
+        if not (tc and tc.on) then return end
+        local tier = MatchThreshold(tc.list, FrameRemaining(nf))
+        if tier == tc.lastTier then return end
+        tc.lastTier = tier
+        local effSize  = tier and (tc.baseSize * (tier.size or 1)) or tc.baseSize
+        local effColor = (tier and tier.color) or tc.baseColor
+        ApplyTierFont(tc, effSize, effColor)
+    end
+
+    -- Refix only the icon texture (crop + cover) on the gated skip path, so a non-square icon
+    -- doesn't stretch after a Blizzard relayout reset its texcoord. Cheap (no config reads).
+    local function RefixIcon(nf, w, h)
+        local tex = nf.Icon
+        if tex ~= nil and (type(tex) ~= "number" or canaccessvalue(tex)) and tex.SetTexCoord then
+            tex:ClearAllPoints()
+            tex:SetAllPoints(nf)
+            tex:SetTexCoord(IconTexCoord(w, h))
+        end
+    end
+
     -- Resize + restyle a native frame: SetSize -> refix .Icon -> countdown font -> text regions ->
-    -- stacks -> title -> border -> glow. Every native read is guarded.
+    -- stacks -> title -> border -> glow. Every native read is guarded. HEAVY + GATED (see helpers above).
     local function StyleFrame(nf, spellId)
         local iconW = I.IconGet(spellId, "iconW") or 44
         local iconH = I.IconGet(spellId, "iconH") or 44
@@ -1031,6 +1110,20 @@ local function EngineFor(I)
         end
         if nf.Time     then StyleFontString(nf.Time,     fontPath, effSize, outline, effColor, true); AnchorTimerFS(nf.Time,     nf, timerPos, timerOffX, timerOffY) end
         if nf.Duration then StyleFontString(nf.Duration, fontPath, effSize, outline, effColor, true); AnchorTimerFS(nf.Duration, nf, timerPos, timerOffX, timerOffY) end
+
+        -- Cache the timer style so the gated skip path (UpdateTimerTier) can re-apply just the
+        -- countdown font as the cooldown winds down, without re-reading config. Mirrors the apply
+        -- above; lastTier = the tier matched now, so the first per-pass check is a cheap no-op.
+        local tc = nf._uuTier or {}
+        local thrOn = I.IconGet(spellId, "timerThresholdsEnabled") and true or false
+        tc.on    = thrOn
+        tc.list  = thrOn and (I.IconGet(spellId, "timerThresholds") or I.DEFAULT_TIMER_THRESHOLDS) or nil
+        tc.lastTier = thrOn and MatchThreshold(tc.list, FrameRemaining(nf)) or nil
+        tc.path, tc.baseSize, tc.outline, tc.baseColor = fontPath, fontSize, outline, timerColor
+        tc.cd = cd
+        if cd then tc.fontObj, tc.fontName = CountdownFont(spellId) end
+        tc.time, tc.duration = nf.Time, nf.Duration
+        nf._uuTier = tc
 
         local showStack = I.IconGet(spellId, "showStack") ~= false
         local appl = nf.Applications and nf.Applications.Applications
@@ -1114,6 +1207,9 @@ local function EngineFor(I)
         if nf.Title then nf.Title:Hide() end
         if nf.Keybind then nf.Keybind:Hide() end
         if nf.PressOverlay then nf.PressOverlay:Hide() end
+        -- Released frames lose our added visuals; force a full restyle if re-acquired (the native
+        -- pool reuses frames, so the gate must not skip a recycled one on a stale epoch+sid match).
+        nf._uuStyleSid = nil
         pinnedFrames[nf] = nil
     end
 
@@ -1341,6 +1437,15 @@ local function EngineFor(I)
     local rl_trackerOf = {}
     local rl_placed, rl_placeholderNeeded = {}, {}
     local rl_sizes = {}
+    -- Pass-level layout early-out (per engine instance). RefreshLayout runs on every driver pass (0.2s
+    -- ticker + every coalesced player-aura + the native-viewer hook), but in steady-state combat the
+    -- displayed set + config are unchanged and only cooldowns swipe. lastLayoutSig caches a cheap
+    -- signature of the keyed-native shown-state + shown trackers + ns.StyleEpoch; an unchanged sig skips
+    -- the whole grouping/placement/pin/StyleFrame/release body (the PinNative hooks hold geometry) and
+    -- refreshes only the per-icon timer tier. rl_sigParts is the reused scratch the sig is built into.
+    local rl_sigParts = {}
+    local rl_nativeEnum = {}   -- reused EnumNativeFrames scratch for RefreshLayout (separate from cd_nativeEnum)
+    local lastLayoutSig = nil
     local sizePool = {}   -- reusable { w, h } tables, recycled into rl_sizes each pass
     local rowPool  = {}   -- reusable per-row member arrays (the inner {sid,...} of each laid row)
     -- Recycle every { w, h } size table back to sizePool and clear rl_sizes (called per group, since a
@@ -1384,15 +1489,18 @@ local function EngineFor(I)
         -- the STABLE BASE key (FrameKey) so a transformed cooldown still maps to its grouped slot.
         local frameOf, activeOf, liveSet = rl_frameOf, rl_activeOf, rl_liveSet
         wipe(frameOf); wipe(activeOf); wipe(liveSet)
+        local sp = rl_sigParts; wipe(sp)   -- layout-signature parts, accumulated through the enum + tracker fold
         local nativeN, keyedNativeN = 0, 0
-        for _, nf in ipairs(EnumNativeFrames()) do
+        for _, nf in ipairs(EnumNativeFrames(nil, rl_nativeEnum)) do
             nativeN = nativeN + 1
             liveSet[nf] = true                 -- key-independent "still a live pool member" set (release guard)
             local sid = FrameKey(nf)
             if sid then
                 keyedNativeN = keyedNativeN + 1
                 frameOf[sid] = nf
-                if FrameShown(nf) then activeOf[sid] = true end
+                local shown = FrameShown(nf)
+                if shown then activeOf[sid] = true end
+                sp[#sp + 1] = sid .. (shown and "+" or "-")
             end
         end
         -- BLIND-PASS GUARD: during a zone-transition / spec rebuild the native pool frames are briefly
@@ -1425,9 +1533,27 @@ local function EngineFor(I)
             if shown then
                 frameOf[td.name] = f
                 activeOf[td.name] = true
+                sp[#sp + 1] = "T" .. td.name   -- a SHOWN tracker; hiding it drops its part -> sig changes -> reflow
             end
         end
         UpdateSounds(activeOf)
+
+        -- Pass-level early-out: fold ns.StyleEpoch (config / style / keybind all bump it; the drag bumps
+        -- it in SetGroupUnlocked) into the signature built from the keyed-native shown-state + the shown
+        -- trackers. When unchanged since the last FULL pass, the entire grouping / placement / PinNative /
+        -- StyleFrame / offscreen-park / release body below is a no-op — the PinNative re-impose hooks hold
+        -- every frame's geometry — so skip it, refreshing ONLY the per-icon timer tier. The viewer-reshow +
+        -- blind-pass recovery guards above already ran, so combat recovery is never gated.
+        sp[#sp + 1] = "E" .. (ns.StyleEpoch or 0)
+        table.sort(sp)
+        local sig = table.concat(sp, ",")
+        if sig == lastLayoutSig then
+            for sid, nf in pairs(frameOf) do
+                if not trackerOf[sid] then UpdateTimerTier(nf) end
+            end
+            return
+        end
+        lastLayoutSig = sig
 
         -- Hide containers of deleted groups.
         for gid, c in pairs(containers) do
@@ -1459,6 +1585,9 @@ local function EngineFor(I)
                 if nf.PressOverlay then nf.PressOverlay:Hide() end
                 StopGlow(nf)
                 if ns.CDMAnchor and ns.CDMAnchor.ApplyFrameBorder then ns.CDMAnchor.ApplyFrameBorder(nf, false) end
+                -- We just stripped this frame's border/glow/title; force a full restyle if it later
+                -- re-enters a group (the gate would otherwise skip it on a matching epoch+sid).
+                nf._uuStyleSid = nil
                 PinNative(nf, UIParent, OFFSCREEN, OFFSCREEN)
             end
         end
@@ -1564,7 +1693,17 @@ local function EngineFor(I)
                         end
                     elseif nf then
                         placed[sid] = true
-                        StyleFrame(nf, sid)
+                        -- GATE: the heavy full restyle runs only when the style epoch changed (a config
+                        -- edit / rebuild / brand-or-keybind change) OR this slot now holds a different
+                        -- spell. Otherwise we skip it and do only the two per-tick concerns cheaply:
+                        -- the icon crop and the timer-threshold tier. This is the core CPU fix.
+                        if nf._uuStyleSid ~= sid or nf._uuStyleEpoch ~= (ns.StyleEpoch or 0) then
+                            StyleFrame(nf, sid)
+                            nf._uuStyleSid, nf._uuStyleEpoch = sid, (ns.StyleEpoch or 0)
+                        else
+                            RefixIcon(nf, sz.w, sz.h)
+                            UpdateTimerTier(nf)
+                        end
                         PinNative(nf, container, x, y, sz.w, sz.h)
                         -- A `placeholder` NATIVE whose pool frame is present but NOT shown (cooldown not
                         -- currently up) gets a ghost over its slot; cleared when it shows.
@@ -1641,9 +1780,16 @@ local function EngineFor(I)
             pollFrame:SetShown(wantPoll)
         end
     end
-    I.ApplyAll = I.RefreshLayout
+    -- The config UI's touch() calls this after EVERY edit (per-icon, group, assignment). Bump the
+    -- style epoch so the next pass re-runs the gated StyleFrame with the new config; the combat
+    -- drivers (ticker / UNIT_AURA / viewer hook) call RefreshLayout directly and never bump.
+    function I.ApplyAll()
+        if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end
+        I.RefreshLayout()
+    end
 
     function I.Rebuild()
+        if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end
         for gid, c in pairs(containers) do
             if not I.GetGroup(gid) then c:Hide() end
         end
@@ -1660,6 +1806,9 @@ local function EngineFor(I)
 
     function I.SetGroupUnlocked(groupId, val)
         local g = I.GetGroup(groupId); if not g then return end
+        -- Unlock/lock + the resulting drag reposition need a full relayout; ns.StyleEpoch is in the
+        -- layout signature, so bumping it forces the next pass (GSet alone doesn't bump the epoch).
+        if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end
         local c = GetContainer(groupId)
         if val then
             g.unlocked = true
@@ -1750,6 +1899,8 @@ local function EngineFor(I)
         local prevInvalidate = ns.CDGKeybinds.onInvalidate
         ns.CDGKeybinds.onInvalidate = function()
             if prevInvalidate then prevInvalidate() end
+            -- Keybind text is drawn by StyleFrame → invalidate the gate so the new binding renders.
+            if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end
             if I.Enabled() then ScheduleRelayout() end
         end
     end
@@ -1760,7 +1911,9 @@ local function EngineFor(I)
     ev:RegisterEvent("TRAIT_CONFIG_UPDATED")
     ev:RegisterEvent("PLAYER_ENTERING_WORLD")
     ev:RegisterEvent("COOLDOWN_VIEWER_DATA_LOADED")
-    ev:RegisterUnitEvent("UNIT_AURA", "player")
+    -- UNIT_AURA "player" is NOT registered here: in combat it fires many times per frame, each
+    -- triggering a full RefreshLayout. It now goes through the shared ns.AuraDispatch (below), which
+    -- coalesces a burst into ONE next-frame pass — so we relayout at most once per frame on auras.
     ev:RegisterEvent("PLAYER_REGEN_ENABLED")
     ev:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "TRAIT_CONFIG_UPDATED"
@@ -1779,6 +1932,14 @@ local function EngineFor(I)
         HookNativeViewer()
         if I.Enabled() then I.RefreshLayout() end
     end)
+
+    -- Player aura changes (the high-frequency combat driver) via the shared coalescing dispatcher:
+    -- one RefreshLayout per frame at most, no matter how many UNIT_AURA the game fires that frame.
+    if ns.AuraDispatch then
+        ns.AuraDispatch.Register("player", function()
+            if I.Enabled() then HookNativeViewer(); I.RefreshLayout() end
+        end)
+    end
 
     -- Is the addon's config window open? When the engine is DISABLED the displayed-set cache only
     -- feeds the config strip (its dynamic GroupOf + red flags); with the window closed nothing reads

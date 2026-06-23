@@ -128,6 +128,7 @@ local function BuildTrinketOptions(prefix, LSM)
                 local function curDest() return GetCfg("cdmDest") or "essential" end
                 local function rebuildMenu() if TT.configMenu then TT.configMenu.Rebuild() end end
                 local function applyIcon()
+                    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- in-CDM size override -> force the engine to re-pack (its layout sig folds the epoch)
                     TT.ApplyAll()
                     if tracker then tracker.ApplyFont(); tracker.ApplyBorder(); tracker.ApplySize() end
                     if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
@@ -224,7 +225,10 @@ local function CreateTrinketTrackerPanel(parent)
                         get    = function() return TT.CfgGet("enabled") ~= false end,
                         set    = function(val)
                             TT.CfgSet("enabled", val)
-                            TT.ApplyAll()
+                            -- Start/Stop the 0.5s ticker live so a disabled tracker
+                            -- stops costing CPU without a /reload (Stop also flushes
+                            -- the icons to hidden via ApplyAll).
+                            if TT.SetEnabled then TT.SetEnabled(val) else TT.ApplyAll() end
                             if TT.configMenu then TT.configMenu.Refresh() end
                         end,
                     },

@@ -547,6 +547,24 @@ local function CreateBelowPlayerPanel(parent)
     local options = {
         H2(L["CDM: Below player frame"]),
 
+        -- Master enable for the WHOLE below-player row, OUTSIDE any cadre (mirrors the
+        -- Essential/Utility/Buffs enable checkboxes). OFF -> the row's icons simply DON'T render
+        -- (you can still assign icons to the row, they just won't show); the forced RefreshAll
+        -- hides them all at once.
+        { type = "checkbox", label = L["Enable Below player frame"],
+          get = function() return ns.CDMAnchor and ns.CDMAnchor.IsBelowEnabled() end,
+          set = function(v)
+              if ns.CDMAnchor and ns.CDMAnchor.SetBelowEnabled then ns.CDMAnchor.SetBelowEnabled(v) end
+              -- Disabling while the row is unlocked for drag would leave the (now empty) drag
+              -- overlay lingering; lock it, mirroring the Manual-mode toggle.
+              if not v and ns.CDMAnchor and ns.CDMAnchor.IsBelowUnlocked
+                  and ns.CDMAnchor.IsBelowUnlocked() then
+                  ns.CDMAnchor.SetBelowUnlocked(false)
+              end
+              if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
+              if belowMenu then belowMenu.Refresh() end
+          end },
+
         -- ════════════ Row icon order (Front / End of the row, drag to reorder) ══════
         -- The per-icon "Icon at the end of the row" checkbox decides which bucket — and so which
         -- "<Front|End> of the row settings" section below — governs each icon.
@@ -919,6 +937,16 @@ local function CreateFreeIconsPanel(parent)
     end
     local options = {
         H2(L["CDM: Free icons"]),
+
+        -- Master enable for ALL free icons (those taken out of the Cooldown Manager). OFF -> every
+        -- free icon simply doesn't render (you can still add / configure them here). Same hide-when-off
+        -- behaviour as the Below player frame toggle; RefreshAll(true) applies it at once.
+        { type = "checkbox", label = L["Enable Free icons"],
+          get = function() return ns.CDMAnchor and ns.CDMAnchor.IsFreeEnabled() end,
+          set = function(v)
+              if ns.CDMAnchor and ns.CDMAnchor.SetFreeEnabled then ns.CDMAnchor.SetFreeEnabled(v) end
+              if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
+          end },
         { type = "label", font = "UnbunkUtilityH6", height = 36,
           text = L["Icons taken out of the Cooldown Manager. The pen edits a custom icon (cross deletes it) or opens an addon icon's tab; the + adds a new free custom icon."] },
         {

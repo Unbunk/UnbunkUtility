@@ -408,6 +408,10 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, _, spellId = ...
         if unit ~= "player" then return end
+        -- Disabled: skip the resolver / NotifyUsed / sound work entirely. This event fires many
+        -- times per second in combat; the cache invalidation above already ran unconditionally so a
+        -- re-enable still picks up a late-loaded spellId.
+        if not PT.CfgGet("enabled") then return end
         local healthSpellId = PT.GetActiveSpellId("health")
         local combatSpellId = PT.GetActiveSpellId("combat")
         if healthSpellId and spellId == healthSpellId then
@@ -441,18 +445,33 @@ local function PrefixHasWork(prefix)
     return PT.GetActiveItemId(prefix) ~= nil
 end
 
-C_Timer.NewTicker(0.5, function()
-    -- Steady state: when the module is disabled the frames are already
-    -- hidden, no need to redo the work every tick.
-    if not PT.CfgGet("enabled") then return end
-    -- Short-circuit a pass that can produce no visible change: outside an active
-    -- instance, OR neither potion has anything to draw (nothing in bags and
-    -- show-at-zero off). A bag/cast/zone event re-runs ApplyAll to flush any
-    -- pending hide, so skipping the steady-state empty pass is safe.
+-- 0.5s visuals/cooldown ticker. Held in a handle so it is fully CANCELLED while the module is
+-- disabled (no per-0.5s wakeup at all) and recreated on re-enable.
+local visualTicker
+local function VisualTick()
+    -- Short-circuit a pass that can produce no visible change: outside an active instance, OR neither
+    -- potion has anything to draw (nothing in bags and show-at-zero off). A bag/cast/zone event
+    -- re-runs ApplyAll to flush any pending hide, so skipping the steady-state empty pass is safe.
     if not IsActiveInCurrentInstance() then return end
     if not PrefixHasWork("health") and not PrefixHasWork("combat") then return end
     PT.ApplyAll()
-end)
+end
+
+-- Start/stop the ticker live. Called at login (only if enabled) and by the enable checkbox's set
+-- handler so the on/off transition needs no /reload.
+function PT.SetEnabled(on)
+    if on then
+        if not visualTicker then visualTicker = C_Timer.NewTicker(0.5, VisualTick) end
+    else
+        if visualTicker then visualTicker:Cancel(); visualTicker = nil end
+    end
+    -- Flush visuals immediately (hide on disable, show on enable) without waiting for the next tick.
+    PT.ApplyAll()
+end
+
+if PT.CfgGet("enabled") then
+    visualTicker = C_Timer.NewTicker(0.5, VisualTick)
+end
 
 ns.RegisterReloadHook(function()
     InvalidateActiveCache()

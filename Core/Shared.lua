@@ -709,6 +709,10 @@ local DEFAULTS_CDM_BELOW_ROW = {
     -- bottom-LEFT, end at the bottom-RIGHT) at offset 0,0 (offsets ignored, dragging
     -- disabled). ON -> the per-bucket offsets / drag take effect so each bucket can be
     -- placed independently.
+    -- Master toggle for the WHOLE below-player row. ON by default (like the sibling
+    -- Essential/Utility/Buffs engines). OFF -> the row's icons simply don't render (you can still
+    -- assign icons to the row; they just won't show while it's off — NOT reverted to free placement).
+    enabled = true,
     manualEnabled = false,
     offsetX = 0,    -- FRONT bucket nudge from PlayerFrame's BOTTOMLEFT  (manual only)
     offsetY = 0,
@@ -959,6 +963,21 @@ end
 -- Apply the stored brand colour once ns.db is ready (registered AFTER InitGlobalCfg so
 -- the global table exists). Module hooks created later re-read GetBrandColor() anyway.
 ns.RegisterCfgInitHook(ns.ApplyBrandColor)
+
+-- ── Style epoch: the CDM group engines' per-frame StyleFrame cache key ─────────
+-- The group engines (CDMGroups essential/utility + BuffGroups) re-run their heavy
+-- per-icon StyleFrame (≈50 config reads + ~20 SetFont/SetTexCoord/border/glow calls
+-- per icon) ONLY when this counter changes OR a frame's spellId in its slot changes —
+-- NOT on every RefreshLayout pass. Anything that alters how an icon should look bumps
+-- it: a config edit (each module's ApplyAll), a profile/spec rebuild, a brand-colour
+-- change, a keybind rebind. Combat (the hot path) never bumps it, so the gate holds and
+-- the per-frame combat cost collapses to geometry + the cheap timer-tier refresh. This
+-- is the fix for "the CDM tabs cost far more CPU than every other addon": we were paying
+-- a full restyle of every icon 5-20x/second when nothing about the styling had changed.
+ns.StyleEpoch = ns.StyleEpoch or 1
+function ns.BumpStyleEpoch() ns.StyleEpoch = (ns.StyleEpoch or 0) + 1 end
+-- A live brand-colour change can alter brand-derived icon defaults → invalidate the cache.
+ns.RegisterBrandColorHook(ns.BumpStyleEpoch)
 
 -- ── Addon font: single source of truth + live re-face ─────────────────────────
 -- ns.SetAddonFont(lsmKey) stores an account-wide font override; ns.ApplyAddonFont

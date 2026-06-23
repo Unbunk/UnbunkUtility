@@ -195,6 +195,22 @@ function ns.ui.CreateTimerIcon(config)
     local SIZE_RED       = 1.45  -- font scale at the red tier
     local baseFontSize   = nil   -- un-scaled timer font size (set by ApplySize/ApplyFont)
     local sizeScale      = 1     -- current urgency font scale (cooldown timers only)
+    -- ── Re-style gate ───────────────────────────────────────────────────────────
+    -- ApplyDerivedSizing (the full re-style: texcoord/font/border/keybind/glow/extras) is driven by
+    -- result.ApplySize / SetSlotSize, which the tracker modules call EVERY 0.5s tick (and on every
+    -- player-aura / SPELL_UPDATE_COOLDOWN). But the frame SIZE is set externally (engine SetSlotSize /
+    -- CDMAnchor / config edit) and the DEST changes rarely, so the full re-style is redundant ~99% of
+    -- ticks. Cache (w,h,destKey): on a cache HIT only the LIVE stack/charge count is refreshed
+    -- (UpdateStackCount) and the pass returns early. A config edit clears the cache via MarkStyleDirty()
+    -- (top of the public ApplyFont/ApplyBorder/ApplyKeybind/ApplyDestExtras — every appearance edit
+    -- reaches ApplyFont+ApplyBorder), forcing one full re-derive on the next pass.
+    local lastW, lastH, lastDestKey, lastEpoch = nil, nil, nil, nil
+    function result.MarkStyleDirty() lastW, lastH, lastDestKey = nil, nil, nil end
+    -- Forward-declared here (before ApplyDerivedSizing, which calls UpdateStackCount on the gated
+    -- fast-path) and assigned next to ApplyDestExtras. stackDraw/stackShowZero = the config-derived
+    -- "draw decision" cached on each full pass so the fast-path renders the live count with no dest read.
+    local stackDraw, stackShowZero = false, true
+    local UpdateStackCount
 
     -- ── Frame ─────────────────────────────────────────────────────────────────
 
@@ -314,6 +330,24 @@ function ns.ui.CreateTimerIcon(config)
         return v ~= nil and v:IsShown()
     end
     result.CDMActive = CDMActive
+
+    -- True when this icon's PLACEMENT CONTEXT is master-disabled, so it must NOT render at all (you
+    -- can still assign / configure it; it simply won't show). Two contexts, each a top-of-tab toggle:
+    --   below-player row  -> ns.CDMAnchor.IsBelowEnabled()  (config: includeInCdm + cdmDest belowPlayer)
+    --   free (out of CDM) -> ns.CDMAnchor.IsFreeEnabled()   (config: includeInCdm off)
+    -- Config-based (NOT CDMActive): the toggle hides by how the icon is CONFIGURED, independent of the
+    -- CM CVar. Default-true: a missing CDMAnchor / accessor keeps the icon visible (today's behaviour).
+    local function ContextHidden()
+        if not ns.CDMAnchor then return false end
+        if getCfg("includeInCdm") then
+            if getCfg("cdmDest") == "belowPlayer" then
+                return ns.CDMAnchor.IsBelowEnabled and not ns.CDMAnchor.IsBelowEnabled() or false
+            end
+            return false
+        end
+        return ns.CDMAnchor.IsFreeEnabled and not ns.CDMAnchor.IsFreeEnabled() or false
+    end
+    result.ContextHidden = ContextHidden
 
     -- The CONFIG dest for a below-player icon: which bucket's settings it reads. The PLACEMENT dest
     -- stays "belowPlayer" (CDMActive / cdmDest checks are unchanged); only the config SOURCE splits by
@@ -621,7 +655,12 @@ function ns.ui.CreateTimerIcon(config)
     end
 
     function result.Show()
-        if not unlocked then frame:Show() end
+        -- The icon's placement context (below-player row / free icons) can be master-disabled, in
+        -- which case it must not render even when the owner wants to show it — checked BEFORE the
+        -- unlocked early-return so the toggle wins even while the icon is unlocked for drag.
+        if ContextHidden() then frame:Hide(); return end
+        if unlocked then return end
+        frame:Show()
     end
 
     function result.Hide()
@@ -640,6 +679,7 @@ function ns.ui.CreateTimerIcon(config)
     end
 
     function result.ApplyFont()
+        result.MarkStyleDirty()  -- config edit: force a full re-derive next ApplyDerivedSizing pass
         InvalidateTimerCache()   -- timer colour / thresholds / showTimer may have changed
         baseFontSize = TimerCfg("timerFontSize", nil) or 20
         SetTimerFont()
@@ -653,6 +693,10 @@ function ns.ui.CreateTimerIcon(config)
     end
 
     function result.ApplyPosition()
+        -- Master toggle for this icon's context (below-player row / free icons) is OFF -> it must not
+        -- render: hide and stop. Checked BEFORE the unlocked early-return so disabling the context
+        -- hides even an icon currently unlocked for drag (the toggle's forced RefreshAll reaches here).
+        if ContextHidden() then frame:Hide(); return end
         -- While unlocked the user is dragging the icon to place it. The owning
         -- module's 0.5s layout ticker (and ns.CDMAnchor relayouts) also call this,
         -- and a ClearAllPoints+SetPoint mid-drag fights StartMoving — the icon
@@ -682,8 +726,23 @@ function ns.ui.CreateTimerIcon(config)
     -- ApplySize (config size) and SetSlotSize (native row size) so the look stays
     -- consistent whatever drives the size.
     local function ApplyDerivedSizing()
-        InvalidateTimerCache()   -- runs on every relayout tick; catches dest / config changes
         local w, h = frame:GetSize()
+        -- destKey folds everything that changes which CONFIG SOURCE the sub-styles read (EngineOwns ->
+        -- per-icon override store; CDMActive + cdmDest -> below-player vs engine vs free; CfgDest ->
+        -- front/end below-player bucket). If (w,h,destKey) is unchanged since the last full pass, the
+        -- whole re-style is redundant: refresh ONLY the live stack/charge count and return. A config edit
+        -- clears the cache via MarkStyleDirty() (top of ApplyFont/ApplyBorder/ApplyKeybind/ApplyDestExtras),
+        -- so the first pass after an edit always does the full re-derive.
+        local destKey = (EngineOwns() and "E") or (CDMActive() and ("C:" .. (getCfg("cdmDest") or "essential") .. (getCfg("cdmDest") == "belowPlayer" and (":" .. CfgDest()) or ""))) or "F"
+        -- ns.StyleEpoch folds in config-edit paths that repaint via a RELAYOUT (setSize) instead of the
+        -- icon's ApplyFont/ApplyBorder — the below-player bucket/per-icon cadres + the group-tab pencil
+        -- (I.ApplyAll) + Healthstone's applyIcon all bump it. It is NOT bumped per-tick, so the gate stays
+        -- warm in combat. (Also catches a keybind rebind, which bumps the epoch.)
+        if w == lastW and h == lastH and destKey == lastDestKey and (ns.StyleEpoch or 0) == lastEpoch then
+            UpdateStackCount()   -- the only genuinely per-tick part; everything else is config-stable
+            return
+        end
+        InvalidateTimerCache()   -- full pass: catches dest / config changes
         iconTex:SetTexCoord(IconTexCoordFor(w, h))   -- aspect-aware crop, matches native CDM icons (no stretch)
         -- The user-configured timer font size wins; we only auto-derive from the
         -- icon size when none is set. ItemTracker.ApplyVisuals calls ApplySize()
@@ -702,6 +761,11 @@ function ns.ui.CreateTimerIcon(config)
         result.ApplyKeybind()
         result.ApplyDestGlow()
         result.ApplyDestExtras()
+        -- Cache AFTER the sub-style calls: ApplyBorder/ApplyKeybind/ApplyDestExtras each call
+        -- MarkStyleDirty() at their top (so a DIRECT config-edit caller invalidates the gate), which
+        -- would otherwise leave the cache nil at the end of THIS pass and re-derive every tick. Setting
+        -- it here self-overrides that internal invalidation -> the gate engages, with no infinite loop.
+        lastW, lastH, lastDestKey, lastEpoch = w, h, destKey, (ns.StyleEpoch or 0)
     end
 
     function result.ApplySize()
@@ -734,6 +798,7 @@ function ns.ui.CreateTimerIcon(config)
     -- Draw / refresh the configurable border from config (borderEnabled,
     -- borderColor, borderSize). Cheap; safe to call on every size / reload pass.
     function result.ApplyBorder()
+        result.MarkStyleDirty()  -- config edit: force a full re-derive next ApplyDerivedSizing pass
         -- In the Cooldown Manager the per-DEST border (set in the Essentials / Utility /
         -- Below player frame panels) governs every icon of that dest, so they all share one
         -- border. A free icon (not in the CDM) uses its own border config.
@@ -862,6 +927,7 @@ function ns.ui.CreateTimerIcon(config)
     -- Refresh the keybind text + the press-overlay registration from the icon's CDM dest. Called every
     -- ApplyDerivedSizing pass (size / relayout tick) so a rebind or config change repaints within a tick.
     function result.ApplyKeybind()
+        result.MarkStyleDirty()  -- config edit / direct keybind-change caller: force a full re-derive
         InvalidateTimerCache()   -- a CDM dest / per-icon override repaint can change timer cfg too
         if CdmFlag("showKeybinds") then
             local fontKey, fontPath, fontSize, outline, color, pos, ox, oy
@@ -970,11 +1036,35 @@ function ns.ui.CreateTimerIcon(config)
     local function DCfg(key, default)
         return (ns.CDMAnchor and ns.CDMAnchor.GetDestCfgFor and ns.CDMAnchor.GetDestCfgFor(FrameName(), CfgDest(), key, default)) or default
     end
+    -- The ONLY genuinely per-tick part of the extras: re-resolve the live charge/stack count and
+    -- re-render the number, reading the cached style/decision (stackDraw/stackShowZero) from the last
+    -- full ApplyDestExtras. Assigned to the forward-declared upvalue so ApplyDerivedSizing's gate
+    -- fast-path can call it; also called at the end of a full ApplyDestExtras pass.
+    function UpdateStackCount()
+        if not stackDraw then stacksFS:Hide(); return end
+        local ch = ResolveCharges()
+        -- A tracker can require a MINIMUM count before the number is drawn: trinkets pass minStack=2
+        -- so a lone "1" (a single on-use = no real charges) isn't shown, while a genuine 2+ charge
+        -- trinket still displays. Default 1 keeps the old "show whenever > 0" for potions/healthstones.
+        local minStack = config.minStack or 1
+        if ch and ch >= minStack then
+            stacksFS:SetText(tostring(ch)); stacksFS:Show()
+        elseif stackShowZero and minStack <= 1 and (ch == 0 or config.getItemId ~= nil) then
+            -- "Show at 0 stacks" (default ON) is a COUNTABLE-consumable feature (potions/healthstones,
+            -- minStack 1): a depleted bag count resolves to nil, so getItemId ~= nil forces a "0". A trinket
+            -- is EQUIPPED, not a count (minStack 2, charges nil) — applying this here drew a spurious "0" on
+            -- every chargeless trinket, so the minStack gate keeps the zero-fill off the trinket path.
+            stacksFS:SetText("0"); stacksFS:Show()
+        else
+            stacksFS:Hide()
+        end
+    end
     -- Render the per-dest Title + Stacks. Below-player: from the bucket (+ this icon's per-icon override)
     -- via DCfg. Engine-owned (essential/utility): from the icon's per-icon override (EngineIconGet), but
     -- ONLY once migrated — so an un-migrated engine icon draws nothing here and its module keeps own-drawing
     -- (no double-draw). Free / other dests: hide both (the module own-draws).
     function result.ApplyDestExtras()
+        result.MarkStyleDirty()  -- a direct title/stacks-style edit caller forces a full re-derive
         local isBP = CDMActive() and getCfg("cdmDest") == "belowPlayer"
         local function EngineMigrated()
             if not EngineOwns() then return false end
@@ -1013,28 +1103,20 @@ function ns.ui.CreateTimerIcon(config)
         else
             titleFS:Hide()
         end
-        -- Stacks / charges: the tracked spell's charges, or the item count, styled with the stack* keys.
+        -- Stacks / charges: the STYLE (font/colour/anchor) is config-derived and applied here on a full
+        -- pass; the live COUNT is rendered by UpdateStackCount() (the gated per-tick fast-path calls it).
+        -- stackDraw/stackShowZero cache the draw decision so the fast-path needs no dest read.
         if drawExtras and XCfg("showStack", true) then
             stacksFS:SetFont(ns.ResolveFontPath(XCfg("stackFontPath", nil), XCfg("stackFontKey", "Fira Mono")),
                 XCfg("stackFontSize", 10), XCfg("stackOutline", "OUTLINE"))
             local c = XCfg("stackColor", nil) or { r = 1, g = 1, b = 1, a = 1 }
             stacksFS:SetTextColor(c.r, c.g, c.b, c.a or 1)
             if ns.AnchorFS then ns.AnchorFS(stacksFS, frame, XCfg("stackPos", "BOTTOMRIGHT"), XCfg("stackOffX", 2), XCfg("stackOffY", -2)) end
-            local ch = ResolveCharges()
-            -- A tracker can require a MINIMUM count before the number is drawn: trinkets pass minStack=2
-            -- so a lone "1" (a single on-use = no real charges) isn't shown, while a genuine 2+ charge
-            -- trinket still displays. Default 1 keeps the old "show whenever > 0" for potions/healthstones.
-            local minStack = config.minStack or 1
-            if ch and ch >= minStack then
-                stacksFS:SetText(tostring(ch)); stacksFS:Show()
-            elseif XCfg("stackShowZero", true) and (ch == 0 or config.getItemId ~= nil) then   -- "Show at 0 stacks" (default ON): "0" for a real 0 charge count or an item that can be 0 in bags (not a chargeless spell)
-                stacksFS:SetText("0"); stacksFS:Show()
-            else
-                stacksFS:Hide()
-            end
+            stackDraw, stackShowZero = true, (XCfg("stackShowZero", true) == true)
         else
-            stacksFS:Hide()
+            stackDraw = false
         end
+        UpdateStackCount()
     end
 
     function result.SetUnlocked(val)

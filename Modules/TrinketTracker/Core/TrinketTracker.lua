@@ -144,6 +144,9 @@ function TT.GetTracker2() return trinket2Tracker end
 -- PLAYER_ENTERING_WORLD / PLAYER_EQUIPMENT_CHANGED: a new trinket may be
 -- equipped, so drop the per-slot id/spell cache and relayout/refresh visuals.
 local function OnEquipmentRefresh(event)
+    -- Disabled module: nothing to relayout (frames already hidden). Cheap early-out
+    -- so a gear swap costs ~zero while the tracker is off.
+    if not TT.CfgGet("enabled") then return end
     -- A new trinket may be equipped: drop the per-slot id/spell cache.
     InvalidateSlotCache()
     TT.ApplyAll()
@@ -162,6 +165,9 @@ TT:RegisterEvent("PLAYER_EQUIPMENT_CHANGED", OnEquipmentRefresh)
 -- every fire whose unit token isn't "player".
 TT:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit, _, spellId)
     if unit ~= "player" then return end
+    -- Disabled module: skip the hot path entirely (this fires many times/sec in
+    -- combat). First line after the unit filter so the work below never runs while off.
+    if not TT.CfgGet("enabled") then return end
     -- Detect a trinket use via its spell (configured slot), reading the
     -- cached id/spell so this hot path doesn't re-query the item API.
     local t1Cfg = TT.CfgGet("trinket1")
@@ -197,7 +203,7 @@ local function PrefixHasWork(prefix)
     return (GetSlotInfo(cfg.slot)) ~= nil
 end
 
-TT:ScheduleRepeatingTimer(function()
+local function TickerPass()
     -- Steady state: when the module is disabled the frames are already hidden.
     if not TT.CfgGet("enabled") then return end
     -- Short-circuit a pass that can produce no visible change: outside an active
@@ -207,7 +213,31 @@ TT:ScheduleRepeatingTimer(function()
     if not IsActiveInCurrentInstance() then return end
     if not PrefixHasWork("trinket1") and not PrefixHasWork("trinket2") then return end
     TT.ApplyAll()
-end, 0.5)
+end
+
+-- The 0.5s visual-sync ticker only runs while the module is enabled, so a disabled
+-- tracker costs zero CPU (no firing timer at all). Start/Stop are idempotent and
+-- driven by the enable toggle's set handler for a live transition (no /reload).
+function TT.Start()
+    if TT.tickerHandle then return end
+    TT.tickerHandle = TT:ScheduleRepeatingTimer(TickerPass, 0.5)
+end
+
+function TT.Stop()
+    if TT.tickerHandle then
+        TT:CancelTimer(TT.tickerHandle)
+        TT.tickerHandle = nil
+    end
+    -- Flush any visible icons to hidden now that we're off (ApplyVisuals early-outs
+    -- on the disabled getCfg and hides), so the frames don't linger until a reload.
+    TT.ApplyAll()
+end
+
+-- React to the enable toggle: start the ticker when turned on, stop it when off.
+-- Called from the config set handler (TT.SetEnabled) and at login.
+function TT.SetEnabled(on)
+    if on then TT.Start() else TT.Stop() end
+end
 
 ns.RegisterReloadHook(function()
     if ns.ReseedTrackerOverride then
@@ -232,6 +262,8 @@ initTT:SetScript("OnEvent", function(self)
             end
         end
         TT.ApplyAll()
+        -- Start the 0.5s ticker only if enabled, so a disabled tracker never schedules it.
+        TT.SetEnabled(TT.CfgGet("enabled"))
     end)
     self:UnregisterEvent("PLAYER_LOGIN")
 end)

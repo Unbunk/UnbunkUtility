@@ -175,6 +175,7 @@ function DT.ActiveIds() return activeIds end
 -- Module-level config accessors (the panel's General cadre).
 function DT.SetEnabled(v)
     local c = Cfg(); if c then c.enabled = v and true or false end
+    DT.Sync()      -- live start/stop of the ticker + aura subscription on toggle
     DT.Rebuild()
 end
 function DT.GetFilter() local c = Cfg(); return c and c.instanceFilter end
@@ -286,9 +287,17 @@ local function ApplyOne(spellId)
         d.icon.Hide(); return
     end
 
-    d.icon.SetIcon(SpellTexture(spellId))
+    -- The spell texture is static per spellId; SetIcon every tick is wasted work (SetTexture + re-crop).
+    -- Cache the last applied texture and only SetIcon when it actually changes.
+    local tex = SpellTexture(spellId)
+    if tex ~= d.appliedTex then
+        d.icon.SetIcon(tex)
+        d.appliedTex = tex
+    end
     -- (Re)seed the below-player override to the current default version BEFORE ApplySize repaints
     -- (ApplyDestExtras), so the first in-CDM tick reads this defensive's own look, not the bucket default.
+    -- ns.ReseedTrackerOverride already early-returns when the override is current, so this is cheap on
+    -- the steady-state tick and only does work right after a config (re)seed is due.
     if e.cdmDest == "belowPlayer" then
         ns.ReseedTrackerOverride(FrameName(spellId), "belowPlayer", DT.OverrideSeed)
     end
@@ -425,6 +434,7 @@ end
 
 -- Re-apply one icon's full visuals after a config edit (used by the config panel).
 function DT.ApplyIcon(spellId)
+    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- in-CDM size override -> force the engine to re-pack (its layout sig folds the epoch)
     local d = live[spellId]
     if not d then BuildIcon(spellId); return end
     d.icon.ApplyFont()
@@ -481,6 +491,7 @@ end
 
 -- ── Public sync ───────────────────────────────────────────────────────────────
 function DT.UpdateAll()
+    if not DT.Enabled() then return end   -- disabled: no per-spell work / allocation
     for _, id in ipairs(activeIds) do ApplyOne(id) end
 end
 
@@ -501,6 +512,7 @@ function DT.Rebuild()
         if ns.InvalidatePanel then ns.InvalidatePanel(L["Defensive Tracker"]) end
     end
     if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
+    if DT.Sync then DT.Sync() end   -- reconcile live drivers with enabled state (DB now ready)
 end
 DT.ApplyAll = DT.Rebuild
 
@@ -528,7 +540,7 @@ local function FlushCooldown()
     DT.UpdateAll()
 end
 DT:RegisterEvent("SPELL_UPDATE_COOLDOWN", function()
-    if cdDirty then return end
+    if cdDirty or not DT.Enabled() then return end   -- disabled: don't schedule a flush
     cdDirty = true
     C_Timer.After(0, FlushCooldown)
 end)
@@ -537,13 +549,33 @@ DT:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", function(_, unit)
 end)
 DT:RegisterEvent("SPELLS_CHANGED", function() DT.Rebuild() end)
 
-DT:ScheduleRepeatingTimer(function() DT.UpdateAll() end, 0.5)
+-- ── Always-on drivers, owned so the disabled module is fully stopped ──────────
+-- The 0.5s sync ticker and the player-aura subscription are the two continuous drivers.
+-- When disabled we Cancel()/Unregister() them outright (not just early-out), so a disabled
+-- Defensive Tracker costs ~zero. DT.Start/Stop are idempotent; SetEnabled + login drive them.
+local syncTicker          -- AceTimer handle for the 0.5s UpdateAll ticker
+local auraCb              -- our AuraDispatch("player") callback handle
 
--- Coalesced player-aura subscription (shared dispatcher, at most one fire per frame): lets the
--- green "active buff up" timer react instantly out of combat instead of lagging up to ~0.5s for
--- the next ticker. Just calls the existing UpdateAll — cheap and additive (no unfiltered UNIT_AURA).
-if ns.AuraDispatch then
-    ns.AuraDispatch.Register("player", function() DT.UpdateAll() end)
+function DT.Start()
+    if not syncTicker then
+        syncTicker = DT:ScheduleRepeatingTimer(function() DT.UpdateAll() end, 0.5)
+    end
+    -- Coalesced player-aura subscription (shared dispatcher, at most one fire per frame): lets the
+    -- green "active buff up" timer react instantly out of combat instead of lagging up to ~0.5s for
+    -- the next ticker. Just calls UpdateAll — cheap and additive (no unfiltered UNIT_AURA).
+    if ns.AuraDispatch and not auraCb then
+        auraCb = ns.AuraDispatch.Register("player", function() DT.UpdateAll() end)
+    end
+end
+
+function DT.Stop()
+    if syncTicker then DT:CancelTimer(syncTicker); syncTicker = nil end
+    if ns.AuraDispatch and auraCb then ns.AuraDispatch.Unregister("player", auraCb); auraCb = nil end
+end
+
+-- Reconcile the live drivers with the current enabled state (called at login/reload and on toggle).
+function DT.Sync()
+    if DT.Enabled() then DT.Start() else DT.Stop() end
 end
 
 ns.RegisterReloadHook(function() DT.Rebuild() end)

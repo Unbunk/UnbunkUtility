@@ -398,16 +398,21 @@ end
 
 -- Buffs assigned to a group (groupId 0 = Unused), in saved order; any assigned buff not yet
 -- in the order is appended (stable by spellId) so nothing is lost.
+-- Hoisted intermediate scratch (GetGroupBuffs is not re-entrant — AllBuffs/GroupOf/GroupOrder never
+-- call back into it), wiped per call so a full pass's G+1 GetGroupBuffs calls don't allocate 3 tables
+-- each. Only `out` stays freshly allocated (it escapes to the caller).
+local ggb_assigned, ggb_seen, ggb_rest = {}, {}, {}
 function BG.GetGroupBuffs(groupId)
-    local assigned = {}
+    local assigned = ggb_assigned; wipe(assigned)
     for _, spellId in ipairs(BG.AllBuffs()) do
         if BG.GroupOf(spellId) == groupId then assigned[spellId] = true end
     end
-    local out, seen = {}, {}
+    local out = {}
+    local seen = ggb_seen; wipe(seen)
     for _, sid in ipairs(BG.GroupOrder(groupId)) do
         if assigned[sid] and not seen[sid] then out[#out + 1] = sid; seen[sid] = true end
     end
-    local rest = {}
+    local rest = ggb_rest; wipe(rest)
     for sid in pairs(assigned) do if not seen[sid] then rest[#rest + 1] = sid end end
     table.sort(rest)
     for _, sid in ipairs(rest) do out[#out + 1] = sid end

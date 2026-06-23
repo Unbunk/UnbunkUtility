@@ -124,7 +124,13 @@ function CT.Refresh()
     end
 end
 
-CT.ApplyEnabled = CT.Refresh
+-- Toggle entry point: (un)register the combat watcher to start/stop the module live, then re-evaluate
+-- visibility. Driven by the enable checkbox + login/zone. CT.UpdateCombatWatcher is a CT-table field
+-- (not a local) so these earlier references resolve at CALL time, after the watcher block has loaded.
+function CT.ApplyEnabled()
+    CT.UpdateCombatWatcher()
+    CT.Refresh()
+end
 
 function CT.OnEnterCombat()
     if not Active() then return end
@@ -199,6 +205,10 @@ ns.RegisterReloadHook(function()
         frozen = nil
     end
     CT.ApplyFont()
+    -- Re-evaluate the combat-watcher registration: a profile switch can flip `enabled`, and the
+    -- watcher is only (un)registered by UpdateCombatWatcher (otherwise a profile-enable wouldn't
+    -- start tracking until the next zone/login/UI toggle).
+    CT.UpdateCombatWatcher()
     CT.Refresh()
 end)
 
@@ -206,13 +216,15 @@ local init = CreateFrame("Frame")
 init:RegisterEvent("PLAYER_LOGIN")
 init:RegisterEvent("PLAYER_ENTERING_WORLD")
 init:SetScript("OnEvent", function()
+    -- Bootstrap/zone change: (re)apply the enabled-driven watcher registration, then refresh. When
+    -- disabled this only unregisters + hides (cheap, no ticker, no per-pull event work).
+    CT.UpdateCombatWatcher()
+    if not CT.CfgGet("enabled") then return end
     CT.ApplyFont()
     CT.Refresh()
 end)
 
 local combatWatcher = CreateFrame("Frame")
-combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")  -- entering combat
-combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")   -- leaving combat
 combatWatcher:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_DISABLED" then
         CT.OnEnterCombat()
@@ -220,3 +232,14 @@ combatWatcher:SetScript("OnEvent", function(_, event)
         CT.OnLeaveCombat()
     end
 end)
+
+-- Register the combat watcher only while the module is enabled, so a disabled timer is fully inert
+-- (no event-handler work on every pull). RegisterEvent/UnregisterEvent are unprotected = combat-safe.
+function CT.UpdateCombatWatcher()
+    if CT.CfgGet("enabled") then
+        combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")  -- entering combat
+        combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")   -- leaving combat
+    else
+        combatWatcher:UnregisterAllEvents()
+    end
+end

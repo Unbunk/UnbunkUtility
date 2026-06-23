@@ -229,6 +229,7 @@ local function BuildPotionSectionOptions(prefix, LSM)
                 local function curDest() return GetCfg("cdmDest") or "belowPlayer" end
                 local function rebuildMenu() if PT.configMenu then PT.configMenu.Rebuild() end end
                 local function applyIcon()
+                    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- in-CDM size override -> force the engine to re-pack (its layout sig folds the epoch)
                     PT.ApplyAll()
                     if tracker then tracker.ApplyFont(); tracker.ApplyBorder(); tracker.ApplySize() end
                     if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
@@ -331,7 +332,8 @@ local function CreatePotionTrackerPanel(parent)
                         get    = function() return PT.CfgGet("enabled") ~= false end,
                         set    = function(val)
                             PT.CfgSet("enabled", val)
-                            PT.ApplyAll()
+                            -- Start/stop the 0.5s ticker live (PT.SetEnabled also flushes ApplyAll).
+                            if PT.SetEnabled then PT.SetEnabled(val) else PT.ApplyAll() end
                             if PT.configMenu then PT.configMenu.Refresh() end
                         end,
                     },

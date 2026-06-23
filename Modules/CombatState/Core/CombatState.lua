@@ -134,7 +134,8 @@ function CS.OnStateChanged()
     if st then ShowState(st, true) else frame:Hide() end
 end
 
-CS.ApplyEnabled = CS.Refresh
+-- CS.ApplyEnabled is installed near the combat watcher (bottom of file): it
+-- (un)registers the watcher per enabled state in addition to refreshing the text.
 
 -- Config-side helpers: while unlocked, the floating preview reflects whichever
 -- text the user is editing so appearance/message tweaks are visible live.
@@ -193,22 +194,35 @@ end
 
 -- ── Reload + login + combat watcher ──────────────────────────────────────────
 ns.RegisterReloadHook(function()
-    inCombat = InCombatLockdown() and true or false
-    CS.Refresh()
+    CS.ApplyEnabled()   -- recompute inCombat + (un)register the watcher per enabled
 end)
+
+local combatWatcher = CreateFrame("Frame")
+combatWatcher:SetScript("OnEvent", function(_, event)
+    inCombat = (event == "PLAYER_REGEN_DISABLED")
+    CS.OnStateChanged()
+end)
+
+-- Live enable/disable. When OFF the per-combat-transition driver (PLAYER_REGEN_*)
+-- is fully unregistered so the module costs nothing; when ON it is (re)registered
+-- and the current combat state is recomputed so re-enabling restarts immediately.
+function CS.SetEnabled(on)
+    if on then
+        inCombat = InCombatLockdown() and true or false
+        combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")  -- entering combat
+        combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")   -- leaving combat
+    else
+        combatWatcher:UnregisterAllEvents()
+    end
+    CS.Refresh()
+end
+CS.ApplyEnabled = function() CS.SetEnabled(CS.CfgGet("enabled") == true) end
 
 local init = CreateFrame("Frame")
 init:RegisterEvent("PLAYER_LOGIN")
 init:RegisterEvent("PLAYER_ENTERING_WORLD")   -- re-evaluate the instance filter on zone change
 init:SetScript("OnEvent", function()
-    inCombat = InCombatLockdown() and true or false
-    CS.Refresh()
-end)
-
-local combatWatcher = CreateFrame("Frame")
-combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")  -- entering combat
-combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")   -- leaving combat
-combatWatcher:SetScript("OnEvent", function(_, event)
-    inCombat = (event == "PLAYER_REGEN_DISABLED")
-    CS.OnStateChanged()
+    -- Sync the watcher to the current enabled state (also handles login bootstrap
+    -- and instance-filter re-evaluation on zone change). Recomputes inCombat.
+    CS.ApplyEnabled()
 end)

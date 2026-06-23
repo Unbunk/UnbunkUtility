@@ -94,9 +94,20 @@ end
 
 -- Evaluate a single group member: trigger the death alert if needed. Called
 -- with the unit token provided by the event (no loop over the whole group).
+-- True if at least one role alert is enabled. When all three are off the whole
+-- module is dormant: the high-frequency UNIT_HEALTH/UNIT_FLAGS events are
+-- unregistered (see DA.UpdateEnabled) so no per-event work or per-death table
+-- allocation happens. This belt-and-suspenders check also short-circuits the
+-- handler before any UnitExists/UnitGUID/RecordDeath work in the rare window
+-- where an event is still in flight as the last role is toggled off.
+function DA.AnyRoleEnabled()
+    return DA.CfgGet("tankEnabled") or DA.CfgGet("healerEnabled") or DA.CfgGet("dpsEnabled")
+end
+
 local strbyte = string.byte
 local function CheckUnitDeath(unit)
     if not unit then return end
+    if not DA.AnyRoleEnabled() then return end
     -- UNIT_HEALTH / UNIT_FLAGS are registered globally, so this fires for every
     -- unit whose health/flags change (group members, their pets, target, focus,
     -- nameplates, ...). Cheap first-byte gate before the regex + UnitExists /
@@ -197,10 +208,7 @@ local function OnUnitHealthOrFlags(event, unit)
     if not inGroup then return end
     CheckUnitDeath(unit)
 end
-DA:RegisterEvent("UNIT_HEALTH", OnUnitHealthOrFlags)
-DA:RegisterEvent("UNIT_FLAGS", OnUnitHealthOrFlags)
-
-DA:RegisterEvent("GROUP_ROSTER_UPDATE", function(event)
+local function OnGroupRosterUpdate(event)
     -- Refresh the cached group-membership flag the UNIT_HEALTH/UNIT_FLAGS gate reads.
     inGroup = IsInGroup() or IsInRaid()
     -- Roster changes fire often during combat (disconnects, summons, pets)
@@ -225,12 +233,56 @@ DA:RegisterEvent("GROUP_ROSTER_UPDATE", function(event)
     for guid in pairs(alertedGuids) do
         if not present[guid] then alertedGuids[guid] = nil end
     end
-end)
+end
 
-DA:RegisterEvent("PLAYER_REGEN_ENABLED", function(event)
+local function OnRegenEnabled(event)
     -- Combat ended: clear everything so the next pull starts fresh.
     alertedGuids = {}
     recentDeaths = {}
     wipeSuppressUntil  = 0
     dpsSpamSuppressUntil = 0
+end
+
+-- ── Enable transition ───────────────────────────────────────────────────────
+-- The module has no single enable; it is the OR of the three role toggles. When
+-- all roles are off there is nothing to detect, so the event drivers are fully
+-- unregistered (zero CPU/alloc) rather than fired-and-discarded. Toggling any
+-- role back on re-registers them live (called from the config UI set handler and
+-- from the reload/profile-switch hooks), so re-enabling fully restarts the
+-- module without a /reload.
+local eventsRegistered = false
+function DA.UpdateEnabled()
+    local want = DA.AnyRoleEnabled() and true or false
+    if want == eventsRegistered then return end
+    eventsRegistered = want
+    if want then
+        inGroup = IsInGroup() or IsInRaid()
+        DA:RegisterEvent("UNIT_HEALTH", OnUnitHealthOrFlags)
+        DA:RegisterEvent("UNIT_FLAGS", OnUnitHealthOrFlags)
+        DA:RegisterEvent("GROUP_ROSTER_UPDATE", OnGroupRosterUpdate)
+        DA:RegisterEvent("PLAYER_REGEN_ENABLED", OnRegenEnabled)
+    else
+        DA:UnregisterEvent("UNIT_HEALTH")
+        DA:UnregisterEvent("UNIT_FLAGS")
+        DA:UnregisterEvent("GROUP_ROSTER_UPDATE")
+        DA:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        -- Drop any state so a later re-enable starts from a clean slate.
+        alertedGuids = {}
+        recentDeaths = {}
+        wipeSuppressUntil  = 0
+        dpsSpamSuppressUntil = 0
+    end
+end
+
+-- Re-evaluate on profile switch (reload hook runs after CfgInit repopulates db).
+ns.RegisterReloadHook(DA.UpdateEnabled)
+
+-- Initial registration is deferred to login so ns.db is populated (CfgInit runs
+-- on ADDON_LOADED, before PLAYER_LOGIN); registering at file-load time would read
+-- config before the DB exists.
+local initDC = CreateFrame("Frame")
+initDC:RegisterEvent("PLAYER_LOGIN")
+initDC:SetScript("OnEvent", function(self)
+    DA.UpdateEnabled()
+    self:UnregisterEvent("PLAYER_LOGIN")
 end)

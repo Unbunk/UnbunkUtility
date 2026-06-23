@@ -763,6 +763,7 @@ end
 
 -- Re-apply every visual of one icon after a config edit (used by the editor).
 function CC.ApplyIcon(id)
+    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- in-CDM size override -> force the engine to re-pack (its layout sig folds the epoch)
     local d = live[id]
     if not d then return end
     d.icon.ApplyFont()

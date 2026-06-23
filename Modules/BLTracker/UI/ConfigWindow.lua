@@ -114,6 +114,7 @@ local function CreateBLTrackerPanel(parent)
                 -- which (for a migrated in-CDM icon) now reads the per-icon override; a forced CDM refresh
                 -- re-lays the group out.
                 local function applyIcon()
+                    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- in-CDM size override -> force the engine to re-pack (its layout sig folds the epoch)
                     BL.ApplyVisuals(); BL.ApplyFont(); BL.ApplyBorder(); BL.ApplySize()
                     if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
                 end
