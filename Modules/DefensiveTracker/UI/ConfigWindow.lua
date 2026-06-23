@@ -111,7 +111,17 @@ local function TiersEntry(sid)
                 swatch.frame:SetPoint("LEFT", szInput.frame, "RIGHT", 12, 0)
                 local rm = ns.ui.CreateButton({
                     parent = host, label = "X", width = 24, height = 22,
-                    onClick = function() table.remove(tiers, i); DT.ApplyIcon(sid); panelRebuild() end,
+                    -- Search the live list for this tier's identity rather than trusting the
+                    -- captured loop index i: stays correct even if the rebuild ever defers.
+                    onClick = function()
+                        local list = DT.Get(sid, "timerTiers")
+                        if list then
+                            for j = 1, #list do
+                                if list[j] == tier then table.remove(list, j); break end
+                            end
+                        end
+                        DT.ApplyIcon(sid); panelRebuild()
+                    end,
                 })
                 rm.frame:SetPoint("LEFT", swatch.frame, "RIGHT", 12, 0)
                 y = y + ROW_H

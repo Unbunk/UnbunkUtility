@@ -140,10 +140,16 @@ local function CreateListPanel(parent)
     end
 
     -- ── Gather + sort + paint ───────────────────────────────────────────────────
+    -- Persistent scratch reused every refresh (gather runs ~1/s while shown and is not
+    -- re-entrant): the addon roster is fixed for the session, so we keep one list plus
+    -- one entry table per row, overwrite their fields, and sort in place — no per-tick
+    -- allocation of a fresh list + per-addon tables + GC churn.
+    local scratchList = {}
     local function gather()
         UpdateAddOnMemoryUsage()
         local on = ProfilerOn()   -- evaluate the gate once per refresh, not per addon
-        local list, totMemKb, totCpuMs = {}, 0, nil
+        local list, totMemKb, totCpuMs = scratchList, 0, nil
+        local n = 0
         for i = 1, (getNum and getNum() or 0) do
             local name, ttl = getInfo(i)
             if name then
@@ -152,9 +158,13 @@ local function CreateListPanel(parent)
                 local cpu  = on and (C_AddOnProfiler.GetAddOnMetric(name, RECENT) or 0) or nil
                 totMemKb = totMemKb + mem
                 if cpu then totCpuMs = (totCpuMs or 0) + cpu end
-                list[#list + 1] = { title = disp, cpu = cpu, mem = mem }
+                n = n + 1
+                local e = list[n]
+                if e then e.title, e.cpu, e.mem = disp, cpu, mem
+                else list[n] = { title = disp, cpu = cpu, mem = mem } end
             end
         end
+        for i = #list, n + 1, -1 do list[i] = nil end   -- trim if the roster ever shrinks
         local key, dir = sortKey, sortDir
         table.sort(list, function(a, b)
             if key == "name" then

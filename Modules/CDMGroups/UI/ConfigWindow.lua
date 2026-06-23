@@ -698,11 +698,6 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
             addb:SetScript("OnEnter", function() afill:SetColorTexture(0.2, 0.2, 0.2, 0.95) end)
             addb:SetScript("OnLeave", function() afill:SetColorTexture(0.12, 0.12, 0.12, 0.9) end)
             addb:SetScript("OnClick", onClick)
-            -- Green drop-target highlight, toggled by relayout when this "+" is the live new-row target.
-            function addb.SetDropTarget(on)
-                if on then abord:SetColorTexture(0.3, 0.9, 0.3, 1); afill:SetColorTexture(0.16, 0.42, 0.16, 0.95)
-                else abord:SetColorTexture(0.4, 0.4, 0.4, 1); afill:SetColorTexture(0.12, 0.12, 0.12, 0.9) end
-            end
             return addb
         end
 
@@ -1101,7 +1096,7 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                     IconSizeEntry(id),
                     TimerSection(b),
                     TitleSection(b),
-                    StacksSection(b),
+                    StacksSection(b, { cd = true }),
                 }
             end }
         end

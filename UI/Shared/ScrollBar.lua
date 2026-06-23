@@ -73,6 +73,12 @@ function ns.ui.CreateScrollBar(config)
         self:SetScript("OnUpdate", nil)
     end)
 
+    -- If the thumb is hidden mid-drag (list collapses / panel closes) OnMouseUp
+    -- never fires, so clear the drag OnUpdate here too — else it dangles.
+    thumb:SetScript("OnHide", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+
     -- ── Update ────────────────────────────────────────────────────────────────
 
     local function sb_Update()

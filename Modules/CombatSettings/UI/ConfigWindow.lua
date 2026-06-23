@@ -63,7 +63,7 @@ local function CreateCombatSettingsPanel(parent)
                         type      = "instanceFilter",
                         getConfig = function() return CS.CfgGet("instanceFilter") end,
                         setConfig = function(key, val)
-                            local f = CS.CfgGet("instanceFilter")
+                            local f = CS.CfgGet("instanceFilter") or {}
                             f[key] = val
                             CS.CfgSet("instanceFilter", f)
                             CS.Refresh()

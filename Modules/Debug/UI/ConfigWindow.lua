@@ -61,13 +61,33 @@ local COMPLETE_LINE = {
 
 -- ── Console window + capture ──────────────────────────────────────────────────
 local consoleFrame
-local lineBuffer = {}
+-- Replay buffer as a fixed-size RING (head index + modulo) instead of a growing array
+-- with table.remove(,1): the print mirror is driven by other addons' raid output, so the
+-- O(n) shift on every line once capped is avoided — we just overwrite the oldest slot.
+-- lineCount caps at LINE_CAP; lineHead is the slot the NEXT line writes to (0-based).
 local LINE_CAP   = 500
 local INPUT_H    = 24
+local lineBuffer = {}
+local lineCount  = 0   -- number of live entries (0..LINE_CAP)
+local lineHead   = 0   -- 0-based index of the next write slot (= oldest once full)
+
+local function ClearLineBuffer()
+    wipe(lineBuffer); lineCount = 0; lineHead = 0
+end
+
+-- Walk the buffered lines oldest -> newest (for the replay on window open).
+local function ForEachLine(fn)
+    if lineCount < LINE_CAP then
+        for i = 1, lineCount do fn(lineBuffer[i]) end          -- not wrapped yet: in order
+    else
+        for k = 0, LINE_CAP - 1 do fn(lineBuffer[(lineHead + k) % LINE_CAP + 1]) end
+    end
+end
 
 local function AddLine(text)
-    lineBuffer[#lineBuffer + 1] = text
-    if #lineBuffer > LINE_CAP then table.remove(lineBuffer, 1) end
+    lineBuffer[lineHead + 1] = text                            -- overwrite the oldest slot
+    lineHead = (lineHead + 1) % LINE_CAP
+    if lineCount < LINE_CAP then lineCount = lineCount + 1 end
     if consoleFrame then
         consoleFrame.smf:AddMessage(text)
         if consoleFrame.smfSB then consoleFrame.smfSB.Update() end
@@ -341,7 +361,7 @@ function ns.Debug_CloseConsole()
         consoleFrame:Hide()
         consoleFrame.smf:Clear()
     end
-    wipe(lineBuffer)
+    ClearLineBuffer()
 end
 
 local function EnsureConsole()
@@ -432,7 +452,7 @@ local function EnsureConsole()
     -- the handler captures the real smf, not a nil global).
     clearBtn.frame:SetScript("OnClick", function()
         smf:Clear()
-        wipe(lineBuffer)
+        ClearLineBuffer()
     end)
 
     -- Addon-styled scrollbar for the live log (smf offset model). "Allow selection"
@@ -500,7 +520,7 @@ local function EnsureConsole()
     consoleFrame = f
 
     -- Replay the buffered history (print mirror is hooked eagerly at load, above).
-    for _, line in ipairs(lineBuffer) do smf:AddMessage(line) end
+    ForEachLine(function(line) smf:AddMessage(line) end)
 
     ns.Debug_ApplyConsoleOptions()
     return f
@@ -606,7 +626,7 @@ local function CreateDebugPanel(parent)
                         -- drop any captured chat/prints from memory, and re-apply options
                         -- (UpdateChatRegistration unregisters every chat event while locked).
                         if not val then
-                            wipe(lineBuffer)
+                            ClearLineBuffer()
                             if consoleFrame then
                                 consoleFrame:Hide()
                                 consoleFrame.smf:Clear()

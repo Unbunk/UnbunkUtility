@@ -333,8 +333,13 @@ local function sample(w)
     if #w.selected == 0 then return end
     if w.metric == "cpu" then
         local on = ProfilerOn()
-        w.notice:SetShown(not on)
-        w.enableBtn.frame:SetShown(not on)
+        -- Cache the profiler state and only re-show on a FLIP: SetShown otherwise relays
+        -- the frame every single sample for an unchanged value.
+        if on ~= w._profOn then
+            w._profOn = on
+            w.notice:SetShown(not on)
+            w.enableBtn.frame:SetShown(not on)
+        end
         for _, name in ipairs(w.selected) do
             local v = on and (C_AddOnProfiler.GetAddOnMetric(name, RECENT) or 0) or 0
             local s = w.series[name]; s[#s + 1] = v

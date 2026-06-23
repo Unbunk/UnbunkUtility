@@ -90,6 +90,9 @@ local function memDelta(kb)
     return string.format("|c%s(%s)|r", diffColor(kb, MEM_GREY_KB, MEM_BIG_KB), s)
 end
 
+-- Scratch reused for each addon's segments (DoUsagePrint runs on the ticker, not
+-- re-entrant): wiped per addon instead of allocating a fresh table every row/interval.
+local printParts = {}
 local function DoUsagePrint()
     if not ns.IsDebugUnlocked() then return end   -- locked: print nothing
     local c = PUCfg(); if not c then return end
@@ -106,7 +109,7 @@ local function DoUsagePrint()
         local wantCpu = cpuSel[a.name] and profiling
         local wantMem = memSel[a.name]
         if wantCpu or wantMem then
-            local parts = {}
+            local parts = printParts; wipe(parts)
             if wantCpu then
                 local cur  = GetAddOnCPUUsage(a.name) or 0
                 local prev = lastCPU[a.name]
