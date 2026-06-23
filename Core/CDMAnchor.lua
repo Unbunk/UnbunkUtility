@@ -1851,8 +1851,11 @@ end
 -- tick. Native cooldown changes are NOT in the signature — they arrive via the
 -- viewer Layout/RefreshLayout hooks, which pass force=true so a re-pin still runs.
 local lastSig = nil
+local sigParts = {}                       -- reused scratch: built then table.concat'd to a fresh string each pass
+local SIG_BELOW_BUCKETS = { "front", "end" }
+local SIG_VIEWERS = { "essential", "utility" }
 local function ComputeSig()
-    local p = {}
+    local p = sigParts; wipe(p)
     for _, d in ipairs(appliers) do
         if d.frame and d.getCfg and d.getCfg("includeInCdm")
             and d.frame.IsShown and d.frame:IsShown() then
@@ -1886,7 +1889,7 @@ local function ComputeSig()
         p[#p + 1] = "B" .. tostring(c.offsetX) .. "," .. tostring(c.offsetY)
             .. "," .. tostring(c.endOffsetX) .. "," .. tostring(c.endOffsetY)
             .. "," .. (c.enabled ~= false and "1" or "0")   -- master row toggle (default-true)
-        for _, bucket in ipairs({ "front", "end" }) do
+        for _, bucket in ipairs(SIG_BELOW_BUCKETS) do
             local w, h, gap, grow, static = BelowBucketLayout(bucket)
             p[#p + 1] = bucket:sub(1, 1) .. tostring(w) .. "x" .. tostring(h)
                 .. "," .. tostring(gap) .. "," .. tostring(grow) .. "," .. tostring(static)
@@ -1896,7 +1899,7 @@ local function ComputeSig()
     -- Per-viewer (essential/utility) placement + size overrides + unlock state, so a
     -- config edit (or unlock) re-lays-out — taking over or releasing the viewer.
     local cv = ns.db and ns.db.profile and ns.db.profile.cdmViewer
-    for _, dn in ipairs({ "essential", "utility" }) do
+    for _, dn in ipairs(SIG_VIEWERS) do
         local v = cv and cv[dn]
         local s = dn .. (viewerUnlocked[dn] and "U" or "L")
         if v then

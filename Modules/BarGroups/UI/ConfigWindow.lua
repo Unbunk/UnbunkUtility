@@ -210,7 +210,7 @@ local function LayoutBlock(bundle, gated)
         DropEntry(bundle, "iconPosition",  L["Icon position"], IconPosList, IconPosLabel, IconPosFromLabel, gated),
         DropEntry(bundle, "fillDirection", L["Fill direction"], FillList, FillLabel, FillFromLabel, gated),
         { type = "checkbox", label = L["Invert fill"], enabledBy = gated,
-          get = function() return bundle.get("invertFill") ~= false end,
+          get = function() return bundle.get("invertFill") == true end,
           set = function(v) bundle.set("invertFill", v and true or false); bundle.touch() end },
     }
 end

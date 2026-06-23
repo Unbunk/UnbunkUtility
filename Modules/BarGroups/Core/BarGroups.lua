@@ -494,7 +494,7 @@ local function StyleBarFrame(nf, spellId)
     local iconGap  = BR.IconGet(spellId, "iconGap") or 1
     local texKey   = BR.IconGet(spellId, "barTexture")
     local barTex   = (LSM and texKey and LSM:Fetch("statusbar", texKey)) or BAR_TEXTURE
-    local invertFill = BR.IconGet(spellId, "invertFill") ~= false
+    local invertFill = BR.IconGet(spellId, "invertFill") == true   -- default false (fill); only an explicit true drains
     local nameOverride = BR.IconGet(spellId, "nameOverride") == true
     local customName   = BR.IconGet(spellId, "customName")
 

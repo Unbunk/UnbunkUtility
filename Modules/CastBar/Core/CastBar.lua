@@ -368,7 +368,7 @@ function CB.ApplyEnabled()
     else
         enabled = false
         UnregisterCastEvents()
-        CB.StopCast()
+        CB.StopTest()   -- clears `testing` too, so a running Test preview's OnUpdate stops (StopTest → StopCast)
         if not CB.IsUnlocked() then container:Hide() end
     end
 end

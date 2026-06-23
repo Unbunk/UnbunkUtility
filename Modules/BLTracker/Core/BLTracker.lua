@@ -303,23 +303,35 @@ local function SyncDebuff()
     BL.ApplyVisuals()
 end
 
-BL:ScheduleRepeatingTimer(function()
-    -- Do ~zero work per tick while the module is disabled (S3 guard). Still flag
-    -- the module inactive so a later re-enable re-adopts the lust state silently.
-    if not BL.CfgGet("enabled") then
-        moduleActive = false
-        return
-    end
-    SyncDebuff()
-end, 0.5)
+-- The 0.5s sync ticker and the player-aura subscription are the two continuous drivers. When
+-- disabled we Cancel()/Unregister() them outright (not just early-out per tick), so a disabled
+-- BL Tracker costs ~zero. BL.Start/Stop are idempotent; BL.Sync (login / reload / toggle) drives them.
+local syncTicker          -- AceTimer handle for the 0.5s SyncDebuff ticker
+local auraCb              -- our AuraDispatch("player") callback handle
 
--- Instant aura detection: UNIT_AURA fires the moment the player gains/loses an
--- aura, so SyncDebuff runs (and ns.combo.Notify("bl", ...) fires) without
--- waiting up to 500ms for the next ticker. Without this, a near-simultaneous
--- potion cast would flush as "potion combo" before BL is even detected.
--- Routed through the shared dispatcher, which is already player-filtered and
--- coalesces a burst of aura changes into one next-frame callback.
-ns.AuraDispatch.Register("player", function() SyncDebuff() end)
+function BL.Start()
+    if not syncTicker then
+        syncTicker = BL:ScheduleRepeatingTimer(function() SyncDebuff() end, 0.5)
+    end
+    -- Instant aura detection: UNIT_AURA fires the moment the player gains/loses an aura, so
+    -- SyncDebuff runs (and ns.combo.Notify("bl", ...) fires) without waiting up to 500ms for the
+    -- next ticker. Without this, a near-simultaneous potion cast would flush as "potion combo"
+    -- before BL is even detected. Shared dispatcher: player-filtered, coalesced to one fire/frame.
+    if ns.AuraDispatch and not auraCb then
+        auraCb = ns.AuraDispatch.Register("player", function() SyncDebuff() end)
+    end
+end
+
+function BL.Stop()
+    if syncTicker then BL:CancelTimer(syncTicker); syncTicker = nil end
+    if ns.AuraDispatch and auraCb then ns.AuraDispatch.Unregister("player", auraCb); auraCb = nil end
+    moduleActive = false   -- re-enabling re-adopts the current lust state silently (SyncDebuff sets it true)
+end
+
+-- Reconcile the live drivers with the current enabled state (login / reload / config toggle).
+function BL.Sync()
+    if BL.CfgGet("enabled") ~= false then BL.Start() else BL.Stop() end
+end
 
 ns.RegisterReloadHook(function()
     -- Apply the current default override-set at login (no need to open the config), version-checked.
@@ -331,6 +343,7 @@ ns.RegisterReloadHook(function()
     BL.ApplySize()
     BL.ApplyBorder()
     BL.ApplyVisuals()
+    BL.Sync()   -- start/stop the drivers to match the (possibly profile-changed) enabled state
 end)
 
 local initBL = CreateFrame("Frame")
@@ -346,5 +359,6 @@ initBL:SetScript("OnEvent", function(self)
     BL.ApplyFont()
     BL.ApplySize()
     BL.ApplyVisuals()
+    BL.Sync()   -- start the drivers only if enabled (mirrors DefensiveTracker)
     self:UnregisterEvent("PLAYER_LOGIN")
 end)

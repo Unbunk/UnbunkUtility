@@ -40,7 +40,7 @@ local function CreateBLTrackerPanel(parent)
                         label  = L["Enable BL Tracker"],
                         height = 24,
                         get    = function() return BL.CfgGet("enabled") ~= false end,
-                        set    = function(val) BL.CfgSet("enabled", val); if menu then menu.Refresh() end end,
+                        set    = function(val) BL.CfgSet("enabled", val); if BL.Sync then BL.Sync() end; if menu then menu.Refresh() end end,
                     },
 
                     -- ── Instance filter ───────────────────────────────────────────────────
