@@ -154,10 +154,6 @@ local function CreateReloadAnnouncePanel(parent)
     return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
 end
 
-local initRA = CreateFrame("Frame")
-initRA:RegisterEvent("ADDON_LOADED")
-initRA:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Reloading announcement"], nil, CreateReloadAnnouncePanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

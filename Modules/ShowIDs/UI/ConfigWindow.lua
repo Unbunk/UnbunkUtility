@@ -31,10 +31,6 @@ local function CreateShowIDsPanel(parent)
     return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
 end
 
-local initSI = CreateFrame("Frame")
-initSI:RegisterEvent("ADDON_LOADED")
-initSI:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Show IDs"], nil, CreateShowIDsPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

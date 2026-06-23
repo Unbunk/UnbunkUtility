@@ -310,10 +310,6 @@ end
 
 -- ── Registration ──────────────────────────────────────────────────────────────
 
-local initP = CreateFrame("Frame")
-initP:RegisterEvent("ADDON_LOADED")
-initP:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Profiles"], nil, CreateProfilesPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

@@ -17,6 +17,25 @@ function UnbunkUtility.RegisterModule(name, icon, createFn)
     panels[name] = { name = name, icon = icon, createFn = createFn }
 end
 
+-- Modules register their config panel(s) via OnAddonLoaded instead of each spinning up its own
+-- ADDON_LOADED frame. A SINGLE shared frame runs the queued callbacks once, on this addon's
+-- ADDON_LOADED — i.e. AFTER Core/DB.lua's bootstrap has run ns.ApplyLocale (DB loads before Core),
+-- so each RegisterModule inside a callback resolves its panel name in the SAVED language, exactly
+-- as BuildNavTree (PLAYER_LOGIN) does — the two must agree for the nav to find the panel by name.
+local onLoadedCallbacks = {}
+function UnbunkUtility.OnAddonLoaded(fn)
+    onLoadedCallbacks[#onLoadedCallbacks + 1] = fn
+end
+do
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("ADDON_LOADED")
+    f:SetScript("OnEvent", function(self, _, addon)
+        if addon ~= "UnbunkUtility" then return end
+        for _, fn in ipairs(onLoadedCallbacks) do fn() end
+        self:UnregisterEvent("ADDON_LOADED")
+    end)
+end
+
 local window, mainBar, leftMenu, contentArea, scrollFrame, scrollBar
 local activeMain          -- index into navTree
 local activeSub           -- active panel name

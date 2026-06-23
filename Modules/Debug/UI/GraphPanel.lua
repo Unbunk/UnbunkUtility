@@ -941,10 +941,6 @@ local function CreateGraphPanel(parent)
 end
 
 -- Register the panel once the addon (and ns.db) have loaded.
-local initGP = CreateFrame("Frame")
-initGP:RegisterEvent("ADDON_LOADED")
-initGP:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Graph"], nil, CreateGraphPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

@@ -874,10 +874,6 @@ local function CreateBarsPanel(parent)
     return menu
 end
 
-local initBR = CreateFrame("Frame")
-initBR:RegisterEvent("ADDON_LOADED")
-initBR:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Bars"], nil, CreateBarsPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

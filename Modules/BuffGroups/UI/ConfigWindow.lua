@@ -855,10 +855,6 @@ local function CreateBuffsPanel(parent)
     return menu
 end
 
-local initBG = CreateFrame("Frame")
-initBG:RegisterEvent("ADDON_LOADED")
-initBG:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Buffs"], nil, CreateBuffsPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

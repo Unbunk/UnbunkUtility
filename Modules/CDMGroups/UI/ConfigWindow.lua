@@ -1208,10 +1208,7 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
     end
 end
 
-local initCDG = CreateFrame("Frame")
-initCDG:RegisterEvent("ADDON_LOADED")
-initCDG:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     local E = ns.CDMGroups and ns.CDMGroups.essential
     if E then
         -- ESSENTIAL groups tab: registered as L["Essential"] (distinct from the OLD bucket panel's
@@ -1232,5 +1229,4 @@ initCDG:SetScript("OnEvent", function(self, _, addon)
             L["Utility"], nil,
             CreatePanel(U, L["Utility"], L["Enable custom CDM Utility"], L["Cooldown groups"]))
     end
-    self:UnregisterEvent("ADDON_LOADED")
 end)

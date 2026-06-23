@@ -954,10 +954,7 @@ local function CreateSecretPanel(parent)
     return nil
 end
 
-local initDbg = CreateFrame("Frame")
-initDbg:RegisterEvent("ADDON_LOADED")
-initDbg:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Debug"], nil, CreateDebugPanel)
 
     -- Secret debug sub-tabs. Registered unconditionally; their visibility in the nav
@@ -971,5 +968,4 @@ initDbg:SetScript("OnEvent", function(self, event, addonName)
     -- Apply saved console options at login (ns.db ready via Core/DB.lua's earlier
     -- ADDON_LOADED), so any enabled chat buckets start capturing immediately.
     if ns.Debug_ApplyConsoleOptions then ns.Debug_ApplyConsoleOptions() end
-    self:UnregisterEvent("ADDON_LOADED")
 end)

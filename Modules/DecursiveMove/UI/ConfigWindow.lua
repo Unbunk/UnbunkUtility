@@ -66,10 +66,6 @@ local function CreateDecursivePanel(parent)
     return menu
 end
 
-local initDcr = CreateFrame("Frame")
-initDcr:RegisterEvent("ADDON_LOADED")
-initDcr:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Decursive special settings"], nil, CreateDecursivePanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

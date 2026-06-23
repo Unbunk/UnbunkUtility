@@ -35,10 +35,6 @@ local function CreateFocusBuffsPanel(parent)
     return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
 end
 
-local initFB = CreateFrame("Frame")
-initFB:RegisterEvent("ADDON_LOADED")
-initFB:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Focus buffs"], nil, CreateFocusBuffsPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

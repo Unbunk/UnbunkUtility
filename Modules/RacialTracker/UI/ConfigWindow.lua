@@ -285,10 +285,6 @@ end
 
 -- ── Registration ──────────────────────────────────────────────────────────────
 
-local initRTUI = CreateFrame("Frame")
-initRTUI:RegisterEvent("ADDON_LOADED")
-initRTUI:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Racial Tracker"], nil, CreateRacialTrackerPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

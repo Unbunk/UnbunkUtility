@@ -249,10 +249,6 @@ local function CreateListPanel(parent)
 end
 
 -- Register the panel once the addon (and ns.db) have loaded.
-local initLP = CreateFrame("Frame")
-initLP:RegisterEvent("ADDON_LOADED")
-initLP:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["List"], nil, CreateListPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

@@ -312,11 +312,7 @@ local function CreateHealerRangePanel(parent)
 end
 
 -- ── Registration ──────────────────────────────────────────────────────────────
-local initHR = CreateFrame("Frame")
-initHR:RegisterEvent("ADDON_LOADED")
-initHR:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
-
+UnbunkUtility.OnAddonLoaded(function()
     local blizzPanel = CreateFrame("Frame")
     blizzPanel.name = "UnbunkUtility"
     local blizzTitle = blizzPanel:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH2")
@@ -334,6 +330,4 @@ initHR:SetScript("OnEvent", function(self, event, addonName)
     Settings.RegisterAddOnCategory(cat)
 
     UnbunkUtility.RegisterModule(L["Healer Range"], nil, CreateHealerRangePanel)
-
-    self:UnregisterEvent("ADDON_LOADED")
 end)

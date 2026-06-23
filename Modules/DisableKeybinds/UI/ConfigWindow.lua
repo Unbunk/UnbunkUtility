@@ -262,10 +262,6 @@ local function CreateDisableKeybindsPanel(parent)
     return menu
 end
 
-local initDK = CreateFrame("Frame")
-initDK:RegisterEvent("ADDON_LOADED")
-initDK:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Disable keybinds"], nil, CreateDisableKeybindsPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

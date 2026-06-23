@@ -522,10 +522,6 @@ end
 
 -- ── Registration ──────────────────────────────────────────────────────────────
 
-local initBRUI = CreateFrame("Frame")
-initBRUI:RegisterEvent("ADDON_LOADED")
-initBRUI:SetScript("OnEvent", function(self, event, addonName)
-    if addonName ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["BRez Tracker"], nil, CreateBResTrackerPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)

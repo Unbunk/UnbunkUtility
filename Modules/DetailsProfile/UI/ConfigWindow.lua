@@ -357,11 +357,7 @@ local function CreateRestorePanel(parent)
     return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
 end
 
-local initDP = CreateFrame("Frame")
-initDP:RegisterEvent("ADDON_LOADED")
-initDP:SetScript("OnEvent", function(self, _, addon)
-    if addon ~= "UnbunkUtility" then return end
+UnbunkUtility.OnAddonLoaded(function()
     UnbunkUtility.RegisterModule(L["Restore my profile"],        nil, CreateRestorePanel)
     UnbunkUtility.RegisterModule(L["Details! special settings"], nil, CreateDetailsPanel)
-    self:UnregisterEvent("ADDON_LOADED")
 end)
