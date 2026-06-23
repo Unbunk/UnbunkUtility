@@ -1029,7 +1029,12 @@ function ns.ui.CreateTimerIcon(config)
         -- A caller-supplied count wins over the default item-count (e.g. healthstones count CHARGES via
         -- GetItemCount(id, false, true), not plain stacks). Authoritative when present.
         if config.getCount then return config.getCount() end
-        if config.getItemId then
+        -- Bag item-count as a charge source is valid for COUNTABLE CONSUMABLES (potions/healthstones).
+        -- An EQUIPPED item (trinket) is not consumed from bags, so its bag count is NOT a usable-charge
+        -- count: counting it kept an on-cooldown trinket LIT (ApplyCdDesat saw ChargesAvailable) instead of
+        -- greying it. config.equipped skips this fallback; genuine multi-charge trinkets still resolve via
+        -- the GetSpellCharges path above.
+        if config.getItemId and not config.equipped then
             local iid = config.getItemId()
             if iid and C_Item and C_Item.GetItemCount then
                 local n = C_Item.GetItemCount(iid)

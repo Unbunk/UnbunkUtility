@@ -62,6 +62,9 @@ local function CreateTrinketTracker(prefix, frameName)
         -- A lone charge/count of 1 is not real "charges" for a trinket (a single on-use), so only draw the
         -- stack number when it is 2+. Hides the spurious "1" the user saw on a one-charge trinket.
         minStack  = 2,
+        -- A trinket is EQUIPPED, so its bag item-count must NOT be read as usable charges — otherwise an
+        -- on-cooldown trinket stays lit (un-greyed) because a stray bag copy reads as a "charge available".
+        equipped  = true,
         getCfg    = function(key)
             if key == "enabled" then
                 return TT.CfgGet("enabled") and GetCfg("enabled") and IsActiveInCurrentInstance()

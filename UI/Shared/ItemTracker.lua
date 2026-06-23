@@ -98,6 +98,7 @@ function ns.ui.CreateItemTracker(config)
         getItemId = getItemId,     -- lets the keybind resolver find the bar binding (bound as an ITEM)
         getCount  = config.getCount,  -- optional: authoritative stack/charge count (e.g. healthstone CHARGES)
         minStack  = config.minStack,  -- optional: minimum count to DISPLAY (trinkets pass 2 to hide a lone "1")
+        equipped  = config.equipped,  -- optional: EQUIPPED item (trinket) -> bag count is not a usable-charge source
         -- CDM eligibility: only fold this item into a Cooldown-groups group when it has a usable ON-USE
         -- spell. cachedSpellName (set in ApplyVisuals, anti-churn) is a STRING when usable, `false` for a
         -- passive/stat item, nil while unresolved/empty — so a passive or empty trinket slot is excluded

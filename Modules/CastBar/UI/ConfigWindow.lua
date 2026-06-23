@@ -9,6 +9,8 @@ local CB = ns.CastBar
 local function CreateCastBarPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local menu
+    -- Whole panel greys out (every group except the Enable checkbox) when the cast bar is off.
+    local function moduleOn() return CB.CfgGet("enabled") ~= false end
 
     local function colorGroupEntry(label, key)
         return { type = "textEditor", label = label,
@@ -69,8 +71,10 @@ local function CreateCastBarPanel(parent)
         { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["Cast bar"] },
 
         -- ════════════ General: enable + test + hide Blizzard ════════════
-        { type = "group", title = L["General"], build = function() return {
-            { type = "checkbox", label = L["Enable cast bar"],
+        { type = "group", title = L["General"],
+          gate = { enabled = moduleOn, master = "enable" },
+          build = function() return {
+            { type = "checkbox", ref = "enable", label = L["Enable cast bar"],
               get = function() return CB.CfgGet("enabled") ~= false end,
               set = function(v) CB.CfgSet("enabled", v); CB.ApplyEnabled(); if menu then menu.Refresh() end end },
             { type = "button", width = 160, height = 26,
@@ -85,7 +89,7 @@ local function CreateCastBarPanel(parent)
         } end },
 
         -- ════════════ Placement: anchor to a CDM viewer + relative position + offset ════════════
-        { type = "group", title = L["Placement"], build = function() return {
+        { type = "group", title = L["Placement"], enabledBy = moduleOn, build = function() return {
             cdmDestDropdown(L["Anchor to"], "anchorTo",
                 function() CB.ApplyPosition(); if CB.pe then CB.pe.Refresh() end end),
             { type = "dropdown", label = L["Position relative to anchor"], width = 220, height = 50,
@@ -110,7 +114,7 @@ local function CreateCastBarPanel(parent)
         } end },
 
         -- ════════════ Bar size: adapt-to-CDM (greys Width) + width / height ════════════
-        { type = "group", title = L["Bar size"], build = function() return {
+        { type = "group", title = L["Bar size"], enabledBy = moduleOn, build = function() return {
             { type = "checkbox", label = L["Adapt width to"],
               get = function() return CB.CfgGet("adaptWidth") == true end,
               set = function(v) CB.CfgSet("adaptWidth", v); CB.ApplyConfig(); if menu then menu.Rebuild() end end },
@@ -127,7 +131,7 @@ local function CreateCastBarPanel(parent)
         } end },
 
         -- ════════════ Icon: show / side / gap ════════════
-        { type = "group", title = L["Icon"], build = function() return {
+        { type = "group", title = L["Icon"], enabledBy = moduleOn, build = function() return {
             { type = "checkbox", label = L["Show icon"],
               get = function() return CB.CfgGet("showIcon") ~= false end,
               set = function(v) CB.CfgSet("showIcon", v); CB.ApplyConfig() end },
@@ -139,7 +143,7 @@ local function CreateCastBarPanel(parent)
         } end },
 
         -- ════════════ Text: spell-name sub-cadre + timer sub-cadre + spark ════════════
-        { type = "group", title = L["Text"], build = function() return {
+        { type = "group", title = L["Text"], enabledBy = moduleOn, build = function() return {
             { type = "group", title = L["Spell name"], build = function() return {
                 { type = "checkbox", label = L["Show spell name"],
                   get = function() return CB.CfgGet("showSpellName") ~= false end,
@@ -166,20 +170,20 @@ local function CreateCastBarPanel(parent)
         } end },
 
         -- ════════════ Bar texture ════════════
-        { type = "group", title = L["Bar texture"], build = function() return {
+        { type = "group", title = L["Bar texture"], enabledBy = moduleOn, build = function() return {
             textureDropdown(L["Bar texture"],        "barTexture"),
             textureDropdown(L["Background texture"], "bgTexture"),
         } end },
 
         -- ════════════ Bar colors ════════════
-        { type = "group", title = L["Bar colors"], build = function() return {
+        { type = "group", title = L["Bar colors"], enabledBy = moduleOn, build = function() return {
             colorGroupEntry(L["Cast color"],            "castColor"),
             colorGroupEntry(L["Channel color"],         "channelColor"),
             colorGroupEntry(L["Uninterruptible color"], "uninterruptibleColor"),
         } end },
 
         -- ════════════ Border (Enable greys colour + thickness) ════════════
-        { type = "group", title = L["Border"], build = function() return {
+        { type = "group", title = L["Border"], enabledBy = moduleOn, build = function() return {
             { type = "checkbox", label = L["Enable"],
               get = function() return CB.CfgGet("borderEnabled") ~= false end,
               set = function(v) CB.CfgSet("borderEnabled", v); CB.ApplyConfig(); if menu then menu.Refresh() end end },
