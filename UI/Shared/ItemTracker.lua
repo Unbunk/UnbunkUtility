@@ -26,6 +26,11 @@ ns.ui = ns.ui or {}
 -- mutates it — so a single shared table is safe across all tracker instances).
 local GREEN = { r = 0, g = 1, b = 0 }
 
+-- How many 0.5s ApplyVisuals ticks GetItemSpell may stay nil (while the item's data IS cached) before we
+-- commit the "passive / no on-use" verdict. The item header can cache before the on-use spell field settles
+-- at login/zone, so committing on the first nil would hide a REAL on-use trinket for the whole session. ~3s.
+local SPELL_GIVEUP_TICKS = 6
+
 function ns.ui.CreateItemTracker(config)
     local frameName  = config.frameName
     local getCfg     = config.getCfg
@@ -43,6 +48,9 @@ function ns.ui.CreateItemTracker(config)
     -- allocates the returned strings (GetItemInfo also builds the item link/name).
     -- Invalidated when the tracked itemId changes.
     local cachedItemId, cachedIconId, cachedSpellName = nil, nil, nil
+    -- Consecutive ticks GetItemSpell has returned nil while the item data IS cached; drives the bounded
+    -- retry before cachedSpellName is committed to the false "passive" verdict. Reset on an itemId change.
+    local spellNilTicks = 0
 
     -- Last-applied visual state, so the steady-state 0.5s tick is a no-op when
     -- nothing changed (SetIcon/Show/SetTimer all push work to the engine/Cooldown
@@ -121,7 +129,7 @@ function ns.ui.CreateItemTracker(config)
         -- The usable-spell and the icon are constant per itemId: resolve each once
         -- and cache, so the steady-state tick allocates nothing here. Reset on change.
         if itemId ~= cachedItemId then
-            cachedItemId, cachedIconId, cachedSpellName = itemId, nil, nil
+            cachedItemId, cachedIconId, cachedSpellName, spellNilTicks = itemId, nil, nil, 0
         end
 
         -- Resolve the item's on-use spell once and cache the verdict, because
@@ -137,7 +145,20 @@ function ns.ui.CreateItemTracker(config)
             if nm then
                 cachedSpellName = nm
             elseif C_Item.IsItemDataCachedByID and C_Item.IsItemDataCachedByID(itemId) then
-                cachedSpellName = false        -- loaded, genuinely no on-use → stop retrying
+                -- Data is cached but GetItemSpell returned nil — EITHER a genuinely passive item OR a
+                -- transient login/zone window where the item header cached before its on-use spell field
+                -- settled (IsItemDataCachedByID flips true first). Committing `false` on the first nil would
+                -- mis-verdict a REAL on-use trinket as passive and hide it for the WHOLE session (the verdict
+                -- only resets on an itemId change). So retry a few ticks; commit the passive verdict only once
+                -- the spell has stayed nil for SPELL_GIVEUP_TICKS. There is NO RequestLoadItemDataByID in this
+                -- branch, so the retry never re-arms the GET_ITEM_INFO_RECEIVED → CooldownViewer relayout churn
+                -- the sentinel was added to stop.
+                spellNilTicks = spellNilTicks + 1
+                if spellNilTicks < SPELL_GIVEUP_TICKS then
+                    HideCached()
+                    return
+                end
+                cachedSpellName = false        -- stayed nil while loaded → genuinely no on-use, stop retrying
             else
                 C_Item.RequestLoadItemDataByID(itemId)  -- not loaded yet → retry next tick
                 HideCached()

@@ -29,6 +29,10 @@ local function CreateHealthstoneTrackerPanel(parent)
                         get    = function() return HT.CfgGet("enabled") ~= false end,
                         set    = function(val)
                             HT.CfgSet("enabled", val)
+                            -- Drive the live transition: start/cancel the steady-state
+                            -- ticker so a disabled module is fully stopped (and re-enabling
+                            -- restarts it) without needing a /reload.
+                            if HT.SetEnabled then HT.SetEnabled(val) end
                             HT.ApplyAll()
                             if menu then menu.Refresh() end
                         end,
@@ -117,6 +121,10 @@ local function CreateHealthstoneTrackerPanel(parent)
                 local function curDest() return HT.CfgGet("cdmDest") or "belowPlayer" end
                 local function rebuildMenu() if menu then menu.Rebuild() end end
                 local function applyIcon()
+                    -- Cold-path cadre edit: HT.ApplyAll / RefreshAll repaint via the GATED ApplyDerivedSizing
+                    -- (setSize), which would skip a style-only change. Bump the shared style epoch so the
+                    -- icon's re-style gate re-derives once.
+                    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end
                     HT.ApplyAll()
                     if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
                 end

@@ -204,6 +204,10 @@ end
 -- OnSizeChanged once and re-apply, coalesced to the next frame (after the engine's layout pass).
 local sizePending = false
 local function OnAnchorSizeChanged()
+    -- Disabled module does ZERO work: a Group 1 box resize (CDM layout / spec / icon add-remove /
+    -- zone transition) still fires this hook, but we skip the closure + C_Timer + ApplyLayout work.
+    -- The hook is a HookScript (unremovable); CB.ApplyEnabled() re-applies layout on re-enable.
+    if not enabled then return end
     if sizePending then return end
     sizePending = true
     C_Timer.After(0, function()

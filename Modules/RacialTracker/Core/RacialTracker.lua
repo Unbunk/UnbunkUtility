@@ -314,11 +314,13 @@ function RT.ApplyAll() RT.ApplyVisuals() end
 function RT.RunTest()
     RT.testMode = true
     testEndsAt  = GetTime() + TEST_DURATION
+    if RT.SyncTicker then RT.SyncTicker() end  -- test needs the ticker even while disabled
     if RT.CfgGet("soundOnUse") then RT.PlaySound("soundUse") end
     RT.ApplyVisuals()
 end
 function RT.StopTest()
     RT.testMode = false
+    if RT.SyncTicker then RT.SyncTicker() end  -- drop the ticker again if the module is disabled
     racialIcon.ClearTimer()
     racialIcon.HideCheck()
     RT.ApplyVisuals()
@@ -341,6 +343,9 @@ function RT.ResolveAndApply()    ResolveRacial(); RT.ApplyVisuals() end
 
 -- ── Events ───────────────────────────────────────────────────────────────────
 local function OnSpellsRefresh()
+    -- Stopped while disabled: skip the racial-detection scan. SetEnabled re-resolves
+    -- on re-enable, so the tracked racial is always current once turned back on.
+    if RT.CfgGet("enabled") == false then return end
     ResolveRacial()
     RT.ApplyVisuals()
 end
@@ -354,6 +359,8 @@ RT:RegisterEvent("SPELLS_CHANGED", OnSpellsRefresh)
 local castFrame = CreateFrame("Frame")
 castFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 castFrame:SetScript("OnEvent", function(self, event, unit, _, spellId)
+    -- Stopped while disabled: don't record the cast or play the use sound.
+    if RT.CfgGet("enabled") == false then return end
     if unit ~= "player" then return end
     if racialSpellId and spellId == racialSpellId then
         lastUseAt = GetTime()
@@ -367,14 +374,36 @@ end)
 -- once per frame). Non-buff racials (no RACIAL_BUFF_AURA entry) show only the
 -- cooldown, so they skip ApplyVisuals on aura churn — the 0.5s ticker covers them.
 ns.AuraDispatch.Register("player", function()
+    -- Fully stopped while disabled: bail before any work (the shared dispatcher
+    -- subscription can't be cancelled per-module, so this first-line early-out is
+    -- the stop). testMode never drives the green aura path, so enabled is enough.
+    if not RT.CfgGet("enabled") then return end
     if not racialSpellId or not RACIAL_BUFF_AURA[racialSpellId] then return end
-    if RT.CfgGet("enabled") then RT.ApplyVisuals() end
+    RT.ApplyVisuals()
 end)
 
-RT:ScheduleRepeatingTimer(function()
-    if not RT.CfgGet("enabled") and not RT.testMode then return end
+-- 0.5s visuals ticker. Owned via a handle so it can be fully cancelled when the
+-- module is disabled (no wake at all) and recreated on enable / Test. Test mode
+-- needs the ticker even while disabled, so the gate is (enabled OR testMode).
+local visTicker
+function RT.SyncTicker()
+    local want = (RT.CfgGet("enabled") ~= false) or RT.testMode
+    if want and not visTicker then
+        visTicker = RT:ScheduleRepeatingTimer(function() RT.ApplyVisuals() end, 0.5)
+    elseif not want and visTicker then
+        RT:CancelTimer(visTicker)
+        visTicker = nil
+    end
+end
+
+-- Live enable/disable transition (driven by the config checkbox's set handler):
+-- start/stop the ticker and, on enable, re-resolve + repaint so it restarts fully.
+function RT.SetEnabled(on)
+    RT.CfgSet("enabled", on)
+    if on then ResolveRacial() end
+    RT.SyncTicker()
     RT.ApplyVisuals()
-end, 0.5)
+end
 
 ns.RegisterReloadHook(function()
     if ns.ReseedTrackerOverride then
@@ -385,6 +414,7 @@ ns.RegisterReloadHook(function()
     RT.ApplyFont()
     RT.ApplySize()
     RT.ApplyBorder()
+    RT.SyncTicker()   -- start the 0.5s ticker only if currently enabled
     RT.ApplyVisuals()
 end)
 
@@ -398,6 +428,7 @@ initRT:SetScript("OnEvent", function(self)
     RT.ApplyPosition()
     RT.ApplyFont()
     RT.ApplySize()
+    RT.SyncTicker()   -- start the 0.5s ticker only if currently enabled
     RT.ApplyVisuals()
     self:UnregisterEvent("PLAYER_LOGIN")
 end)

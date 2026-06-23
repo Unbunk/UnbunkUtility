@@ -31,6 +31,7 @@ local function CreatePITrackerPanel(parent)
                         get    = function() return PI.CfgGet("enabled") ~= false end,
                         set    = function(val)
                             PI.CfgSet("enabled", val)
+                            PI.SetEnabled(val)   -- live start/stop of the 0.5s ticker
                             PI.ApplyVisuals()
                             if menu then menu.Refresh() end
                         end,
@@ -97,6 +98,7 @@ local function CreatePITrackerPanel(parent)
                 local function curDest() return PI.CfgGet("cdmDest") or "essential" end
                 local function rebuildMenu() if menu then menu.Rebuild() end end
                 local function applyIcon()
+                    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- in-CDM size override -> force the engine to re-pack (its layout sig folds the epoch)
                     PI.ApplyVisuals(); PI.ApplyFont(); PI.ApplyBorder(); PI.ApplySize()
                     if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
                 end

@@ -196,6 +196,9 @@ end
 -- Show/hide + ticker driven by the enabled flag. Honours the unlocked state: an
 -- unlocked frame stays visible (so it can be positioned) even when disabled.
 function SD.ApplyEnabled()
+    -- Re-sync combat state: while the module was disabled the combat watcher skipped updating
+    -- inCombat (it early-outs), so a mid-combat enable from the config UI could read a stale value.
+    inCombat = InCombatLockdown() and true or false
     -- Suppressed in combat: GetUnitSpeed returns a "secret value" there, so the
     -- readout is hidden for the whole fight and restored on PLAYER_REGEN_ENABLED.
     if SD.CfgGet("enabled") and not inCombat then
@@ -296,6 +299,10 @@ local combatWatcher = CreateFrame("Frame")
 combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")  -- entering combat
 combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")   -- leaving combat
 combatWatcher:SetScript("OnEvent", function(_, event)
+    -- Disabled (and not being positioned): nothing to show/hide on combat transitions, so skip the
+    -- ApplyEnabled work entirely. Re-enable is UI-driven (the enable checkbox set handler calls
+    -- SD.ApplyEnabled), so this watcher is not the only path back on.
+    if not SD.CfgGet("enabled") and not SD.IsUnlocked() then return end
     inCombat = (event == "PLAYER_REGEN_DISABLED")
     SD.ApplyEnabled()
 end)

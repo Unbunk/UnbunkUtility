@@ -31,6 +31,9 @@ local function CreateHealerRangePanel(parent)
                         get    = function() return HR.CfgGet("enabled") ~= false end,
                         set    = function(val)
                             HR.CfgSet("enabled", val)
+                            -- Drive the start/stop transition live: re-enabling restarts the range
+                            -- OnUpdate (if in combat+group); disabling stops it now.
+                            if HR.RefreshChecking then HR.RefreshChecking() end
                             if menu then menu.Refresh() end
                         end,
                     },

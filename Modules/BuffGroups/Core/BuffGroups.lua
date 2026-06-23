@@ -23,6 +23,18 @@ local BG = ns.BuffGroups
 
 local FALLBACK_ICON = 134400   -- question mark, when a spell texture can't resolve
 
+-- ── Pass-level layout early-out ───────────────────────────────────────────────
+-- RefreshLayout runs every driver pass (0.2s ticker + every coalesced player-aura + the native
+-- viewer hook). In steady-state combat the buff set + config are unchanged and only the countdown
+-- ticks. lastLayoutSig caches a cheap signature of which buffs (native + active customs) are present
+-- + shown; a non-dirty pass with an unchanged sig skips the whole grouping/layout/pin body (the
+-- PinNative hooks hold geometry) and only refreshes the per-icon timer TIER. layoutDirty forces a
+-- full pass after any config change: set by ApplyAll (UI touch), RefreshTracked (universe/spec),
+-- SetGroupUnlocked (unlock/drag).
+local layoutDirty   = true
+local lastLayoutSig = nil
+local rlSigParts    = {}
+
 -- In combat the player's own aura/charge fields can come back as "secret values": reading
 -- or comparing one taints + errors. Guard EVERY numeric read off a native frame. The local
 -- fallback keeps a client without the system loading (the guard then passes everything).
@@ -111,6 +123,25 @@ local function CollectTracked()
     return out
 end
 
+-- Cached resolved TrackedBuff category (the ordered {sid,...}). It is CONSTANT per spec/talents, but
+-- CollectTrackedSplit runs on the 0.2s displayed-cache ticker — re-fetching the category set AND a
+-- per-id GetCooldownViewerCooldownInfo (a fresh C table EACH) every pass was the dominant CDM memory
+-- churn (~215 kB/s, measured). Cache it; recompute only when invalidated (RefreshTracked, fired on
+-- spec/talent/data-loaded) or while still empty (not yet loaded). Only the per-tick POOL scan (which
+-- buffs are currently up) stays live in CollectTrackedSplit.
+local trackedCategory = nil
+local function GetTrackedCategory()
+    if trackedCategory then return trackedCategory end
+    local out = {}
+    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
+        and Enum and Enum.CooldownViewerCategory then
+        local seen = {}
+        ResolveCategorySet(C_CooldownViewer.GetCooldownViewerCategorySet(Enum.CooldownViewerCategory.TrackedBuff, true), seen, out)
+    end
+    if #out > 0 then trackedCategory = out end   -- don't cache an empty (not-yet-loaded) result -> retry next call
+    return out
+end
+
 -- The DISPLAY spell id of a native buff item frame (overrideTooltipSpellID > overrideSpellID >
 -- spellID > linkedSpellIDs, the native viewer's precedence). Reads are guarded so a secret value
 -- in combat never taints. Reuses ns.CDMAnchor's resolver, then the frame's own getters / linked
@@ -163,18 +194,13 @@ local function CollectTrackedSplit(allowEmpty)
     -- nothing still seeds (everything -> Unused).
     if poolCount == 0 and not allowEmpty then return nil, nil end
     local displayed, notDisplayed, seen = {}, {}, {}
-    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
-        and Enum and Enum.CooldownViewerCategory then
-        local full = C_CooldownViewer.GetCooldownViewerCategorySet(Enum.CooldownViewerCategory.TrackedBuff, true)
-        if type(full) == "table" then
-            for _, id in ipairs(full) do
-                local sid = CooldownInfoSpellId(id)
-                if sid and not seen[sid] then
-                    seen[sid] = true
-                    if inPool[sid] then displayed[#displayed + 1] = sid
-                    else notDisplayed[#notDisplayed + 1] = sid end
-                end
-            end
+    -- Use the CACHED resolved category (id->sid done once per spec) instead of re-fetching the category
+    -- set + a per-id cooldownInfo C table every 0.2s tick — that re-fetch was ~215 kB/s of churn.
+    for _, sid in ipairs(GetTrackedCategory()) do
+        if not seen[sid] then
+            seen[sid] = true
+            if inPool[sid] then displayed[#displayed + 1] = sid
+            else notDisplayed[#notDisplayed + 1] = sid end
         end
     end
     wipe(displayedCache)
@@ -285,17 +311,14 @@ function BG.RefreshDisplayedCache()
     -- An empty pool right after a spec change usually means Blizzard hasn't rebuilt it yet — don't
     -- clobber the known set with an empty one (matches CollectTrackedSplit's defer on poolCount == 0).
     if poolCount == 0 then return false end
+    -- Use the CACHED resolved category (constant per spec) instead of re-fetching the category set +
+    -- a per-id GetCooldownViewerCooldownInfo (a fresh C table EACH) on EVERY 0.2s tick. This function is
+    -- the displayed-cache ticker's hot path: the pool keeps a (shown=false) frame per configured buff so
+    -- poolCount > 0 even out of combat, so the old inline fetch ran every tick = the ~215 kB/s churn.
     local newSet, newCount, seen = {}, 0, {}
-    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
-        and Enum and Enum.CooldownViewerCategory then
-        local full = C_CooldownViewer.GetCooldownViewerCategorySet(Enum.CooldownViewerCategory.TrackedBuff, true)
-        if type(full) == "table" then
-            for _, id in ipairs(full) do
-                local sid = CooldownInfoSpellId(id)
-                if sid and not seen[sid] and inPool[sid] then
-                    seen[sid] = true; newSet[sid] = true; newCount = newCount + 1
-                end
-            end
+    for _, sid in ipairs(GetTrackedCategory()) do
+        if not seen[sid] and inPool[sid] then
+            seen[sid] = true; newSet[sid] = true; newCount = newCount + 1
         end
     end
     -- Diff vs the current cache: same size AND every new key already present == unchanged.
@@ -312,6 +335,8 @@ function BG.RefreshDisplayedCache()
 end
 
 function BG.RefreshTracked(force)
+    layoutDirty = true        -- tracked universe / order may have changed -> force a full relayout pass
+    trackedCategory = nil     -- spec/talent/data-loaded changed the category -> recompute the cache
     trackedCache = CollectTracked()
     -- Prune Group 1's saved order of AUTO-seeded ids that are no longer tracked (keeping
     -- customs and any explicitly-assigned buffs). Without this, the seed loop below makes
@@ -748,6 +773,66 @@ local function HideDebuffBorder(nf)
     db:Hide()
 end
 
+-- ── Gated-restyle helpers (the CPU fix) ────────────────────────────────────────
+-- StyleFrame is heavy (≈40 IconGet + ~15 SetFont/border/glow per icon) and used to run on EVERY
+-- RefreshLayout (the 0.2s ticker + every player UNIT_AURA + every native-viewer relayout) even
+-- though nothing about the styling changed. It's now GATED by (style epoch + the slot's spellId)
+-- at the call site; the two genuinely per-tick concerns it covered are handled cheaply here:
+--   • the icon texcoord (so a non-square icon doesn't stretch after a Blizzard relayout),
+--   • the time-threshold tier (countdown font size/colour as the buff winds down).
+-- Size + position are already re-imposed by PinNative's own raw hooks (and set inline for customs).
+
+-- Re-font a Cooldown's region FontStrings WITHOUT re-anchoring (init=false preserves a custom pos).
+local function RefontCooldownRegions(cd, fontPath, size, outline, color)
+    if not cd then return end
+    StyleFontString(cd.Text or cd.text, fontPath, size, outline, color, false)
+    for _, region in ipairs({ cd:GetRegions() }) do
+        if region and region.IsObjectType and region:IsObjectType("FontString") then
+            StyleFontString(region, fontPath, size, outline, color, false)
+        end
+    end
+end
+
+-- Re-apply ONLY the countdown font (size + colour for the current tier) from a frame's cached
+-- timer style — no IconGet, no re-anchor. Called only when the tier actually changes.
+local function ApplyTierFont(tc, effSize, effColor)
+    local cd = tc.cd
+    if cd and tc.fontObj then
+        tc.fontObj:SetFont(tc.path, effSize, tc.outline)
+        if effColor then tc.fontObj:SetTextColor(effColor.r, effColor.g, effColor.b, effColor.a or 1) end
+        if cd.SetCountdownFont and tc.fontName then cd:SetCountdownFont(tc.fontName) end
+        RefontCooldownRegions(cd, tc.path, effSize, tc.outline, effColor)
+    end
+    if tc.time     then StyleFontString(tc.time,     tc.path, effSize, tc.outline, effColor, false) end
+    if tc.duration then StyleFontString(tc.duration, tc.path, effSize, tc.outline, effColor, false) end
+end
+
+-- Per-pass timer-tier refresh for a gated frame: recompute the tier from remaining time and
+-- re-apply the countdown font ONLY when the tier changed (identity compare on the stable tier
+-- table). Cheap: one guarded remaining-time read + a tiny list scan; no SetFont unless a boundary
+-- is crossed. No-op for frames without thresholds.
+local function UpdateTimerTier(nf)
+    local tc = nf._uuTier
+    if not (tc and tc.on) then return end
+    local tier = MatchThreshold(tc.list, FrameRemaining(nf))
+    if tier == tc.lastTier then return end
+    tc.lastTier = tier
+    local effSize  = tier and (tc.baseSize * (tier.size or 1)) or tc.baseSize
+    local effColor = (tier and tier.color) or tc.baseColor
+    ApplyTierFont(tc, effSize, effColor)
+end
+
+-- Refix only the icon texture (crop + cover) on the gated skip path, so a non-square icon doesn't
+-- stretch after a Blizzard relayout reset its texcoord. Cheap (no config reads).
+local function RefixIcon(nf, w, h)
+    local tex = nf.Icon
+    if tex ~= nil and (type(tex) ~= "number" or canaccessvalue(tex)) and tex.SetTexCoord then
+        tex:ClearAllPoints()
+        tex:SetAllPoints(nf)
+        tex:SetTexCoord(IconTexCoord(w, h))
+    end
+end
+
 -- Resize + restyle a native (or custom) frame: SetSize -> refix .Icon -> countdown font ->
 -- text regions -> stacks -> title -> border -> glow. Every native read is guarded.
 local function StyleFrame(nf, spellId)
@@ -809,6 +894,19 @@ local function StyleFrame(nf, spellId)
     if nf.Time     then StyleFontString(nf.Time,     fontPath, effSize, outline, effColor, true); AnchorTimerFS(nf.Time,     nf, timerPos, timerOffX, timerOffY) end
     if nf.Duration then StyleFontString(nf.Duration, fontPath, effSize, outline, effColor, true); AnchorTimerFS(nf.Duration, nf, timerPos, timerOffX, timerOffY) end
 
+    -- Cache the timer style so the gated skip path (UpdateTimerTier) can re-apply just the countdown
+    -- font as the buff winds down, without re-reading config. Mirrors the apply above.
+    local tc = nf._uuTier or {}
+    local thrOn = BG.IconGet(spellId, "timerThresholdsEnabled") and true or false
+    tc.on    = thrOn
+    tc.list  = thrOn and (BG.IconGet(spellId, "timerThresholds") or BG.DEFAULT_TIMER_THRESHOLDS) or nil
+    tc.lastTier = thrOn and MatchThreshold(tc.list, FrameRemaining(nf)) or nil
+    tc.path, tc.baseSize, tc.outline, tc.baseColor = fontPath, fontSize, outline, timerColor
+    tc.cd = cd
+    if cd then tc.fontObj, tc.fontName = CountdownFont(spellId) end
+    tc.time, tc.duration = nf.Time, nf.Duration
+    nf._uuTier = tc
+
     -- Stacks: the native Applications.Applications FontString, re-fonted + re-anchored per the
     -- stack config (group-level only; per-icon override is just showStack).
     local showStack = BG.IconGet(spellId, "showStack") ~= false
@@ -864,6 +962,9 @@ end
 local function ReleaseNative(nf)
     if ns.CDMAnchor and ns.CDMAnchor.ReleaseNativePin then ns.CDMAnchor.ReleaseNativePin(nf) end
     if nf._uuGlow then nf._uuGlow:Hide() end
+    -- Released frames lose our glow/pin; force a full restyle if re-acquired (the native pool
+    -- reuses frames, so the gate must not skip a recycled one on a stale epoch+sid match).
+    nf._uuStyleSid = nil
 end
 
 -- HideAll is defined just BELOW the placeholder pool (it releases placeholders), so its
@@ -961,10 +1062,12 @@ local function IsHorizontal(grow) return grow == nil or HORIZONTAL_GROW[grow] or
 -- it), so reusing these is safe and saves the per-pass allocation churn. frameOf/placed/placeholderNeeded
 -- live across the whole pass; lmScratch/sizeScratch are rebuilt (wiped) per GROUP inside the pack loop.
 local rlFrameOf          = {}
+local rlBuffEnum         = {}   -- reused scratch for EnumBuffIcons (avoids a fresh array every ~60Hz pass)
 local rlPlaced           = {}
 local rlPlaceholderNeeded = {}
 local rlLayoutMembers    = {}
 local rlSizes            = {}
+local rlSizePool         = {}   -- pool of reusable { w, h } tables (avoids one alloc per member per group)
 
 -- Play a per-icon alert sound. Resolves the LSM "sound" key (icon override -> group ->
 -- default) to a file and PlaySoundFile(..., "Master") — the same path > LSM-key logic as
@@ -1022,14 +1125,34 @@ function BG.RefreshLayout()
     -- frame; their drawn frame stands in. (frameOf is a hoisted per-pass scratch table; wipe it.)
     local frameOf = rlFrameOf
     wipe(frameOf)
-    for _, nf in ipairs(ns.CDMAnchor and ns.CDMAnchor.EnumBuffIcons and ns.CDMAnchor.EnumBuffIcons() or {}) do
-        local sid = FrameSpellId(nf)
-        if sid then frameOf[sid] = nf end
+    if ns.CDMAnchor and ns.CDMAnchor.EnumBuffIcons then
+        for _, nf in ipairs(ns.CDMAnchor.EnumBuffIcons(rlBuffEnum)) do
+            local sid = FrameSpellId(nf)
+            if sid then frameOf[sid] = nf end
+        end
     end
     if BG.EnumActiveCustomFrames then
         -- Fill our scratch frameOf directly (no fresh table per pass).
         BG.EnumActiveCustomFrames(frameOf)
     end
+
+    -- Pass-level early-out signature: the native buff set + active custom-buff set (which buffs are
+    -- present + shown), sorted so iteration order can't spoof a change. When not dirtied by a config
+    -- change and the sig is unchanged, the whole grouping/layout/pin body is a no-op (PinNative hooks
+    -- hold geometry) — skip it, refreshing ONLY the per-icon timer tier (countdown font scaling as
+    -- time drops, which has no show/hide and so isn't in the sig).
+    local sp = rlSigParts; wipe(sp)
+    for sid, nf in pairs(frameOf) do
+        sp[#sp + 1] = sid .. (FrameShown(nf) and "+" or "-")
+    end
+    table.sort(sp)
+    local sig = table.concat(sp, ",")
+    if not layoutDirty and sig == lastLayoutSig then
+        for _, nf in pairs(frameOf) do UpdateTimerTier(nf) end
+        return
+    end
+    layoutDirty   = false
+    lastLayoutSig = sig
 
     -- Per-icon start/stop sound alerts off the active transition (frameOf = the active set).
     UpdateSounds(frameOf)
@@ -1064,6 +1187,8 @@ function BG.RefreshLayout()
                 if nf.Title then nf.Title:Hide() end
                 if nf._uuGlow then nf._uuGlow:Hide() end
                 if ns.CDMAnchor and ns.CDMAnchor.ApplyFrameBorder then ns.CDMAnchor.ApplyFrameBorder(nf, false) end
+                -- Stripped this frame's border/glow/title; force a full restyle if it re-enters a group.
+                nf._uuStyleSid = nil
                 if ns.CDMAnchor and ns.CDMAnchor.PinNativeTo then
                     ns.CDMAnchor.PinNativeTo(nf, UIParent, OFFSCREEN, OFFSCREEN)
                 end
@@ -1092,11 +1217,15 @@ function BG.RefreshLayout()
         local staticDisplay = g.staticDisplay == true
         -- layoutMembers/sizes are hoisted scratch tables, rebuilt (wiped) per GROUP.
         local layoutMembers, sizes = rlLayoutMembers, rlSizes
+        for _, sz in pairs(sizes) do rlSizePool[#rlSizePool + 1] = sz end   -- recycle the prior group's { w, h } tables
         wipe(layoutMembers); wipe(sizes)
         for _, sid in ipairs(members) do
             if staticDisplay or frameOf[sid] or BG.IconGet(sid, "placeholder") == true then
                 layoutMembers[#layoutMembers + 1] = sid
-                sizes[sid] = { w = BG.IconGet(sid, "iconW") or 36, h = BG.IconGet(sid, "iconH") or 36 }
+                local sz = table.remove(rlSizePool) or {}
+                sz.w = BG.IconGet(sid, "iconW") or 36
+                sz.h = BG.IconGet(sid, "iconH") or 36
+                sizes[sid] = sz
             end
         end
         local count = #layoutMembers
@@ -1140,7 +1269,16 @@ function BG.RefreshLayout()
             -- has its per-icon `placeholder` flag on, in which case a dim placeholder fills the gap.
             if nf then
                 placed[sid] = true
-                StyleFrame(nf, sid)
+                -- GATE: the heavy full restyle runs only when the style epoch changed (a config edit /
+                -- rebuild / brand change) OR this slot now holds a different spell. Otherwise skip it and
+                -- do only the per-tick concerns cheaply (icon crop + timer tier). The core CPU fix.
+                if nf._uuStyleSid ~= sid or nf._uuStyleEpoch ~= (ns.StyleEpoch or 0) then
+                    StyleFrame(nf, sid)
+                    nf._uuStyleSid, nf._uuStyleEpoch = sid, (ns.StyleEpoch or 0)
+                else
+                    RefixIcon(nf, sz.w, sz.h)
+                    UpdateTimerTier(nf)
+                end
                 if nf.isCustomBuff then
                     nf:ClearAllPoints()
                     nf:SetPoint("TOPLEFT", container, "TOPLEFT", x, y)
@@ -1190,12 +1328,19 @@ function BG.RefreshLayout()
     end
     if toRelease then for _, sid in ipairs(toRelease) do ReleasePlaceholder(sid) end end
 end
--- The config's touch() calls this after every edit.
-BG.ApplyAll = BG.RefreshLayout
+-- The config's touch() calls this after EVERY edit. Bump the style epoch so the next pass re-runs
+-- the gated StyleFrame with the new config; the combat drivers (ticker / UNIT_AURA / viewer hook)
+-- call RefreshLayout directly and never bump, so the gate holds in combat.
+function BG.ApplyAll()
+    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end
+    layoutDirty = true   -- config edit: force a full relayout pass (not in the native-state sig)
+    BG.RefreshLayout()
+end
 
 -- Full rebuild after spec/profile change: refresh the tracked set, drop stale containers
 -- for deleted groups, re-layout.
 function BG.Rebuild()
+    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end
     BG.RefreshTracked()
     for gid, c in pairs(containers) do
         if not BG.GetGroup(gid) then c:Hide() end
@@ -1211,6 +1356,7 @@ end
 
 function BG.SetGroupUnlocked(groupId, val)
     local g = BG.GetGroup(groupId); if not g then return end
+    layoutDirty = true   -- unlock/lock + the resulting drag reposition need a full relayout pass
     local c = GetContainer(groupId)
     if val then
         g.unlocked = true
@@ -1321,6 +1467,7 @@ end
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 ev:RegisterEvent("TRAIT_CONFIG_UPDATED")
+ev:RegisterEvent("COOLDOWN_VIEWER_DATA_LOADED")   -- an EditMode "Tracked Buffs" edit changes the category set
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")   -- replay native writes deferred during combat
 ev:SetScript("OnEvent", function(_, event)

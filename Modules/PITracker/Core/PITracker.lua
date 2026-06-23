@@ -177,11 +177,21 @@ ns.AuraDispatch.Register("player", function()
     SyncBuff()
 end)
 
-PI:ScheduleRepeatingTimer(function()
-    -- A disabled module does ~zero per-tick work.
-    if not PI.CfgGet("enabled") then return end
-    SyncBuff()
-end, 0.5)
+-- 0.5s polling ticker. While the module is disabled (which, since the Midnight hard-off, is always)
+-- the ticker is NOT scheduled at all, so there are zero per-tick wakeups. Start/Stop are idempotent
+-- and drive the live enable transition from the config UI set handler.
+local piTicker
+function PI.Start()
+    if piTicker then return end                 -- already running
+    if not PI.CfgGet("enabled") then return end  -- never run while disabled
+    piTicker = PI:ScheduleRepeatingTimer(function() SyncBuff() end, 0.5)
+end
+function PI.Stop()
+    if piTicker then PI:CancelTimer(piTicker); piTicker = nil end
+end
+function PI.SetEnabled(on)
+    if on then PI.Start() else PI.Stop() end
+end
 
 ns.RegisterReloadHook(function()
     if ns.ReseedTrackerOverride then
@@ -205,5 +215,6 @@ initPI:SetScript("OnEvent", function(self)
     PI.ApplyFont()
     PI.ApplySize()
     PI.ApplyVisuals()
+    PI.Start()  -- no-op while disabled; only schedules the ticker if enabled
     self:UnregisterEvent("PLAYER_LOGIN")
 end)

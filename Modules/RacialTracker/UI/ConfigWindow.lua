@@ -28,8 +28,9 @@ local function CreateRacialTrackerPanel(parent)
                         label  = L["Enable Racial Tracker"],
                         get    = function() return RT.CfgGet("enabled") ~= false end,
                         set    = function(val)
-                            RT.CfgSet("enabled", val)
-                            RT.ApplyAll()
+                            -- SetEnabled drives the live transition: starts/stops the
+                            -- 0.5s ticker and re-resolves + repaints (no /reload needed).
+                            RT.SetEnabled(val)
                             if menu then menu.Refresh() end
                         end,
                     },
@@ -210,6 +211,7 @@ local function CreateRacialTrackerPanel(parent)
                 local function curDest() return RT.CfgGet("cdmDest") or "belowPlayer" end
                 local function rebuildMenu() if menu then menu.Rebuild() end end
                 local function applyIcon()
+                    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- in-CDM size override -> force the engine to re-pack (its layout sig folds the epoch)
                     RT.ApplyAll(); RT.ApplyTimerVisuals(); RT.ApplyBorder(); RT.ApplySize()
                     if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
                 end

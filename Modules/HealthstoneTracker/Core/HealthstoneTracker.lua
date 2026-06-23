@@ -536,6 +536,10 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         end
     end
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
+        -- While disabled, do no per-cast work: this branch otherwise loops every
+        -- pooled tracker and resolves spellIds on EVERY player cast (many/sec in
+        -- combat). Re-enable is UI-driven, so skipping here is safe.
+        if not HT.CfgGet("enabled") then return end
         local unit, _, spellId = ...
         if unit == "player" then
             local inCombat = UnitAffectingCombat("player")
@@ -570,8 +574,10 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     if HT.CfgGet("enabled") then HT.ApplyAll() end
 end)
 
-C_Timer.NewTicker(0.5, function()
-    if not HT.CfgGet("enabled") then return end
+-- The 0.5s steady-state ticker. Created only while the module is enabled
+-- (HT.Start) and cancelled on disable (HT.Stop) so a disabled module costs zero
+-- CPU — no per-tick CfgGet/early-out even runs.
+local function TickerPass()
     -- Short-circuit a pass that can produce no visible change: not in an active
     -- instance, OR nothing to draw (no healthstone in bags, no sticky in-combat
     -- variant, and show-at-zero off). Skipping avoids a full relayout when the row
@@ -582,7 +588,27 @@ C_Timer.NewTicker(0.5, function()
         return
     end
     HT.ApplyAll()
-end)
+end
+
+-- Start/Stop the steady-state ticker. Cancellable handle kept on HT._ticker so
+-- the disabled module is fully stopped (not just early-returning each tick), and
+-- re-enabling fully restarts it. Idempotent: safe to call repeatedly.
+function HT.Start()
+    if HT._ticker then return end
+    HT._ticker = C_Timer.NewTicker(0.5, TickerPass)
+end
+
+function HT.Stop()
+    if HT._ticker then
+        HT._ticker:Cancel()
+        HT._ticker = nil
+    end
+end
+
+-- Apply the persisted enabled state to the live ticker (login + enable toggle).
+function HT.SetEnabled(on)
+    if on then HT.Start() else HT.Stop() end
+end
 
 ns.RegisterReloadHook(function()
     InvalidateActiveCache()
@@ -601,6 +627,9 @@ initHT:SetScript("OnEvent", function(self)
     -- Eagerly create the primary tracker so SetUnlocked / RunTest can run
     -- before the first bag update fires.
     EnsureTracker(1)
+    -- Start the steady-state ticker ONLY if currently enabled; a disabled module
+    -- spins up no ticker at all (HT.Start on the enable toggle restarts it live).
+    HT.SetEnabled(HT.CfgGet("enabled") ~= false)
     C_Timer.After(0.5, function() HT.ApplyAll() end)
     self:UnregisterEvent("PLAYER_LOGIN")
 end)

@@ -816,7 +816,26 @@ local function CreateBarsPanel(parent)
         { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["Bars"] },
         { type = "checkbox", label = L["Enable custom CDM Bars"],
           get = function() return BR.Enabled() end,
-          set = function(v) BR.SetEnabled(v); touch(); if menu then menu.Refresh() end end },
+          set = function(v)
+              BR.SetEnabled(v)
+              -- Live transition: on enable do a full bring-up (re-hook + re-seed + relayout) since
+              -- login/events skip work while off; on disable RefreshLayout falls through to HideAll.
+              if v then BR.HookNativeViewerPublic(); BR.Rebuild() else BR.ApplyAll() end
+              if menu then menu.Refresh() end
+              -- The native bar viewer only comes up cleanly through a fresh login/reload, so on ENABLE
+              -- offer a reload (the live bring-up above is best-effort only).
+              if v then
+                  ns.ui.ShowConfirm({
+                      title = L["Enable custom CDM Bars"],
+                      text = L["This feature requires a reload to function."],
+                      acceptText = L["Reload"],
+                      cancelText = L["Later"],
+                      onAccept = function()
+                          if C_UI and C_UI.Reload then C_UI.Reload() else ReloadUI() end
+                      end,
+                  })
+              end
+          end },
         { type = "label", font = "UnbunkUtilityBody", height = 30,
           text = L["A custom layout built from the native bar Cooldown Manager. Enable the \"Buff Bar\" viewer in Blizzard's Edit Mode for bars to appear."] },
         { type = "group", title = L["Bar groups"],

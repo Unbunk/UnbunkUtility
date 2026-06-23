@@ -174,12 +174,24 @@ local function StopChecking()
 end
 
 local function RefreshChecking()
+    -- Module disabled => fully stop: no OnUpdate, no range work. The driving events stay registered
+    -- (their handlers all funnel through here and become cheap no-ops), and the enable toggle's set
+    -- handler calls HR.RefreshChecking so re-enabling restarts the loop live without a /reload.
+    if HR.CfgGet("enabled") == false then
+        StopChecking()
+        return
+    end
     RefreshCombatProbe()
     if inCombat and IsInGroup() then
         StartChecking()
     else
         StopChecking()
     end
+end
+
+-- Exposed so the enable checkbox in the config UI can drive the start/stop transition live.
+function HR.RefreshChecking()
+    RefreshChecking()
 end
 
 HR:RegisterEvent("PLAYER_REGEN_DISABLED", function(event)

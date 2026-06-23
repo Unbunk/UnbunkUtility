@@ -31,6 +31,10 @@ local function BuildRoleOptions(prefix)
                         get    = enabledFn,
                         set    = function(val)
                             DA.CfgSet(prefix .. "Enabled", val)
+                            -- Drive the event drivers live: when the last role is
+                            -- turned off the module fully stops (events unregistered);
+                            -- turning any role back on re-registers them, no /reload.
+                            if DA.UpdateEnabled then DA.UpdateEnabled() end
                             if DA.menus[prefix] then DA.menus[prefix].Refresh() end
                         end,
                     },
