@@ -987,6 +987,39 @@ do
     bindWatch:SetScript("OnEvent", function() ns.BumpStyleEpoch() end)
 end
 
+-- ── Shared 0.5s poll driver ───────────────────────────────────────────────────
+-- The trackers each used to own a 0.5s repeating timer (~9 independent AceTimer/C_Timer
+-- wakeups, most early-outing immediately). They now share ONE driver: a module registers a
+-- named callback via ns.SharedTick.Register and a single ticker fans them all out per tick —
+-- one scheduler wakeup instead of N. The driver exists only while ≥1 callback is registered
+-- (created on the first Register, cancelled when the last unregisters), so "all trackers off"
+-- costs nothing. Iteration walks a reused snapshot array, so a callback may (un)register mid-
+-- tick (effective next tick), and each runs under the game's error handler — preserving the
+-- independent-timer property that one module's error can't stop the others or the driver.
+do
+    local cbs  = {}    -- [name] = fn
+    local snap = {}    -- reused scratch (re-entrancy-safe iteration)
+    local driver
+    local function tick()
+        local n = 0
+        for _, fn in pairs(cbs) do n = n + 1; snap[n] = fn end
+        for i = 1, n do
+            local fn = snap[i]; snap[i] = nil
+            xpcall(fn, geterrorhandler())
+        end
+    end
+    ns.SharedTick = {}
+    function ns.SharedTick.Register(name, fn)
+        cbs[name] = fn
+        if not driver then driver = C_Timer.NewTicker(0.5, tick) end
+    end
+    function ns.SharedTick.Unregister(name)
+        if cbs[name] == nil then return end
+        cbs[name] = nil
+        if driver and next(cbs) == nil then driver:Cancel(); driver = nil end
+    end
+end
+
 -- ── Addon font: single source of truth + live re-face ─────────────────────────
 -- ns.SetAddonFont(lsmKey) stores an account-wide font override; ns.ApplyAddonFont
 -- re-faces EVERY addon-owned font object (H1..H6 / Title / Body), preserving each

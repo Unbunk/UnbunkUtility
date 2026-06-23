@@ -389,9 +389,10 @@ local visTicker
 function RT.SyncTicker()
     local want = (RT.CfgGet("enabled") ~= false) or RT.testMode
     if want and not visTicker then
-        visTicker = RT:ScheduleRepeatingTimer(function() RT.ApplyVisuals() end, 0.5)
+        ns.SharedTick.Register("racial", function() RT.ApplyVisuals() end)
+        visTicker = true
     elseif not want and visTicker then
-        RT:CancelTimer(visTicker)
+        ns.SharedTick.Unregister("racial")
         visTicker = nil
     end
 end

@@ -461,16 +461,16 @@ end
 -- handler so the on/off transition needs no /reload.
 function PT.SetEnabled(on)
     if on then
-        if not visualTicker then visualTicker = C_Timer.NewTicker(0.5, VisualTick) end
+        if not visualTicker then ns.SharedTick.Register("potion", VisualTick); visualTicker = true end
     else
-        if visualTicker then visualTicker:Cancel(); visualTicker = nil end
+        if visualTicker then ns.SharedTick.Unregister("potion"); visualTicker = nil end
     end
     -- Flush visuals immediately (hide on disable, show on enable) without waiting for the next tick.
     PT.ApplyAll()
 end
 
 if PT.CfgGet("enabled") then
-    visualTicker = C_Timer.NewTicker(0.5, VisualTick)
+    ns.SharedTick.Register("potion", VisualTick); visualTicker = true
 end
 
 ns.RegisterReloadHook(function()

@@ -220,12 +220,13 @@ end
 -- driven by the enable toggle's set handler for a live transition (no /reload).
 function TT.Start()
     if TT.tickerHandle then return end
-    TT.tickerHandle = TT:ScheduleRepeatingTimer(TickerPass, 0.5)
+    ns.SharedTick.Register("trinket", TickerPass)
+    TT.tickerHandle = true
 end
 
 function TT.Stop()
     if TT.tickerHandle then
-        TT:CancelTimer(TT.tickerHandle)
+        ns.SharedTick.Unregister("trinket")
         TT.tickerHandle = nil
     end
     -- Flush any visible icons to hidden now that we're off (ApplyVisuals early-outs

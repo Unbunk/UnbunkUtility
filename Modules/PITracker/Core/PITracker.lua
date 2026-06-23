@@ -184,10 +184,11 @@ local piTicker
 function PI.Start()
     if piTicker then return end                 -- already running
     if not PI.CfgGet("enabled") then return end  -- never run while disabled
-    piTicker = PI:ScheduleRepeatingTimer(function() SyncBuff() end, 0.5)
+    ns.SharedTick.Register("pi", function() SyncBuff() end)
+    piTicker = true
 end
 function PI.Stop()
-    if piTicker then PI:CancelTimer(piTicker); piTicker = nil end
+    if piTicker then ns.SharedTick.Unregister("pi"); piTicker = nil end
 end
 function PI.SetEnabled(on)
     if on then PI.Start() else PI.Stop() end

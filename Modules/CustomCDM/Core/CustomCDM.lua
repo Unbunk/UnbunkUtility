@@ -1280,7 +1280,7 @@ CC:RegisterEvent("PLAYER_DEAD", function()
     end
 end)
 
-CC:ScheduleRepeatingTimer(function() CC.UpdateAll() end, 0.5)
+ns.SharedTick.Register("customcdm", function() CC.UpdateAll() end)   -- always-on (the custom source); shared 0.5s driver
 
 ns.RegisterReloadHook(function() CC.BuildAll() end)
 
