@@ -7,10 +7,11 @@
 --
 -- SECRET VALUES — in combat GetUnitSpeed("player") can return a "secret value":
 -- the addon must NOT read it, compare it, or do arithmetic on it (any of which
--- errors / taints). It may only be passed to a display sink (FontString:SetText),
--- which renders it for the player without revealing it. So when the speed is
--- secret we skip the percentage math + the tier comparison and show the raw value
--- with a neutral colour — exactly the trade-off the source aura makes.
+-- errors / taints). Rather than show a raw/neutral readout for the fight, the module
+-- STOPS COMPLETELY in combat — the 0.1s ticker is cancelled and the readout hidden —
+-- and restarts the INSTANT combat ends (PLAYER_REGEN_ENABLED). SD.Update keeps a
+-- secret-value guard as a safety net: it can still be ticked once on the combat-entry
+-- frame before the watcher cancels the ticker.
 
 local _, ns = ...
 ns.SpeedDisplay = ns.SpeedDisplay or {}
@@ -293,16 +294,23 @@ init:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
 end)
 
--- Combat enter/leave: the player's movement speed is a "secret value" in combat,
--- so hide the whole readout (and stop the ticker) for the fight, then restore it.
+-- Combat enter/leave: the player's movement speed is a "secret value" in combat, so the module
+-- STOPS COMPLETELY for the fight (ticker cancelled + readout hidden) and restarts instantly on the
+-- way out. The combat state is taken from the EVENT (not InCombatLockdown()) so the transition is
+-- unambiguous, and the stop cancels the ticker directly rather than routing through ApplyEnabled.
 local combatWatcher = CreateFrame("Frame")
 combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")  -- entering combat
 combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")   -- leaving combat
 combatWatcher:SetScript("OnEvent", function(_, event)
-    -- Disabled (and not being positioned): nothing to show/hide on combat transitions, so skip the
-    -- ApplyEnabled work entirely. Re-enable is UI-driven (the enable checkbox set handler calls
-    -- SD.ApplyEnabled), so this watcher is not the only path back on.
-    if not SD.CfgGet("enabled") and not SD.IsUnlocked() then return end
     inCombat = (event == "PLAYER_REGEN_DISABLED")
-    SD.ApplyEnabled()
+    -- While being positioned (unlocked) the user owns the frame — leave it shown/ticking.
+    if SD.IsUnlocked() then return end
+    -- Disabled: nothing is shown, so there's nothing to stop or restore.
+    if not SD.CfgGet("enabled") then return end
+    if inCombat then
+        StopTicker()   -- cancel the 0.1s ticker outright: zero per-tick work for the whole fight
+        frame:Hide()
+    else
+        SD.ApplyEnabled()   -- out of combat + enabled -> re-show, restart the ticker, instant readout
+    end
 end)
