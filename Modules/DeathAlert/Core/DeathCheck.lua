@@ -181,15 +181,28 @@ end
 -- irrelevant churn (nameplates, target, focus, boss, arena, pets) up front.
 -- AceEvent has no unit filter (no RegisterUnitEvent equivalent), which suits the
 -- unbounded-group need here: register globally and let CheckUnitDeath gate.
+-- Cached group state, refreshed from GROUP_ROSTER_UPDATE (which fires on every
+-- join/leave/convert), so the high-frequency UNIT_HEALTH/UNIT_FLAGS handler can
+-- short-circuit on a boolean instead of two IsInGroup()/IsInRaid() C calls per event.
+local inGroup = IsInGroup() or IsInRaid()
+
 local function OnUnitHealthOrFlags(event, unit)
     -- UNIT_HEALTH / UNIT_FLAGS: only evaluate the unit that fired the event.
-    if not IsInGroup() and not IsInRaid() then return end
+    -- Reject the dominant nameplate/target churn one step earlier than the group
+    -- gate: only "party..." (p) / "raid..." (r) tokens can be group members, so a
+    -- single first-byte compare drops everything else before the group check.
+    if not unit then return end
+    local b = strbyte(unit)
+    if b ~= 112 and b ~= 114 then return end -- 'p' / 'r'
+    if not inGroup then return end
     CheckUnitDeath(unit)
 end
 DA:RegisterEvent("UNIT_HEALTH", OnUnitHealthOrFlags)
 DA:RegisterEvent("UNIT_FLAGS", OnUnitHealthOrFlags)
 
 DA:RegisterEvent("GROUP_ROSTER_UPDATE", function(event)
+    -- Refresh the cached group-membership flag the UNIT_HEALTH/UNIT_FLAGS gate reads.
+    inGroup = IsInGroup() or IsInRaid()
     -- Roster changes fire often during combat (disconnects, summons, pets)
     -- and must NOT clear the death buffers, otherwise a real wipe with
     -- simultaneous disconnects could silently bypass the anti-spam

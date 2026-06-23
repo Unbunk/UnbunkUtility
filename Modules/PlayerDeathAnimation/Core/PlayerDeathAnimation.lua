@@ -89,22 +89,35 @@ local function PlayAnimation()
 
     local loop = PD.CfgGet("animLoop")
 
-    local function ShowNextFrame()
+    -- Precompute the per-frame texture paths once for this animation, so the ticker
+    -- below just indexes a table instead of concatenating anim.path..frame..".tga"
+    -- every frame. paths[i] is the texture for frame (i-1).
+    local paths = {}
+    for f = 0, totalFrames - 1 do paths[f + 1] = anim.path .. f .. ".tga" end
+    local lastPath = paths[totalFrames]
+
+    -- Draw frame 0 synchronously: NewTicker only fires after the first frameTime, so
+    -- without this the frame would be blank for one tick (the old NewTimer chain ran
+    -- its body immediately). Matches the previous first-frame timing.
+    animTex:SetTexture(paths[1])
+    currentFrame = 1
+
+    -- One ticker drives the whole animation (replacing the per-frame NewTimer chain).
+    -- It's cancelled in StopAnimation, so a restart never leaves an old ticker running.
+    animTimer = C_Timer.NewTicker(frameTime, function()
         if not animActive then return end
         if currentFrame >= totalFrames then
             if loop then
                 currentFrame = 0
             else
-                animTex:SetTexture(anim.path .. (totalFrames - 1) .. ".tga")
+                animTex:SetTexture(lastPath)
+                if animTimer then animTimer:Cancel(); animTimer = nil end
                 return
             end
         end
-        animTex:SetTexture(anim.path .. currentFrame .. ".tga")
+        animTex:SetTexture(paths[currentFrame + 1])
         currentFrame = currentFrame + 1
-        animTimer = C_Timer.NewTimer(frameTime, ShowNextFrame)
-    end
-
-    ShowNextFrame()
+    end)
 
     -- Stored handle so a restarted animation cancels the previous run's
     -- end-of-animation timer (via StopAnimation) instead of being cut short. When
