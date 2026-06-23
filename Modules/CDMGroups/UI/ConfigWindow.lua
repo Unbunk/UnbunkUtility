@@ -308,6 +308,73 @@ function ns.CDMGroups.TrackerFreeCadres(cfg)
     })
 end
 
+-- Build a tracker module's whole "Icon" group — the boilerplate every tracker used to copy-paste: the
+-- "Show icon" checkbox (+ optional inline extra), the "Placement" group (Include-in-CDM checkbox +
+-- Anchor-to dropdown), then the shared Override/Free cadre pair (TrackerCdmCadres). Returns ONE group
+-- entry to splice into a module's options (top-level) or a per-section build list. Everything that varies
+-- between trackers is injected via `b`; the structure here is identical to the hand-written copies it
+-- replaces (same widgets, order, gate master, and TrackerCdmCadres cfg). b = {
+--   get(key)->val, set(key,val),                 -- config accessor (caller binds its sid/prefix)
+--   frameName, defaultDest ("essential"/"belowPlayer"), LSM, rebuild(),  -- rebuild = the menu's Rebuild
+--   applyIcon(),                                 -- cold-path full re-apply (Override edits + free touch)
+--   sizeApply(),                                 -- free icon-size apply (TrackerFreeCadres falls back to touch)
+--   seedValues()->{override seed}, pos = { getX,getY,onApply,onUnlock,onLock,isUnlocked,onBuilt },
+--   afterInclude(), afterAnchor()|=afterInclude, -- the apply+rebuild tail of the two Placement controls
+--   onShowIcon()|nil,                            -- optional; fired by the Show-icon checkbox set
+--   title=L["Icon"], enabledBy()|nil, showIconHeight|nil, showIconInline|nil,  -- optional chrome
+-- }
+function ns.CDMGroups.TrackerIconGroup(b)
+    local function inCdm()   return ns.CDMIncludedVal(b.get("includeInCdm")) end
+    local function curDest() return b.get("cdmDest") or b.defaultDest end
+    return {
+        type = "group", title = b.title or L["Icon"], enabledBy = b.enabledBy,
+        -- Unchecking "Show icon" greys the rest of the Icon box; the checkbox itself stays live.
+        gate = { enabled = function() return b.get("showIcon") ~= false end, master = "showicon" },
+        build = function()
+            local e = {
+                { type = "checkbox", ref = "showicon", label = L["Show icon"], height = b.showIconHeight,
+                  get = function() return b.get("showIcon") ~= false end,
+                  set = function(v) b.set("showIcon", v); if b.onShowIcon then b.onShowIcon() end end,
+                  inline = b.showIconInline },
+
+                { type = "group", title = L["Placement"], build = function() return {
+                    { type = "checkbox", label = L["Include in cdm"],
+                      disabled = function() return not ns.IsCDMEnabled() end,
+                      get = function() return inCdm() end,
+                      set = function(v) b.set("includeInCdm", v); b.afterInclude() end },
+                    { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
+                      when = function() return inCdm() end,
+                      getList = function() return ns.CDMDestList() end,
+                      getCurrentKey = function() return ns.CDMDestChoiceLabel(b.get) end,
+                      onSelect = function(label) ns.CDMApplyDestChoice(label, b.set); (b.afterAnchor or b.afterInclude)() end },
+                } end },
+            }
+
+            local cfg = {
+                frameName  = b.frameName,
+                getDest    = curDest,
+                cdmAtEnd   = function() return b.get("cdmAtEnd") end,
+                inCdm      = inCdm,
+                applyIcon  = b.applyIcon,
+                rebuild    = b.rebuild,
+                getOv      = function() return b.get("ovCollapsed") ~= false end,
+                setOv      = function(c) b.set("ovCollapsed", c) end,
+                getFree    = function() return b.get("freeCollapsed") ~= false end,
+                setFree    = function(c) b.set("freeCollapsed", c) end,
+                seedValues = b.seedValues,
+                freeBuild  = function()
+                    return ns.CDMGroups.TrackerFreeCadres({
+                        get = b.get, set = b.set, touch = b.applyIcon, rebuild = b.rebuild,
+                        sizeApply = b.sizeApply, LSM = b.LSM, pos = b.pos,
+                    })
+                end,
+            }
+            for _, x in ipairs(ns.CDMGroups.TrackerCdmCadres(cfg)) do e[#e + 1] = x end
+            return e
+        end,
+    }
+end
+
 -- The per-icon override editor's option tree: binds IconSections to the Config instance `I` + the
 -- singleton pencil editor. bundle.* reads/writes the per-icon override store; bundle.refresh is the full
 -- Rebuild the shared section helpers expect (the override gates use `when`); ctx routes the editor's own

@@ -8,6 +8,12 @@ local RT = ns.RacialTracker
 local function CreateRacialTrackerPanel(parent)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     local menu  -- forward declare so closures can reach menu.Rebuild / menu.refs.pe
+    local function rebuildMenu() if menu then menu.Rebuild() end end
+    local function applyIcon()
+        if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- in-CDM size override -> force the engine to re-pack (its layout sig folds the epoch)
+        RT.ApplyAll(); RT.ApplyTimerVisuals(); RT.ApplyBorder(); RT.ApplySize()
+        if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
+    end
 
     local options = {
         { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["Racial Tracker"] },
@@ -198,79 +204,26 @@ local function CreateRacialTrackerPanel(parent)
         },
 
         -- ════════════ Icon ════════════
-        {
-            type  = "group",
-            title = L["Icon"],
+        -- Default override-set (seedValues): ONLY Timer (size 14 + urgency thresholds); the rest inherits the group.
+        ns.CDMGroups.TrackerIconGroup({
+            get = RT.CfgGet, set = RT.CfgSet,
+            frameName = "RacialTrackerFrame", defaultDest = "belowPlayer", LSM = LSM,
             enabledBy = function() return RT.CfgGet("enabled") ~= false end,
-            -- Unchecking "Show icon" greys the rest of the Icon box (placement / border /
-            -- timer text) since there is no icon to configure; the checkbox stays live.
-            gate      = { enabled = function() return RT.CfgGet("showIcon") ~= false end, master = "showicon" },
-            build = function()
-                local frameName = "RacialTrackerFrame"
-                local function inCdm() return ns.CDMIncludedVal(RT.CfgGet("includeInCdm")) end
-                local function curDest() return RT.CfgGet("cdmDest") or "belowPlayer" end
-                local function rebuildMenu() if menu then menu.Rebuild() end end
-                local function applyIcon()
-                    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- in-CDM size override -> force the engine to re-pack (its layout sig folds the epoch)
-                    RT.ApplyAll(); RT.ApplyTimerVisuals(); RT.ApplyBorder(); RT.ApplySize()
-                    if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
-                end
-
-                local e = {
-                    { type = "checkbox", ref = "showicon", label = L["Show icon"],
-                      get = function() return RT.CfgGet("showIcon") ~= false end,
-                      set = function(val) RT.CfgSet("showIcon", val); RT.ApplyAll() end },
-
-                    { type = "group", title = L["Placement"], build = function() return {
-                        { type = "checkbox", label = L["Include in cdm"],
-                          disabled = function() return not ns.IsCDMEnabled() end,
-                          get = function() return inCdm() end,
-                          set = function(v) RT.CfgSet("includeInCdm", v); RT.ApplySize(); RT.ApplyPosition(); RT.ApplyAll(); rebuildMenu() end },
-                        { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
-                          when = function() return inCdm() end,
-                          getList = function() return ns.CDMDestList() end,
-                          getCurrentKey = function() return ns.CDMDestChoiceLabel(RT.CfgGet) end,
-                          onSelect = function(label) ns.CDMApplyDestChoice(label, RT.CfgSet); RT.ApplySize(); RT.ApplyPosition(); RT.ApplyAll(); rebuildMenu() end },
-                    } end },
-                }
-
-                local cfg = {
-                    frameName  = frameName,
-                    getDest    = curDest,
-                    cdmAtEnd   = function() return RT.CfgGet("cdmAtEnd") end,
-                    inCdm      = inCdm,
-                    applyIcon  = applyIcon,
-                    rebuild    = rebuildMenu,
-                    getOv      = function() return RT.CfgGet("ovCollapsed") ~= false end,
-                    setOv      = function(c) RT.CfgSet("ovCollapsed", c) end,
-                    getFree    = function() return RT.CfgGet("freeCollapsed") ~= false end,
-                    setFree    = function(c) RT.CfgSet("freeCollapsed", c) end,
-                    -- Default override-set: ONLY Timer (size 14 + urgency thresholds). Rest inherits the group.
-                    seedValues = function() return ns.DefaultTrackerTimerSeed() end,
-                    freeBuild  = function()
-                        return ns.CDMGroups.TrackerFreeCadres({
-                            get       = RT.CfgGet,
-                            set       = RT.CfgSet,
-                            touch     = applyIcon,
-                            rebuild   = rebuildMenu,
-                            sizeApply = function() RT.ApplySize() end,
-                            LSM       = LSM,
-                            pos = {
-                                getX = function() return RT.CfgGet("posX") end,
-                                getY = function() return RT.CfgGet("posY") end,
-                                onApply = function(x, yv) if x then RT.CfgSet("posX", x) end if yv then RT.CfgSet("posY", yv) end RT.ApplyPosition(); RT.ApplyAll() end,
-                                onUnlock = function() RT.SetUnlocked(true) end,
-                                onLock = function() RT.SetUnlocked(false); if RT.pe then RT.pe.Refresh() end end,
-                                isUnlocked = function() return RT.IsUnlocked() end,
-                                onBuilt = function(w) RT.pe = w end,
-                            },
-                        })
-                    end,
-                }
-                for _, x in ipairs(ns.CDMGroups.TrackerCdmCadres(cfg)) do e[#e + 1] = x end
-                return e
-            end,
-        },
+            rebuild = rebuildMenu, applyIcon = applyIcon,
+            onShowIcon = function() RT.ApplyAll() end,
+            afterInclude = function() RT.ApplySize(); RT.ApplyPosition(); RT.ApplyAll(); rebuildMenu() end,
+            sizeApply = function() RT.ApplySize() end,
+            seedValues = function() return ns.DefaultTrackerTimerSeed() end,
+            pos = {
+                getX = function() return RT.CfgGet("posX") end,
+                getY = function() return RT.CfgGet("posY") end,
+                onApply = function(x, yv) if x then RT.CfgSet("posX", x) end if yv then RT.CfgSet("posY", yv) end RT.ApplyPosition(); RT.ApplyAll() end,
+                onUnlock = function() RT.SetUnlocked(true) end,
+                onLock = function() RT.SetUnlocked(false); if RT.pe then RT.pe.Refresh() end end,
+                isUnlocked = function() return RT.IsUnlocked() end,
+                onBuilt = function(w) RT.pe = w end,
+            },
+        }),
     }
 
     menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518, LSM = LSM })

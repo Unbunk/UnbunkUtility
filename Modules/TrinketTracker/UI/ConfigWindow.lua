@@ -74,6 +74,13 @@ local function BuildTrinketOptions(prefix, LSM)
     end
 
     local tracker = prefix == "trinket1" and TT.GetTracker1() or TT.GetTracker2()
+    local function rebuildMenu() if TT.configMenu then TT.configMenu.Rebuild() end end
+    local function applyIcon()
+        if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- in-CDM size override -> force the engine to re-pack (its layout sig folds the epoch)
+        TT.ApplyAll()
+        if tracker then tracker.ApplyFont(); tracker.ApplyBorder(); tracker.ApplySize() end
+        if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
+    end
 
     return {
         -- ════════════ Sound ════════════
@@ -116,79 +123,27 @@ local function BuildTrinketOptions(prefix, LSM)
         },
 
         -- ════════════ Icon ════════════
-        {
-            type  = "group",
-            title = L["Icon"],
-            -- Unchecking "Show icon" greys the rest of the Icon box (placement / border /
-            -- timer text) since there is no icon to configure; the checkbox stays live.
-            gate  = { enabled = function() return GetCfg("showIcon") ~= false end, master = "showicon" },
-            build = function()
-                local frameName = (prefix == "trinket1") and "TrinketTracker1" or "TrinketTracker2"
-                local function inCdm() return ns.CDMIncludedVal(GetCfg("includeInCdm")) end
-                local function curDest() return GetCfg("cdmDest") or "essential" end
-                local function rebuildMenu() if TT.configMenu then TT.configMenu.Rebuild() end end
-                local function applyIcon()
-                    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end   -- in-CDM size override -> force the engine to re-pack (its layout sig folds the epoch)
-                    TT.ApplyAll()
-                    if tracker then tracker.ApplyFont(); tracker.ApplyBorder(); tracker.ApplySize() end
-                    if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
-                end
-
-                local e = {
-                    { type = "checkbox", ref = "showicon", label = L["Show icon"], height = 24,
-                      get = function() return GetCfg("showIcon") ~= false end,
-                      set = function(val) SetCfg("showIcon", val); TT.ApplyAll() end },
-
-                    { type = "group", title = L["Placement"], build = function() return {
-                        { type = "checkbox", label = L["Include in cdm"],
-                          disabled = function() return not ns.IsCDMEnabled() end,
-                          get = function() return inCdm() end,
-                          set = function(v) SetCfg("includeInCdm", v); if tracker then tracker.ApplySize(); tracker.ApplyPosition() end rebuildMenu() end },
-                        { type = "dropdown", label = L["Anchor to"], width = 200, height = 50,
-                          when = function() return inCdm() end,
-                          getList = function() return ns.CDMDestList() end,
-                          getCurrentKey = function() return ns.CDMDestChoiceLabel(GetCfg) end,
-                          onSelect = function(label) ns.CDMApplyDestChoice(label, SetCfg); if tracker then tracker.ApplySize(); tracker.ApplyPosition() end rebuildMenu() end },
-                    } end },
-                }
-
-                local cfg = {
-                    frameName  = frameName,
-                    getDest    = curDest,
-                    cdmAtEnd   = function() return GetCfg("cdmAtEnd") end,
-                    inCdm      = inCdm,
-                    applyIcon  = applyIcon,
-                    rebuild    = rebuildMenu,
-                    getOv      = function() return GetCfg("ovCollapsed") ~= false end,
-                    setOv      = function(c) SetCfg("ovCollapsed", c) end,
-                    getFree    = function() return GetCfg("freeCollapsed") ~= false end,
-                    setFree    = function(c) SetCfg("freeCollapsed", c) end,
-                    -- Default override-set: ONLY Timer (size 14 + urgency thresholds). Rest inherits the group.
-                    seedValues = function() return ns.DefaultTrackerTimerSeed() end,
-                    freeBuild  = function()
-                        return ns.CDMGroups.TrackerFreeCadres({
-                            get       = GetCfg,
-                            set       = SetCfg,
-                            touch     = applyIcon,
-                            rebuild   = rebuildMenu,
-                            sizeApply = function() if tracker then tracker.ApplySize() end end,
-                            LSM       = LSM,
-                            pos = {
-                                getX = function() return GetCfg("posX") end,
-                                getY = function() return GetCfg("posY") end,
-                                onApply = function(x, yv) if x then SetCfg("posX", x) end if yv then SetCfg("posY", yv) end TT.ApplyAll() end,
-                                onUnlock = function() if tracker then tracker.SetUnlocked(true) end end,
-                                onLock = function() if tracker then tracker.SetUnlocked(false) end if tracker and tracker.pe then tracker.pe.Refresh() end end,
-                                isUnlocked = function() return tracker and tracker.IsUnlocked() end,
-                                onBuilt = function(w) if tracker then tracker.pe = w end end,
-                            },
-                        })
-                    end,
-                }
-                for _, x in ipairs(ns.CDMGroups.TrackerCdmCadres(cfg)) do e[#e + 1] = x end
-                return e
-            end,
-        },
+        -- Default override-set (seedValues): ONLY Timer (size 14 + urgency thresholds); the rest inherits the group.
+        ns.CDMGroups.TrackerIconGroup({
+            get = GetCfg, set = SetCfg,
+            frameName = (prefix == "trinket1") and "TrinketTracker1" or "TrinketTracker2",
+            defaultDest = "essential", LSM = LSM,
+            showIconHeight = 24,
+            rebuild = rebuildMenu, applyIcon = applyIcon,
+            onShowIcon = function() TT.ApplyAll() end,
+            afterInclude = function() if tracker then tracker.ApplySize(); tracker.ApplyPosition() end rebuildMenu() end,
+            sizeApply = function() if tracker then tracker.ApplySize() end end,
+            seedValues = function() return ns.DefaultTrackerTimerSeed() end,
+            pos = {
+                getX = function() return GetCfg("posX") end,
+                getY = function() return GetCfg("posY") end,
+                onApply = function(x, yv) if x then SetCfg("posX", x) end if yv then SetCfg("posY", yv) end TT.ApplyAll() end,
+                onUnlock = function() if tracker then tracker.SetUnlocked(true) end end,
+                onLock = function() if tracker then tracker.SetUnlocked(false) end if tracker and tracker.pe then tracker.pe.Refresh() end end,
+                isUnlocked = function() return tracker and tracker.IsUnlocked() end,
+                onBuilt = function(w) if tracker then tracker.pe = w end end,
+            },
+        }),
 
         -- ── Trailing spacer ───────────────────────────────────────────────────
         -- Reproduces the original section's "height = height + 16" bottom pad so
