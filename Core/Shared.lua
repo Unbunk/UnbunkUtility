@@ -72,15 +72,17 @@ function ns.IsActiveInInstance(filter)
     local inInstance, instanceType = IsInInstance()
     if not inInstance then
         return filter.outdoor ~= false
-    elseif instanceType == "party" then
-        return filter.dungeon ~= false
     elseif instanceType == "raid" then
         return filter.raid ~= false
     elseif instanceType == "pvp" or instanceType == "arena" then
         return filter.battleground ~= false
     end
 
-    return false
+    -- The "dungeon" filter governs every remaining instance type: 5-man dungeons
+    -- ("party") plus scenarios, delves, and any other instance that is not a raid,
+    -- battleground, or arena. In other words, "Dungeon" means "any instanced PvE
+    -- content other than raids".
+    return filter.dungeon ~= false
 end
 
 -- ── Fonts ───────────────────────────────────────────────────────────────────
