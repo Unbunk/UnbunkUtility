@@ -2228,6 +2228,16 @@ local function RestoreViewerPoints(v)
 end
 
 local function ApplyEditModeOverlay()
+    -- DISABLED on 12.1.0 (commit 38b12ed, never shipped tested). Gluing a native CooldownViewer
+    -- onto its Group 1 block requires writing the *protected* viewer's anchors WHILE Edit Mode is
+    -- open. Under 12.1.0 the secure Edit Mode passes (RefreshEncounterEvents on enter,
+    -- HideSystemSelections on exit) read now-SECRET frame state from those registered system
+    -- frames; once our raw writes mark them addon-tainted, those reads throw "compare/arithmetic
+    -- on a secret value". This is the prime suspect for the two Edit Mode enter/exit LUA_WARNINGs.
+    -- It cannot be made taint-safe while it writes the registered system frame, so we bail. To
+    -- restore a Group-1 husk indicator taint-safely later, draw an addon-OWNED frame over Group 1
+    -- instead of re-anchoring the protected viewer.
+    do return end
     if InCombatLockdown() then return end
     for _, e in ipairs(EM_VIEWERS) do
         local v = e.name and _G[e.name]
@@ -2244,6 +2254,9 @@ end
 
 local emRestoreEv
 local function ClearEditModeOverlay()
+    do return end   -- DISABLED with ApplyEditModeOverlay (see above): the overlay never saves any
+                    -- viewer points, so there is nothing to restore; never write the protected
+                    -- viewers on exit (that is the HideSystemSelections secret-value taint path).
     -- Combat can force-close Edit Mode; the protected SetPoint restore must wait for safety.
     if InCombatLockdown() then
         emRestoreEv = emRestoreEv or CreateFrame("Frame")
