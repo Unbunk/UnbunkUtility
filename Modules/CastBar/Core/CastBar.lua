@@ -319,7 +319,14 @@ end
 local function EnsureFrames()
     if container then return end
     container = CreateFrame("Frame", "UnbunkCastBar", UIParent, "BackdropTemplate")
-    container:SetFrameStrata("MEDIUM")
+    -- HIGH so the whole cast bar (the StatusBar child `bar`, the icon, the 4 border-edge
+    -- textures drawn on this container, and the name/timer text) always draws ABOVE every CDM
+    -- element — the Essential / Utility / Tracked Buffs / Tracked Bars viewers plus the
+    -- below-player and free icons all live on MEDIUM. Frame STRATA dominates frame level, and the
+    -- CDM side's levels are dynamic (PinNative / glow / border re-impose), so raising the strata
+    -- is the robust lever rather than chasing levels. Stays below DIALOG/TOOLTIP (config windows,
+    -- tooltips), which is intended.
+    container:SetFrameStrata("HIGH")
     container:SetClampedToScreen(true)
     container:Hide()
 
