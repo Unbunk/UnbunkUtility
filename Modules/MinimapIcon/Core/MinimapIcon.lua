@@ -53,24 +53,29 @@ local function CreateButton()
     button:RegisterForClicks("LeftButtonUp")
     button:RegisterForDrag("LeftButton")
 
-    -- Standard minimap-button ring on top.
+    -- Standard minimap-button ring on top. The MiniMap-TrackingBorder art has its
+    -- visible ring in the UPPER-LEFT of the texture (the bottom-right portion is drop
+    -- shadow), so anchoring the 54px border at the button's TOPLEFT centres the ring on
+    -- the 32px button. (The previous -2,2 offset pushed the ring up-left, which made the
+    -- centred icon look shifted toward the bottom-right.)
     local overlay = button:CreateTexture(nil, "OVERLAY")
     overlay:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
     overlay:SetSize(54, 54)
-    overlay:SetPoint("TOPLEFT", -2, 2)
+    overlay:SetPoint("TOPLEFT", 0, 0)
 
-    -- Dark circular background under the icon.
+    -- Dark circular background under the icon, nudged 1px down-right to sit at the ring's
+    -- optical centre (the MiniMap-TrackingBorder ring centres slightly off the texture middle).
     local bg = button:CreateTexture(nil, "BACKGROUND")
     bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
     bg:SetSize(20, 20)
-    bg:SetPoint("CENTER")
+    bg:SetPoint("CENTER", 1, 0)
 
-    -- Addon icon.
+    -- Addon icon, centred in the ring (same nudge as the background).
     local icon = button:CreateTexture(nil, "ARTWORK")
     icon:SetTexture(ICON_TEXTURE)
     icon:SetTexCoord(0, 1, 0, 1)
     icon:SetSize(20, 20)
-    icon:SetPoint("CENTER")
+    icon:SetPoint("CENTER", 1, 0)
 
     button:SetScript("OnClick", function()
         if UnbunkUtility and UnbunkUtility.OpenWindow then
