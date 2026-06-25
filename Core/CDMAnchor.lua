@@ -2145,14 +2145,141 @@ f:SetScript("OnEvent", function(_, event, cvarName)
     C_Timer.After(0.1, function() ns.CDMAnchor.RefreshAll(true) end)
 end)
 
+-- ── Edit Mode: match each managed viewer's husk to its Group 1 block ──────────
+-- Our engines pin the real cooldown icons to their own "Group 1" container, so in
+-- Blizzard's Edit Mode the native viewer's selection rectangle no longer reflects what
+-- the user actually sees. While Edit Mode is open we glue each of the 4 managed viewers
+-- (Essential / Utility / Tracked Buffs / Tracked Bars) to EXACTLY cover its Group 1
+-- container — a two-corner anchor, so the husk tracks Group 1's size AND position live —
+-- and restore the viewer's native anchor + layout on exit.
+--
+-- TAINT NOTE: unlike GlueViewer / LayoutCDMRow above (which deliberately BAIL while
+-- editModeActive), this path intentionally writes these protected viewer anchors WHILE Edit
+-- Mode is open. That is acceptable because: (1) the writes go through hooksecurefunc post-hooks
+-- + raw C methods, so the hook's taint does not propagate into Blizzard's secure Edit Mode
+-- execution; (2) Edit Mode's SaveLayouts serialises each system's own secure systemInfo, NOT a
+-- frame's live (tainted) anchor, so moving/saving OTHER systems is unaffected; (3) these same 4
+-- viewers are already persistently tainted every session by CDMEditModeLock's SetMovable(false);
+-- and (4) all writes run OUT of combat only (Edit Mode is always out of combat).
+-- INVARIANT: this husk-move is safe ONLY because CDMEditModeLock keeps these exact 4 viewers
+-- non-movable + dialog-hidden in Edit Mode (so the moved husk can never be saved back as the
+-- native anchor). Keep EM_VIEWERS and CDMEditModeLock's LOCK_NAMES in lockstep.
+local EM_VIEWERS = {
+    { name = ns.CDM_VIEWER.essential,  g1 = function() local i = ns.CDMGroups and ns.CDMGroups.essential; return i and i.GetContainer and i.GetContainer(1) end },
+    { name = ns.CDM_VIEWER.utility,    g1 = function() local i = ns.CDMGroups and ns.CDMGroups.utility;   return i and i.GetContainer and i.GetContainer(1) end },
+    { name = "BuffIconCooldownViewer", g1 = function() return ns.BuffGroups and ns.BuffGroups.GetContainer and ns.BuffGroups.GetContainer(1) end },
+    { name = "BuffBarCooldownViewer",  g1 = function() return ns.BarGroups  and ns.BarGroups.GetContainer  and ns.BarGroups.GetContainer(1)  end },
+}
+
+-- A Group 1 container is a usable anchor only once it has been laid out with real bounds
+-- (shown, positioned, width > 1). Until then we leave the viewer at its native spot.
+local function Group1Ready(c)
+    return (c and c.IsShown and c:IsShown() and c.GetWidth and (c:GetWidth() or 0) > 1 and c:GetLeft()) and true or false
+end
+
+local function GlueViewerToGroup1(v, c)
+    v._uuEMG1 = c
+    if not v._uuEMHook then
+        v._uuEMHook = true
+        -- Re-impose if Blizzard / EditMode re-anchors the viewer while we own it for Edit Mode.
+        hooksecurefunc(v, "SetPoint", function(self, _, relTo)
+            if not editModeActive or self._uuEMApplying or InCombatLockdown() then return end
+            local g1 = self._uuEMG1
+            if not g1 or relTo == g1 then return end
+            self._uuEMApplying = true
+            RawClearAllPoints(self)
+            RawSetPoint(self, "TOPLEFT",     g1, "TOPLEFT",     0, 0)
+            RawSetPoint(self, "BOTTOMRIGHT", g1, "BOTTOMRIGHT", 0, 0)
+            self._uuEMApplying = false
+        end)
+    end
+    v._uuEMApplying = true
+    RawClearAllPoints(v)
+    RawSetPoint(v, "TOPLEFT",     c, "TOPLEFT",     0, 0)
+    RawSetPoint(v, "BOTTOMRIGHT", c, "BOTTOMRIGHT", 0, 0)
+    v._uuEMApplying = false
+end
+
+-- Capture the viewer's native anchor ONCE (before we override it) so exit can restore it.
+-- Returns true once a non-empty anchor is captured. A viewer with ZERO points must NOT be
+-- glued (we'd have nothing to restore and would strand it point-less at the screen origin).
+local function SaveViewerPoints(v)
+    if v._uuEMSaved then return true end
+    local saved = {}
+    for i = 1, (v.GetNumPoints and v:GetNumPoints() or 0) do
+        saved[i] = { v:GetPoint(i) }
+    end
+    if #saved == 0 then return false end
+    v._uuEMSaved = saved
+    return true
+end
+
+local function RestoreViewerPoints(v)
+    local saved = v._uuEMSaved
+    v._uuEMG1, v._uuEMSaved = nil, nil
+    if not saved then return end
+    v._uuEMApplying = true
+    RawClearAllPoints(v)
+    for _, pt in ipairs(saved) do
+        if pt[1] then RawSetPoint(v, pt[1], pt[2], pt[3], pt[4], pt[5]) end
+    end
+    v._uuEMApplying = false
+    if v.RefreshLayout then pcall(v.RefreshLayout, v) end   -- snap the husk back to its native size
+end
+
+local function ApplyEditModeOverlay()
+    if InCombatLockdown() then return end
+    for _, e in ipairs(EM_VIEWERS) do
+        local v = e.name and _G[e.name]
+        if v then
+            local c = e.g1()
+            -- Only take over a viewer we can faithfully restore (SaveViewerPoints captured a
+            -- real native anchor) AND whose Group 1 is actually laid out.
+            if Group1Ready(c) and SaveViewerPoints(v) then
+                GlueViewerToGroup1(v, c)
+            end
+        end
+    end
+end
+
+local emRestoreEv
+local function ClearEditModeOverlay()
+    -- Combat can force-close Edit Mode; the protected SetPoint restore must wait for safety.
+    if InCombatLockdown() then
+        emRestoreEv = emRestoreEv or CreateFrame("Frame")
+        emRestoreEv:RegisterEvent("PLAYER_REGEN_ENABLED")
+        emRestoreEv:SetScript("OnEvent", function(self)
+            self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            ClearEditModeOverlay()
+        end)
+        return
+    end
+    for _, e in ipairs(EM_VIEWERS) do
+        local v = e.name and _G[e.name]
+        if v and v._uuEMSaved then RestoreViewerPoints(v) end
+    end
+end
+
 -- While EditMode is open we release the viewers (so the user can drag them
 -- normally); on close we re-capture their new position and take ownership again.
+-- EnterEditMode/ExitEditMode are wired to BOTH EditModeManagerFrame OnShow/OnHide AND the
+-- EventRegistry EditMode.Enter/Exit signals (Blizzard fires both on one open/close), so guard
+-- on editModeActive to run the body exactly once per transition.
 local function EnterEditMode()
+    if editModeActive then return end
     editModeActive = true
-    if not InCombatLockdown() then ReleaseAll() end
+    if not InCombatLockdown() then
+        ReleaseAll()
+        ApplyEditModeOverlay()
+        -- Group 1's preview block may not be sized at the very instant Edit Mode opens; retry
+        -- shortly so a late-laid-out block still gets matched (the live anchor then tracks it).
+        C_Timer.After(0.2, function() if editModeActive then ApplyEditModeOverlay() end end)
+    end
 end
 local function ExitEditMode()
+    if not editModeActive then return end
     editModeActive = false
+    ClearEditModeOverlay()
     -- Drop the captured anchors so the next refresh re-reads the (possibly moved)
     -- EditMode position instead of restoring the stale one.
     for _, c in pairs(containers) do c._uuBase = nil end
