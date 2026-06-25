@@ -450,6 +450,23 @@ function CDG.Make(dest)
                 if #row >= per then row = {}; rows[#rows + 1] = row end
                 row[#row + 1] = sid
             end
+            -- FREEZE the first-seen order into the SAVED list: append these newly-displayed members to the
+            -- stored order (in their current native rank). Once frozen, re-ordering a cooldown in the NATIVE
+            -- CDM never reshuffles our layout again — it follows ONLY our saved list. We APPEND (never
+            -- overwrite), so a member that momentarily leaves the pool keeps its slot and new ones keep
+            -- appending at the end; the "Copy native CDM order" button stays the explicit opt-in to re-adopt
+            -- the native order. Same row-chunking as the display above, on the live RawOrder table.
+            -- Skip Group 0 (Unused): its order is irrelevant (the engine never persists it — only the config
+            -- Unused strip renders via GroupRows(0)), so don't dirty s.order[0] just by opening the window.
+            if groupId ~= 0 then
+                local stored = I.RawOrder(groupId)
+                local srow = stored[#stored]
+                if type(srow) ~= "table" then srow = {}; stored[#stored + 1] = srow end
+                for _, sid in ipairs(rest) do
+                    if #srow >= per then srow = {}; stored[#stored + 1] = srow end
+                    srow[#srow + 1] = sid
+                end
+            end
         end
         -- Prune empty trailing rows, but always keep at least one row.
         while #rows > 1 and #rows[#rows] == 0 do rows[#rows] = nil end

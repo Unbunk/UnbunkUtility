@@ -1137,12 +1137,11 @@ local function EngineFor(I)
                 appl:SetDrawLayer("OVERLAY", 7)
                 appl._uuStackNF, appl._uuStackSid = nf, spellId
                 ReanchorStack(appl)
-                if not appl._uuStackHooked then
-                    appl._uuStackHooked = true
-                    hooksecurefunc(appl, "SetPoint", function(self)
-                        if not self._uuReanchoring then ReanchorStack(self) end
-                    end)
-                end
+                -- NB: we deliberately do NOT hooksecurefunc(appl, "SetPoint", ...) to re-impose our anchor.
+                -- Blizzard re-positions this charge/stack count from INSIDE its secure RefreshSpellChargeInfo,
+                -- so our post-hook ran there and tainted the secret `charges` read ("tainted by UnbunkUtility").
+                -- ReanchorStack already runs on every full StyleFrame pass; a brief drift to Blizzard's default
+                -- anchor between passes is cosmetic (and tiny) and not worth tainting the secure charge refresh.
                 appl:SetShown(true)
             else
                 appl:Hide()
@@ -1548,10 +1547,27 @@ local function EngineFor(I)
         table.sort(sp)
         local sig = table.concat(sp, ",")
         if sig == lastLayoutSig then
+            -- A relayout whose shown-set is unchanged still matches the signature — but CDMAnchor's
+            -- OnAcquireItemFrame hook clears nf._uuPin whenever Blizzard's relayout RECYCLES an item frame
+            -- (move a cooldown in native EditMode / "Copy native CDM order" / a group setting). An unpinned
+            -- native has lost our geometry (PinNative's re-impose hooks early-out with no pin, so Blizzard's
+            -- EditMode size/position win) and its custom border, so the icon art overflows and the natives
+            -- jump to the native layout — the reported bug, which only /reload cleared. The signature can't
+            -- see an unpin, so DON'T early-out when one happened: clear the style gate (so StyleFrame
+            -- re-draws the border) and fall through to the full pass to re-pin + re-style — exactly what
+            -- /reload does. Cheap: frameOf is ~10-13 entries and this is a plain field check (no secret read).
+            local needRepin = false
             for sid, nf in pairs(frameOf) do
-                if not trackerOf[sid] then UpdateTimerTier(nf) end
+                if not trackerOf[sid] then
+                    if not nf._uuPin then
+                        nf._uuStyleSid = nil
+                        needRepin = true
+                    else
+                        UpdateTimerTier(nf)
+                    end
+                end
             end
-            return
+            if not needRepin then return end
         end
         lastLayoutSig = sig
 
@@ -1880,7 +1896,9 @@ local function EngineFor(I)
             -- secret cooldownInfo HERE taints that secure execution → Blizzard's own aura/totem compares
             -- then error ("tainted by UnbunkUtility"). So do NOTHING secret here: just schedule a DEFERRED
             -- relayout (a fresh, untainted C_Timer execution, which also refreshes the displayed cache).
-            -- The 0.2s ticker refreshes the cache in its own clean context even while disabled.
+            -- The deferred I.RefreshLayout re-pins any native that Blizzard's relayout just unpinned via
+            -- OnAcquireItemFrame (the unpinned-frame check in the pass-level early-out), so a recycled frame
+            -- is re-styled even when the shown-set (and thus the signature) is unchanged.
             if I.Enabled() then ScheduleRelayout() end
         end)
         -- Lock the viewer scale to 1 so native offsets match our coordinate space.

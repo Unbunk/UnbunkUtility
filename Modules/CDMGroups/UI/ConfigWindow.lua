@@ -726,7 +726,15 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                 pb:SetScript("OnLeave", paint)
                 pb:SetScript("OnClick", function()
                     if isCC and ns.CustomCDM then ns.CustomCDM.PromptEdit(ns.CustomCDM.IdFromFrameName(spellId))
-                    else OpenIconEditor(I, spellId, rebuild) end
+                    else
+                        -- An ADDON TRACKER (BL / trinket / …) keys on its frame NAME, which maps to its own
+                        -- config tab — jump there (matching the below-player / Free-icons strips; the tab carries
+                        -- the same Override settings). A NATIVE cooldown (number key) or unmapped icon → nil →
+                        -- the per-icon OVERRIDE editor as before.
+                        local panel = ns.PanelForTrackerFrame and ns.PanelForTrackerFrame(spellId)
+                        if panel and ns.NavigateToPanel then ns.NavigateToPanel(panel)
+                        else OpenIconEditor(I, spellId, rebuild) end
+                    end
                 end)
             end
 

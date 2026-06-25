@@ -2064,6 +2064,22 @@ end
 -- redundant rebuild was a 100-300 KB/s allocation storm whenever a CDM-row icon
 -- (e.g. a trinket pinned to the Essential row) was shown.
 local function OnNativeRelayout(viewer)
+    -- TAINT + redundancy guard: this hook fires from INSIDE Blizzard's secure CooldownViewer:RefreshData.
+    -- When the new CDMGroups engine OWNS this dest it drives the viewer's frames itself, so the old bucket
+    -- re-pin is redundant — and the NativeSig + RefreshAll(true) below run a LOT of insecure work inside
+    -- Blizzard's secure refresh, tainting its subsequent aura/totem secret reads ("tainted by UnbunkUtility").
+    -- Bail out for an owned dest so none of that heavy work runs in the secure path.
+    if ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDM_VIEWER then
+        local nm = viewer.GetName and viewer:GetName()
+        if nm then
+            for dest, vname in pairs(ns.CDM_VIEWER) do
+                if vname == nm then
+                    if ns.CDMGroups.OwnsDest(dest) then return end
+                    break
+                end
+            end
+        end
+    end
     local n, acc = NativeSig(viewer)
     if n ~= viewer._uuNatN or acc ~= viewer._uuNatAcc then
         viewer._uuNatN, viewer._uuNatAcc = n, acc

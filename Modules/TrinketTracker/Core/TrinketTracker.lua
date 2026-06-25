@@ -25,9 +25,15 @@ local function GetSlotInfo(slot)
     if not slot then return nil, nil end
     local c = slotCache[slot]
     if not c then
-        c = { itemId = GetInventoryItemID("player", slot) }
+        c = {}
         slotCache[slot] = c
     end
+    -- Re-resolve the equipped item id until it is KNOWN. A cold-login call can run before the equipment is
+    -- populated, so GetInventoryItemID returns nil; the old one-shot `{ itemId = GetInventoryItemID(...) }`
+    -- CACHED that nil and never re-queried it (only spellId was re-resolved), stranding the trinket with "no
+    -- item" for the whole session — no on-use spell → never cdmEligible → missing from the CDM + list until a
+    -- /reload. Once the id resolves it sticks (no more GetInventoryItemID calls on the steady-state tick).
+    if c.itemId == nil then c.itemId = GetInventoryItemID("player", slot) end
     if c.itemId and c.spellId == nil then
         c.spellId = select(2, C_Item.GetItemSpell(c.itemId))
     end

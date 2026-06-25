@@ -345,6 +345,10 @@ local function FreePanelForFrame(name)
     end
     return nil
 end
+-- Shared so the CDMGroups (essential/utility) per-icon pencil can route an ADDON tracker to its own tab
+-- (same as the below-player / Free-icons strips do), instead of opening the per-icon override editor. Returns
+-- nil for a native cooldown (number key) or a non-tracker frame → caller falls back to its default action.
+ns.PanelForTrackerFrame = FreePanelForFrame
 
 -- The CDM row reorder strip entry (a Front/End cadre pair per row) used by the Below-player
 -- panel; forward-declared here so CreateBelowPlayerPanel can reference it (defined further down).
