@@ -2099,7 +2099,10 @@ local function HookViewers()
             -- a stale offset is never re-imposed before the next LayoutCDMRow.
             if v.OnAcquireItemFrame then
                 hooksecurefunc(v, "OnAcquireItemFrame", function(_, itemFrame)
-                    if itemFrame then itemFrame._uuPin = nil end
+                    -- Also drop the cached item/spell classification (CDMGroups IsNativeItemFrame): a
+                    -- recycled frame must re-classify from its NEW content, never inherit the old verdict
+                    -- (e.g. an item frame reused for a spell must not stay suppressed while its info is secret).
+                    if itemFrame then itemFrame._uuPin = nil; itemFrame._uuIsItem = nil end
                 end)
             end
         end

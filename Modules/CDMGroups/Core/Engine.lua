@@ -282,6 +282,47 @@ local function EngineFor(I)
     end
     I.FrameKey = FrameKey
 
+    -- A native cooldown frame that represents an ITEM rather than a spell: an equipped trinket
+    -- (cooldownInfo.equipSlot) or a generic consumable — combat/health potion, healthstone
+    -- (cooldownInfo.spellCategoryID) — or one of 12.1.0's dedicated item buckets (category
+    -- EquipSlotEssential=7 / EquipSlotTracked=8). UnbunkUtility already surfaces all of these through its
+    -- own TrinketTracker / PotionTracker / HealthstoneTracker, so the native duplicates are SUPPRESSED
+    -- (offscreen-parked) by RefreshLayout instead of rendering "apart" at Blizzard's default slot. A live
+    -- dump confirmed real spell cooldowns have equipSlot==nil AND spellCategoryID==nil, so these two
+    -- fields (plus the item categories) classify items with no false positives. Secret-guarded: a value
+    -- can read secret in combat; once a frame is positively classified we cache the verdict on it
+    -- (_uuIsItem) — a frame's item-ness doesn't change until Blizzard recycles it (the OnAcquireItemFrame
+    -- hook in CDMAnchor clears the flag on recycle).
+    local function ItemNum(x)
+        if x == nil then return nil end
+        if issecretvalue and issecretvalue(x) then return nil end
+        return x
+    end
+    local function IsNativeItemFrame(nf)
+        if not nf then return false end
+        local ci = nf.cooldownInfo
+        if type(ci) ~= "table" and nf.GetCooldownInfo then
+            local ok, info = pcall(nf.GetCooldownInfo, nf); if ok then ci = info end
+        end
+        if type(ci) ~= "table" then return nf._uuIsItem == true end
+        local cat = ItemNum(ci.category)
+        if ItemNum(ci.equipSlot) ~= nil or ItemNum(ci.spellCategoryID) ~= nil
+            or cat == 7 or cat == 8 then
+            nf._uuIsItem = true
+            return true
+        end
+        -- Cache a NEGATIVE (spell) verdict ONLY when every classifying field is READABLE — a field that
+        -- reads SECRET in combat could equal-compare as nil and wrongly pin a real item as a spell for
+        -- the rest of the session. If any is secret, fall through to the cached verdict instead.
+        if not (issecretvalue and (issecretvalue(ci.equipSlot) or issecretvalue(ci.spellCategoryID)
+                or issecretvalue(ci.category))) then
+            nf._uuIsItem = false
+            return false
+        end
+        return nf._uuIsItem == true
+    end
+    I.IsNativeItemFrame = IsNativeItemFrame
+
     -- Runtime map base-key -> CURRENT display spellId, populated wherever we enumerate the pool
     -- (CollectDisplayed). Lets the config tile resolve the cooldown's CURRENT form (Glacial Spike while
     -- transformed) for icon / name while everything else stays keyed by the stable base. Not persisted —
@@ -399,15 +440,20 @@ local function EngineFor(I)
         -- fallback (which returns the full category and pollutes the accumulated universe).
         for _, nf in ipairs(EnumNativeFrames(true, cd_nativeEnum)) do
             count = count + 1
-            -- IDENTITY is the STABLE BASE key; the live form's DISPLAY spellId is cached in keyToDisplay so
-            -- the config tile can show the current form's icon/name even though the slot keys on the base.
-            local key  = FrameKey(nf)
-            local disp = FrameSpellId(nf)
-            if key then keyToDisplay[key] = disp or key end
-            if key and not seen[key] then seen[key] = true; out[#out + 1] = key end
-            -- Accumulate behind all three gates (settle + shown + not-cross-viewer).
-            if settled and key and nf.IsShown and nf:IsShown() and not ShownInOtherDest(key) then
-                accumDisplayed[key] = true
+            -- Native item/consumable frames (trinket/potion/healthstone) are SUPPRESSED in the layout
+            -- (our trackers own them), so they must not enter this dest's displayed universe either —
+            -- else a keyable trinket (use-spell id) would show up as an assignable group member here.
+            if not IsNativeItemFrame(nf) then
+                -- IDENTITY is the STABLE BASE key; the live form's DISPLAY spellId is cached in keyToDisplay
+                -- so the config tile can show the current form's icon/name even though the slot keys on base.
+                local key  = FrameKey(nf)
+                local disp = FrameSpellId(nf)
+                if key then keyToDisplay[key] = disp or key end
+                if key and not seen[key] then seen[key] = true; out[#out + 1] = key end
+                -- Accumulate behind all three gates (settle + shown + not-cross-viewer).
+                if settled and key and nf.IsShown and nf:IsShown() and not ShownInOtherDest(key) then
+                    accumDisplayed[key] = true
+                end
             end
         end
         if not I.poolAccumulates then return out, count end
@@ -1443,6 +1489,7 @@ local function EngineFor(I)
     -- the whole grouping/placement/pin/StyleFrame/release body (the PinNative hooks hold geometry) and
     -- refreshes only the per-icon timer tier. rl_sigParts is the reused scratch the sig is built into.
     local rl_sigParts = {}
+    local rl_itemSig = {}      -- reused scratch: suppressed native item ids folded into the layout signature
     local rl_nativeEnum = {}   -- reused EnumNativeFrames scratch for RefreshLayout (separate from cd_nativeEnum)
     local lastLayoutSig = nil
     local sizePool = {}   -- reusable { w, h } tables, recycled into rl_sizes each pass
@@ -1489,19 +1536,33 @@ local function EngineFor(I)
         local frameOf, activeOf, liveSet = rl_frameOf, rl_activeOf, rl_liveSet
         wipe(frameOf); wipe(activeOf); wipe(liveSet)
         local sp = rl_sigParts; wipe(sp)   -- layout-signature parts, accumulated through the enum + tracker fold
+        local itemSig = rl_itemSig; wipe(itemSig)
         local nativeN, keyedNativeN = 0, 0
         for _, nf in ipairs(EnumNativeFrames(nil, rl_nativeEnum)) do
             nativeN = nativeN + 1
             liveSet[nf] = true                 -- key-independent "still a live pool member" set (release guard)
-            local sid = FrameKey(nf)
-            if sid then
-                keyedNativeN = keyedNativeN + 1
-                frameOf[sid] = nf
-                local shown = FrameShown(nf)
-                if shown then activeOf[sid] = true end
-                sp[#sp + 1] = sid .. (shown and "+" or "-")
+            if IsNativeItemFrame(nf) then
+                -- Native item/consumable (trinket / potion / healthstone): SUPPRESSED — our own trackers
+                -- own these. Park it offscreen the moment it is classified, so a FRESH or just-RECYCLED
+                -- frame (whose _uuPin was cleared by OnAcquireItemFrame) can never linger at Blizzard's
+                -- default slot even on a pass that later early-outs (the early-out's repin scan only covers
+                -- frameOf, which excludes items). Also fold its id into the signature so appearance/removal
+                -- forces a full pass.
+                if not nf._uuPin then PinNative(nf, UIParent, OFFSCREEN, OFFSCREEN) end
+                local id = nf.cooldownInfo and ItemNum(nf.cooldownInfo.cooldownID)
+                itemSig[#itemSig + 1] = "I" .. tostring(id or "?")
+            else
+                local sid = FrameKey(nf)
+                if sid then
+                    keyedNativeN = keyedNativeN + 1
+                    frameOf[sid] = nf
+                    local shown = FrameShown(nf)
+                    if shown then activeOf[sid] = true end
+                    sp[#sp + 1] = sid .. (shown and "+" or "-")
+                end
             end
         end
+        if #itemSig > 0 then table.sort(itemSig); sp[#sp + 1] = table.concat(itemSig, ",") end
         -- BLIND-PASS GUARD: during a zone-transition / spec rebuild the native pool frames are briefly
         -- PRESENT but their cooldownInfo.spellID reads as a SECRET value, so FrameKey returns nil for
         -- every native and frameOf holds no native this pass. Laying out now would (a) collapse every
@@ -1512,7 +1573,10 @@ local function EngineFor(I)
         -- tearing it down. A genuinely empty viewer (nativeN == 0, e.g. utility with everything ready)
         -- is NOT caught here, so normal reflow-out still works. Taint-safe: counts only (no secret reads);
         -- I.ScheduleRelayout is a plain C_Timer deferral that re-reads in a clean context.
-        if nativeN > 0 and keyedNativeN == 0 and next(pinnedFrames) then
+        -- Count only NON-ITEM natives (nativeN - #itemSig): a viewer holding ONLY suppressed item frames
+        -- (potion/healthstone/trinket on CD, no tracked spell) is NOT a blind pass — deferring it would
+        -- 0.1s-loop forever and never reach the park below, so the items would render apart.
+        if (nativeN - #itemSig) > 0 and keyedNativeN == 0 and next(pinnedFrames) then
             if I.ScheduleRelayout then I.ScheduleRelayout() end
             return
         end
@@ -1758,11 +1822,17 @@ local function EngineFor(I)
         -- slot through a brief un-keyable blip, so it doesn't blink offscreen. Taint-safe: CDM item frames
         -- are not protected, so SetPoint on them is allowed in combat.
         for nf in pairs(liveSet) do
-            local sid = FrameKey(nf)
-            if sid then
-                if not placed[sid] then PinNative(nf, UIParent, OFFSCREEN, OFFSCREEN) end
-            elseif not pinnedFrames[nf] then
+            if IsNativeItemFrame(nf) then
+                -- Suppressed native item/consumable: keep it parked offscreen every pass (our trackers
+                -- render these). Unconditional so it can never flash back at Blizzard's default slot.
                 PinNative(nf, UIParent, OFFSCREEN, OFFSCREEN)
+            else
+                local sid = FrameKey(nf)
+                if sid then
+                    if not placed[sid] then PinNative(nf, UIParent, OFFSCREEN, OFFSCREEN) end
+                elseif not pinnedFrames[nf] then
+                    PinNative(nf, UIParent, OFFSCREEN, OFFSCREEN)
+                end
             end
         end
 
