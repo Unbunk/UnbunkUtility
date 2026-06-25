@@ -483,6 +483,10 @@ local function EnsureConsole()
     -- paste behave normally. EnableKeyboard only intercepts while the frame is shown.
     f:EnableKeyboard(true)
     local function KeyGate(self, key)
+        -- SetPropagateKeyboardInput is a PROTECTED action in combat — calling it under lockdown throws
+        -- ADDON_ACTION_BLOCKED. Skip the C/V interception in combat (keys just propagate normally then);
+        -- the debug console's copy hack is a non-combat tool, so this is a harmless degradation.
+        if InCombatLockdown() then return end
         self:SetPropagateKeyboardInput(key ~= "C" and key ~= "V")
     end
     f:SetScript("OnKeyDown", KeyGate)
