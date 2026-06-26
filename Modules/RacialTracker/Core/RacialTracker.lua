@@ -240,7 +240,9 @@ function RT.ApplyVisuals()
     -- ── Green "active" timer while a tracked self-aura is up — incl. re-press
     -- windows (Spatial Rift reactivation) and Ancestral Call's random stat buff. ──
     local foundBuff = false
-    local binfo = RACIAL_BUFF_AURA[racialSpellId]
+    -- "Enable positive timer" (default ON for racials): off → skip the GREEN active-buff block entirely
+    -- (live aura + in-combat heuristic), leaving foundBuff false so the grey cooldown below runs.
+    local binfo = (racialIcon.ResolveFlag("timerPositiveEnabled") == true) and RACIAL_BUFF_AURA[racialSpellId] or nil
     if binfo then
         -- First of the watched auras that is present drives the green.
         local aura, matchedId

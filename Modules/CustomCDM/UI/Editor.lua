@@ -271,6 +271,9 @@ local function FreeLookCadres(id, rebuild, refresh, LSM, opts)
     local pe   -- free-mode position editor widget (captured via onBuilt for the lock-refresh)
     return ns.ui.IconCadres.FreeSet(bundle, {
         type = (opts.glow == "proc") and "spellitem" or "buff",
+        -- Item-kind customs only draw the grey on-use cooldown (no green timer) → hide the inert
+        -- "Enable positive timer" checkbox, matching the Override cadre (SpellCdmCadres).
+        noPositive = (CC.Get(id, "entryKind") == "item"),
         position = {
             onBuilt    = function(w) pe = w end,
             label      = L["Icon position (offset from screen center)"],
@@ -374,6 +377,14 @@ local function SpellCdmCadres(id, rebuild, refresh, LSM)
         inCdm      = function() return ns.CDMIncludedVal(CC.Get(id, "includeInCdm")) end,
         applyIcon  = function() CC.ApplyIcon(id) end,
         rebuild    = rebuild,
+        -- Flat-config accessor for the shared "Enable positive timer" checkbox (this editor calls
+        -- TrackerCdmCadres directly, bypassing TrackerIconGroup — without this the checkbox would be hidden
+        -- in the in-CDM Override cadre, which is the default placement for customs). CC.Get/Set read/write
+        -- e.timerPositiveEnabled, the exact key the renderer gates on. Item-kind customs only draw the grey
+        -- on-use cooldown (no green timer), so the toggle is inert for them → hide it.
+        flatGet    = function(k) return CC.Get(id, k) end,
+        flatSet    = function(k, v) CC.Set(id, k, v) end,
+        noPositive = (CC.Get(id, "entryKind") == "item"),
         seedValues = function() return ns.DefaultTrackerTimerSeed and ns.DefaultTrackerTimerSeed() or {} end,
         freeBuild  = freeBuild,
         getOv      = function() return GetCollapsed(id, "ovCollapsed") end,

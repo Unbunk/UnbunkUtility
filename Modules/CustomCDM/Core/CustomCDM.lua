@@ -539,14 +539,17 @@ local function ApplyOne(id)
     -- 1) Green "active" timer while a positive self-buff (same spellId) is up — exactly
     -- when readable (out of combat / never-secret), else an in-combat estimate from the
     -- recorded cast + the learned aura length.
+    -- "Enable positive timer" (default OFF for customs): off → skip the GREEN active-buff timer (live aura
+    -- + in-combat heuristic), leaving foundBuff false so the grey cooldown below runs.
     local foundBuff = false
-    local aura = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID and C_UnitAuras.GetPlayerAuraBySpellID(spellId)
+    local positive = (d.icon.ResolveFlag("timerPositiveEnabled") == true)
+    local aura = positive and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID and C_UnitAuras.GetPlayerAuraBySpellID(spellId) or nil
     if aura and ns.AuraTimerReadable and ns.AuraTimerReadable(spellId) then
         foundBuff = true
         if ns.LearnAuraDuration then ns.LearnAuraDuration(spellId, aura.duration) end
         d.icon.SetTimer(aura.expirationTime, aura.duration, GREEN)
         d.icon.HideCheck()
-    elseif d.lastUseAt and UnitAffectingCombat("player") then
+    elseif positive and d.lastUseAt and UnitAffectingCombat("player") then
         local dur = ns.GetAuraDuration and ns.GetAuraDuration(spellId)
         if dur and dur > 0 and GetTime() < d.lastUseAt + dur then
             foundBuff = true

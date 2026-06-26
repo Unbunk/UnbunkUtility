@@ -118,6 +118,9 @@ local function CreateHealthstoneTrackerPanel(parent)
         -- uniform unless you edit the cadre while several distinct healthstone variants are in bags at once (rare).
         ns.CDMGroups.TrackerIconGroup({
             get = HT.CfgGet, set = HT.CfgSet,
+            -- A healthstone heals instantly — it has no buff/active aura, so no positive (green) timer to
+            -- toggle. Hide the "Enable positive timer" checkbox for it.
+            noPositive = true,
             frameName = "HealthstoneTrackerFrame1", defaultDest = "belowPlayer", LSM = LSM,
             enabledBy = function() return HT.CfgGet("enabled") ~= false end,
             rebuild = rebuildMenu, applyIcon = applyIcon,

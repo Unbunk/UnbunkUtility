@@ -126,7 +126,12 @@ local function SyncBuff(opts)
                 PI.PlaySound()
             end
         end
-        piIcon.SetTimer(aura.expirationTime, aura.duration, PI_YELLOW)
+        -- "Enable positive timer" (default ON for PI): off → keep the glow/sound but draw no active timer.
+        if piIcon.ResolveFlag("timerPositiveEnabled") == true then
+            piIcon.SetTimer(aura.expirationTime, aura.duration, PI_YELLOW)
+        else
+            piIcon.ClearTimer()
+        end
         piIcon.HideCheck()
     elseif hasBuff then
         hasBuff = false

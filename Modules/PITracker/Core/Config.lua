@@ -23,6 +23,7 @@ local DEFAULTS = {
     timerFontSize  = 20,
     timerOutline   = "OUTLINE",
     timerColor     = { r=1, g=1, b=1, a=1 },
+    timerPositiveEnabled = true,   -- show the PI active timer by default (moot while PI is hard-disabled)
     soundOnPI      = true,
     soundKeyPI     = "UnbunkUtility: PI (High)",
     soundPathPI    = nil,

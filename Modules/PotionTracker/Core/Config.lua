@@ -83,6 +83,7 @@ local DEFAULTS = {
         timerFontSize = 14,
         timerOutline  = "OUTLINE",
         timerColor    = { r=1, g=1, b=1, a=1 },
+        timerPositiveEnabled = true,   -- combat potion shows its green buff timer by default (health potion: off)
         soundOnUse    = true,
         soundKeyUse   = "UnbunkUtility: Combat Potion (High)",
         soundPathUse  = nil,

@@ -245,7 +245,10 @@ local function SyncDebuff()
         -- the fatigue DEBUFF is never-secret (readable in combat) and, being
         -- applied together with the lust, lets us estimate the active window in
         -- combat then show the cooldown after it.
-        if buff and ns.AuraTimerReadable(buffId) then
+        -- "Enable positive timer" (default ON for BL): off → never show the GREEN lust-active timer
+        -- (readable buff OR in-combat heuristic); fall through to the grey Sated/cooldown timer instead.
+        local positive = blIcon.ResolveFlag("timerPositiveEnabled") == true
+        if positive and buff and ns.AuraTimerReadable(buffId) then
             currentIcon = buff.icon
             blIcon.SetTimer(buff.expirationTime, buff.duration, GREEN)
         elseif debuff then
@@ -258,7 +261,7 @@ local function SyncDebuff()
             -- = the lust ended or was cancelled → show grey, not a phantom green.
             local lustStart = (debuff.expirationTime or 0) - (debuff.duration or 0)
             local activeEnd = lustStart + BL_ACTIVE_DURATION
-            if GetTime() < activeEnd and UnitAffectingCombat("player") then
+            if positive and GetTime() < activeEnd and UnitAffectingCombat("player") then
                 blIcon.SetTimer(activeEnd, BL_ACTIVE_DURATION, GREEN)
             else
                 blIcon.SetTimer(debuff.expirationTime, debuff.duration)
