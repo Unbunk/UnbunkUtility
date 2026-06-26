@@ -208,9 +208,12 @@ function ns.ui.CreateItemTracker(config)
         --   2) the HEURISTIC fallback — in combat, when the buff is hidden/secret:
         --      the recorded use time (NotifyUsed) + the learned/seeded/parsed
         --      duration (ns.GetAuraDuration). Dynamic green in combat, no pre-pot.
+        -- "Enable positive timer" (per-instance flat config, default per module): when off, never draw the
+        -- GREEN active-buff timer (neither the live aura nor the in-combat heuristic) — foundBuff stays false
+        -- so the plain grey cooldown below runs. Trinket / Combat potion default ON; Health potion / Healthstone OFF.
         local foundBuff = false
         local spellId = getCfg("spellId")
-        if spellId then
+        if icon.ResolveFlag("timerPositiveEnabled") == true and spellId then
             local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellId)
             if aura and ns.AuraTimerReadable(spellId) then
                 foundBuff = true

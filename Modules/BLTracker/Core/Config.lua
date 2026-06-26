@@ -24,6 +24,7 @@ local DEFAULTS = {
     timerFontSize   = 14,
     timerOutline    = "OUTLINE",
     timerColor      = { r = 1.0, g = 1.0, b = 1.0, a = 1.0 },
+    timerPositiveEnabled = true,   -- show the green lust-active timer by default
     soundOnBL       = true,
     soundKeyBL      = "UnbunkUtility: Bloodlust (High)",
     soundPathBL     = nil,

@@ -32,6 +32,7 @@ local DEFAULTS = {
         timerFontSize = 14,
         timerOutline  = "OUTLINE",
         timerColor    = { r=1, g=1, b=1, a=1 },
+        timerPositiveEnabled = true,   -- show the green on-use-trinket buff timer by default
         soundOnUse    = true,
         soundKeyUse   = "UnbunkUtility: Trinket (High)",
         soundPathUse  = nil,
@@ -59,6 +60,7 @@ local DEFAULTS = {
         timerFontSize = 14,
         timerOutline  = "OUTLINE",
         timerColor    = { r=1, g=1, b=1, a=1 },
+        timerPositiveEnabled = true,   -- show the green on-use-trinket buff timer by default
         soundOnUse    = true,
         soundKeyUse   = "UnbunkUtility: Trinket (High)",
         soundPathUse  = nil,
