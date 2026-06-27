@@ -471,6 +471,19 @@ function ns.SpellRealCooldownSwipe(spellId)
     return C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(spellId, true)
 end
 
+-- Size of one physical screen pixel in UIParent-local units, for crisp 1px borders on fractional UI scale
+-- (768 = UIParent's reference height; divided by the effective scale). Returns nil if the values aren't
+-- ready yet, so callers fall back to the raw size. Mirrors Ayije_CDM's Pixel.GetSize formula. NOTE: a UI
+-- scale change is only picked up on the next border re-apply (relayout) — a /reload re-crisps everything.
+function ns.PixelSize()
+    local _, physH = GetPhysicalScreenSize()
+    local scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()
+    if physH and physH > 0 and scale and scale > 0 then
+        return 768 / (physH * scale)
+    end
+    return nil
+end
+
 -- ── Tracker icon layering ────────────────────────────────────────────────────
 -- Layer a tracker icon BELOW HIGH-strata UI panels (e.g. the talents/spellbook
 -- window, so opening it covers the icons) while keeping it ABOVE Blizzard's
