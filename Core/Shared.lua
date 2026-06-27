@@ -446,6 +446,31 @@ function ns.GetAuraDuration(spellId)
     return p
 end
 
+-- Real-cooldown DURATION OBJECT for a precise, secret-safe cooldown SWIPE. The engine renders it
+-- (Cooldown:SetCooldownFromDurationObject), so the swipe stays accurate in INSTANCED COMBAT where the raw
+-- start/duration are SECRET and our heuristic has no data for a spell not cast this session (the old code
+-- then drew NO swipe -> the icon looked falsely "ready"). Returns nil when the spell is NOT on a real
+-- cooldown (idle, or just the GCD): cd.isActive / cd.isOnGCD are STRUCTURAL booleans that stay readable in
+-- combat (unlike the secret timing). Mirrors the reference CDM addon's IsOnRealCooldown + GetSpellCooldownDuration(id, true).
+function ns.SpellRealCooldownSwipe(spellId)
+    if not (spellId and spellId ~= 0 and C_Spell and C_Spell.GetSpellCooldown) then return nil end
+    local cd = C_Spell.GetSpellCooldown(spellId)
+    if not (cd and cd.isActive) then return nil end
+    -- MULTI-CHARGE spell: the recharging charge's arc is its OWN duration (GetSpellChargeDuration), NOT the
+    -- spell cooldown — exactly how the native CDM draws it (we previously drew no recharge arc in combat
+    -- because the charge branch nil-drops the secret cdStart and is skipped). maxCharges is a structural
+    -- field readable in combat. the reference addon gates the charge swipe on isOnGCD == false (strict).
+    local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(spellId)
+    local maxc = ci and ci.maxCharges
+    if maxc and not (issecretvalue and issecretvalue(maxc)) and maxc > 1 then
+        if cd.isOnGCD ~= false then return nil end
+        return C_Spell.GetSpellChargeDuration and C_Spell.GetSpellChargeDuration(spellId)
+    end
+    -- Non-charge (or fully-charged): real cooldown only, GCD-only suppressed.
+    if cd.isOnGCD == true then return nil end
+    return C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(spellId, true)
+end
+
 -- ── Tracker icon layering ────────────────────────────────────────────────────
 -- Layer a tracker icon BELOW HIGH-strata UI panels (e.g. the talents/spellbook
 -- window, so opening it covers the icons) while keeping it ABOVE Blizzard's

@@ -8,7 +8,8 @@
 --       onDragStop = function(x, y) ... end,
 --   })
 --   ti.SetIcon(textureId)
---   ti.SetTimer(expiry, duration, color) — duration draws the CD swipe, color overrides timer text color
+--   ti.SetTimer(expiry, duration, color, keepLit, swipeDurObj) — color overrides timer text color; the swipe
+--       is drawn from swipeDurObj (a duration OBJECT, secret-safe) when given, else from expiry-duration
 --   ti.ClearTimer()
 --   ti.ShowCheck()  / ti.HideCheck() — persistent green check on/off
 --   ti.BlinkCheck() — flash the check briefly then hide (use on CD-ready)
@@ -656,7 +657,11 @@ function ns.ui.CreateTimerIcon(config)
         end
     end
 
-    function result.SetTimer(expiry, duration, color, keepLit)
+    -- swipeDurObj (optional): a C_Spell / C_DurationUtil duration OBJECT for the cooldown swipe. When given,
+    -- the engine renders the swipe from it (SetCooldownFromDurationObject) — a SECRET-SAFE, drift-free swipe
+    -- in combat — instead of the Lua-computed SetCooldown(expiry-duration). The countdown TEXT still comes
+    -- from `expiry` (a heuristic estimate in combat, or nil to draw the swipe with no number).
+    function result.SetTimer(expiry, duration, color, keepLit, swipeDurObj)
         expirationTime = expiry
         lastSecs = nil  -- force a re-render of text/color on the next tick
         flashUntil = nil
@@ -666,7 +671,9 @@ function ns.ui.CreateTimerIcon(config)
         if expiry then ClockAdd(result, ClockTick) else ClockRemove(result); timerText:Hide() end
         timerText:SetAlpha(1)
         checkTex:Hide()
-        if expiry and duration then
+        if swipeDurObj and cooldown.SetCooldownFromDurationObject then
+            cooldown:SetCooldownFromDurationObject(swipeDurObj)
+        elseif expiry and duration then
             cooldown:SetCooldown(expiry - duration, duration)
         end
         if color then
