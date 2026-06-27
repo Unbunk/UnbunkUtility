@@ -12,6 +12,7 @@ local CB = ns.CastBar
 local GetTime          = GetTime
 local UnitCastingInfo  = UnitCastingInfo
 local UnitChannelInfo  = UnitChannelInfo
+local UnitEmpoweredStagePercentages = _G.UnitEmpoweredStagePercentages   -- DF+ empower stages (nil on Classic)
 local floor            = math.floor
 
 local BAR_TEXTURE   = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -82,6 +83,52 @@ local function PointAbs(frame, point)
     local x = point:find("LEFT") and l or (point:find("RIGHT") and (l + w) or (l + w / 2))
     local y = point:find("BOTTOM") and b or (point:find("TOP") and (b + h) or (b + h / 2))
     return x * s, y * s
+end
+
+-- ── Empower stage notch pips (Evoker empowered casts) ─────────────────────────
+-- An empowered spell fills as a single bar; draw a thin notch at each internal stage
+-- boundary so the player can see where each empower level lands. UnitEmpoweredStagePercentages
+-- returns the PER-STAGE fractions (player unit, non-secret); accumulate them for the boundaries.
+local EMPOWER_PIP_W = 2
+local empowerPips = {}
+
+local function HideEmpowerPips()
+    for i = 1, #empowerPips do empowerPips[i]:Hide() end
+end
+
+local function ShowEmpowerPips(numStages)
+    HideEmpowerPips()
+    if not (bar and numStages and numStages > 0 and UnitEmpoweredStagePercentages) then return end
+    local pcts = UnitEmpoweredStagePercentages("player")
+    if not pcts then return end
+    local barW, barH = bar:GetWidth(), bar:GetHeight()
+    if not (barW and barW > 1 and barH and barH > 0) then return end
+    local bc = C("borderColor") or { r = 0, g = 0, b = 0, a = 1 }
+    -- Normalise by the stage total so the boundaries span the bar exactly, whatever scale the API
+    -- reports the per-stage values in: the last boundary is the max stage, which is our bar's end
+    -- (UnitChannelInfo's endMs), so cumulative/total is the right on-bar fraction either way.
+    local total = 0
+    for i = 1, numStages do total = total + (pcts[i] or 0) end
+    if total <= 0 then return end
+    local cumulative, shown = 0, 0
+    for i = 1, numStages do
+        cumulative = cumulative + (pcts[i] or 0)
+        local frac = cumulative / total
+        -- Skip the final boundary (= bar end / max stage, where the spark already sits).
+        if frac > 0.001 and frac < 0.999 then
+            shown = shown + 1
+            local pip = empowerPips[shown]
+            if not pip then
+                pip = bar:CreateTexture(nil, "OVERLAY", nil, 2)
+                empowerPips[shown] = pip
+            end
+            pip:SetColorTexture(bc.r, bc.g, bc.b, bc.a or 1)
+            pip:SetSize(EMPOWER_PIP_W, barH)
+            pip:ClearAllPoints()
+            pip:SetPoint("CENTER", bar, "LEFT", barW * frac, 0)
+            pip:Show()
+        end
+    end
 end
 
 -- ── Per-tick fill ─────────────────────────────────────────────────────────────
@@ -182,6 +229,9 @@ local function ApplyLayout()
         local bc = C("borderColor") or { r = 0, g = 0, b = 0, a = 1 }
         ns.CDMAnchor.ApplyFrameBorder(container, C("borderEnabled") ~= false, bc, C("borderThickness") or 1, true)
     end
+
+    -- Keep empower notches aligned if the bar is resized mid-empower (CDM relayout / adapt-width).
+    if cast.active and cast.startKind == "empower" then ShowEmpowerPips(cast.numStages) end
 end
 
 function CB.ApplyPosition()
@@ -234,12 +284,12 @@ end
 -- kind: "cast" (fill up) | "channel" (channel/empower; non-empower fills down).
 local function StartCast(kind)
     if not container or not enabled then return end
-    local name, text, texture, startMs, endMs, notInt, channel, castID, isEmpowered
+    local name, text, texture, startMs, endMs, notInt, channel, castID, isEmpowered, numStages
     if kind == "cast" then
         name, text, texture, startMs, endMs, _, castID, notInt = UnitCastingInfo("player")
         channel = false
     else
-        name, text, texture, startMs, endMs, _, notInt, _, isEmpowered = UnitChannelInfo("player")
+        name, text, texture, startMs, endMs, _, notInt, _, isEmpowered, numStages = UnitChannelInfo("player")
         channel = not isEmpowered   -- empowered casts build up like a normal cast
     end
     if not name or not startMs or not endMs then CB.StopCast(); return end
@@ -250,6 +300,7 @@ local function StartCast(kind)
     -- "cast" (UNIT_SPELLCAST_STOP), "channel" (CHANNEL_STOP), "empower" (EMPOWER_STOP).
     cast.startKind = (kind == "cast") and "cast" or (isEmpowered and "empower" or "channel")
     cast.castID  = castID   -- nil for channels/empowers (UnitChannelInfo carries no cast GUID)
+    cast.numStages = isEmpowered and numStages or nil   -- empower stage count, for the ApplyLayout pip reposition
     cast.startT  = startMs / 1000
     cast.endT    = endMs / 1000
     cast.notInt  = notInt and true or false
@@ -261,6 +312,8 @@ local function StartCast(kind)
     bar:SetMinMaxValues(0, 1)
     bar:SetValue(cast.channel and 1 or 0)
     ApplyColor()
+    -- Empower stage notches (Evoker): shown for empowered casts, cleared for everything else.
+    if isEmpowered then ShowEmpowerPips(numStages) else HideEmpowerPips() end
     -- Anchor the spark once at cast start; OnUpdate then only adjusts its x-offset.
     spark:ClearAllPoints()
     spark:SetPoint("CENTER", bar, "LEFT", 0, 0)
@@ -270,6 +323,8 @@ end
 
 function CB.StopCast()
     cast.active = false
+    cast.startKind = nil; cast.numStages = nil   -- no stale empower state lingers after a cast ends
+    HideEmpowerPips()
     if container then
         container:SetScript("OnUpdate", nil)
         if not CB.IsUnlocked() then container:Hide() end
@@ -399,6 +454,8 @@ function CB.StartTest()
     cast.active  = true
     cast.channel = false
     cast.notInt  = false
+    cast.startKind = "cast"   -- not an empower: clear any stale empower state so the test bar shows no stage pips
+    cast.numStages = nil
     cast.startT  = GetTime()
     cast.endT    = GetTime() + 2.5
     cast.showTimer = C("showTimer") ~= false
@@ -472,6 +529,7 @@ function CB.SetUnlocked(val)
         ns.SetBrandBorder(container, 0.8)
         -- Static preview so the bar is visible to position.
         cast.active = false
+        HideEmpowerPips()
         container:SetScript("OnUpdate", nil)
         bar:SetMinMaxValues(0, 1); bar:SetValue(0.6)
         local cc = C("castColor") or { r = 1, g = 0.7, b = 0 }
