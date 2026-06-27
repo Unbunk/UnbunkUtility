@@ -1106,7 +1106,16 @@ local function EngineFor(I)
             fontObj:SetFont(fontPath, effSize, outline)
             if effColor then fontObj:SetTextColor(effColor.r, effColor.g, effColor.b, effColor.a or 1) end
             if cd.SetCountdownFont then cd:SetCountdownFont(fontName) end
+            -- Secret-safe native countdown formatter (decimals / mm:ss / colour-below-threshold, formatted
+            -- C-side so it stays correct in combat). nil when the feature is OFF -> engine default. Installed
+            -- once per full pass; persists across the gated skip path (UpdateTimerTier only re-touches font).
+            if cd.SetCountdownFormatter then
+                cd:SetCountdownFormatter(ns.CDMGroups.CooldownFormatter and ns.CDMGroups.CooldownFormatter.GetFor(I, spellId) or nil)
+            end
             StyleCooldownRegions(cd, fontPath, effSize, outline, effColor, nf, timerPos, timerOffX, timerOffY)
+            -- Do NOT mutate native CDM frames here (CooldownFlash Show-hook / icon mask RemoveMaskTexture /
+            -- SetSwipeColor): doing so inside the secure refresh flow taints the CooldownViewer's secret-value
+            -- reads (RefreshData / RefreshTotemData / CacheChargeValues) — hundreds of secret-value errors.
         end
         if nf.Time     then StyleFontString(nf.Time,     fontPath, effSize, outline, effColor, true); AnchorTimerFS(nf.Time,     nf, timerPos, timerOffX, timerOffY) end
         if nf.Duration then StyleFontString(nf.Duration, fontPath, effSize, outline, effColor, true); AnchorTimerFS(nf.Duration, nf, timerPos, timerOffX, timerOffY) end

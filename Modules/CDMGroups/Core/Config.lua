@@ -89,6 +89,8 @@ local GROUP_TEMPLATE = {
     timerColor    = { r = 1, g = 1, b = 1, a = 1 },
     timerPos      = "CENTER", timerOffX = 0, timerOffY = 0,
     timerThresholdsEnabled = true,
+    timerDecimalThreshold  = 3,   -- show 1 decimal under N s on the native countdown (C-side formatter); 0 = off
+
     -- title text (a free label over the icon)
     showTitle     = false, titleText = "",
     titleFontKey  = "Fira Mono", titleFontPath = nil, titleFontSize = 12, titleOutline = "OUTLINE",

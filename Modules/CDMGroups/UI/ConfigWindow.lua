@@ -137,8 +137,10 @@ local function IconSections(I, sid, bundle, ctx, opts)
     -- posGet/posSet/noPositive thread the FLAT-config accessor for the "Enable positive timer" checkbox
     -- (a behaviour, not an override-store value) so it edits the tracker's own config even in the in-CDM
     -- override cadre. nil here (generic pencil editor) → the checkbox hides itself.
+    -- native = this is a NATIVE CDM override cadre (the pencil editor passes I; trackers pass nil) -> show the
+    -- "Decimals under (s)" control, which drives the native countdown formatter. opts.native lets a caller force it.
     return IC.OverrideSet(bundle, ctx, { type = "spellitem", omit = opts.omit,
-        posGet = opts.posGet, posSet = opts.posSet, noPositive = opts.noPositive })
+        posGet = opts.posGet, posSet = opts.posSet, noPositive = opts.noPositive, native = opts.native or (I ~= nil) })
 end
 ns.CDMGroups.IconSections = IconSections
 
@@ -1180,8 +1182,9 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                     IconSizeEntry(id),
                     -- cd = true so the group-wide "Enable positive timer" checkbox appears here too (writes
                     -- the group store; icon.ResolveFlag reads override → group → flat). Essential/Utility only;
-                    -- BuffGroups' group config passes no cd, so buffs never show it.
-                    TimerSection(b, { cd = true }),
+                    -- BuffGroups' group config passes no cd, so buffs never show it. native = true also shows the
+                    -- "Decimals under (s)" control (native countdown formatter) at the group-default level.
+                    TimerSection(b, { cd = true, native = true }),
                     TitleSection(b),
                     StacksSection(b, { cd = true }),
                 }

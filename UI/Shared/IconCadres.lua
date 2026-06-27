@@ -327,7 +327,7 @@ IC.ThresholdsEditor = ThresholdsEditor
 local TIMER_KEYS = {
     "showTimer", "timerFontKey", "timerFontPath", "timerFontSize", "timerOutline",
     "timerColor", "timerPos", "timerOffX", "timerOffY",
-    "timerThresholdsEnabled", "timerThresholds",
+    "timerThresholdsEnabled", "timerThresholds", "timerDecimalThreshold",
 }
 -- opts.cd = spell/item variant (buffs pass nothing) → adds the "Enable positive timer" checkbox that
 -- toggles the GREEN active-buff timers. That flag is a per-entry BEHAVIOUR (not a per-icon appearance
@@ -353,16 +353,28 @@ local function TimerSection(bundle, opts)
             -- never buffs. Tracker cadres thread opts.posGet/posSet → the module's FLAT per-entry config (one
             -- value, identical free & in-CDM). The group/pencil cadres have no flat accessor → fall back to
             -- bundle.get/set (the group or per-icon override store); the render gate (icon.ResolveFlag) reads
-            -- override → group → flat so those layers take effect. No enabledBy: it is a behaviour toggle, not
-            -- a greyable appearance override.
+            -- override → group → flat so those layers take effect. enabledBy ONLY in the NATIVE override cadre
+            -- (pencil) — there it greys with the timer override-toggle like the appearance controls. In the
+            -- TRACKER cadres it stays always-editable: greying it there would trap an in-CDM tracker (whose Free
+            -- cadre is disabled) with no way to toggle this flat behaviour without overriding the whole timer
+            -- appearance. In group settings `gated` is nil, so it stays editable regardless.
             local pget = opts.posGet or bundle.get
             local pset = opts.posSet or bundle.set
-            e[#e + 1] = { type = "checkbox", label = L["Enable positive timer"],
+            e[#e + 1] = { type = "checkbox", label = L["Enable positive timer"], enabledBy = opts.native and gated or nil,
                   get = function() return pget("timerPositiveEnabled") == true end,
                   set = function(v) pset("timerPositiveEnabled", v and true or false)
                       if bundle.touch then bundle.touch() end end }
         end
         local pos = PosOffsetFor(bundle, "timer"); pos.enabledBy = gated; e[#e + 1] = pos
+        -- "Decimals under (s)" — NATIVE CDM only (opts.native: group settings + per-icon pencil override).
+        -- Drives the C-side countdown formatter (Engine.StyleFrame), so it stays correct in combat. Hidden on
+        -- the standalone trackers, which draw their own Lua timer text. Written to the group/override store via
+        -- bundle.get/set; the formatter reads it per-icon via I.IconGet.
+        if opts.cd and opts.native then
+            e[#e + 1] = { type = "textinput", label = L["Decimals under (s)"], width = 46, numeric = true, min = 0, max = 10, maxLetters = 2, enabledBy = gated,
+                  get = function() return bundle.get("timerDecimalThreshold") or 0 end,
+                  set = function(v) if v ~= nil and v >= 0 then bundle.set("timerDecimalThreshold", math.floor(v)); bundle.touch() end end }
+        end
         e[#e + 1] = { type = "checkbox", label = L["Enable time thresholds"], enabledBy = gated,
               get = function() return bundle.get("timerThresholdsEnabled") == true end,
               set = function(v) bundle.set("timerThresholdsEnabled", v and true or false); bundle.touch()
@@ -661,7 +673,7 @@ function IC.OverrideSet(bundle, ctx, opts)
     entries[#entries + 1] = IC.IconSize(bundle, { kw = "iconW", kh = "iconH", defaultW = opts.iconSizeDefault, defaultH = opts.iconSizeDefault })
     entries[#entries + 1] = IC.Border(bundle, { defaultOn = true, ctx = ctx })
     entries[#entries + 1] = IC.Glow(bundle, { variant = glowVariant, keys = glowKeys, ctx = ctx })
-    entries[#entries + 1] = IC.Timer(bundle, { cd = typ ~= "buff", posGet = opts.posGet, posSet = opts.posSet, noPositive = opts.noPositive })
+    entries[#entries + 1] = IC.Timer(bundle, { cd = typ ~= "buff", posGet = opts.posGet, posSet = opts.posSet, noPositive = opts.noPositive, native = opts.native })
     entries[#entries + 1] = IC.Title(bundle)
     entries[#entries + 1] = IC.Stacks(bundle, { cd = typ ~= "buff" })
     entries[#entries + 1] = { type = "button", label = L["Copy all group settings"], width = 180, hostHeight = 30,
