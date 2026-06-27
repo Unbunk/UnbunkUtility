@@ -204,7 +204,9 @@ function DT.SpellTexture(spellId) return SpellTexture(spellId) end
 local function GetCooldown(spellId)
     if C_Spell and C_Spell.GetSpellCooldown then
         local cd = C_Spell.GetSpellCooldown(spellId)
-        if cd then return cd.startTime, cd.duration end
+        -- isOnGCD (structural, readable in combat) lets the readable branch tell a REAL cooldown from a GCD
+        -- blip without the duration>2.5 magic number (which also misses short real cooldowns).
+        if cd then return cd.startTime, cd.duration, cd.isOnGCD end
         return 0, 0
     end
     local start, duration = GetSpellCooldown(spellId)
@@ -349,14 +351,30 @@ local function ApplyOne(spellId)
     end
 
     -- 3) Regular spell cooldown (non-charge spells, or a fully-charged one).
-    local start, duration = GetCooldown(spellId)
+    local start, duration, isOnGCD = GetCooldown(spellId)
     if issecretvalue(start) or issecretvalue(duration) then
-        if d.lastUseAt and d.learnedCd and GetTime() < d.lastUseAt + d.learnedCd then
+        -- Secret in combat: draw the precise swipe from the cooldown's duration object (engine-side, works
+        -- even for a spell NOT cast this session — the old "no estimate -> no swipe" looked falsely READY).
+        -- isActive/isOnGCD are readable, so the swipe presence is authoritative; the heuristic only supplies
+        -- the countdown TEXT when we have one.
+        local swipe = ns.SpellRealCooldownSwipe(spellId)
+        if swipe then
             d.hasCooldown = true
-            d.lastExpiry  = d.lastUseAt + d.learnedCd
-            d.icon.SetTimer(d.lastExpiry, d.learnedCd)
+            local hExp = (d.lastUseAt and d.learnedCd and GetTime() < d.lastUseAt + d.learnedCd) and (d.lastUseAt + d.learnedCd) or nil
+            if hExp then d.lastExpiry = hExp end
+            d.icon.SetTimer(hExp, hExp and d.learnedCd or nil, nil, nil, swipe)
+        else
+            -- CD ended / no real-CD signal: clear the VISUAL swipe, but KEEP hasCooldown while IN COMBAT so the
+            -- readable combat-exit ready-block still flashes/sounds completion (deferred, matching pre-#2). Skip
+            -- during the post-zone settle, where cd.isActive can transiently read false.
+            if not (ns.RecentlyZoned and ns.RecentlyZoned()) then
+                if not UnitAffectingCombat("player") then d.hasCooldown = false end
+                d.icon.ClearTimer()
+            end
         end
-    elseif start and start > 0 and duration and duration > 2.5 then
+    elseif start and start > 0 and duration and (duration > 2.5 or isOnGCD == false) then
+        -- Real cooldown: duration>2.5 (legacy) OR isOnGCD==false (structural; catches short real cooldowns
+        -- and is the authoritative GCD-vs-real test on 12.0). A GCD blip (isOnGCD true, ~1.5s) fails both.
         d.learnedCd  = duration
         d.hasCooldown = true
         d.lastExpiry  = start + duration
