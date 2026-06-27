@@ -1559,31 +1559,41 @@ local function DrawFrameBorder(nf, enabled, color, size, outset)
             left   = nf:CreateTexture(nil, "OVERLAY", nil, 7),
             right  = nf:CreateTexture(nil, "OVERLAY", nil, 7),
         }
+        -- Disable texel snapping so a sub-UI-unit (pixel-snapped) edge stays crisp instead of blurring.
+        for _, t in pairs(edges) do
+            if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false) end
+            if t.SetTexelSnappingBias then t:SetTexelSnappingBias(0) end
+        end
         nf._uuBorderEdges = edges
     end
     size = math.max(1, math.min(16, size or 1))
+    -- Snap the thickness to a whole number of physical pixels so the border stays crisp on fractional UI
+    -- scale (the icon frames sit at UIParent scale). Falls back to the raw size if the pixel size isn't
+    -- ready. Mirrors the reference CDM addon's Border.lua pixel snapping; the edges also have texel-snap disabled above.
+    local px = ns.PixelSize and ns.PixelSize()
+    local thickness = (px and px > 0) and (math.max(1, math.floor(size / px)) * px) or size
     color = color or { r = 0, g = 0, b = 0, a = 1 }
     local r, g, b, a = color.r, color.g, color.b, color.a or 1
     -- outset: the edges sit just OUTSIDE the frame so the border frames the icon (used by the
     -- buff groups, where an inset 1px border looked tiny / drawn inside the icon). Default (o=0)
     -- keeps the legacy inset look on the native CDM rows.
-    local o = outset and size or 0
+    local o = outset and thickness or 0
     edges.top:ClearAllPoints()
     edges.top:SetPoint("TOPLEFT",  nf, "TOPLEFT",  -o,  o)
     edges.top:SetPoint("TOPRIGHT", nf, "TOPRIGHT",  o,  o)
-    edges.top:SetHeight(size)
+    edges.top:SetHeight(thickness)
     edges.bottom:ClearAllPoints()
     edges.bottom:SetPoint("BOTTOMLEFT",  nf, "BOTTOMLEFT",  -o, -o)
     edges.bottom:SetPoint("BOTTOMRIGHT", nf, "BOTTOMRIGHT",  o, -o)
-    edges.bottom:SetHeight(size)
+    edges.bottom:SetHeight(thickness)
     edges.left:ClearAllPoints()
     edges.left:SetPoint("TOPLEFT",    nf, "TOPLEFT",    -o,  o)
     edges.left:SetPoint("BOTTOMLEFT", nf, "BOTTOMLEFT", -o, -o)
-    edges.left:SetWidth(size)
+    edges.left:SetWidth(thickness)
     edges.right:ClearAllPoints()
     edges.right:SetPoint("TOPRIGHT",    nf, "TOPRIGHT",     o,  o)
     edges.right:SetPoint("BOTTOMRIGHT", nf, "BOTTOMRIGHT",  o, -o)
-    edges.right:SetWidth(size)
+    edges.right:SetWidth(thickness)
     for _, t in pairs(edges) do t:SetColorTexture(r, g, b, a); t:Show() end
 end
 ns.CDMAnchor.ApplyFrameBorder = DrawFrameBorder
