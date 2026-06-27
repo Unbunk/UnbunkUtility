@@ -368,6 +368,10 @@ local function EngineFor(I)
         viewerReadyAt = GetTime()   -- re-arm the settle window after a layout change
     end
     function I.ArmSettle() viewerReadyAt = viewerReadyAt or GetTime() end
+    -- Re-arm the settle window WITHOUT wiping the universe. A gameplay spec/talent/instance change must NOT
+    -- blank accumDisplayed: that parks every on-CD cooldown into Unused for SETTLE seconds (the "most icons
+    -- vanish after a talent/zone change" bug). New spells accumulate SETTLE seconds later; existing ones stay.
+    function I.ReArmSettle() viewerReadyAt = GetTime() end
 
     -- (3) cross-viewer guard: a cooldown shown in ANOTHER CDMGroups dest's pool (its displayedCache) is
     -- displayed in that viewer — never accumulate it into THIS dest's universe.
@@ -1945,12 +1949,21 @@ local function EngineFor(I)
     ev:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "TRAIT_CONFIG_UPDATED"
             or event == "COOLDOWN_VIEWER_DATA_LOADED" then
-            -- A spec/talent change OR a CDM layout EDIT (hiding / moving a cooldown in EditMode fires
-            -- COOLDOWN_VIEWER_DATA_LOADED) makes the accumulated set stale — clear it AND re-arm the settle
-            -- window so the universe re-derives fresh from the NEW layout. THIS is what purges a cooldown the
-            -- user just hid / moved to another viewer (it won't re-accumulate). DATA_LOADED is a data/layout
-            -- signal (not per-tick cooldown progress = SPELL_UPDATE_COOLDOWN), so it doesn't churn in combat.
-            I.ResetAccumDisplayed()
+            -- The blanket wipe (ResetAccumDisplayed) is ONLY correct for an actual EditMode EDIT: hiding /
+            -- moving a cooldown fires COOLDOWN_VIEWER_DATA_LOADED, and there we MUST purge so the removed
+            -- cooldown won't re-accumulate. But the SAME events fire on a GAMEPLAY spec/talent/instance change
+            -- (EditMode closed), where wiping blanks the universe for SETTLE seconds and parks every on-CD
+            -- cooldown into Unused — the "most icons vanish after a talent/zone change" bug. So: wipe ONLY while
+            -- EditMode is open; otherwise keep the universe and just re-arm the settle window (new spells
+            -- accumulate after SETTLE, existing ones stay placed). A talent-removed spell gets no live frame, so
+            -- its stale universe entry is inert for a DEFAULT group (renders nothing); under a staticDisplay
+            -- group it can leave ONE empty reserved slot until /reload or an EditMode edit re-derives the set.
+            -- DATA_LOADED is a data/layout signal (not per-tick SPELL_UPDATE_COOLDOWN), so no combat churn.
+            if EditModeManagerFrame and EditModeManagerFrame:IsShown() then
+                I.ResetAccumDisplayed()
+            else
+                I.ReArmSettle()
+            end
         elseif event == "PLAYER_ENTERING_WORLD" then
             -- Arm the settle window once (login / zone change): accumulation begins SETTLE seconds later,
             -- after the viewer has applied the user's EditMode layout (skipping the full-category transient).
