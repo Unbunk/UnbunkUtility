@@ -329,7 +329,9 @@ end
 local function GetCooldown(spellId)
     if C_Spell and C_Spell.GetSpellCooldown then
         local cd = C_Spell.GetSpellCooldown(spellId)
-        if cd then return cd.startTime, cd.duration end
+        -- isOnGCD (structural, readable in combat) lets the readable branch tell a REAL cooldown from a GCD
+        -- blip without the duration>2.5 magic number (which also misses short real cooldowns).
+        if cd then return cd.startTime, cd.duration, cd.isOnGCD end
         return 0, 0
     end
     local start, duration = GetSpellCooldown(spellId)
@@ -539,14 +541,17 @@ local function ApplyOne(id)
     -- 1) Green "active" timer while a positive self-buff (same spellId) is up — exactly
     -- when readable (out of combat / never-secret), else an in-combat estimate from the
     -- recorded cast + the learned aura length.
+    -- "Enable positive timer" (default OFF for customs): off → skip the GREEN active-buff timer (live aura
+    -- + in-combat heuristic), leaving foundBuff false so the grey cooldown below runs.
     local foundBuff = false
-    local aura = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID and C_UnitAuras.GetPlayerAuraBySpellID(spellId)
+    local positive = (d.icon.ResolveFlag("timerPositiveEnabled") == true)
+    local aura = positive and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID and C_UnitAuras.GetPlayerAuraBySpellID(spellId) or nil
     if aura and ns.AuraTimerReadable and ns.AuraTimerReadable(spellId) then
         foundBuff = true
         if ns.LearnAuraDuration then ns.LearnAuraDuration(spellId, aura.duration) end
         d.icon.SetTimer(aura.expirationTime, aura.duration, GREEN)
         d.icon.HideCheck()
-    elseif d.lastUseAt and UnitAffectingCombat("player") then
+    elseif positive and d.lastUseAt and UnitAffectingCombat("player") then
         local dur = ns.GetAuraDuration and ns.GetAuraDuration(spellId)
         if dur and dur > 0 and GetTime() < d.lastUseAt + dur then
             foundBuff = true
@@ -569,15 +574,29 @@ local function ApplyOne(id)
     end
 
     -- 3) Regular spell cooldown (non-charge spells, or a fully-charged one).
-    local start, duration = GetCooldown(spellId)
+    local start, duration, isOnGCD = GetCooldown(spellId)
     if issecretvalue(start) or issecretvalue(duration) then
-        -- In combat the timing is secret: estimate from the recorded cast + learned length.
-        if d.lastUseAt and d.learnedCd and GetTime() < d.lastUseAt + d.learnedCd then
+        -- In combat the timing is secret: draw the precise swipe from the cooldown's duration object
+        -- (engine-side, works even for a spell not cast this session), with the heuristic estimate driving
+        -- the countdown TEXT when we have one. isActive/isOnGCD are readable, so the swipe is authoritative.
+        local swipe = ns.SpellRealCooldownSwipe(spellId)
+        if swipe then
             d.hasCooldown = true
-            d.lastExpiry  = d.lastUseAt + d.learnedCd
-            d.icon.SetTimer(d.lastExpiry, d.learnedCd)
+            local hExp = (d.lastUseAt and d.learnedCd and GetTime() < d.lastUseAt + d.learnedCd) and (d.lastUseAt + d.learnedCd) or nil
+            if hExp then d.lastExpiry = hExp end
+            d.icon.SetTimer(hExp, hExp and d.learnedCd or nil, nil, nil, swipe)
+        else
+            -- CD ended / no real-CD signal: clear the VISUAL swipe, but KEEP hasCooldown while IN COMBAT so the
+            -- readable combat-exit ready-block still flashes/sounds completion (deferred, matching pre-#2). Skip
+            -- during the post-zone settle, where cd.isActive can transiently read false.
+            if not (ns.RecentlyZoned and ns.RecentlyZoned()) then
+                if not UnitAffectingCombat("player") then d.hasCooldown = false end
+                d.icon.ClearTimer()
+            end
         end
-    elseif start and start > 0 and duration and duration > 2.5 then
+    elseif start and start > 0 and duration and (duration > 2.5 or isOnGCD == false) then
+        -- Real cooldown: duration>2.5 (legacy) OR isOnGCD==false (structural GCD-vs-real test; catches short
+        -- real cooldowns). A GCD blip (isOnGCD true, ~1.5s) fails both.
         d.learnedCd  = duration                 -- remember the real length for the estimate
         d.hasCooldown = true
         d.lastExpiry  = start + duration

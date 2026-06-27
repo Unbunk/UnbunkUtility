@@ -627,6 +627,8 @@ L["Not in the Cooldown Manager's tracked buffs — it won't display."] = "Pas da
 L["Show placeholder"] = "Afficher l'espace réservé"
 L["Hide placeholder"] = "Masquer l'espace réservé"
 L["Enable time thresholds"] = "Activer les paliers de temps"
+L["Enable positive timer"] = "Activer le minuteur positif"
+L["Decimals under (s)"] = "Décimales sous (s)"
 
 -- ── Bar groups ───────────────────────────────────────────────────────────────
 L["Bars"] = "Barres"

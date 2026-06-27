@@ -89,6 +89,7 @@ Modules/BarGroups/Core/Config.lua
 Modules/BarGroups/Core/BarGroups.lua
 Modules/BarGroups/UI/ConfigWindow.lua
 Modules/CDMGroups/Core/Config.lua
+Modules/CDMGroups/Core/CooldownFormatter.lua
 Modules/CDMGroups/Core/Keybinds.lua
 Modules/CDMGroups/Core/Engine.lua
 Modules/CDMGroups/UI/ConfigWindow.lua

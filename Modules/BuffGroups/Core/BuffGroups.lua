@@ -890,6 +890,8 @@ local function StyleFrame(nf, spellId)
         if effColor then fontObj:SetTextColor(effColor.r, effColor.g, effColor.b, effColor.a or 1) end
         if cd.SetCountdownFont then cd:SetCountdownFont(fontName) end
         StyleCooldownRegions(cd, fontPath, effSize, outline, effColor, nf, timerPos, timerOffX, timerOffY)
+        -- Do NOT mutate native CDM frames here (CooldownFlash hook / icon mask / SetSwipeColor): it taints the
+        -- secure CooldownViewer refresh (secret values). Same warning in CDMGroups Engine StyleFrame.
     end
     if nf.Time     then StyleFontString(nf.Time,     fontPath, effSize, outline, effColor, true); AnchorTimerFS(nf.Time,     nf, timerPos, timerOffX, timerOffY) end
     if nf.Duration then StyleFontString(nf.Duration, fontPath, effSize, outline, effColor, true); AnchorTimerFS(nf.Duration, nf, timerPos, timerOffX, timerOffY) end

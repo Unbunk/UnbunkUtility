@@ -134,7 +134,13 @@ local OpenIconEditor   -- fwd decl
 -- sound/placeholder/label; below-player omits size).
 local function IconSections(I, sid, bundle, ctx, opts)
     opts = opts or {}
-    return IC.OverrideSet(bundle, ctx, { type = "spellitem", omit = opts.omit })
+    -- posGet/posSet/noPositive thread the FLAT-config accessor for the "Enable positive timer" checkbox
+    -- (a behaviour, not an override-store value) so it edits the tracker's own config even in the in-CDM
+    -- override cadre. nil here (generic pencil editor) → the checkbox hides itself.
+    -- native = this is a NATIVE CDM override cadre (the pencil editor passes I; trackers pass nil) -> show the
+    -- "Decimals under (s)" control, which drives the native countdown formatter. opts.native lets a caller force it.
+    return IC.OverrideSet(bundle, ctx, { type = "spellitem", omit = opts.omit,
+        posGet = opts.posGet, posSet = opts.posSet, noPositive = opts.noPositive, native = opts.native or (I ~= nil) })
 end
 ns.CDMGroups.IconSections = IconSections
 
@@ -261,7 +267,8 @@ function ns.CDMGroups.TrackerCdmCadres(cfg)
           onCollapse   = function(c) cfg.setOv(c and true or false); deferRebuild() end,
           build = function()
               if ovBundle then
-                  return ns.CDMGroups.IconSections(nil, cfg.frameName, ovBundle, ovCtx, { omit = omit })
+                  return ns.CDMGroups.IconSections(nil, cfg.frameName, ovBundle, ovCtx,
+                      { omit = omit, posGet = cfg.flatGet, posSet = cfg.flatSet, noPositive = cfg.noPositive })
               end
               return { { type = "label", font = "UnbunkUtilityBody", height = 36,
                   text = L["These apply when the icon is in the Essential or Utility Cooldown Manager group."] } }
@@ -296,6 +303,7 @@ function ns.CDMGroups.TrackerFreeCadres(cfg)
     local function sizeApply() if cfg.sizeApply then cfg.sizeApply() elseif cfg.touch then cfg.touch() end end
     return IC.FreeSet(bundle, {
         type      = "spellitem",
+        noPositive = cfg.noPositive,
         sizeApply = sizeApply,
         position  = {
             onBuilt    = cfg.pos and cfg.pos.onBuilt,
@@ -362,10 +370,13 @@ function ns.CDMGroups.TrackerIconGroup(b)
                 getFree    = function() return b.get("freeCollapsed") ~= false end,
                 setFree    = function(c) b.set("freeCollapsed", c) end,
                 seedValues = b.seedValues,
+                -- Flat config accessor + no-positive marker for the shared "Enable positive timer" checkbox
+                -- (a per-entry behaviour, edited via the module's own config in BOTH cadres).
+                flatGet    = b.get, flatSet = b.set, noPositive = b.noPositive,
                 freeBuild  = function()
                     return ns.CDMGroups.TrackerFreeCadres({
                         get = b.get, set = b.set, touch = b.applyIcon, rebuild = b.rebuild,
-                        sizeApply = b.sizeApply, LSM = b.LSM, pos = b.pos,
+                        sizeApply = b.sizeApply, LSM = b.LSM, pos = b.pos, noPositive = b.noPositive,
                     })
                 end,
             }
@@ -1169,7 +1180,11 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                 return {
                     { type = "label", font = "UnbunkUtilityH6", height = 18, text = L["Icon size"] },
                     IconSizeEntry(id),
-                    TimerSection(b),
+                    -- cd = true so the group-wide "Enable positive timer" checkbox appears here too (writes
+                    -- the group store; icon.ResolveFlag reads override → group → flat). Essential/Utility only;
+                    -- BuffGroups' group config passes no cd, so buffs never show it. native = true also shows the
+                    -- "Decimals under (s)" control (native countdown formatter) at the group-default level.
+                    TimerSection(b, { cd = true, native = true }),
                     TitleSection(b),
                     StacksSection(b, { cd = true }),
                 }

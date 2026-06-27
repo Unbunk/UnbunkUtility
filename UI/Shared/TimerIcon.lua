@@ -8,7 +8,8 @@
 --       onDragStop = function(x, y) ... end,
 --   })
 --   ti.SetIcon(textureId)
---   ti.SetTimer(expiry, duration, color) — duration draws the CD swipe, color overrides timer text color
+--   ti.SetTimer(expiry, duration, color, keepLit, swipeDurObj) — color overrides timer text color; the swipe
+--       is drawn from swipeDurObj (a duration OBJECT, secret-safe) when given, else from expiry-duration
 --   ti.ClearTimer()
 --   ti.ShowCheck()  / ti.HideCheck() — persistent green check on/off
 --   ti.BlinkCheck() — flash the check briefly then hide (use on CD-ready)
@@ -27,6 +28,16 @@
 local _, ns = ...
 
 ns.ui = ns.ui or {}
+
+-- Secret-value laundering (12.0): in combat C_Spell.GetSpellCharges.currentCharges comes back as a SECRET
+-- value that Lua cannot read or compare (==, <, >) without erroring. C_StringUtil.TruncateWhenZero is
+-- Blizzard's C formatter that renders such a value into a FontString (and draws nothing at 0) WITHOUT ever
+-- exposing it to Lua — the same path the native Cooldown Manager uses to keep charge counts visible in
+-- combat. issecretvalue() lets us branch on "is this secret" (testing secrecy is itself always safe) to
+-- choose the launder path. Both are nil-guarded for old clients (pre-12.0), where the count is a plain
+-- number and the legacy tostring path is correct.
+local issecretvalue = issecretvalue or function() return false end
+local TruncateWhenZero = C_StringUtil and C_StringUtil.TruncateWhenZero
 
 -- The most urgent matching tier for `total` seconds remaining: the entry with the
 -- smallest `at` threshold the time has fallen to or below. tiers = { {at=, scale=,
@@ -397,6 +408,31 @@ function ns.ui.CreateTimerIcon(config)
         return default
     end
 
+    -- Override → GROUP → flat resolver for behaviour FLAGS (e.g. timerPositiveEnabled) that can be set in
+    -- the per-icon override, the CDM group settings, OR the icon's own (free/flat) config. Unlike TimerCfg
+    -- (override → flat, used for appearance keys), this ALSO consults the group so the group-settings
+    -- checkbox cascades to icons without their own override; the final fall-through is the flat getCfg (the
+    -- module's per-entry default). Exported so each tracker's render gate resolves the SAME value the cadres
+    -- write. When the icon is free / nothing is set in-CDM, it reduces to the flat default (no behaviour change).
+    function result.ResolveFlag(key)
+        if CDMActive() then
+            if getCfg("cdmDest") == "belowPlayer" and ns.CDMAnchor and ns.CDMAnchor.GetDestCfgFor then
+                local v = ns.CDMAnchor.GetDestCfgFor(FrameName(), CfgDest(), key, nil)  -- per-icon override → bucket
+                if v ~= nil then return v end
+            else
+                local v = EngineIconGet(key)                                            -- per-icon override (migrated)
+                if v ~= nil then return v end
+                local I = ns.CDMGroups and ns.CDMGroups.instances and ns.CDMGroups.instances[getCfg("cdmDest") or "essential"]
+                local fn = FrameName()
+                if I and I.GGet and I.GroupOf and fn then
+                    local g = I.GGet(I.GroupOf(fn), key)                                 -- CDM group setting
+                    if g ~= nil then return g end
+                end
+            end
+        end
+        return getCfg(key)
+    end
+
     -- Effective timer urgency tiers: below-player maps its per-dest timerThresholds {time,size,color}
     -- (essential's shape) to the tracker's {at,scale,color}; thresholds OFF → {} (no built-in urgency,
     -- base colour only). Other dests keep their own timerTiers (nil → the built-in yellow@15 / red@5).
@@ -604,7 +640,13 @@ function ns.ui.CreateTimerIcon(config)
     local darkenOnCdWithStacks = false
     local function ChargesAvailable()
         local n = ResolveCharges and ResolveCharges()
-        return n ~= nil and n > 0
+        if n == nil then return false end
+        -- In combat a multi-charge spell's currentCharges is SECRET and cannot be compared (n > 0 would
+        -- error). Treat secret as "not determinable" -> false, which preserves the EXACT pre-12.0 in-combat
+        -- desaturation (icon greys on cooldown). This keeps the fix scoped to the count DISPLAY only; the
+        -- on-cd greying behaviour is unchanged.
+        if issecretvalue(n) then return false end
+        return n > 0
     end
     local function ApplyCdDesat(keepLit)
         if keepLit then iconTex:SetDesaturated(false); return end
@@ -615,7 +657,11 @@ function ns.ui.CreateTimerIcon(config)
         end
     end
 
-    function result.SetTimer(expiry, duration, color, keepLit)
+    -- swipeDurObj (optional): a C_Spell / C_DurationUtil duration OBJECT for the cooldown swipe. When given,
+    -- the engine renders the swipe from it (SetCooldownFromDurationObject) — a SECRET-SAFE, drift-free swipe
+    -- in combat — instead of the Lua-computed SetCooldown(expiry-duration). The countdown TEXT still comes
+    -- from `expiry` (a heuristic estimate in combat, or nil to draw the swipe with no number).
+    function result.SetTimer(expiry, duration, color, keepLit, swipeDurObj)
         expirationTime = expiry
         lastSecs = nil  -- force a re-render of text/color on the next tick
         flashUntil = nil
@@ -625,7 +671,9 @@ function ns.ui.CreateTimerIcon(config)
         if expiry then ClockAdd(result, ClockTick) else ClockRemove(result); timerText:Hide() end
         timerText:SetAlpha(1)
         checkTex:Hide()
-        if expiry and duration then
+        if swipeDurObj and cooldown.SetCooldownFromDurationObject then
+            cooldown:SetCooldownFromDurationObject(swipeDurObj)
+        elseif expiry and duration then
             cooldown:SetCooldown(expiry - duration, duration)
         end
         if color then
@@ -1053,6 +1101,25 @@ function ns.ui.CreateTimerIcon(config)
     function UpdateStackCount()
         if not stackDraw then stacksFS:Hide(); return end
         local ch = ResolveCharges()
+        -- In combat a spell's currentCharges is a SECRET value: it cannot be read or compared in Lua, only
+        -- DISPLAYED by laundering it through Blizzard's C_StringUtil.TruncateWhenZero (renders the digit
+        -- C-side, shows nothing at 0). This is how the native Cooldown Manager keeps the count visible in
+        -- combat; without it the number vanished the moment the player entered combat. It MUST be handled
+        -- before the minStack / "show at 0" rules below, which are Lua comparisons (ch >= …, ch == 0) that
+        -- would error on a secret. Those rules therefore stay on plain values only (out of combat, or item
+        -- counts — potions/healthstones are never secret), so their "show 0 on an empty bag" is preserved.
+        if ch ~= nil and issecretvalue(ch) then
+            -- Launder the secret through Blizzard's C formatter, then pcall the SetText sink — mirrors the
+            -- codebase's other secret display path (SpeedDisplay.SD.Update): if a future client ever makes
+            -- SetText reject the laundered value we degrade to hidden instead of erroring on every combat
+            -- tick. TruncateWhenZero is itself the proven secret-safe path (the reference CDM addon ships it unprotected).
+            if TruncateWhenZero and pcall(stacksFS.SetText, stacksFS, TruncateWhenZero(ch)) then
+                stacksFS:Show()
+            else
+                stacksFS:Hide()
+            end
+            return
+        end
         -- A tracker can require a MINIMUM count before the number is drawn: trinkets pass minStack=2
         -- so a lone "1" (a single on-use = no real charges) isn't shown, while a genuine 2+ charge
         -- trinket still displays. Default 1 keeps the old "show whenever > 0" for potions/healthstones.

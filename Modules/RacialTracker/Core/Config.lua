@@ -27,6 +27,7 @@ local DEFAULTS = {
     timerFontSize  = 14,
     timerOutline   = "OUTLINE",
     timerColor     = { r = 1, g = 1, b = 1, a = 1 },
+    timerPositiveEnabled = true,   -- show the green active-racial-buff timer by default
     -- Sounds default to the High variant but are UNCHECKED by default.
     soundOnUse     = false,
     soundKeyUse    = "UnbunkUtility: Racial (High)",

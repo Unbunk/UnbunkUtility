@@ -198,7 +198,9 @@ end
 local function GetCooldown(id)
     if C_Spell and C_Spell.GetSpellCooldown then
         local cd = C_Spell.GetSpellCooldown(id)
-        if cd then return cd.startTime, cd.duration end
+        -- isOnGCD (structural, readable in combat) lets the readable branch tell a REAL cooldown from a GCD
+        -- blip without the duration>2.5 magic number (which also misses short real cooldowns).
+        if cd then return cd.startTime, cd.duration, cd.isOnGCD end
         return 0, 0
     end
     local start, duration = GetSpellCooldown(id)
@@ -240,7 +242,9 @@ function RT.ApplyVisuals()
     -- ── Green "active" timer while a tracked self-aura is up — incl. re-press
     -- windows (Spatial Rift reactivation) and Ancestral Call's random stat buff. ──
     local foundBuff = false
-    local binfo = RACIAL_BUFF_AURA[racialSpellId]
+    -- "Enable positive timer" (default ON for racials): off → skip the GREEN active-buff block entirely
+    -- (live aura + in-combat heuristic), leaving foundBuff false so the grey cooldown below runs.
+    local binfo = (racialIcon.ResolveFlag("timerPositiveEnabled") == true) and RACIAL_BUFF_AURA[racialSpellId] or nil
     if binfo then
         -- First of the watched auras that is present drives the green.
         local aura, matchedId
@@ -262,23 +266,33 @@ function RT.ApplyVisuals()
     end
 
     if not foundBuff then
-        local start, duration = GetCooldown(racialSpellId)
+        local start, duration, isOnGCD = GetCooldown(racialSpellId)
         if issecretvalue(start) or issecretvalue(duration) then
-            -- In combat the cooldown timing is a secret value (reading/comparing one
-            -- taints + errors). Estimate the recharge from the recorded cast time +
-            -- the cooldown length (learned out of combat, else seeded).
+            -- Secret in combat: draw the precise swipe from the cooldown's duration object (engine-side,
+            -- works even for a racial NOT cast this session — the old "no estimate -> no swipe" looked falsely
+            -- READY). isActive/isOnGCD are readable, so the swipe presence is authoritative; the heuristic
+            -- (recorded cast + learned/seeded length) only supplies the countdown TEXT when we have one.
+            local swipe = ns.SpellRealCooldownSwipe(racialSpellId)
             local cdDur = learnedCd[racialSpellId] or RACIAL_COOLDOWN[racialSpellId]
-            if lastUseAt and cdDur and GetTime() < lastUseAt + cdDur then
+            if swipe then
                 hasCooldown = true
-                lastExpiry = lastUseAt + cdDur
-                racialIcon.SetTimer(lastExpiry, cdDur)
+                local hExp = (lastUseAt and cdDur and GetTime() < lastUseAt + cdDur) and (lastUseAt + cdDur) or nil
+                if hExp then lastExpiry = hExp end
+                racialIcon.SetTimer(hExp, hExp and cdDur or nil, nil, nil, swipe)
                 racialIcon.HideCheck()
+            else
+                -- CD ended / no real-CD signal: clear the VISUAL swipe, but KEEP hasCooldown while IN COMBAT so
+                -- the readable combat-exit ready-block still flashes/sounds completion (deferred, matching pre-#2).
+                -- Skip during the post-zone settle, where cd.isActive can transiently read false.
+                if not (ns.RecentlyZoned and ns.RecentlyZoned()) then
+                    if not UnitAffectingCombat("player") then hasCooldown = false end
+                    racialIcon.ClearTimer()
+                end
             end
-            -- No usable estimate while secret: leave the icon as-is rather than
-            -- firing a false "ready" on data we cannot read.
-        elseif start and start > 0 and duration and duration > 2.5 then
-            -- Readable (out of combat): the exact cooldown. Remember its length so
-            -- the in-combat estimate above tracks the current patch's value.
+        elseif start and start > 0 and duration and (duration > 2.5 or isOnGCD == false) then
+            -- Readable (out of combat): the exact cooldown — duration>2.5 (legacy) OR isOnGCD==false
+            -- (structural GCD-vs-real test, catches short real cooldowns). Remember its length so the
+            -- in-combat estimate above tracks the current patch's value.
             learnedCd[racialSpellId] = duration
             hasCooldown = true
             lastExpiry = start + duration
