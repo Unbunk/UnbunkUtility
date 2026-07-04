@@ -100,6 +100,38 @@ end
 
 function DM.IsUnlocked() return unlocked end
 
+-- ── Precise X/Y positioning ─────────────────────────────────────────────────────
+-- Decursive stores the container position in its OWN profile (DebuffsFrameContainer_x/y),
+-- StickToRight-adjusted by SavePos. We read/write those SAME slots and let Decursive's Place()
+-- consume them, so a value shown here and nudged stays entirely in Decursive's convention.
+
+-- Current saved X/Y. When never saved yet (false/nil → Decursive's default corner) populate the
+-- slots once from the LIVE frame via SavePos so the inputs open on the real position, not 0,0.
+function DM.GetPos()
+    local D, muf = GetMUF()
+    if not (D and D.profile) then return 0, 0 end
+    local x, y = D.profile.DebuffsFrameContainer_x, D.profile.DebuffsFrameContainer_y
+    if (type(x) ~= "number" or type(y) ~= "number") and muf and muf.SavePos and not InCombatLockdown() then
+        muf:SavePos()
+        x, y = D.profile.DebuffsFrameContainer_x, D.profile.DebuffsFrameContainer_y
+    end
+    return (type(x) == "number" and x) or 0, (type(y) == "number" and y) or 0
+end
+
+-- Write an exact position into Decursive's saved slot and re-anchor. Out of combat only: the
+-- container is a secure frame Decursive won't re-place in combat (same guard as drag / Reset).
+function DM.SetPos(x, y)
+    local D, muf = GetMUF()
+    if not (D and muf and D.profile) then return end
+    if InCombatLockdown() then
+        ns.Print(L["Can't move Decursive's frame in combat."])
+        return
+    end
+    D.profile.DebuffsFrameContainer_x = x
+    D.profile.DebuffsFrameContainer_y = y
+    if muf.Place then muf:Place() end
+end
+
 -- Clear the saved position → Decursive re-places the container at its default corner.
 function DM.Reset()
     local D, muf = GetMUF()

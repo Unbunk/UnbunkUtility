@@ -333,27 +333,288 @@ local function CreateDetailsPanel(parent)
         return entries
     end
 
+    -- ── "Windows settings" cadre ──────────────────────────────────────────────
+    local DP = ns.DetailsProfile
+
+    -- One Details! window's size/position cadre. Its whole box is greyed (gate) when the
+    -- window is LOCKED or LINKED (snapped) to another — Details! owns the geometry then, so a
+    -- manual W/H/X/Y would fight it or break the snapped group.
+    local function WindowCadre(inst, idx)
+        return { type = "group", title = L["Window"] .. " " .. idx,
+            gate = { enabled = function() return not DP.IsWindowGated(inst) end },
+            build = function()
+                local entries = {}
+                -- Why-greyed hint: added ONLY when the window is gated (a lock/link change re-signs the
+                -- window set and rebuilds), so an EDITABLE window has no dead band above its inputs.
+                if DP.IsWindowGated(inst) then
+                    local reason = DP.IsWindowLocked(inst)
+                        and L["Locked in Details! — unlock it there to edit."]
+                        or  L["Linked to another window — detach it in Details! to edit."]
+                    entries[#entries + 1] = { type = "custom", height = 16, build = function(host)
+                        local fs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+                        fs:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                        fs:SetTextColor(0.6, 0.6, 0.6)
+                        fs:SetText(reason)
+                        return { frame = host, height = 16 }
+                    end }
+                end
+                -- W / H / X / Y inputs. Apply on Enter; each keeps the sibling axis and re-reads all four
+                -- afterwards. W/H are clamped to Details!'s own window bounds (150 x 7 .. screen) — a raw
+                -- SetSize would otherwise allow a broken 1px window.
+                entries[#entries + 1] = { type = "custom", height = 58, build = function(host)
+                    local wIn, hIn, xIn, yIn, refresh
+                    local maxW = math.floor(GetScreenWidth()  or 2560)
+                    local maxH = math.floor(GetScreenHeight() or 1440)
+                    local function num(box, fb) local v = box and tonumber(box.GetText()); return v or fb end
+                    local function label(text, ox, oy)
+                        local fs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityBody")
+                        fs:SetPoint("TOPLEFT", host, "TOPLEFT", ox, oy)
+                        fs:SetText(text)
+                    end
+                    wIn = ns.ui.CreateTextInput({ parent = host, width = 60, height = 22,
+                        numeric = true, min = 150, max = maxW, maxLetters = 5, text = "0",
+                        onEnter = function(v) if v then DP.SetWindowSize(inst, v, num(hIn, v)); if refresh then refresh() end end end })
+                    hIn = ns.ui.CreateTextInput({ parent = host, width = 60, height = 22,
+                        numeric = true, min = 7, max = maxH, maxLetters = 5, text = "0",
+                        onEnter = function(v) if v then DP.SetWindowSize(inst, num(wIn, v), v); if refresh then refresh() end end end })
+                    xIn = ns.ui.CreateTextInput({ parent = host, width = 60, height = 22,
+                        numeric = true, allowNegative = true, maxLetters = 6, text = "0",
+                        onEnter = function(v) if v then DP.SetWindowPos(inst, v, num(yIn, 0)); if refresh then refresh() end end end })
+                    yIn = ns.ui.CreateTextInput({ parent = host, width = 60, height = 22,
+                        numeric = true, allowNegative = true, maxLetters = 6, text = "0",
+                        onEnter = function(v) if v then DP.SetWindowPos(inst, num(xIn, 0), v); if refresh then refresh() end end end })
+                    label("W", 0, -4);    wIn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 18, 0)
+                    label("H", 110, -4);  hIn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 128, 0)
+                    label("X", 0, -32);   xIn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 18, -28)
+                    label("Y", 110, -32); yIn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 128, -28)
+                    refresh = function()
+                        -- Skip a box the user is currently typing in (a live poll refresh must not
+                        -- clobber an unsubmitted edit); the others still track the window live.
+                        local w, h, x, y = DP.GetWindowRect(inst)
+                        if not wIn.editBox:HasFocus() then wIn.SetText(tostring(w)) end
+                        if not hIn.editBox:HasFocus() then hIn.SetText(tostring(h)) end
+                        if not xIn.editBox:HasFocus() then xIn.SetText(tostring(x)) end
+                        if not yIn.editBox:HasFocus() then yIn.SetText(tostring(y)) end
+                    end
+                    refresh()
+                    return { frame = host, height = 58, Refresh = refresh }
+                end }
+                return entries
+            end }
+    end
+
+    -- The "Windows settings" body: a description, then one cadre per created Details! window.
+    local function BuildWindowsBody()
+        local entries = {
+            GreyDescription(L["Set each Details! window's size (W/H) and position (X/Y). A window that is locked or linked (snapped) to another is greyed — unlock / detach it in Details! first."]),
+        }
+        if not (DP and DP.DetailsReady and DP.DetailsReady()) then
+            entries[#entries + 1] = { type = "custom", height = 18, build = function(host)
+                local fs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+                fs:SetPoint("LEFT", host, "LEFT", 0, 0)
+                fs:SetTextColor(1, 0.5, 0.2)
+                fs:SetText(L["Details! not detected — install / enable it for this to work."])
+                return { frame = host, height = 18 }
+            end }
+            return entries
+        end
+        local n = DP.NumWindows()
+        if n == 0 then
+            entries[#entries + 1] = GreyDescription(L["No Details! window found."])
+            return entries
+        end
+        for i = 1, n do
+            local inst = DP.GetWindow(i)
+            -- Only OPEN windows (skip empty slots AND closed-but-not-destroyed windows).
+            if DP.IsWindowOpen(inst) then entries[#entries + 1] = WindowCadre(inst, i) end
+        end
+        return entries
+    end
+
     local options = {
         { type = "label", font = "UnbunkUtilityH2", height = 28, text = L["Details! special settings"] },
-        { type = "group", build = BuildBody },
+        { type = "group", title = L["Windows settings"],  build = BuildWindowsBody },
+        { type = "group", title = L["Profiles settings"], build = BuildBody },
     }
 
     menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
+
+    -- Keep the Windows cadre live even while the tab stays open (Details! fires no event we can hook
+    -- for a manual drag / resize / lock). Two signatures split the work so we never do more than needed:
+    --   * STRUCT (count + each window's gated state): a change means a window opened/closed/locked/
+    --     unlocked/linked -> full Rebuild (adds/removes cadres, greying + hint). Orphans frames, so it
+    --     runs ONLY on this rare change.
+    --   * GEOM (W/H/X/Y): a change means a manual drag/resize -> cheap menu.Refresh() re-reads the fields.
+    -- Unchanged -> no work. Driven by a throttled ticker that only runs while THIS tab is shown (it is a
+    -- child of `parent`, so it hides — and stops — with the tab), plus an immediate sync on show.
+    local lastStruct, lastGeom
+    local function windowSigs()
+        if not (DP and DP.NumWindows) then return "0", "0" end
+        local n = DP.NumWindows()
+        local st, gm = { tostring(n) }, {}
+        for i = 1, n do
+            local inst = DP.GetWindow(i)
+            if DP.IsWindowOpen(inst) then
+                st[#st + 1] = i .. (DP.IsWindowGated(inst) and "g" or "e")
+                local w, h, x, y = DP.GetWindowRect(inst)
+                gm[#gm + 1] = i .. ":" .. w .. "," .. h .. "," .. x .. "," .. y
+            end
+        end
+        return table.concat(st, ","), table.concat(gm, ";")
+    end
+    local function syncNow()
+        if not menu then return end
+        local st, gm = windowSigs()
+        if st ~= lastStruct then
+            lastStruct, lastGeom = st, gm
+            rebuild()
+        elseif gm ~= lastGeom then
+            lastGeom = gm
+            menu.Refresh()
+        end
+    end
+    lastStruct, lastGeom = windowSigs()
+    parent:HookScript("OnShow", syncNow)
+
+    local poller = CreateFrame("Frame", nil, parent)
+    poller:SetSize(1, 1)
+    local accum = 0
+    poller:SetScript("OnUpdate", function(_, dt)
+        accum = accum + dt
+        if accum < 0.25 then return end
+        accum = 0
+        syncNow()
+    end)
     return menu
 end
 
 -- ── "Restore my profile" tab ───────────────────────────────────────────────────
 local function CreateRestorePanel(parent)
+    -- An orange "not available" note line (addon absent / no import path).
+    local function WarnLine(text)
+        return { type = "custom", height = 18, build = function(host)
+            local fs = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+            fs:SetPoint("LEFT", host, "LEFT", 0, 0)
+            fs:SetTextColor(1, 0.5, 0.2)
+            fs:SetText(text)
+            return { frame = host, height = 18 }
+        end }
+    end
+
+    -- Run one addon's import, then report / prompt reload in chat.
+    local function RunImport(entry, b)
+        if InCombatLockdown() then ns.Print(L["Can't import a profile in combat."]); return end
+        local ok, detail = b.run()
+        if ok then
+            if detail == "reload" then
+                ns.ui.ShowConfirm({
+                    title    = L["Reload UI?"],
+                    text     = string.format(L["%s imported. A UI reload is needed to fully apply it. Reload now?"], entry.label),
+                    onAccept = function() ReloadUI() end,
+                })
+            elseif detail == "confirm" then
+                ns.Print(string.format(L["%s: confirm the import in the addon's own dialog."], entry.label))
+            else
+                ns.Print(string.format(L["%s profile imported."], entry.label))
+            end
+        else
+            local msg
+            if detail == "empty"        then msg = L["no string saved — paste it into AddonProfiles.lua first."]
+            elseif detail == "notloaded" then msg = L["addon not detected."]
+            elseif detail == "decode"    then msg = L["could not decode the string."]
+            else msg = tostring(detail) end
+            ns.Print(string.format(L["%s import failed: %s"], entry.label, msg))
+        end
+    end
+
+    -- One import button + a grey "(no string saved yet)" hint when its blob is still empty.
+    local function ImportButtonRow(entry, b)
+        return { type = "custom", height = 30, build = function(host)
+            local btn = ns.ui.CreateButton({
+                parent = host, label = L[b.labelKey], width = 200, height = 22,
+                onClick = function() RunImport(entry, b) end,
+            })
+            btn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -4)
+            if ns.AddonProfiles and ns.AddonProfiles.BlobEmpty(b.blob) then
+                local hint = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+                hint:SetPoint("LEFT", btn.frame, "RIGHT", 10, 0)
+                hint:SetTextColor(0.6, 0.6, 0.6)
+                hint:SetText(L["(no string saved yet)"])
+            end
+            return { frame = host, height = 30 }
+        end }
+    end
+
+    -- Dominos can't export a profile string, so capture the LIVE Dominos profile into a copyable box
+    -- (read-only: snaps back on edit) — the user copies it into AddonProfiles.lua's `dominos` blob.
+    local function DominosExportRow()
+        return { type = "custom", height = 82, build = function(host)
+            local hint = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+            hint:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+            hint:SetPoint("TOPRIGHT", host, "TOPRIGHT", 0, 0)
+            hint:SetJustifyH("LEFT"); hint:SetWordWrap(true); hint:SetTextColor(0.6, 0.6, 0.6)
+            hint:SetText(L["Dominos can't export — capture your CURRENT Dominos profile here, copy it, and paste it into AddonProfiles.lua's dominos blob."])
+
+            local input = ns.ui.CreateTextInput({ parent = host, width = 380, height = 22, maxLetters = 0 })
+            input.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -30)
+            local box, val = input.editBox, ""
+            box:SetScript("OnTextChanged", function(self)
+                if self:GetText() ~= val then self:SetText(val); self:HighlightText() end
+            end)
+
+            local btn = ns.ui.CreateButton({
+                parent = host, label = L["Capture current Dominos profile"], width = 240, height = 22,
+                onClick = function()
+                    val = (ns.AddonProfiles and ns.AddonProfiles.ExportDominos and ns.AddonProfiles.ExportDominos()) or ""
+                    if val == "" then ns.Print(L["Dominos not loaded (or serializer missing)."]); return end
+                    box:SetText(val); box:SetFocus(); box:HighlightText()   -- select-all for Ctrl+C
+                end,
+            })
+            btn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -56)
+            return { frame = host, height = 82 }
+        end }
+    end
+
+    -- One addon cadre: its import button(s), or a greyed note when unavailable.
+    local function AddonCadre(entry)
+        return { type = "group", title = L[entry.label], build = function()
+            local AP = ns.AddonProfiles
+            if not AP then return { WarnLine(L["addon not detected."]) } end
+            if entry.unsupported == "notinstalled" or not AP.Loaded(entry.addon) then
+                return { WarnLine(L["This addon is not detected — install / enable it for this to work."]) }
+            end
+            if entry.unsupported == "nostring" then
+                return { WarnLine(L["This addon has no profile-string import."]) }
+            end
+            local items = {}
+            for _, b in ipairs(entry.buttons or {}) do
+                items[#items + 1] = ImportButtonRow(entry, b)
+            end
+            if entry.exportHelper == "dominos" then
+                items[#items + 1] = DominosExportRow()
+            end
+            return items
+        end }
+    end
+
     local options = {
         { type = "label", font = "UnbunkUtilityH2", height = 28, text = L["Restore my profile"] },
-        { type = "group", build = function()
+        -- UnbunkUtility's own baked-in profile (the original one-click restore).
+        { type = "group", title = "UnbunkUtility", build = function()
             return {
-                GreyDescription(L["Imports the UnbunkUtility profile hardcoded in the addon into a new profile (non-destructive), in case you lose your settings."]),
                 { type = "button", label = L["Import my profile"], width = 180, hostHeight = 28,
                   onClick = function() if ns.RestoreOwnerProfile then ns.RestoreOwnerProfile() end end },
             }
         end },
     }
+
+    -- One cadre per other addon, driven by ns.AddonProfiles.ENTRIES.
+    if ns.AddonProfiles and ns.AddonProfiles.ENTRIES then
+        for _, entry in ipairs(ns.AddonProfiles.ENTRIES) do
+            options[#options + 1] = AddonCadre(entry)
+        end
+    end
+
     return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
 end
 

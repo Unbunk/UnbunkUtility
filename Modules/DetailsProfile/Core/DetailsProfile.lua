@@ -110,6 +110,78 @@ function DP.DetailsReady()
     return Details ~= nil and Details.GetCurrentProfileName and Details.ApplyProfile and true or false
 end
 
+-- ── Per-window geometry (the "Windows settings" cadre) ────────────────────────
+-- Enumerate + tweak each CREATED Details! window (instance). All guarded so a missing /
+-- older API never errors. X/Y use Details!'s OWN convention (offset from screen centre —
+-- what inst:GetPositionOnScreen returns); W/H are the base-frame size in logical (pre-scale) units.
+function DP.NumWindows()
+    if not (Details and Details.GetNumInstances) then return 0 end
+    return Details:GetNumInstances() or 0
+end
+
+function DP.GetWindow(i)
+    if not (Details and Details.GetInstance) then return nil end
+    return Details:GetInstance(i)
+end
+
+-- A window whose geometry Details! owns: LOCKED, or LINKED (snapped) to another window.
+-- Its size/pos cadre is greyed then — a manual W/H/X/Y would fight Details! or break the
+-- snapped group. inst.snap is Details!'s per-side neighbour map ({} when unlinked).
+function DP.IsWindowLocked(inst)
+    return (inst and inst.isLocked) and true or false
+end
+
+function DP.IsWindowLinked(inst)
+    return (inst and type(inst.snap) == "table" and next(inst.snap) ~= nil) and true or false
+end
+
+function DP.IsWindowGated(inst)
+    return DP.IsWindowLocked(inst) or DP.IsWindowLinked(inst)
+end
+
+-- An OPEN (enabled) window with a real base frame. Details!'s close [x] (DesativarInstancia) sets
+-- ativa=false but KEEPS baseframe, so a baseframe-only check would leak a closed window into the list
+-- as an editable, non-greyed cadre. IsEnabled() reads that ativa flag (ativa fallback for older API).
+function DP.IsWindowOpen(inst)
+    if not (inst and inst.baseframe) then return false end
+    if inst.IsEnabled then return inst:IsEnabled() and true or false end
+    return inst.ativa and true or false
+end
+
+-- Current width, height, x, y of a window (rounded to whole pixels for the inputs).
+function DP.GetWindowRect(inst)
+    if not (inst and inst.baseframe) then return 0, 0, 0, 0 end
+    local w = math.floor((inst.baseframe:GetWidth()  or 0) + 0.5)
+    local h = math.floor((inst.baseframe:GetHeight() or 0) + 0.5)
+    local x, y = 0, 0
+    if inst.GetPositionOnScreen then
+        local px, py = inst:GetPositionOnScreen()
+        if px then x = math.floor(px + 0.5) end
+        if py then y = math.floor(py + 0.5) end
+    end
+    return w, h, x, y
+end
+
+-- Resize a window. Details!'s SetSize -> Resize also persists via SaveMainWindowPosition.
+function DP.SetWindowSize(inst, w, h)
+    if not (inst and inst.SetSize) or DP.IsWindowGated(inst) then return end
+    if not (w and h) then return end
+    inst:SetSize(w, h)
+end
+
+-- Move a window to an exact X/Y (screen-centre offset), mirroring Details!'s own
+-- RestoreMainWindowPositionNoResize scale math, then persist via SaveMainWindowPosition.
+function DP.SetWindowPos(inst, x, y)
+    if not (inst and inst.baseframe) or DP.IsWindowGated(inst) then return end
+    if not (x and y) then return end
+    local sc  = inst.baseframe:GetEffectiveScale()
+    local uis = UIParent:GetScale()
+    if not (sc and uis and sc ~= 0) then return end
+    inst.baseframe:ClearAllPoints()
+    inst.baseframe:SetPoint("CENTER", UIParent, "CENTER", x * uis / sc, y * uis / sc)
+    if inst.SaveMainWindowPosition then inst:SaveMainWindowPosition() end
+end
+
 -- ── Details! window fade ──────────────────────────────────────────────────────
 -- Details! exposes each meter window as an "instance" whose frame is instance.baseframe.
 -- We tweak that frame's alpha so the whole window (bars + text) dims together; this is a
@@ -242,6 +314,11 @@ local function CombatGateOk(cb)
 end
 
 local fadedByUs = false   -- we are currently holding Details! at the faded alpha
+-- The profile we last auto-switched to for the CURRENT matched context. The switch fires only when the
+-- wanted profile CHANGES (a real context change), never on every re-evaluation — so once you manually
+-- pick another Details profile inside the same context (e.g. a dungeon), the auto-switch stops reforcing
+-- it back. Reset to nil when no rule matches, so re-entering the context applies again.
+local lastAppliedProfile = nil
 
 -- Evaluate every profile against the current context and apply the winning actions.
 -- Re-armed on config change, the relevant events, and the reload hook.
@@ -270,11 +347,20 @@ function DP.Apply()
         end
     end
 
-    -- Profile switch: only when it differs, and never mid-combat (it would reset the meter
-    -- windows). In combat we just skip it; PLAYER_REGEN_ENABLED re-runs Apply afterwards.
-    if wantProfile and not InCombatLockdown()
-        and Details:GetCurrentProfileName() ~= wantProfile then
-        Details:ApplyProfile(wantProfile)
+    -- Profile switch: fire ONLY on a real context change (wantProfile differs from the last one we acted
+    -- on), never on every event — otherwise every roster/zone/combat-end re-forced the profile and
+    -- overwrote a manual change ("couldn't switch it back"). Never mid-combat (it resets the meter
+    -- windows); in combat we leave lastAppliedProfile untouched so PLAYER_REGEN_ENABLED retries.
+    if wantProfile then
+        if Details:GetCurrentProfileName() == wantProfile then
+            lastAppliedProfile = wantProfile          -- already on it (we or the user) -> context handled
+        elseif wantProfile ~= lastAppliedProfile and not InCombatLockdown() then
+            Details:ApplyProfile(wantProfile)          -- new context / first entry -> switch ONCE
+            lastAppliedProfile = wantProfile
+        end
+        -- else: same context we already handled (respect a manual switch), or in combat (retry on REGEN)
+    else
+        lastAppliedProfile = nil                       -- no rule matches now -> re-arm for next entry
     end
 
     -- Fade: dim to the matching profile's opacity, else restore full opacity once we

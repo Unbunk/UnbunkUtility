@@ -43,18 +43,17 @@ local function CreateDecursivePanel(parent)
                 }
             end
             return {
-                GreyDescription(L["Unlock, then drag the Decursive Micro Unit Frame to reposition it; lock when you are done. (Out of combat only — the MUFs must be visible.)"]),
-                -- Unlock / Lock toggle.
-                { type = "custom", height = 30, build = function(host)
-                    local btn
-                    local function refresh() btn.SetText(DM.IsUnlocked() and L["Lock"] or L["Unlock"]) end
-                    btn = ns.ui.CreateButton({
-                        parent = host, label = L["Unlock"], width = 120, height = 22,
-                        onClick = function() DM.SetUnlocked(not DM.IsUnlocked()); refresh() end,
-                    })
-                    btn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -4)
-                    return { frame = host, height = 30, Refresh = refresh }
-                end },
+                GreyDescription(L["Unlock, then drag the Decursive Micro Unit Frame to reposition it — or type an exact X / Y offset and press Enter. Lock when you are done. (Out of combat only — the MUFs must be visible.)"]),
+                -- X / Y offset inputs + Unlock / Lock (drag) on one row. Enter in a field applies the exact
+                -- position; Unlock shows the drag overlay and Lock re-reads the fields from the saved pos.
+                { type = "position", label = "",
+                  getX       = function() local x = DM.GetPos(); return x end,
+                  getY       = function() local _, y = DM.GetPos(); return y end,
+                  onApply    = function(x, y) DM.SetPos(x, y) end,
+                  onUnlock   = function() DM.SetUnlocked(true) end,
+                  onLock     = function() DM.SetUnlocked(false) end,
+                  isUnlocked = function() return DM.IsUnlocked() end,
+                },
                 -- Reset to Decursive's default corner.
                 { type = "button", label = L["Reset"], width = 120, height = 22, hostHeight = 28,
                   onClick = function() if DM.Reset then DM.Reset() end end },
