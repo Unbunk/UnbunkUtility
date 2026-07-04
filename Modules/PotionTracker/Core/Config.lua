@@ -38,6 +38,10 @@ local DEFAULTS = {
         timerOutline  = "OUTLINE",
         timerColor    = { r=1, g=1, b=1, a=1 },
         showStack       = true,
+        -- Grey the icon while on cooldown even with more potions in bags. A bag stack is NOT a usable
+        -- charge during the shared potion cooldown (unlike a real charge-spell / a healthstone), so the
+        -- default is ON here; the "darken on cd with stacks" toggle can still turn it off per icon.
+        darkenOnCdWithStacks = true,
         stackAnchor     = "BOTTOM",   -- potions keep their stack count below the icon
         stackOffsetX    = 0,
         stackOffsetY    = 0,
@@ -66,6 +70,10 @@ local DEFAULTS = {
         favoriteEnabled = true,
         favoriteId      = 241308,  -- Light's Potential
         showStack       = true,
+        -- Grey the icon while on cooldown even with more potions in bags. A bag stack is NOT a usable
+        -- charge during the shared potion cooldown (unlike a real charge-spell / a healthstone), so the
+        -- default is ON here; the "darken on cd with stacks" toggle can still turn it off per icon.
+        darkenOnCdWithStacks = true,
         stackAnchor     = "BOTTOM",   -- potions keep their stack count below the icon
         stackOffsetX    = 0,
         stackOffsetY    = 0,

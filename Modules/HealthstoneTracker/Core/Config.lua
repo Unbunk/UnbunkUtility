@@ -36,6 +36,10 @@ local DEFAULTS = {
     stackFontSize  = 12,
     stackOutline   = "OUTLINE",
     stackColor     = { r = 1, g = 1, b = 1, a = 1 },
+    -- Grey the icon while on cooldown even with charges/stones left: a Healthstone on its use cooldown
+    -- can't be consumed regardless of how many remain, so the default is ON (same rationale as potions);
+    -- the "darken on cd with stacks" toggle can still turn it off per icon.
+    darkenOnCdWithStacks = true,
     soundOnUse     = true,
     soundKeyUse    = "UnbunkUtility: Healthstone (High)",
     soundPathUse   = nil,

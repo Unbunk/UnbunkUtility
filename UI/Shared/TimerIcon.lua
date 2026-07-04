@@ -1165,9 +1165,12 @@ function ns.ui.CreateTimerIcon(config)
             if v ~= nil then return v end
             return default
         end
-        -- This icon's "darken on cd with stacks" flag for its current dest (default OFF) -> drives the
-        -- on-cooldown greying decided in SetTimer / ApplyCdDesat.
-        darkenOnCdWithStacks = XCfg("darkenOnCdWithStacks", false) == true
+        -- This icon's "darken on cd with stacks" flag for its current dest -> drives the on-cooldown greying
+        -- decided in SetTimer / ApplyCdDesat. When the per-dest store (below-player override / engine override /
+        -- free config) has no value, fall back to the tracker's OWN config default instead of a hard OFF -- so a
+        -- module can ship a non-standard default (potions default ON: a bag stack is not usable during the shared
+        -- potion cooldown). Trackers that never set the key read nil here -> false, exactly as before.
+        darkenOnCdWithStacks = XCfg("darkenOnCdWithStacks", getCfg("darkenOnCdWithStacks")) == true
         -- Title: free text (titleText), styled with the title* keys.
         if drawExtras and XCfg("showTitle", false) then
             titleFS:SetFont(ns.ResolveFontPath(XCfg("titleFontPath", nil), XCfg("titleFontKey", "Fira Mono")),
