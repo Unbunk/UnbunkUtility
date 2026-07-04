@@ -277,8 +277,14 @@ local function EngineFor(I)
     local function FrameKey(nf)
         if not nf then return nil end
         local base = ns.CDMAnchor and ns.CDMAnchor.NativeFrameBaseSpellId and ns.CDMAnchor.NativeFrameBaseSpellId(nf)
-        if base then return base end
-        return FrameSpellId(nf)
+        if base then nf._uuLastGoodKey = base; return base end
+        -- Base unreadable (SECRET in combat): reuse the last KNOWN base so the key stays STABLE across
+        -- combat secret-value oscillation. Without this the key flips base<->display<->nil frame-to-frame,
+        -- so the layout signature never matches and the pass-level early-out is defeated -- running the FULL
+        -- relayout at up to 60Hz per engine (a root cause of the "script ran too long" budget saturation).
+        -- A recycled frame drops _uuLastGoodKey in CDMAnchor's OnAcquireItemFrame hook, so a stale key can
+        -- never outlive its frame; fall to the display id only if we have never resolved a base for it.
+        return nf._uuLastGoodKey or FrameSpellId(nf)
     end
     I.FrameKey = FrameKey
 
@@ -1977,7 +1983,12 @@ local function EngineFor(I)
     -- one RefreshLayout per frame at most, no matter how many UNIT_AURA the game fires that frame.
     if ns.AuraDispatch then
         ns.AuraDispatch.Register("player", function()
-            if I.Enabled() then HookNativeViewer(); I.RefreshLayout() end
+            -- Coalesce to the 0.1s ScheduleRelayout (like the native-viewer hook) instead of a synchronous
+            -- RefreshLayout. In raid combat UNIT_AURA "player" fires ~every frame and AuraDispatch runs THIS
+            -- plus the utility engine + BuffGroups + BarGroups back-to-back in ONE call; firing four full
+            -- relayouts at ~60Hz saturated the frame's insecure-execution budget ("script ran too long").
+            -- At 10Hz -- and in a fresh, untainted timer execution, not inside this flush -- it doesn't.
+            if I.Enabled() then HookNativeViewer(); ScheduleRelayout() end
         end)
     end
 

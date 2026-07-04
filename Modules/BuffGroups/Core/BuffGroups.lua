@@ -1435,6 +1435,24 @@ local function ScheduleRelayout()
     end)
 end
 
+-- Player-aura relayouts are the HIGH-FREQUENCY driver (UNIT_AURA "player" fires ~every frame in raid
+-- combat). They get their OWN 0.1s throttle so this engine's aura relayout doesn't run every frame inside
+-- the shared AuraDispatch flush (which also runs the two CDMGroups engines + BarGroups back-to-back -- four
+-- full relayouts at ~60Hz saturated the frame's insecure-execution budget = "script ran too long"). The
+-- viewer-hook ScheduleRelayout above stays next-frame (the Buff viewer doesn't fire RefreshLayout per frame,
+-- and keeping it prompt preserves the re-style-after-Blizzard-refill timing).
+local bgAuraRelayoutScheduled = false
+local function ScheduleAuraRelayout()
+    if bgAuraRelayoutScheduled then return end
+    bgAuraRelayoutScheduled = true
+    C_Timer.After(0.1, function()
+        bgAuraRelayoutScheduled = false
+        if not BG.Enabled() then return end
+        if pendingSeed then BG.RefreshTracked() end
+        BG.RefreshLayout()
+    end)
+end
+
 local refreshHooked = false
 local function HookNativeViewer()
     if refreshHooked then return end
@@ -1485,9 +1503,10 @@ ev:SetScript("OnEvent", function(_, event)
     end
 end)
 
--- Player aura change -> coalesced refresh (shared dispatcher, fired next frame).
+-- Player aura change -> coalesced refresh (shared dispatcher). Routed through the 0.1s aura throttle so a
+-- 60Hz combat aura stream drives at most ~10Hz of full relayouts, not one per frame.
 ns.AuraDispatch.Register("player", function()
-    if BG.Enabled() then HookNativeViewer(); BG.RefreshLayout() end
+    if BG.Enabled() then HookNativeViewer(); ScheduleAuraRelayout() end
 end)
 
 -- Is the addon's config window currently open? When the module is DISABLED the displayed-set

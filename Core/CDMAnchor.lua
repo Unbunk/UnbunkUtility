@@ -2109,7 +2109,11 @@ local function HookViewers()
             -- a stale offset is never re-imposed before the next LayoutCDMRow.
             if v.OnAcquireItemFrame then
                 hooksecurefunc(v, "OnAcquireItemFrame", function(_, itemFrame)
-                    if itemFrame then itemFrame._uuPin = nil end
+                    -- Drop our pin AND the CDMGroups engine's cached identity key (_uuLastGoodKey): the pool
+                    -- just recycled this frame for new content, so neither a stale offset nor a stale
+                    -- stable-key may survive into the next layout pass (the key is a private field the engine
+                    -- reads for its combat secret-value early-out; clearing it here is a no-op for other frames).
+                    if itemFrame then itemFrame._uuPin = nil; itemFrame._uuLastGoodKey = nil end
                 end)
             end
         end
