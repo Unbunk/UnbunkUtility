@@ -356,14 +356,21 @@ function PT.GetActiveItemId(prefix)
     local entry = activeCache[prefix]
     if not entry then return ResolveActiveItemId(prefix) end
     if entry.dirty then
+        -- A REAL invalidation (bag / config change): run the full resolver (bag scan + family loops) once.
         entry.id      = ResolveActiveItemId(prefix)
         entry.spellId = entry.id and (select(2, C_Item.GetItemSpell(entry.id))) or nil
-        -- C_Item.GetItemSpell returns nil while the item's data is still
-        -- loading from the server. Caching that nil as clean would freeze the
-        -- buff/aura timer + use-sound detection until the next bag event, so
-        -- stay dirty until the spellId actually resolves (ITEM_DATA_LOAD_RESULT
-        -- also invalidates the cache once data arrives).
-        entry.dirty   = (entry.id ~= nil and entry.spellId == nil)
+        entry.dirty   = false
+        -- C_Item.GetItemSpell returns nil while the item's data is still loading from the server. Rather
+        -- than staying `dirty` (which would re-run the WHOLE ~120-slot bag scan + 108-id family loops on
+        -- EVERY call until data arrives -- and it is called several times per 0.5s tick AND twice per
+        -- player cast via GetActiveSpellId, a real combat-load-window churn source), track the pending
+        -- spellId separately: later calls only RETRY the cheap GetItemSpell, no re-scan. ITEM_DATA_LOAD_RESULT
+        -- also invalidates the cache once data arrives, giving a clean full re-resolve then.
+        entry.spellPending = (entry.id ~= nil and entry.spellId == nil)
+    elseif entry.spellPending then
+        -- We already have the itemId; only the spellId hasn't loaded yet. Retry ONLY the cheap lookup.
+        entry.spellId = entry.id and (select(2, C_Item.GetItemSpell(entry.id))) or nil
+        entry.spellPending = (entry.id ~= nil and entry.spellId == nil)
     end
     return entry.id
 end
@@ -375,7 +382,7 @@ function PT.GetActiveSpellId(prefix)
         if not id then return nil end
         return (select(2, C_Item.GetItemSpell(id)))
     end
-    if entry.dirty then PT.GetActiveItemId(prefix) end
+    if entry.dirty or entry.spellPending then PT.GetActiveItemId(prefix) end
     return entry.spellId
 end
 

@@ -859,6 +859,23 @@ local function ScheduleRelayout()
     end)
 end
 
+-- Player-aura relayouts are the HIGH-FREQUENCY driver (UNIT_AURA "player" fires ~every frame in raid
+-- combat). They get their OWN 0.1s throttle so this engine's aura relayout doesn't run every frame inside
+-- the shared AuraDispatch flush (which also runs the two CDMGroups engines + BuffGroups back-to-back -- four
+-- full relayouts at ~60Hz saturated the frame's insecure-execution budget = "script ran too long"). The
+-- viewer-hook ScheduleRelayout above stays next-frame so a Blizzard bar refill is re-styled promptly.
+local barAuraRelayoutScheduled = false
+local function ScheduleAuraRelayout()
+    if barAuraRelayoutScheduled then return end
+    barAuraRelayoutScheduled = true
+    C_Timer.After(0.1, function()
+        barAuraRelayoutScheduled = false
+        if not BR.Enabled() then return end
+        if pendingSeed then BR.RefreshTracked() end
+        BR.RefreshLayout()
+    end)
+end
+
 local refreshHooked = false
 local function HookNativeViewer()
     if refreshHooked then return end
@@ -889,10 +906,10 @@ ev:RegisterEvent("TRAIT_CONFIG_UPDATED")
 ev:RegisterEvent("COOLDOWN_VIEWER_DATA_LOADED")   -- an EditMode "Tracked Buffs" edit changes the category set
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
--- UNIT_AURA goes through the shared coalescing dispatcher (one next-frame round per burst)
--- instead of a per-module RegisterUnitEvent; same body as PLAYER_REGEN_ENABLED below.
+-- UNIT_AURA goes through the shared coalescing dispatcher, then our 0.1s aura throttle so a 60Hz combat
+-- aura stream drives at most ~10Hz of full relayouts (not one per frame inside the AuraDispatch flush).
 ns.AuraDispatch.Register("player", function()
-    if BR.Enabled() then HookNativeViewer(); BR.RefreshLayout() end
+    if BR.Enabled() then HookNativeViewer(); ScheduleAuraRelayout() end
 end)
 ev:SetScript("OnEvent", function(_, event)
     -- Disabled module does ZERO event work: the secure hooks / seed are (re)installed by the enable
