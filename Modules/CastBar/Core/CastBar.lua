@@ -2,8 +2,10 @@
 -- A custom player cast bar (cast / channel / empower) plus an option to hide Blizzard's
 -- native PlayerCastingBarFrame. Inspired by Ayije_CDM's PlayerCastBar: we watch the
 -- UNIT_SPELLCAST_* events on "player", read UnitCastingInfo / UnitChannelInfo for the
--- timing, drive a StatusBar in OnUpdate, and suppress the Blizzard bar by unregistering
--- its events + hooking Show/Register so other addons can't bring it back.
+-- spell + castID, and hand the fill + countdown text to the 12.0 engine (SetTimerDuration +
+-- a Duration text binding) so there is NO per-frame OnUpdate — with a per-frame OnUpdate
+-- fallback for older clients. Blizzard's own bar is suppressed by unregistering its events +
+-- hooking Show/Register so other addons can't bring it back.
 
 local _, ns = ...
 ns.CastBar = ns.CastBar or {}
@@ -12,6 +14,11 @@ local CB = ns.CastBar
 local GetTime          = GetTime
 local UnitCastingInfo  = UnitCastingInfo
 local UnitChannelInfo  = UnitChannelInfo
+-- 12.0 Duration-object variants: hand a live duration straight to the engine so it animates
+-- the fill C-side (no Lua arithmetic per frame). nil on older clients -> OnUpdate fallback.
+local UnitCastingDuration          = _G.UnitCastingDuration
+local UnitChannelDuration          = _G.UnitChannelDuration
+local UnitEmpoweredChannelDuration = _G.UnitEmpoweredChannelDuration
 local UnitEmpoweredStagePercentages = _G.UnitEmpoweredStagePercentages   -- DF+ empower stages (nil on Classic)
 local floor            = math.floor
 
@@ -280,10 +287,77 @@ local function HookGroupOneBoxes()
     end
 end
 
+-- ── Native fill helpers (SetTimerDuration + a countdown text binding) ─────────
+-- The 12.0 engine can animate the fill and write the countdown text itself from a Duration
+-- object, so a live cast needs no per-frame OnUpdate. All of it is capability-gated; when the
+-- APIs are missing (Classic / old client) or the `nativeFill` escape hatch is off, StartCast
+-- falls back to the OnUpdate path below.
+local INTERP = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
+
+local function NativeFillReady()
+    return C("nativeFill") ~= false
+        and bar and bar.SetTimerDuration
+        and Enum and Enum.StatusBarTimerDirection
+        and UnitCastingDuration and UnitChannelDuration
+end
+
+-- Countdown text binding, built lazily once timeFS exists (false = unavailable, cached).
+local timerBinding, durationFormatter
+local function BuildDurationFormatter()
+    local mk = C_StringUtil and C_StringUtil.CreateNumericRuleFormatter
+    if not (mk and Enum and Enum.NumericRuleFormatRounding) then return nil end
+    -- Same breakpoint shape as CooldownFormatter: one decimal below 60s (our long-standing
+    -- look), m:ss above for long channels. pcall-guarded in case the schema ever shifts.
+    local ok, f = pcall(function()
+        local fmt = mk()
+        fmt:SetBreakpoints({
+            { threshold = 0,       format = "%.1f",   rounding = Enum.NumericRuleFormatRounding.Nearest },
+            { threshold = 59.0001, format = "%d:%02d", rounding = Enum.NumericRuleFormatRounding.Up, step = 1,
+              components = { { div = 60 }, { mod = 60 } } },
+        })
+        return fmt
+    end)
+    return ok and f or nil
+end
+local function EnsureTimerBinding()
+    if timerBinding ~= nil then return timerBinding or nil end
+    if not (C_DurationUtil and C_DurationUtil.CreateDurationTextBinding and timeFS) then
+        timerBinding = false
+        return nil
+    end
+    local b = C_DurationUtil.CreateDurationTextBinding()
+    b:SetFontString(timeFS)
+    if b.SetZeroDurationText then b:SetZeroDurationText("0") end
+    durationFormatter = durationFormatter or BuildDurationFormatter()
+    if durationFormatter and b.SetFormatter then b:SetFormatter(durationFormatter) end
+    timerBinding = b
+    return b
+end
+local function DisableTimerBinding()
+    if timerBinding and timerBinding.Disable then timerBinding:Disable() end
+end
+
+-- Take the bar out of native timer mode and hold a static value (end-of-cast feedback).
+-- SetTimerDuration(nil) clears the running animation where supported; pcall so a client that
+-- rejects nil can't error (worst case the value we set below still shows).
+local function FreezeBar(value)
+    if not bar then return end
+    if bar.SetTimerDuration then pcall(bar.SetTimerDuration, bar, nil) end
+    bar:SetMinMaxValues(0, 1)
+    if INTERP then bar:SetValue(value, INTERP) else bar:SetValue(value) end
+end
+
+-- End-of-cast feedback hold timer.
+local endTimer
+local function ClearEndFeedback()
+    if endTimer then endTimer:Cancel(); endTimer = nil end
+end
+
 -- ── Start / stop a cast ───────────────────────────────────────────────────────
 -- kind: "cast" (fill up) | "channel" (channel/empower; non-empower fills down).
 local function StartCast(kind)
     if not container or not enabled then return end
+    ClearEndFeedback()   -- a new cast during a feedback hold cancels the hold
     local name, text, texture, startMs, endMs, notInt, channel, castID, isEmpowered, numStages
     if kind == "cast" then
         name, text, texture, startMs, endMs, _, castID, notInt = UnitCastingInfo("player")
@@ -309,11 +383,53 @@ local function StartCast(kind)
 
     if C("showIcon") ~= false then icon:SetTexture(texture); icon:Show() end
     if C("showSpellName") ~= false then nameFS:SetText(text or name) end
-    bar:SetMinMaxValues(0, 1)
-    bar:SetValue(cast.channel and 1 or 0)
     ApplyColor()
     -- Empower stage notches (Evoker): shown for empowered casts, cleared for everything else.
     if isEmpowered then ShowEmpowerPips(numStages) else HideEmpowerPips() end
+    spark:SetShown(C("showSpark") ~= false)   -- a prior feedback hold may have hidden it
+
+    -- Native fill: hand the whole fill + countdown to the engine. A Duration object drives
+    -- SetTimerDuration (fill animates C-side), a DurationTextBinding writes the countdown into
+    -- timeFS, and the spark tracks the fill by anchoring to the fill texture's leading edge —
+    -- so there is no OnUpdate. Falls through to the legacy per-frame path if the duration
+    -- object is unavailable.
+    local durObj
+    if NativeFillReady() then
+        if cast.startKind == "cast" then
+            durObj = UnitCastingDuration and UnitCastingDuration("player")
+        elseif cast.startKind == "empower" then
+            durObj = UnitEmpoweredChannelDuration and UnitEmpoweredChannelDuration("player", true)
+        else
+            durObj = UnitChannelDuration and UnitChannelDuration("player")
+        end
+    end
+    -- When the timer text is shown, the pure-native path needs the binding too (there is no
+    -- OnUpdate to write timeFS); if the binding is unavailable, drop to the OnUpdate path so the
+    -- countdown still updates.
+    local binding = cast.showTimer and durObj and EnsureTimerBinding() or nil
+    if durObj and (not cast.showTimer or binding) then
+        bar:SetTimerDuration(durObj, nil,
+            cast.channel and Enum.StatusBarTimerDirection.RemainingTime
+                          or Enum.StatusBarTimerDirection.ElapsedTime)
+        if binding then
+            binding:SetDuration(durObj); binding:Enable(); binding:UpdateFontString()
+        else
+            DisableTimerBinding()   -- timer hidden: keep the binding from writing text
+        end
+        local ft = bar:GetStatusBarTexture()
+        if spark:IsShown() and ft then
+            spark:ClearAllPoints()
+            spark:SetPoint("CENTER", ft, "RIGHT", 0, 0)
+        end
+        container:SetScript("OnUpdate", nil)
+        container:Show()
+        return
+    end
+
+    -- Legacy per-frame fill (older clients / nativeFill off).
+    DisableTimerBinding()
+    bar:SetMinMaxValues(0, 1)
+    bar:SetValue(cast.channel and 1 or 0)
     -- Anchor the spark once at cast start; OnUpdate then only adjusts its x-offset.
     spark:ClearAllPoints()
     spark:SetPoint("CENTER", bar, "LEFT", 0, 0)
@@ -321,14 +437,53 @@ local function StartCast(kind)
     container:Show()
 end
 
+-- Hard stop: clears everything and hides at once. Used by disable / unlock / stop-test and by
+-- StartCast on bad data. (Real cast ENDS route through EndCast, which may hold briefly first.)
 function CB.StopCast()
     cast.active = false
     cast.startKind = nil; cast.numStages = nil   -- no stale empower state lingers after a cast ends
     HideEmpowerPips()
+    DisableTimerBinding()
+    ClearEndFeedback()
     if container then
         container:SetScript("OnUpdate", nil)
         if not CB.IsUnlocked() then container:Hide() end
     end
+end
+
+-- Soft end from a real cast event, with optional feedback (Coolinator-style): briefly hold the
+-- bar full in a success / interrupted colour before hiding. `complete` is derived from WHICH end
+-- event fired (STOP/CHANNEL_STOP/EMPOWER_STOP = success; FAILED/INTERRUPTED = not). Channels
+-- finish empty, so a held bar would look wrong — they never hold.
+local function EndCast(complete)
+    if not cast.active then return end
+    local wasChannel = (cast.startKind == "channel")
+    cast.active = false
+    cast.startKind = nil; cast.numStages = nil
+    HideEmpowerPips()
+    DisableTimerBinding()
+    if container then container:SetScript("OnUpdate", nil) end
+    ClearEndFeedback()
+
+    local hold = tonumber(C("endFeedbackHold")) or 0.5
+    local doHold = container and not CB.IsUnlocked() and not testing and not wasChannel
+        and C("showEndFeedback") ~= false and hold > 0
+    if not doHold then
+        if container and not CB.IsUnlocked() then container:Hide() end
+        return
+    end
+
+    local col = (complete and C("completeColor") or C("interruptedColor"))
+        or (complete and { r = 0.2, g = 0.8, b = 0.35 } or { r = 0.9, g = 0.2, b = 0.2 })
+    bar:SetStatusBarColor(col.r, col.g, col.b, col.a or 1)
+    FreezeBar(1)          -- ease to full; the colour reads success vs interrupted
+    timeFS:SetText("")
+    spark:Hide()
+    container:Show()
+    endTimer = C_Timer.NewTimer(hold, function()
+        endTimer = nil
+        if not cast.active and container and not CB.IsUnlocked() then container:Hide() end
+    end)
 end
 
 -- ── Event routing ─────────────────────────────────────────────────────────────
@@ -360,13 +515,16 @@ local function OnEvent(_, event, unit, castGUID)
         cast.notInt = true; if cast.active then ApplyColor() end
     elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED" then
         -- Only a plain cast's own STOP/FAILED ends it (channels/empowers use their own STOP).
-        if cast.active and cast.startKind == "cast" and GuidMatches(castGUID) then CB.StopCast() end
+        -- STOP = the cast finished (success); FAILED = cancelled/moved (interrupted feedback).
+        if cast.active and cast.startKind == "cast" and GuidMatches(castGUID) then
+            EndCast(event == "UNIT_SPELLCAST_STOP")
+        end
     elseif event == "UNIT_SPELLCAST_INTERRUPTED" then
-        if cast.active and GuidMatches(castGUID) then CB.StopCast() end
+        if cast.active and GuidMatches(castGUID) then EndCast(false) end
     elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
-        if cast.active and cast.startKind == "channel" then CB.StopCast() end
+        if cast.active and cast.startKind == "channel" then EndCast(true) end
     elseif event == "UNIT_SPELLCAST_EMPOWER_STOP" then
-        if cast.active and cast.startKind == "empower" then CB.StopCast() end
+        if cast.active and cast.startKind == "empower" then EndCast(true) end
     end
 end
 
@@ -450,6 +608,8 @@ end
 function CB.IsTesting() return testing end
 function CB.StartTest()
     EnsureFrames()
+    ClearEndFeedback()
+    DisableTimerBinding()   -- the preview loops via OnUpdate, which writes timeFS itself
     testing      = true
     cast.active  = true
     cast.channel = false
@@ -530,7 +690,10 @@ function CB.SetUnlocked(val)
         -- Static preview so the bar is visible to position.
         cast.active = false
         HideEmpowerPips()
+        DisableTimerBinding()   -- static preview: manual timeFS text below, not the binding
+        ClearEndFeedback()
         container:SetScript("OnUpdate", nil)
+        spark:SetShown(C("showSpark") ~= false)   -- a prior feedback hold may have hidden it
         bar:SetMinMaxValues(0, 1); bar:SetValue(0.6)
         local cc = C("castColor") or { r = 1, g = 0.7, b = 0 }
         bar:SetStatusBarColor(cc.r, cc.g, cc.b, cc.a or 1)

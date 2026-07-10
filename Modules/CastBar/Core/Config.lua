@@ -44,6 +44,18 @@ local DEFAULTS = {
     castColor          = { r = 0.20, g = 0.55, b = 1.0, a = 1 },  -- #338CFF (brand blue)
     channelColor       = { r = 0.20, g = 0.72, b = 1.0, a = 1 },  -- #33B8FF
     uninterruptibleColor = { r = 0.20, g = 0.55, b = 1.0, a = 1 },  -- #338CFF (brand blue)
+    -- End-of-cast feedback: briefly hold the (non-channel) bar in a success / interrupted colour
+    -- after it ends. Cosmetic; the interrupted flash is the useful part (you see a kick land, or
+    -- your own cast get kicked). endFeedbackHold has no UI (the widget can't take decimals) — it's
+    -- a config-only override; 0 disables the hold.
+    showEndFeedback  = true,
+    endFeedbackHold  = 0.5,                                       -- seconds to hold the coloured bar
+    completeColor    = { r = 0.20, g = 0.80, b = 0.35, a = 1 },   -- success green
+    interruptedColor = { r = 0.90, g = 0.20, b = 0.20, a = 1 },   -- interrupted / failed red
+    -- Fill engine escape hatch: native SetTimerDuration (no per-frame OnUpdate) by default. Set
+    -- false (config-only, no UI) to fall back to the per-frame fill if the native engine ever
+    -- misbehaves on a given client.
+    nativeFill       = true,
     -- Border around the whole bar (icon + fill).
     borderEnabled   = true,
     borderColor     = { r = 0, g = 0, b = 0, a = 1 },             -- black
