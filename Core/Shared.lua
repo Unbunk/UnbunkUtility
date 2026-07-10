@@ -484,6 +484,36 @@ function ns.PixelSize()
     return nil
 end
 
+-- ── Taint scrub (de-taint one table key via forced rehash) ───────────────────
+-- Force a Lua table to drop the taint carried on ONE key. Setting t[k]=nil leaves a "dead"
+-- hash node that STILL holds the taint, so issecurevariable(t,k) keeps reporting insecure; we
+-- then poke absent integer keys until WoW's Lua 5.1 rehashes the table and abandons every dead
+-- node (the tainted k included), after which the key reads clean. This is the only way to scrub
+-- a key that a secret/forbidden value tainted short of a /reload (see the the reference engine analysis
+-- and the CooldownViewer:901 wall — a secret spellID key turning wasOnGCDLookup forbidden).
+--
+-- Guards vs the reference engine's original: we ONLY ever touch keys that are already nil (never a live
+-- value), bail immediately if the key is already clean, and cap the loop so a key that can never
+-- come clean cannot hang the client (a rehash happens within a few dozen pokes; the cap is a
+-- safety net). Returns true when the key ends up secure, false if it gave up.
+--
+-- ⚠ Call ONLY on a key you may legitimately nil out (a regenerable cache field) AND whose taint
+-- source you understand — this scrubs one key, not the table's or the execution's taint, and it
+-- MUTATES the table. Do not sweep blindly. There is currently no wired caller: it's a tool kept
+-- ready for a confirmed taint-key site (901 is NOT on our hook stack, so it does not apply there).
+function ns.PurgeTaintedKey(t, k)
+    if type(t) ~= "table" or type(issecurevariable) ~= "function" then return false end
+    t[k] = nil
+    if issecurevariable(t, k) then return true end   -- already clean: nothing to rehash
+    local c = 42                                      -- start high so we skip small live int keys
+    for _ = 1, 100000 do
+        if t[c] == nil then t[c] = nil end            -- creating+clearing an absent key forces a rehash
+        c = c + 1
+        if issecurevariable(t, k) then return true end
+    end
+    return false                                      -- gave up; caller should fall back (e.g. prompt /reload)
+end
+
 -- ── Tracker icon layering ────────────────────────────────────────────────────
 -- Layer a tracker icon BELOW HIGH-strata UI panels (e.g. the talents/spellbook
 -- window, so opening it covers the icons) while keeping it ABOVE Blizzard's
