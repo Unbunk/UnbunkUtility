@@ -182,6 +182,21 @@ local function CreateCastBarPanel(parent)
             colorGroupEntry(L["Uninterruptible color"], "uninterruptibleColor"),
         } end },
 
+        -- ════════════ End feedback (brief coloured hold on cast end) ════════════
+        { type = "group", title = L["End feedback"], enabledBy = moduleOn, build = function()
+            local function feedbackOn() return CB.CfgGet("showEndFeedback") ~= false end
+            local function gatedColor(label, key)
+                local e = colorGroupEntry(label, key); e.enabledBy = feedbackOn; return e
+            end
+            return {
+                { type = "checkbox", label = L["Show cast end feedback"],
+                  get = function() return feedbackOn() end,
+                  set = function(v) CB.CfgSet("showEndFeedback", v); if menu then menu.Refresh() end end },
+                gatedColor(L["Success color"],     "completeColor"),
+                gatedColor(L["Interrupted color"], "interruptedColor"),
+            }
+        end },
+
         -- ════════════ Border (Enable greys colour + thickness) ════════════
         { type = "group", title = L["Border"], enabledBy = moduleOn, build = function() return {
             { type = "checkbox", label = L["Enable"],
