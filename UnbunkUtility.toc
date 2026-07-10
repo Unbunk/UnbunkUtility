@@ -127,3 +127,6 @@ Modules/ReloadAnnounce/Core/ReloadAnnounce.lua
 Modules/ReloadAnnounce/UI/ConfigWindow.lua
 Modules/ShowIDs/Core/ShowIDs.lua
 Modules/ShowIDs/UI/ConfigWindow.lua
+
+# CDMEngine — standalone "the reference engine-like" engine (WIP). Phase 0: the CDM layout blob layer.
+Modules/CDMEngine/Core/Blob.lua
