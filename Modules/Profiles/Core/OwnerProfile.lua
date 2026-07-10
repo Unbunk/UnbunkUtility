@@ -5,11 +5,15 @@
 -- be embedded in the Details! panel). The owner-gated "Personal utilities" panel just calls
 -- ns.RestoreOwnerProfile().
 --
--- To refresh the backup: in-game do Profiles > Export, copy the "!UU1!..." blob, and replace
+-- To refresh the backup: in-game do Profiles > Export, copy the "!UU2!..." blob, and replace
 -- the string below — KEEP the [=====[ ... ]=====] long-string wrapper (it stores the blob
 -- verbatim, no escaping). An empty string means there is nothing to restore (the button
 -- reports that in chat). If the blob ever contained "]=====]", widen the wrapper by one '='
 -- on each side.
+--
+-- ⚠ The blob below is still in the OLD "!UU1!" format and NO LONGER decodes (the native
+-- C_EncodingUtil switch dropped AceSerializer + LibDeflate). Restore will report "exported by an
+-- old version — please re-export it" until this is re-baked with a fresh "!UU2!" export.
 
 local ADDON, ns = ...
 
