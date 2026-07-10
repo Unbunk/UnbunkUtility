@@ -65,11 +65,68 @@ local GLOW_KEY = "uucdg"
 -- (re)starting it we DETERMINISTICALLY re-glue the pooled frame to nf and re-derive the flipbook size from
 -- nf's RELIABLE size (nf uses SetSize, not anchors, so nf:GetSize() is never stale). Idempotent + cheap, so
 -- it's also re-applied every relayout (ApplyGlow) to correct any later drift.
+-- ── Taint firewall: the glow must NOT hang under a native frame ──────────────
+-- LibCustomGlow parents its pooled glow frame to the icon and installs OnShow/OnHide scripts on it
+-- (LibCustomGlow-1.0.lua:859/867 for "proc", :629 for "button"; "pixel"/"autocast" are OnUpdate-only,
+-- dispatched by the C loop, and unaffected). Blizzard hides a native CDM item frame from INSIDE its own
+-- secure code — every target change runs CooldownViewer.lua:1700 OnNewTarget -> SetIsActive(false) ->
+-- OnActiveStateChanged -> UpdateShownState -> :339 self:SetShown(false) — and hiding a parent dispatches
+-- OnHide on its children SYNCHRONOUSLY. Our script is a tainted closure (LibCustomGlow is embedded, so
+-- its taint is attributed to UnbunkUtility), and a widget-script dispatch has no firewall restoring the
+-- caller's secure mode on return — unlike a hooksecurefunc post-hook, whose taint IS discarded. So the
+-- taint rides the rest of the RefreshActiveFramesForTargetChange loop and Blizzard dies indexing its own
+-- forbidden wasOnGCDLookup table at CooldownViewer.lua:901.
+-- Fix: the glow lives under an addon-owned host frame and we mirror the icon's visibility onto it. Its
+-- SetPoint anchors stay on nf, so it still tracks the icon exactly; only the parent chain changes.
+local glowHost
+local function GlowHost()
+    if not glowHost then
+        glowHost = CreateFrame("Frame", nil, UIParent)
+        glowHost:SetAllPoints(UIParent)
+    end
+    return glowHost
+end
+
+-- The glow child LCG built for the frame's CURRENT type. Only proc/button are ever re-parented.
+local function GlowChild(nf)
+    local t = nf._uuCdgGlowActive
+    -- On an old lib revision GLOW_FNS.proc falls back to ButtonGlow, so "proc" can own a _ButtonGlow.
+    if t == "proc"   then return nf["_ProcGlow" .. GLOW_KEY] or nf._ButtonGlow end
+    if t == "button" then return nf._ButtonGlow end
+    return nil
+end
+
+-- IsVisible, not IsShown: the parent chain no longer carries the icon's ancestors (a hidden viewer, a
+-- disabled CDM), so the glow has to honour them itself.
+local function MirrorGlow(nf)
+    local g = GlowChild(nf)
+    if not (g and g:GetParent() == glowHost) then return end
+    g:SetShown(nf:IsVisible())
+    -- The host is opaque, so the icon's fade (Ayije_CDM fades the VIEWER, whose alpha used to reach the
+    -- glow through the parent chain) has to be carried across by hand. Coarse — re-synced on the relayout
+    -- pass and on every show/hide, not per animation frame — which is fine: glows only run on live procs.
+    if nf.GetEffectiveAlpha then g:SetAlpha(nf:GetEffectiveAlpha()) end
+end
+
+local function DetachGlow(nf, g)
+    if not g then return end
+    if g:GetParent() ~= GlowHost() then g:SetParent(GlowHost()) end
+    g:SetFrameStrata(nf:GetFrameStrata())
+    g:SetFrameLevel((nf:GetFrameLevel() or 0) + 8)
+    if not nf._uuCdgGlowMirror then
+        nf._uuCdgGlowMirror = true
+        hooksecurefunc(nf, "Show",     MirrorGlow)
+        hooksecurefunc(nf, "Hide",     MirrorGlow)
+        hooksecurefunc(nf, "SetShown", MirrorGlow)
+    end
+    MirrorGlow(nf)
+end
+
 local function FixProcGlow(nf, w, h)
     if not (nf and nf.GetSize) then return end
     local f = nf["_ProcGlow" .. GLOW_KEY]   -- the lib stores its pooled frame here (key = "_ProcGlow"..key)
     if not f then return end                -- no proc frame (e.g. the ButtonGlow fallback path)
-    if f:GetParent() ~= nf then f:SetParent(nf) end
+    DetachGlow(nf, f)
     -- Prefer the CONFIGURED icon size (passed by the caller — the source of truth). nf:GetSize() can lag a
     -- tick behind StyleFrame's SetSize when a proc fires on a JUST-shown frame; that stale (often larger)
     -- size made the flash-in render HUGE for ~0.5s until the next relayout corrected it. Fall back to
@@ -979,6 +1036,8 @@ local function EngineFor(I)
             if wantType == "proc" then
                 FixProcGlow(nf, I.IconGet(spellId, "iconW"), I.IconGet(spellId, "iconH"))
             end
+            -- LCG re-parents its child onto nf on every start; take it straight back off.
+            DetachGlow(nf, GlowChild(nf))
         end
     end
     -- Expose for HideAll / the release pass (which only have the frame, keyed by its base spellId).
@@ -1009,6 +1068,10 @@ local function EngineFor(I)
         if nf._uuCdgGlowActive == "proc" then
             FixProcGlow(nf, I.IconGet(spellId, "iconW"), I.IconGet(spellId, "iconH"))
         end
+        -- Also the relayout's reconcile point for the detached glow: re-impose the parent + strata a pooled
+        -- frame may have lost, and re-sync visibility after an ANCESTOR hide (hiding the viewer never calls
+        -- nf:Hide(), so the Show/Hide/SetShown post-hooks below can't see it).
+        DetachGlow(nf, GlowChild(nf))
     end
 
     -- ── Gated-restyle helpers (the CPU fix) ────────────────────────────────────
