@@ -52,6 +52,7 @@ L["not an UnbunkUtility profile"] = "ce n'est pas un profil UnbunkUtility"
 L["invalid profile data"] = "données de profil invalides"
 L["corrupt profile data"] = "données de profil corrompues"
 L["This profile needs a newer version of UnbunkUtility."] = "ce profil nécessite une version plus récente d'UnbunkUtility"
+L["This profile was exported by an old version — please re-export it."] = "ce profil a été exporté par une ancienne version — ré-exporte-le"
 
 -- ── Module / tab names ───────────────────────────────────────────────────────
 L["General Settings"] = "Réglages généraux"

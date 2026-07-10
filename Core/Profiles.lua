@@ -6,102 +6,74 @@
 -- place and AceDB persists it. This file only adapts AceDB's profile methods to
 -- the API the UI expects, plus export/import.
 --
--- AceSerializer gives a safe, tested table round-trip for profile export/import
--- (no loadstring/setfenv on imported text, and correct escaping — replaces our
--- hand-rolled Serialize, which the audit found buggy). Its output is wrapped in
--- our Base64 layer so the blob stays paste-safe. Optional: if the lib is missing
--- we fall back to the legacy serializer. Format is auto-detected on import (an
--- AceSerializer blob decodes to a string starting with "^"; the legacy one to a
--- Lua table literal starting with "{"), so blobs exported before this still load.
+-- Export / import use the native 12.0 serialization engine (C_EncodingUtil): the profile
+-- table is CBOR-serialized, DEFLATE-compressed and Base64-encoded into a single paste-safe
+-- blob tagged with the "!UU2!" format sentinel. This replaced the old AceSerializer +
+-- LibDeflate + hand-rolled Base64 pipeline (both libs are gone — CBOR round-trips tables
+-- natively, no loadstring/setfenv on imported text). Blobs from that old pipeline ("!UU1!"
+-- and the pre-sentinel Base64 forms) can no longer be imported — re-export from this version.
 
 local _, ns = ...
 local L = ns.L
 
-local AceSerializer = LibStub and LibStub("AceSerializer-3.0", true)
--- LibDeflate (optional): DEFLATE-compresses the serialized profile before encoding
--- it, producing much shorter, still copy/paste-safe export strings. If absent we
--- fall back to the Base64 blob formats below, which stay importable everywhere.
-local LibDeflate = LibStub and LibStub("LibDeflate", true)
+local C_EncodingUtil = C_EncodingUtil
+local DEFLATE = Enum and Enum.CompressionMethod and Enum.CompressionMethod.Deflate
 
 ns.profiles = ns.profiles or {}
 
--- Serialize a Lua table to a string literal (for profile export). Skips
--- function/userdata values and guards non-finite numbers so the blob always
--- round-trips through Deserialize.
-local function Serialize(t)
-    local tt = type(t)
-    if tt ~= "table" then
-        if tt == "string" then
-            return string.format("%q", t)
-        elseif tt == "number" then
-            if t ~= t or t == math.huge or t == -math.huge then return "0" end
-            return string.format("%.17g", t)
-        elseif tt == "boolean" then
-            return tostring(t)
-        else
-            return "nil"  -- functions / userdata are not serializable
-        end
-    end
-    local result = "{"
-    for k, v in pairs(t) do
-        local vt = type(v)
-        if vt ~= "function" and vt ~= "userdata" then
-            local key
-            if type(k) == "string" then
-                -- %q escapes quotes/backslashes/newlines so keys containing them
-                -- (e.g. a user-named profile or a custom LSM sound key) round-trip
-                -- through loadstring instead of producing an invalid chunk.
-                key = string.format("[%q]", k)
-            else
-                key = "[" .. tostring(k) .. "]"
+-- Deep-copy a profile for serialization, DROPPING values CBOR can't encode (function / userdata /
+-- thread) exactly as the old hand-rolled serializer did — so one stray non-data value can't make
+-- SerializeCBOR throw and blank a whole export — and coercing non-finite numbers to 0. Config
+-- profiles are pure data, so this normally copies everything; it's belt-and-suspenders.
+local function CleanCopy(v)
+    local t = type(v)
+    if t == "table" then
+        local out = {}
+        for k, val in pairs(v) do
+            local kt = type(k)
+            if kt == "string" or kt == "number" then   -- our config keys are always scalar
+                local c = CleanCopy(val)
+                if c ~= nil then out[k] = c end
             end
-            result = result .. key .. "=" .. Serialize(v) .. ","
         end
+        return out
+    elseif t == "number" then
+        if v ~= v or v == math.huge or v == -math.huge then return 0 end
+        return v
+    elseif t == "string" or t == "boolean" then
+        return v
     end
-    return result .. "}"
+    return nil   -- function / userdata / thread: not serializable, drop it
 end
 
--- Deserialize a profile string back into a table.
--- IMPORTANT: the input string comes from a shared import between players. We
--- execute the chunk in an empty environment (setfenv) so it can do nothing but
--- build a literal table — no function or global is accessible from inside.
-local function Deserialize(str)
-    local fn, err = loadstring("return " .. str)
-    if not fn then return nil, err end
-    setfenv(fn, {})
-    local ok, result = pcall(fn)
-    if not ok then return nil, result end
-    if type(result) ~= "table" then return nil, L["invalid profile data"] end
+-- Encode a Lua table into the paste-safe "!UU2!" blob (CBOR -> DEFLATE -> Base64), or nil if
+-- the native engine is unavailable. pcall-guarded: SerializeCBOR errors on unserialisable input
+-- rather than returning nil, so a malformed profile can't throw out of Export.
+local function EncodeBlob(t)
+    if not (C_EncodingUtil and DEFLATE) then return nil end
+    local ok, out = pcall(function()
+        return C_EncodingUtil.EncodeBase64(
+            C_EncodingUtil.CompressString(C_EncodingUtil.SerializeCBOR(t), DEFLATE))
+    end)
+    if ok and type(out) == "string" then return "!UU2!" .. out end
+    return nil
+end
+
+-- Decode a "!UU2!" blob body (sentinel already stripped) back into a table, or (nil, message).
+-- Each engine step is pcall'd AND type-checked: the C_EncodingUtil calls error() on a non-string
+-- and can return non-string junk on corrupt input.
+local function DecodeBlob(body)
+    if not (C_EncodingUtil and DEFLATE) then
+        return nil, L["This profile needs a newer version of UnbunkUtility."]
+    end
+    body = body:gsub("%s", "")   -- a pasted blob may be wrapped across several lines
+    local ok1, decoded = pcall(C_EncodingUtil.DecodeBase64, body)
+    if not ok1 or type(decoded) ~= "string" then return nil, L["corrupt profile data"] end
+    local ok2, raw = pcall(C_EncodingUtil.DecompressString, decoded, DEFLATE)
+    if not ok2 or type(raw) ~= "string" then return nil, L["corrupt profile data"] end
+    local ok3, result = pcall(C_EncodingUtil.DeserializeCBOR, raw)
+    if not ok3 or type(result) ~= "table" then return nil, L["corrupt profile data"] end
     return result
-end
-
--- Base64 encode (used so exported profiles are a single safe-to-paste blob).
-local b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-local function Base64Encode(data)
-    return ((data:gsub(".", function(x)
-        local r, b = "", x:byte()
-        for i = 8, 1, -1 do r = r .. (b % 2^i - b % 2^(i-1) > 0 and "1" or "0") end
-        return r
-    end) .. "0000"):gsub("%d%d%d?%d?%d?%d?", function(x)
-        if #x < 6 then return "" end
-        local c = 0
-        for i = 1, 6 do c = c + (x:sub(i, i) == "1" and 2^(6-i) or 0) end
-        return b64chars:sub(c+1, c+1)
-    end) .. ({ "", "==", "=" })[#data % 3 + 1])
-end
-
-local function Base64Decode(data)
-    data = data:gsub("[^" .. b64chars .. "=]", "")
-    return (data:gsub(".", function(x)
-        if x == "=" then return "" end
-        local r, f = "", (b64chars:find(x) - 1)
-        for i = 6, 1, -1 do r = r .. (f % 2^i - f % 2^(i-1) > 0 and "1" or "0") end
-        return r
-    end):gsub("%d%d%d%d%d%d%d%d", function(x)
-        local c = 0
-        for i = 1, 8 do c = c + (x:sub(i, i) == "1" and 2^(8-i) or 0) end
-        return string.char(c)
-    end))
 end
 
 -- ── Public API ────────────────────────────────────────────────────────────────
@@ -188,75 +160,33 @@ end
 
 function ns.profiles.Export()
     if not ns.db then return "" end
-    -- Wrap a snapshot of the active profile in a small versioned envelope so
-    -- Import can recognise our blobs and reject foreign / future ones cleanly.
-    -- Legacy headerless blobs stay importable (see Import below).
+    -- Wrap a snapshot of the active profile in a small versioned envelope so Import can
+    -- recognise our blobs and reject foreign / future ones cleanly.
     local payload = {
         addon   = "UnbunkUtility",
-        version = 1,
-        data    = ns.DeepCopy(ns.db.profile),
+        version = 2,
+        data    = CleanCopy(ns.db.profile),
     }
-    -- Preferred: AceSerializer -> DEFLATE -> print-safe encode, tagged with the
-    -- "!UU1!" format sentinel. DEFLATE shrinks the very redundant serialized text
-    -- a lot; EncodeForPrint keeps it copy/paste-safe ([a-zA-Z0-9()] only).
-    if AceSerializer and LibDeflate then
-        local serialized = AceSerializer:Serialize(payload)
-        local compressed = LibDeflate:CompressDeflate(serialized)  -- 2nd return (padding) ignored
-        return "!UU1!" .. LibDeflate:EncodeForPrint(compressed)
-    end
-    -- Fallbacks (lib missing / older client): keep the Base64 blob formats so the
-    -- export still works and stays importable by any version.
-    if AceSerializer then
-        return Base64Encode(AceSerializer:Serialize(payload))
-    end
-    return Base64Encode(Serialize(payload))  -- legacy fallback if the lib is absent
+    return EncodeBlob(payload) or ""
 end
 
 -- Decode an export blob into a profile snapshot (the per-module data table), or
--- (nil, errorMessage). Handles the !UU1! compact format and the legacy Base64
--- formats, and unwraps the versioned { addon, version, data } envelope. The caller
+-- (nil, errorMessage). Only the native "!UU2!" format is supported; the old "!UU1!" /
+-- pre-sentinel Base64 blobs needed AceSerializer + LibDeflate, which are gone. The caller
 -- decides WHERE to write the snapshot (the current profile vs a brand-new one).
 local function DecodeProfileBlob(str)
     if type(str) ~= "string" then return nil, L["invalid profile data"] end
     str = str:gsub("^%s+", "")  -- tolerate leading whitespace before the sentinel
 
-    local raw, err
-    if str:sub(1, 5) == "!UU1!" then
-        -- New compact format: AceSerializer -> DEFLATE -> EncodeForPrint, tagged
-        -- with a sentinel. This branch MUST run before any Base64Decode, which
-        -- would strip the "!" (outside its alphabet) and mis-route the blob.
-        if not (LibDeflate and AceSerializer) then
-            return nil, L["This profile needs a newer version of UnbunkUtility."]
-        end
-        -- Strip ALL whitespace: a pasted blob may be wrapped onto several lines,
-        -- and DecodeForPrint only trims leading/trailing space, not interior.
-        local body = (str:sub(6)):gsub("%s", "")
-        -- DecodeForPrint / DecompressDeflate return nil (not a message) on bad
-        -- data and error() on a non-string, so pcall AND nil-check both.
-        local ok1, decoded = pcall(LibDeflate.DecodeForPrint, LibDeflate, body)
-        if not ok1 or not decoded then return nil, L["corrupt profile data"] end
-        local ok2, serialized = pcall(LibDeflate.DecompressDeflate, LibDeflate, decoded)
-        if not ok2 or not serialized then return nil, L["corrupt profile data"] end
-        local ok3, result = AceSerializer:Deserialize(serialized)
-        if not ok3 then return nil, L["corrupt profile data"] end
-        raw = result
-    else
-        -- Legacy format: Base64 -> (AceSerializer "^" | hand-rolled "{") so every
-        -- blob exported before this version still imports unchanged.
-        local decoded = Base64Decode(str)
-        if AceSerializer and decoded:sub(1, 1) == "^" then
-            local ok, result = AceSerializer:Deserialize(decoded)
-            if not ok then return nil, result end
-            raw = result
-        else
-            raw, err = Deserialize(decoded)
-        end
+    if str:sub(1, 5) ~= "!UU2!" then
+        -- Old formats can't be decoded without the removed libs — point the user at a fresh export.
+        return nil, L["This profile was exported by an old version — please re-export it."]
     end
+    local raw, err = DecodeBlob(str:sub(6))
     if type(raw) ~= "table" then return nil, err or L["invalid profile data"] end
 
-    -- Accept both the versioned envelope { addon, version, data } and a legacy
-    -- bare snapshot (a table of per-module DBs, none of which is named addon/
-    -- version/data), so blobs exported before versioning still import.
+    -- Accept both the versioned envelope { addon, version, data } and a bare snapshot (a table
+    -- of per-module DBs, none named addon/version/data), for defensiveness.
     local snapshot = raw
     if raw.addon ~= nil or raw.version ~= nil or raw.data ~= nil then
         if raw.addon ~= "UnbunkUtility" then
