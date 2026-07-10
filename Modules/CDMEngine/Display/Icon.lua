@@ -113,8 +113,8 @@ local function UpdateCharges(f)
     local cur = ci.currentCharges
     if cur ~= nil and issecretvalue(cur) then
         if TruncateWhenZero and pcall(count.SetText, count, TruncateWhenZero(cur)) then count:Show() else count:Hide() end
-    elseif type(cur) == "number" and cur < maxc then
-        count:SetText(cur); count:Show()
+    elseif type(cur) == "number" then
+        count:SetText(cur); count:Show()   -- multi-charge: show the count at all levels (native behaviour)
     else
         count:Hide()
     end
@@ -143,6 +143,7 @@ function Icon.Setup(f, cdmID)
     local sid = f.spellID or f._lastGoodSid
     f.Icon:SetTexture((sid and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)) or FALLBACK_ICON)
     Icon.ApplySize(f, ICON_SIZE)
+    f:Show()   -- a pooled icon was Hidden by Release; Setup means "display this" (symmetric)
     Icon.Update(f)
 end
 
