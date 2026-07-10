@@ -949,6 +949,14 @@ end
 local _proxy            = CreateFrame("Frame")
 local RawSetPoint       = _proxy.SetPoint
 local RawClearAllPoints = _proxy.ClearAllPoints
+-- Raw C size/scale setters (same idea as RawSetPoint): the per-item re-impose hooks below fire
+-- SYNCHRONOUSLY from inside Blizzard's secure CooldownViewer:RefreshLayout (during RefreshData).
+-- A normal frame:SetSize/SetScale from that tainted hook context taints the ongoing secure refresh,
+-- making Blizzard's own aura/totem SECRET comparisons error ("tainted by UnbunkUtility"). Going
+-- through the raw C method (like SetPoint already did) re-imposes our geometry without taint AND
+-- without re-triggering our own hooks.
+local RawSetSize        = _proxy.SetSize
+local RawSetScale       = _proxy.SetScale
 
 local containers     = {}     -- dest -> our container frame
 local editModeActive = false
@@ -1489,7 +1497,7 @@ local function PinNative(nf, viewer, x, y, w, h)
     nf._uuPin = p
     if not CanWrite(nf) then return end
     if unchanged and nf._uuPinHook then return end
-    if nf:GetScale() ~= 1 then nf:SetScale(1) end
+    if nf:GetScale() ~= 1 then RawSetScale(nf, 1) end
     if not nf._uuPinHook then
         nf._uuPinHook = true
         hooksecurefunc(nf, "SetPoint", function(self)
@@ -1498,21 +1506,22 @@ local function PinNative(nf, viewer, x, y, w, h)
             self._uuPinApplying = true
             RawClearAllPoints(self)
             RawSetPoint(self, "TOPLEFT", pin.viewer, "TOPLEFT", pin.x, pin.y)
-            if pin.w and pin.h then self:SetSize(pin.w, pin.h) end
+            if pin.w and pin.h then RawSetSize(self, pin.w, pin.h) end
             self._uuPinApplying = false
         end)
         hooksecurefunc(nf, "SetScale", function(self, s)
-            if (s or 1) ~= 1 and self._uuPin and CanWrite(self) then self:SetScale(1) end
+            if (s or 1) ~= 1 and self._uuPin and CanWrite(self) then RawSetScale(self, 1) end
         end)
         -- Re-impose our pinned size whenever Blizzard resizes the frame (the viewer's relayout can
         -- SetSize/SetWidth/SetHeight WITHOUT a SetPoint, which would otherwise leave some icons at
-        -- their larger native size while the rest are at ours).
+        -- their larger native size while the rest are at ours). Raw setter: this hook fires from
+        -- inside the secure refresh, so a normal SetSize here would taint it (see RawSetSize above).
         local function reimposeSize(self)
             local pin = self._uuPin
             if not (pin and pin.w and pin.h) or self._uuPinSizing or not CanWrite(self) then return end
             if self:GetWidth() ~= pin.w or self:GetHeight() ~= pin.h then
                 self._uuPinSizing = true
-                self:SetSize(pin.w, pin.h)
+                RawSetSize(self, pin.w, pin.h)
                 self._uuPinSizing = false
             end
         end
@@ -1523,7 +1532,7 @@ local function PinNative(nf, viewer, x, y, w, h)
     nf._uuPinApplying = true
     RawClearAllPoints(nf)
     RawSetPoint(nf, "TOPLEFT", viewer, "TOPLEFT", x, y)
-    if w and h then nf:SetSize(w, h) end
+    if w and h then RawSetSize(nf, w, h) end
     nf._uuPinApplying = false
 end
 
