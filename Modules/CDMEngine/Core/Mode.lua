@@ -30,6 +30,13 @@ function M.Get()
 end
 function M.IsEngine() return M.Get() == "engine" end   -- the gate the native-reuse will consult (Level 2)
 
+-- Whether a given native viewer is currently HIDDEN + alpha-owned by the engine (engine mode + one of
+-- the 3 viewers it covers). The native-reuse (the Fader now; CDMGroups/BuffGroups later) consults this
+-- to leave that viewer alone instead of fighting the engine's SetAlpha(0) re-force hook.
+local VIEWER_SET = {}
+for _, n in ipairs(VIEWERS) do VIEWER_SET[n] = true end
+function M.IsViewerMasked(name) return M.IsEngine() and VIEWER_SET[name] == true end
+
 -- ── Native masking (SetAlpha 0, re-forced via a per-viewer hook) ──────────────────────────────────
 local maskForcing = false   -- recursion guard for our own SetAlpha inside the hook
 local hooked = {}           -- [frame] = true once its SetAlpha is hooked
