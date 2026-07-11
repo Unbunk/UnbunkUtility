@@ -68,8 +68,12 @@ R.REGISTRY = {
     ["arcane-charges"] = { family = "pips", power = PT and PT.ArcaneCharges, divisor = 1 },
     -- essence (discrete pips with a charging partial-fill on the filling pip)
     essence          = { family = "essence", power = PT and PT.Essence,   divisor = 1 },
-    -- SLICE 2/3 labels (runes / icicles / tip-of-the-spear / maelstrom-weapon / stagger) intentionally
-    -- have NO descriptor yet -> the widget skips them until their family lands.
+    -- SLICE 2: runes (DK, 6 cooldown pips) + aura-stack resources
+    runes            = { family = "runes" },
+    icicles              = { family = "auraBar",  spellID = 205473, max = 5 },
+    ["tip-of-the-spear"] = { family = "auraBar",  spellID = 260286, max = 3 },
+    ["maelstrom-weapon"] = { family = "auraPips", spellID = 344179, max = 10, divisor = 1 },
+    -- SLICE 3 label (stagger) still has NO descriptor -> skipped until its family lands.
 }
 
 local prevSpecIdx = 1

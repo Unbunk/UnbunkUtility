@@ -31,7 +31,7 @@ local DEFAULTS = {
     -- P4c class resources (Display/ClassResource.lua) ; .position is set on first drag (nil = default anchor):
     resource = {
         enable     = true,
-        showCount  = 1,               -- how many of the spec's resources to draw (1 = the signature one)
+        showCount  = 0,               -- 0 = draw ALL the spec's resources; N>0 = cap to N (1 = signature only)
         barWidth   = 200, barHeight = 16,
         pipSize    = 22,  pipSpacing = 3,
         rowSpacing = 4,   showEmpty  = true,

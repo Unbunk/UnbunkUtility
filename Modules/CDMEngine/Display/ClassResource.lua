@@ -53,6 +53,8 @@ local function ColorFor(power)
     if c then return c[1], c[2], c[3] end
     return 0.6, 0.6, 0.6
 end
+local RUNE_COLOR = { 0.00, 0.82, 1.00 }   -- runic blue (runes family)
+local AURA_COLOR = { 0.60, 0.80, 1.00 }   -- generic aura-stack colour (auraBar/auraPips)
 
 local function Cfg(key) return E.Cfg and E.Cfg.GetResource(key) end
 local function Say(msg)
@@ -88,6 +90,7 @@ local function AcquireCell()
 end
 local function ReleaseCell(c)
     c:SetScript("OnUpdate", nil)   -- essence arms a per-cell ticker; drop it before pooling
+    if c.sb and c.sb.SetTimerDuration then pcall(c.sb.SetTimerDuration, c.sb, nil) end   -- stop a rune timer fill
     c:Hide()
     c:ClearAllPoints()
     cellPool[#cellPool + 1] = c
@@ -202,6 +205,95 @@ Families.essence = {   -- imitates GenerateEssenceResource: pip run + OnUpdate O
     end,
 }
 
+-- ── SLICE 2 families: runes (DK cooldown pips) + aura-stack resources ────────────────────────────
+Families.runes = {   -- 6 cells; each shows a rune (sorted by recharge start), C-side timer fill on cooldown
+    setup = function(row, desc, cfg)
+        for i, c in ipairs(row.cells) do
+            c:SetSize(cfg.pipSize, cfg.pipSize)
+            c.sb:SetStatusBarColor(RUNE_COLOR[1], RUNE_COLOR[2], RUNE_COLOR[3])
+            c.sb:SetMinMaxValues(0, 1)
+            c:ClearAllPoints()
+            c:SetPoint("TOPLEFT", container, "TOPLEFT", (i - 1) * (cfg.pipSize + cfg.pipSpacing), -(row._y or 0))
+            c:Show()
+        end
+        Families.runes.update(row)
+    end,
+    update = function(row)
+        if not GetRuneCooldown then return end
+        local times = {}
+        for i = 1, 6 do times[i] = { GetRuneCooldown(i) } end   -- { startTime, duration, isReady }
+        table.sort(times, function(a, b) return (a[1] or 0) < (b[1] or 0) end)
+        for i, c in ipairs(row.cells) do
+            local t = times[i]
+            if not t then
+                c:Hide()
+            else
+                local s, d, ready = t[1] or 0, t[2] or 0, t[3]
+                c:Show()
+                if c.sb.SetTimerDuration then pcall(c.sb.SetTimerDuration, c.sb, nil) end   -- leave timer mode; re-armed below if on cd
+                if ready then
+                    c.sb:SetMinMaxValues(0, 1); c.sb:SetValue(1)
+                elseif s > 0 and d > 0 and c.sb.SetTimerDuration
+                       and C_DurationUtil and C_DurationUtil.CreateDuration then
+                    c.runeDur = c.runeDur or C_DurationUtil.CreateDuration()
+                    if c.runeDur.SetTimeFromStart then
+                        c.runeDur:SetTimeFromStart(s, d)
+                        c.sb:SetTimerDuration(c.runeDur)   -- C-side recharge fill, no OnUpdate
+                    else
+                        c.sb:SetValue(0)
+                    end
+                else
+                    c.sb:SetValue(0)   -- fallback: empty while on cooldown (no timer API)
+                end
+            end
+        end
+    end,
+}
+
+Families.auraBar = {   -- a bar whose fill = the player's stack count of an aura (icicles, tip of the spear)
+    setup = function(row, desc, cfg)
+        row.spellID, row.max = desc.spellID, desc.max or 1
+        local c = row.cells[1]
+        c:SetSize(cfg.barWidth, cfg.barHeight)
+        c.sb:SetStatusBarColor(AURA_COLOR[1], AURA_COLOR[2], AURA_COLOR[3])
+        c.sb:SetMinMaxValues(0, row.max)
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -(row._y or 0))
+        Families.auraBar.update(row)
+    end,
+    update = function(row)
+        if not (C_UnitAuras and C_UnitAuras.GetUnitAuraBySpellID and row.spellID) then return end
+        local a = C_UnitAuras.GetUnitAuraBySpellID("player", row.spellID)
+        row.cells[1].sb:SetValue((a and a.applications) or 0)
+    end,
+}
+
+Families.auraPips = {   -- discrete pips whose fill = the player's stack count of an aura (maelstrom weapon)
+    setup = function(row, desc, cfg)
+        row.spellID, row.divisor = desc.spellID, desc.divisor or 1
+        for i, c in ipairs(row.cells) do
+            c:SetSize(cfg.pipSize, cfg.pipSize)
+            c.sb:SetStatusBarColor(AURA_COLOR[1], AURA_COLOR[2], AURA_COLOR[3])
+            c.sb:SetMinMaxValues(0, row.divisor)
+            c:ClearAllPoints()
+            c:SetPoint("TOPLEFT", container, "TOPLEFT", (i - 1) * (cfg.pipSize + cfg.pipSpacing), -(row._y or 0))
+        end
+        Families.auraPips.update(row)
+    end,
+    update = function(row)
+        if not (C_UnitAuras and C_UnitAuras.GetUnitAuraBySpellID and row.spellID) then return end
+        local a = C_UnitAuras.GetUnitAuraBySpellID("player", row.spellID)
+        local cur = (a and a.applications) or 0
+        local val = cur / row.divisor
+        local showEmpty = Cfg("showEmpty") ~= false
+        for i, c in ipairs(row.cells) do
+            if val >= i then c:Show(); c.sb:SetValue(row.divisor)
+            elseif math.ceil(val) < i then c:SetShown(showEmpty); c.sb:SetValue(0)
+            else c:Show(); c.sb:SetValue(cur % row.divisor) end
+        end
+    end,
+}
+
 local function ReleaseRow(row)
     local fam = Families[row.family]
     if fam and fam.teardown then fam.teardown(row) end
@@ -215,9 +307,23 @@ local function CellCountFor(desc)
         return math.max(UnitPowerMax("player", desc.power) or 0, 1)   -- RAW max = pip count (divisor is a value scale)
     elseif desc.family == "essence" then
         return math.max(UnitPowerMax("player", desc.power) or 0, 1)
+    elseif desc.family == "runes" then
+        return 6
+    elseif desc.family == "auraPips" then
+        return math.max(desc.max or 1, 1)
     else
-        return 1
+        return 1   -- bar / auraBar
     end
+end
+
+-- Whether a descriptor can actually be drawn by its family (guards a missing power enum / spellID, an
+-- old client, or a label whose slice-3 family is not implemented yet).
+local function DescUsable(desc)
+    if not (desc and Families[desc.family]) then return false end
+    local f = desc.family
+    if f == "bar" or f == "pips" or f == "essence" then return desc.power ~= nil end
+    if f == "auraBar" or f == "auraPips" then return desc.spellID ~= nil end
+    return true   -- runes (and a future stagger) need no extra descriptor field
 end
 
 -- ── Position ────────────────────────────────────────────────────────────────────────────────────
@@ -237,19 +343,25 @@ ev:SetScript("OnEvent", function()
     end
 end)
 local registeredEvents = {}
+local UNIT_SCOPED = {   -- events that take a unit filter (RegisterUnitEvent "player"); RUNE_POWER_UPDATE does not
+    UNIT_POWER_UPDATE = true, UNIT_POWER_FREQUENT = true, UNIT_MAXPOWER = true, UNIT_AURA = true,
+}
+local FAMILY_EVENTS = {
+    bar      = { "UNIT_POWER_UPDATE", "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER" },
+    pips     = { "UNIT_POWER_UPDATE", "UNIT_MAXPOWER" },
+    essence  = { "UNIT_POWER_UPDATE", "UNIT_MAXPOWER" },
+    runes    = { "RUNE_POWER_UPDATE" },
+    auraBar  = { "UNIT_AURA" },
+    auraPips = { "UNIT_AURA" },
+}
 local function RegisterFamilyEvents(family)
-    local evs
-    if family == "bar" then
-        evs = { "UNIT_POWER_UPDATE", "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER" }
-    elseif family == "pips" or family == "essence" then
-        evs = { "UNIT_POWER_UPDATE", "UNIT_MAXPOWER" }
-    else
-        evs = {}
-    end
+    local evs = FAMILY_EVENTS[family]
+    if not evs then return end
     for _, e in ipairs(evs) do
         if not registeredEvents[e] then
             registeredEvents[e] = true
-            pcall(ev.RegisterUnitEvent, ev, e, "player")
+            if UNIT_SCOPED[e] then pcall(ev.RegisterUnitEvent, ev, e, "player")
+            else                   pcall(ev.RegisterEvent, ev, e) end
         end
     end
 end
@@ -312,20 +424,22 @@ Rebuild = function()
         pipSize    = Cfg("pipSize")    or 22,  pipSpacing = Cfg("pipSpacing") or 3,
     }
     local rowSpacing = Cfg("rowSpacing") or 4
-    local showCount  = Cfg("showCount")  or 1
+    local cap = Cfg("showCount")   -- 0 / nil = draw all the spec's resources; N>0 = cap to N
+    local n = (cap and cap > 0) and math.min(cap, #labels) or #labels
     local y, w = 0, 1
-    for i = 1, math.min(showCount, #labels) do
+    for i = 1, n do
         local desc = R.REGISTRY[labels[i]]
-        -- SLICE 1 families all need a power enum; skip a descriptor with none (missing on old clients).
-        -- A label with no descriptor (a slice 2/3 family) is skipped here too.
-        if desc and Families[desc.family] and desc.power ~= nil then
+        -- Skip a label with no descriptor, or one whose family can't be drawn (missing power / spellID,
+        -- an old client, or a slice-3 family not implemented yet).
+        if DescUsable(desc) then
             local row = { family = desc.family, desc = desc, cells = {}, _y = y }
             for k = 1, CellCountFor(desc) do row.cells[k] = AcquireCell() end
             Families[desc.family].setup(row, desc, cfg)
             RegisterFamilyEvents(desc.family)
             activeRows[#activeRows + 1] = row
-            local rowH = (desc.family == "bar") and cfg.barHeight or cfg.pipSize
-            local rowW = (desc.family == "bar") and cfg.barWidth
+            local isBar = (desc.family == "bar" or desc.family == "auraBar")
+            local rowH = isBar and cfg.barHeight or cfg.pipSize
+            local rowW = isBar and cfg.barWidth
                 or (#row.cells * (cfg.pipSize + cfg.pipSpacing) - cfg.pipSpacing)
             y = y + rowH + rowSpacing
             w = math.max(w, rowW)
