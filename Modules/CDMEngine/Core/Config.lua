@@ -1,0 +1,80 @@
+-- Modules/CDMEngine/Core/Config.lua
+--
+-- Phase 3 of the standalone CDM engine (ns.CDMEngine): the persistence layer for the designer. It
+-- follows the addon's canonical config idiom (BResTracker/Core/Config.lua): a DEFAULTS table merged
+-- into ns.db.profile.CDMEngine by a CfgInit hook, plus small guarded accessors. Everything lives in
+-- the PROFILE table, so it round-trips across /reload and travels with the active profile on
+-- switch/export/import (the reload + CfgInit hooks re-run then). No native-frame contact here.
+--
+-- A group's on-screen position is keyed by its STABLE string catKey ("Essential" / "Utility" /
+-- "TrackedBuff"), never the numeric enum (which is a client-local id). ABSENCE of a saved position
+-- for a catKey means "auto-stack" — the Phase 2 behaviour, which is also what "reset" restores.
+
+local _, ns = ...
+ns.CDMEngine = ns.CDMEngine or {}
+local E = ns.CDMEngine
+local Cfg = {}
+E.Cfg = Cfg
+
+-- groups[catKey] = { x = <number>, y = <number> } ; a missing sub-table = that group is auto-stacked.
+-- containerX/Y keep the container's base offset (P3 leaves the container fixed at 0,0 — they are the
+-- seam a future "move the whole block" (P4) drives, so no schema migration is needed later).
+local DEFAULTS = {
+    groups     = {},
+    containerX = 0,
+    containerY = 0,
+}
+Cfg.DEFAULTS = DEFAULTS
+
+-- 'CDMEngine' is a BRAND-NEW profile key (never persisted before this branch), so its casing is free
+-- to choose; we fix it here and never rename it (cf. the profile-key-casing rule for the old keys).
+local function Root()
+    return ns.db and ns.db.profile and ns.db.profile.CDMEngine
+end
+
+function Cfg.Init()
+    if not (ns.db and ns.db.profile) then return end
+    ns.db.profile.CDMEngine = ns.db.profile.CDMEngine or {}
+    ns.MergeDefaults(ns.db.profile.CDMEngine, DEFAULTS)
+end
+ns.RegisterCfgInitHook(Cfg.Init)
+
+-- Container base offset (reserve for the P4 "move all"; container is fixed in P3).
+function Cfg.GetContainerPos()
+    local r = Root()
+    if not r then return 0, 0 end
+    return r.containerX or 0, r.containerY or 0
+end
+
+-- The saved position of a group, or nil (nil => auto-stack). Validates both axes are numbers so a
+-- half-written table never yields a partial SetPoint.
+function Cfg.GetGroupPos(catKey)
+    local r = Root()
+    if not (r and catKey) then return nil end
+    local g = r.groups and r.groups[catKey]
+    if type(g) == "table" and type(g.x) == "number" and type(g.y) == "number" then
+        return g
+    end
+    return nil
+end
+
+function Cfg.SetGroupPos(catKey, x, y)
+    local r = Root()
+    if not (r and catKey and type(x) == "number" and type(y) == "number") then return end
+    r.groups = r.groups or {}
+    r.groups[catKey] = { x = x, y = y }
+end
+
+-- Reset ONE group back to auto-stack.
+function Cfg.ClearGroupPos(catKey)
+    local r = Root()
+    if not (r and catKey and r.groups) then return end
+    r.groups[catKey] = nil
+end
+
+-- Reset ALL groups back to auto-stack.
+function Cfg.ClearAllGroupPos()
+    local r = Root()
+    if not r then return end
+    r.groups = {}
+end
