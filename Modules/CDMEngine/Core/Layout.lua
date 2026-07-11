@@ -275,6 +275,15 @@ function E.Layout.SetDesignHook(fn) designHook = fn end
 function E.Layout.EnsureShown()     EnsureShown() end
 function E.Layout.HideWidgets()     HideWidgets() end
 function E.Layout.ApplyContainerPosition() ApplyContainerPosition() end   -- move the whole block (P4b move-all)
+-- Config-panel toggle (mirrors the /uucdmwidgets slash: exit the designer before hiding).
+function E.Layout.SetShown(v)
+    if v then
+        EnsureShown()
+    else
+        if E.Design and E.Design.IsActive() then E.Design.Exit() end
+        HideWidgets()
+    end
+end
 
 -- ── Toggle ──────────────────────────────────────────────────────────────────────────────────────
 SLASH_UUCDMWIDGETS1 = "/uucdmwidgets"
