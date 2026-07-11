@@ -2,8 +2,10 @@
 -- Lock the Essential / Utility Cooldown Manager viewers in Blizzard's Edit Mode (the same
 -- approach Ayije_CDM uses). UnbunkUtility owns their position + per-row icon size, so the
 -- native Edit Mode controls would fight ours — we therefore: hide the Edit Mode settings
--- dialog whenever it attaches to one of these viewers, make the frame non-movable, and
--- overlay a short "managed by UnbunkUtility" note while it's selected. All four native
+-- dialog whenever it attaches to one of these viewers, clear the selection's drag scripts so it
+-- can't be moved (NOT frame:SetMovable(false) — that taints a registered Edit Mode system, which
+-- crashes Blizzard's secure passes in 12.1.0), and overlay a short "managed by UnbunkUtility" note
+-- while it's selected. All four native
 -- Cooldown Manager viewers are locked — Essential, Utility, Tracked Buffs (buff icons,
 -- owned by BuffGroups) and Tracked Bars (buff bars, owned by BarGroups). The below-player
 -- row is our own frame, not an Edit Mode system, so it is not listed here.
@@ -115,16 +117,25 @@ local function ShowNotice()
     ns.Print(Loc("Cooldown Manager viewers are managed by UnbunkUtility — configure them in /ubu."))
 end
 
+-- Prevent the viewer being dragged in Edit Mode by clearing the SELECTION's drag scripts, instead of
+-- frame:SetMovable(false). SetMovable is a durable state write on a REGISTERED Edit Mode system; in
+-- 12.1.0 (secret frame state) tainting such a system crashes Blizzard's secure RefreshEncounterEvents /
+-- HideSystemSelections ("secret number value") on Edit Mode enter/exit. Clearing OnDragStart/Stop on
+-- the selection is a handler change (not a geometry/movable write on the system) -> taint-safe, and
+-- alone it stops the drag (no OnDragStart = no StartMoving). Re-applied on every SelectSystem in case
+-- Blizzard re-installs the handlers.
+local function KillDrag(frame)
+    local selection = frame and frame.Selection
+    if not selection then return end
+    selection:SetScript("OnDragStart", nil)
+    selection:SetScript("OnDragStop", nil)
+end
+
 local function LockFrames()
     for _, name in ipairs(LOCK_NAMES) do
         local f = _G[name]
         if IsLockedViewer(f) then
-            f:SetMovable(false)
-            local selection = f.Selection
-            if selection then
-                selection:SetScript("OnDragStart", nil)
-                selection:SetScript("OnDragStop", nil)
-            end
+            KillDrag(f)
             SetupHandlers(f)
         end
     end
@@ -151,7 +162,7 @@ local function TrySetup()
         local f = _G[name]
         if IsLockedViewer(f) then
             hooksecurefunc(f, "SelectSystem", function(sf)
-                sf:SetMovable(false)
+                KillDrag(sf)   -- taint-safe drag lock (NOT SetMovable — see KillDrag)
                 if dialog.attachedToSystem == sf then dialog:Hide() end
                 SetupHandlers(sf)
                 ShowNotice()
