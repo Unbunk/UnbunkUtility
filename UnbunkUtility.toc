@@ -132,6 +132,7 @@ Modules/ShowIDs/UI/ConfigWindow.lua
 Modules/CDMEngine/Core/Blob.lua
 Modules/CDMEngine/Core/Config.lua
 Modules/CDMEngine/Display/Icon.lua
+Modules/CDMEngine/Display/IconExtras.lua
 Modules/CDMEngine/Display/Group.lua
 Modules/CDMEngine/Core/Layout.lua
 Modules/CDMEngine/Core/Design.lua
