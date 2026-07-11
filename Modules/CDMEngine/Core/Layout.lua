@@ -253,6 +253,7 @@ local function EnsureShown()
     RegisterEvents()
     lastSig = nil            -- force a build on show
     ScheduleRebuild()
+    if E.Resource and E.Resource.EnsureShown then E.Resource.EnsureShown() end   -- P4c class resources
 end
 local function HideWidgets()
     if not shown then return end
@@ -261,6 +262,7 @@ local function HideWidgets()
     E.Icon.ReleaseAll()
     ReleaseGroups()
     if container then container:Hide() end
+    if E.Resource and E.Resource.HideWidgets then E.Resource.HideWidgets() end   -- P4c class resources
 end
 
 -- ── Public surface for the designer (Core/Design.lua) ────────────────────────────────────────────

@@ -81,6 +81,11 @@ local function OnDragStop(o)
     local x, y = ScaleOffset(t)
     t:SetMovable(false)
     if not x then return end
+    if o.catKey == "__resource__" then   -- the resource widget owns its ApplyPosition, not the group path
+        if E.Cfg then E.Cfg.SetResourcePos(x, y) end
+        if E.Resource then E.Resource.ApplyPosition() end
+        return
+    end
     if t == o then   -- placeholder drags itself: re-anchor cleanly (a live group is re-pinned by ApplyFreePositions)
         o:ClearAllPoints()
         o:SetPoint("CENTER", UIParent, "CENTER", x, y)
@@ -93,6 +98,12 @@ end
 -- a live overlay onto the (about-to-be) re-stacked frame.
 local function OnMouseUp(o, button)
     if button ~= "RightButton" then return end
+    if o.catKey == "__resource__" then   -- reset the resource widget to its default anchor
+        if E.Cfg then E.Cfg.ClearResourcePos() end
+        if E.Resource then E.Resource.ApplyPosition() end
+        Design.Reattach()
+        return
+    end
     if E.Cfg then E.Cfg.ClearGroupPos(o.catKey) end
     if E.Layout then E.Layout.ScheduleRebuild() end
     Design.Reattach()
@@ -144,10 +155,10 @@ end
 
 local function AttachLive(catKey, g)
     local o = AcquireOverlay(catKey)
-    o.target = g                 -- dragging moves the GROUP; the overlay follows it (SetAllPoints)
+    o.target = g                 -- dragging moves the TARGET frame; the overlay follows it (SetAllPoints)
     o:ClearAllPoints()
     o:SetAllPoints(g)
-    o.label:SetText(catKey)
+    o.label:SetText(catKey == "__resource__" and "Resources" or catKey)
     o:Raise()
 end
 
@@ -188,6 +199,13 @@ local function MoveAllBy(dx, dy)
                 local p = E.Cfg.GetGroupPos(gs.key)
                 if p then E.Cfg.SetGroupPos(gs.key, p.x + dx, p.y + dy) end
             end
+        end
+    end
+    if E.Resource then   -- shift the resource widget too, but ONLY if it was actually placed (mirror the group loop)
+        local rp = E.Cfg.GetResourcePos()
+        if rp then
+            E.Cfg.SetResourcePos(rp.x + dx, rp.y + dy)
+            E.Resource.ApplyPosition()
         end
     end
     E.Layout.ScheduleRebuild()                 -- ApplyFreePositions re-pins the shifted free groups
@@ -273,6 +291,10 @@ function Design.Reattach()
                 emptyIdx = emptyIdx + 1
             end
         end
+    end
+    if E.Resource and E.Resource.IsShown() then   -- the class-resource widget is draggable too
+        local rc = E.Resource.GetContainer()
+        if rc then AttachLive("__resource__", rc) end
     end
     AttachMoveAll()   -- the whole-layout handle, on top, at the container base
 end
