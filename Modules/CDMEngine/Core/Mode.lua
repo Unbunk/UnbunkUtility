@@ -18,7 +18,10 @@ local E = ns.CDMEngine
 ns.CDMMode = ns.CDMMode or {}
 local M = ns.CDMMode
 
-local VIEWERS = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
+-- The viewers the ENGINE replaces = its 3 SPEC groups (Essential / Utility / TrackedBuff). It does NOT
+-- draw Tracked BARS, so BuffBarCooldownViewer is intentionally left visible + configurable (its "Bars"
+-- config tab stays in the nav even in engine mode).
+local VIEWERS = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }
 
 -- ── Source of truth (persisted in the engine config as "mode") ────────────────────────────────────
 function M.Get()
@@ -75,6 +78,7 @@ function M.Set(mode)
     mode = (mode == "engine") and "engine" or "native"
     if E.Cfg then E.Cfg.Set("mode", mode) end
     M.Apply()
+    if ns.RefreshNav then ns.RefreshNav() end   -- show/hide the native-engine config tabs (Essential/Utility/Buffs)
 end
 
 function M.Toggle() M.Set(M.IsEngine() and "native" or "engine") end
@@ -83,7 +87,10 @@ function M.Toggle() M.Set(M.IsEngine() and "native" or "engine") end
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:SetScript("OnEvent", function() M.Apply() end)
-ns.RegisterReloadHook(function() M.Apply() end)   -- profile change / import: the new profile's mode wins
+ns.RegisterReloadHook(function()   -- profile change / import: the new profile's mode wins
+    M.Apply()
+    if ns.RefreshNav then ns.RefreshNav() end
+end)
 
 -- ── Slash: /uucdmmode [native|engine] (toggle if no arg) ──────────────────────────────────────────
 SLASH_UUCDMMODE1 = "/uucdmmode"

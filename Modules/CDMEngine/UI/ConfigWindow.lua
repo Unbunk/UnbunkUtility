@@ -37,21 +37,27 @@ local function CreateCDMEnginePanel(parent)
     end
 
     local options = {
-        { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["CDM Engine (beta)"] },
-        { type = "label", height = 18, text = L["A standalone Cooldown Manager (beta)."] },
-        { type = "label", height = 18, text = L["Engine mode hides the native CDM and shows this instead."] },
-        { type = "label", height = 18, text = L["Native mode (default) keeps the mature native display."] },
+        { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["CDM Settings (beta)"] },
+        { type = "label", height = 18, text = L["Choose which Cooldown Manager engine is active."] },
+        { type = "label", height = 18, text = L["Native = full-featured (its Essential/Utility/Buffs tabs appear below)."] },
+        { type = "label", height = 18, text = L["Standalone = the beta engine, configured here."] },
 
         -- ════════════ Engine (session actions) ════════════
         {
             type = "group", title = L["Engine"],
-            build = function() return {
+            build = function()
+                local engine = ns.CDMMode and ns.CDMMode.IsEngine()
+                return {
                 {
-                    type = "checkbox", label = L["Engine mode (hide native CDM, show the standalone engine)"],
-                    get = function() return ns.CDMMode and ns.CDMMode.IsEngine() end,
-                    set = function(v)
-                        if ns.CDMMode then ns.CDMMode.Set(v and "engine" or "native") end
-                        if menu then menu.Refresh() end
+                    type = "label", height = 20,
+                    text = engine and L["Active: standalone engine (beta)"] or L["Active: native Cooldown Manager"],
+                },
+                {
+                    type = "button", width = 260,
+                    label = engine and L["Use native CDM engine"] or L["Use the standalone engine (beta)"],
+                    onClick = function()
+                        if ns.CDMMode then ns.CDMMode.Set(engine and "native" or "engine") end   -- Set() also RefreshNav()
+                        if menu then menu.Rebuild() end   -- re-run build: flipped button label + status
                     end,
                 },
                 {
@@ -173,5 +179,5 @@ end
 
 -- ── Registration ────────────────────────────────────────────────────────────────
 UnbunkUtility.OnAddonLoaded(function()
-    UnbunkUtility.RegisterModule(L["CDM Engine (beta)"], nil, CreateCDMEnginePanel)
+    UnbunkUtility.RegisterModule(L["CDM Settings (beta)"], nil, CreateCDMEnginePanel)
 end)
