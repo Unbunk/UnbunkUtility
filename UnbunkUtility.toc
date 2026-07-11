@@ -138,4 +138,5 @@ Modules/CDMEngine/Core/Resources.lua
 Modules/CDMEngine/Display/ClassResource.lua
 Modules/CDMEngine/Core/Layout.lua
 Modules/CDMEngine/Core/Design.lua
+Modules/CDMEngine/Core/Mode.lua
 Modules/CDMEngine/UI/ConfigWindow.lua
