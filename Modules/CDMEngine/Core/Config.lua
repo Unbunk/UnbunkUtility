@@ -17,8 +17,8 @@ local Cfg = {}
 E.Cfg = Cfg
 
 -- groups[catKey] = { x = <number>, y = <number> } ; a missing sub-table = that group is auto-stacked.
--- containerX/Y keep the container's base offset (P3 leaves the container fixed at 0,0 — they are the
--- seam a future "move the whole block" (P4) drives, so no schema migration is needed later).
+-- containerX/Y = the whole auto-stack block's base offset, driven live by the P4b move-all handle
+-- (Design.MoveAllBy -> Cfg.SetContainerPos).
 local DEFAULTS = {
     groups     = {},
     containerX = 0,
@@ -44,11 +44,17 @@ function Cfg.Init()
 end
 ns.RegisterCfgInitHook(Cfg.Init)
 
--- Container base offset (reserve for the P4 "move all"; container is fixed in P3).
+-- Container base offset — the whole auto-stack block's CENTER/UIParent offset (P4b "move all").
 function Cfg.GetContainerPos()
     local r = Root()
     if not r then return 0, 0 end
     return r.containerX or 0, r.containerY or 0
+end
+
+function Cfg.SetContainerPos(x, y)
+    local r = Root()
+    if not (r and type(x) == "number" and type(y) == "number") then return end
+    r.containerX, r.containerY = x, y
 end
 
 -- Generic scalar/table getter for the flat config keys (the P4 icon-extra flags). Falls back to a

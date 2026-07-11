@@ -24,8 +24,9 @@ local E = ns.CDMEngine
 local Design = {}
 E.Design = Design
 
-Design.active   = false
-Design.dragging = nil   -- catKey being dragged right now; read by Layout.DoDeferredRebuild's drag guard
+Design.active     = false
+Design.dragging   = nil   -- key being dragged right now (catKey or "__moveAll__"); read by Layout's drag guard
+Design.dragTarget = nil   -- the frame currently being moved (a group, a placeholder, or the move-all handle)
 
 local designForcedShown = false   -- true when Enter() had to auto-show the widgets (so Exit() re-hides)
 
@@ -52,29 +53,27 @@ end
 -- movable on whatever frame is held, then drop the marker. Used by the combat guard and by Exit so a
 -- drag caught mid-flight by a profile switch / widgets-off never leaks a movable/moving group frame.
 local function AbortDrag()
-    local catKey = Design.dragging
-    if not catKey then return end
-    Design.dragging = nil
-    local o = active[catKey]
-    if o and o.target then
-        if o.target.StopMovingOrSizing then o.target:StopMovingOrSizing() end
-        if o.target.SetMovable then o.target:SetMovable(false) end
+    local t = Design.dragTarget
+    Design.dragging, Design.dragTarget = nil, nil
+    if t then
+        if t.StopMovingOrSizing then t:StopMovingOrSizing() end
+        if t.SetMovable then t:SetMovable(false) end
     end
 end
 
 local function OnDragStart(o)
-    if InCombatLockdown() then Say("Impossible de déplacer un groupe en combat.") return end
+    if InCombatLockdown() then Say("Can't move a group in combat.") return end
     if EditModeManagerFrame and EditModeManagerFrame:IsShown() then return end
     local t = o.target
     if not t then return end
-    Design.dragging = o.catKey
+    Design.dragging, Design.dragTarget = o.catKey, t
     t:SetMovable(true)
     t:StartMoving()
 end
 
 local function OnDragStop(o)
     local started = (Design.dragging == o.catKey)   -- false if OnDragStart bailed (combat / EditMode / no target)
-    Design.dragging = nil
+    Design.dragging, Design.dragTarget = nil, nil
     local t = o.target
     if not t then return end
     t:StopMovingOrSizing()
@@ -164,8 +163,89 @@ local function AttachPlaceholder(catKey, gs, idx)
     else                         -- never placed: park below centre, stacked so multiple empties don't overlap
         o:SetPoint("CENTER", UIParent, "CENTER", 0, -100 - (idx or 0) * (unit + 8))
     end
-    o.label:SetText(catKey .. " (vide)")
+    o.label:SetText(catKey .. " (empty)")
     o:Raise()
+end
+
+-- ── Move-all handle: drag the WHOLE layout (auto stack + every free group) by one delta ──────────
+-- A dedicated handle (distinct orange) that, on drop, translates the container base (containerX/Y) AND
+-- every free group's saved position by the SAME offset — so "move all" moves everything together, not
+-- just the auto-stacked block. It is tracked by DISPLACEMENT (how far the handle moved), so it can sit
+-- above the layout without affecting the maths.
+local MOVEALL_LIFT = 90       -- px above the container base, to sit clear of the stack
+local moveAll
+
+local function MoveAllBy(dx, dy)
+    if not (E.Cfg and E.Layout) then return end
+    if dx == 0 and dy == 0 then return end
+    local ox, oy = E.Cfg.GetContainerPos()
+    E.Cfg.SetContainerPos(ox + dx, oy + dy)
+    E.Layout.ApplyContainerPosition()          -- container + auto groups move now
+    local spec = E.Layout.GetSpec()
+    if spec then
+        for _, gs in ipairs(spec.groups) do    -- shift every FREE group by the same delta
+            if gs.key then
+                local p = E.Cfg.GetGroupPos(gs.key)
+                if p then E.Cfg.SetGroupPos(gs.key, p.x + dx, p.y + dy) end
+            end
+        end
+    end
+    E.Layout.ScheduleRebuild()                 -- ApplyFreePositions re-pins the shifted free groups
+    Design.Reattach()                          -- re-place the handle + group overlays
+end
+
+local function EnsureMoveAll()
+    if moveAll then return moveAll end
+    local o = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    o:SetFrameStrata("FULLSCREEN_DIALOG")
+    o:SetToplevel(true)
+    o:SetSize(150, 22)
+    o:EnableMouse(true)
+    o:RegisterForDrag("LeftButton")
+    o:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
+    o:SetBackdropColor(1, 0.6, 0.1, 0.55)          -- orange: distinct from the blue per-group overlays
+    o:SetBackdropBorderColor(1, 0.6, 0.1, 1)
+    o.label = o:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    o.label:SetPoint("CENTER")
+    o.label:SetText("Move ALL")
+    o:SetScript("OnDragStart", function(self)
+        if InCombatLockdown() then Say("Can't move in combat.") return end
+        if EditModeManagerFrame and EditModeManagerFrame:IsShown() then return end
+        self._startX, self._startY = ScaleOffset(self)
+        Design.dragging, Design.dragTarget = "__moveAll__", self
+        self:SetMovable(true)
+        self:StartMoving()
+    end)
+    o:SetScript("OnDragStop", function(self)
+        local started = (Design.dragging == "__moveAll__")
+        Design.dragging, Design.dragTarget = nil, nil
+        self:StopMovingOrSizing()
+        self:SetMovable(false)
+        if not (started and self._startX) then return end
+        local ex, ey = ScaleOffset(self)
+        if not ex then return end
+        MoveAllBy(ex - self._startX, ey - self._startY)
+    end)
+    moveAll = o
+    return o
+end
+
+local function AttachMoveAll()
+    local o = EnsureMoveAll()
+    local cx, cy = 0, 0
+    if E.Cfg then cx, cy = E.Cfg.GetContainerPos() end
+    o:ClearAllPoints()
+    o:SetPoint("CENTER", UIParent, "CENTER", cx, cy + MOVEALL_LIFT)
+    o:EnableMouse(true)
+    o:Show()
+    o:Raise()
+end
+
+local function HideMoveAll()
+    if moveAll then
+        moveAll:EnableMouse(false)
+        moveAll:Hide()
+    end
 end
 
 -- Re-attach overlays after a build (frames were re-pooled) or a reset. DetachAll first, then decide
@@ -194,15 +274,16 @@ function Design.Reattach()
             end
         end
     end
+    AttachMoveAll()   -- the whole-layout handle, on top, at the container base
 end
 
 -- ── Lifecycle ────────────────────────────────────────────────────────────────────────────────────
 function Design.Enter()
     if Design.active then return end
-    if not (E.Layout and E.Blob and E.Icon and E.Group and E.Cfg) then Say("CDMEngine pas prêt."); return end
-    if InCombatLockdown() then Say("Impossible d'ouvrir le designer en combat."); return end
+    if not (E.Layout and E.Blob and E.Icon and E.Group and E.Cfg) then Say("CDMEngine not ready."); return end
+    if InCombatLockdown() then Say("Can't open the designer in combat."); return end
     if EditModeManagerFrame and EditModeManagerFrame:IsShown() then
-        Say("Ferme l'Edit Mode Blizzard d'abord."); return
+        Say("Close Blizzard Edit Mode first."); return
     end
     Design.active = true
     local wasShown = E.Layout.IsShown()
@@ -210,19 +291,20 @@ function Design.Enter()
     if wasShown then
         Design.Reattach()                     -- groups already built: attach live overlays immediately
     else                                      -- cold start: auto-show; the deferred build's designHook attaches
-        designForcedShown = true              -- LIVE overlays onto real frames (no 1-frame "(vide)" placeholder flash)
+        designForcedShown = true              -- LIVE overlays onto real frames (no 1-frame "(empty)" placeholder flash)
         E.Layout.EnsureShown()
     end
-    Say("CDM design: ON  —  glisser un groupe · clic-droit = reset ce groupe · /uucdmdesign pour fermer · /uucdmdesign reset = tout réinitialiser")
+    Say("CDM design: ON  —  drag a group · right-click = reset that group · /uucdmdesign to close · /uucdmdesign reset = reset all")
 end
 
 function Design.Exit()
     if not Design.active then return end
     AbortDrag()                       -- finish any held drag before the overlays are torn down
     Design.active   = false
-    Design.dragging = nil
+    Design.dragging, Design.dragTarget = nil, nil
     if E.Layout then E.Layout.SetDesignHook(nil) end
     DetachAll()
+    HideMoveAll()
     if designForcedShown then   -- re-hide only if WE turned the widgets on
         designForcedShown = false
         if E.Layout then E.Layout.HideWidgets() end
@@ -272,7 +354,7 @@ SlashCmdList["UUCDMDESIGN"] = function(msg)
         if E.Cfg then E.Cfg.ClearAllGroupPos() end
         if E.Layout then E.Layout.ScheduleRebuild() end
         if Design.active then Design.Reattach() end
-        Say("CDM design: positions réinitialisées (empilement auto).")
+        Say("CDM design: positions reset (auto-stack).")
         return
     end
     Design.Toggle()

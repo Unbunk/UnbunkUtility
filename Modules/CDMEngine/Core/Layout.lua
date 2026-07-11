@@ -35,9 +35,9 @@ local function Say(msg)
     if ns.Print then ns.Print(msg) else print("|cff338cff[UnbunkUtility]|r " .. tostring(msg)) end
 end
 
--- Container base position. P3 keeps the container FIXED (the group-level designer moves GROUPS, not
--- the whole block); containerX/Y come from config (default 0,0) so a future "move all" (P4) can drive
--- them without a schema migration.
+-- Container base position = the whole auto-stack block's offset. Driven live by the P4b move-all handle
+-- (Design.MoveAllBy -> Cfg.SetContainerPos); ApplyContainerPosition re-pins the container to
+-- CENTER/UIParent at containerX/Y (default 0,0).
 local function ApplyContainerPosition()
     if not container then return end
     local x, y = 0, 0
@@ -272,6 +272,7 @@ function E.Layout.ScheduleRebuild() ScheduleRebuild() end
 function E.Layout.SetDesignHook(fn) designHook = fn end
 function E.Layout.EnsureShown()     EnsureShown() end
 function E.Layout.HideWidgets()     HideWidgets() end
+function E.Layout.ApplyContainerPosition() ApplyContainerPosition() end   -- move the whole block (P4b move-all)
 
 -- ── Toggle ──────────────────────────────────────────────────────────────────────────────────────
 SLASH_UUCDMWIDGETS1 = "/uucdmwidgets"
