@@ -20,8 +20,8 @@ local function Cat(key) return Enum and Enum.CooldownViewerCategory and Enum.Coo
 local SPEC = {
     container = { direction = "column", spacing = 8 },
     groups = {
-        { key = "Essential",   category = Cat("Essential"),   direction = "row", size = 40, spacing = 4 },
-        { key = "Utility",     category = Cat("Utility"),     direction = "row", size = 34, spacing = 4 },
+        { key = "Essential",   category = Cat("Essential"),   direction = "row", size = 40, spacing = 4, trackerDest = "essential" },
+        { key = "Utility",     category = Cat("Utility"),     direction = "row", size = 34, spacing = 4, trackerDest = "utility"   },
         { key = "TrackedBuff", category = Cat("TrackedBuff"), direction = "row", size = 30, spacing = 4 },
     },
 }
@@ -69,6 +69,19 @@ local function PopulateGroup(g, gs)
             g.children[#g.children + 1] = f
         end
     end
+    -- L2: in engine mode, HOST the CDM trackers (BRes/Potion/…) that opted into this dest, appended after
+    -- the cooldown icons. They are OUR frames -> re-parenting/SetPoint is taint-safe. Only the SHOWN ones
+    -- reserve a slot (a hidden tracker reserves nothing). CDMAnchor cedes these dests via owned() so it
+    -- no longer pins them to the (masked) native viewer.
+    if ns.CDMMode and ns.CDMMode.IsEngine() and gs.trackerDest
+       and ns.CDMAnchor and ns.CDMAnchor.GetIconDescriptors then
+        for _, td in ipairs(ns.CDMAnchor.GetIconDescriptors(gs.trackerDest)) do
+            if td.frame and td.frame:IsShown() then
+                td.frame:SetParent(g)
+                g.trackers[#g.trackers + 1] = td
+            end
+        end
+    end
 end
 
 -- Arrange a group's icons in a horizontal/vertical flow (px spacing, scale 1 so no /GetScale division);
@@ -76,13 +89,25 @@ end
 local function ArrangeGroup(g)
     local gs = g.spec
     local horizontal = (gs.direction ~= "column")
-    local main, cross, n = 0, 0, #g.children
-    for i, f in ipairs(g.children) do
+    local main, cross = 0, 0
+    local function Place(f, sz)
+        if main > 0 then main = main + gs.spacing end   -- gap only BETWEEN elements (no leading/trailing)
         f:ClearAllPoints()
         if horizontal then f:SetPoint("LEFT", g, "LEFT", main, 0)
         else               f:SetPoint("TOP",  g, "TOP",  0, -main) end
-        main  = main + gs.size + (i < n and gs.spacing or 0)
-        cross = math.max(cross, gs.size)
+        main  = main + sz
+        cross = math.max(cross, sz)
+    end
+    for _, f in ipairs(g.children) do Place(f, gs.size) end
+    -- L2: hosted trackers flow AFTER the cooldown icons, sized to the group and forced visible (the
+    -- native viewer is masked; our anchored frames don't inherit its alpha, but the fade could touch them).
+    for _, td in ipairs(g.trackers) do
+        local f = td.frame
+        if f then
+            if td.setSize then td.setSize(gs.size, gs.size) else f:SetSize(gs.size, gs.size) end
+            f:SetAlpha(1)
+            Place(f, gs.size)
+        end
     end
     local w = horizontal and main or cross
     local h = horizontal and cross or main
@@ -153,7 +178,7 @@ local function BuildLayout()
             E.Group.Setup(g, gs)
             g:SetParent(container)
             PopulateGroup(g, gs)
-            if #g.children > 0 then
+            if #g.children > 0 or #g.trackers > 0 then   -- a group with ONLY hosted trackers still counts
                 ArrangeGroup(g)
                 groupFrames[#groupFrames + 1] = g
             else
@@ -184,6 +209,14 @@ local function ComputeSig()
             for _, cdmID in ipairs(E.Blob.GetTracked(gs.category, false)) do
                 local info = E.Blob.GetInfo(cdmID)
                 sigParts[#sigParts + 1] = cdmID .. ((info and info.isKnown ~= false) and "+" or "-")
+            end
+            -- L2: fold the hosted-tracker membership so a tracker showing/hiding forces a rebuild (not
+            -- just a refresh) — the cheap path can't re-collect frames.
+            if ns.CDMMode and ns.CDMMode.IsEngine() and gs.trackerDest
+               and ns.CDMAnchor and ns.CDMAnchor.GetIconDescriptors then
+                for _, td in ipairs(ns.CDMAnchor.GetIconDescriptors(gs.trackerDest)) do
+                    sigParts[#sigParts + 1] = "T" .. td.name .. ((td.frame and td.frame:IsShown()) and "+" or "-")
+                end
             end
         end
     end
@@ -260,7 +293,7 @@ local function HideWidgets()
     shown = false
     UnregisterEvents()
     E.Icon.ReleaseAll()
-    ReleaseGroups()
+    ReleaseGroups()   -- Group.Release re-parents every hosted tracker back to UIParent (single owner of that handoff)
     if container then container:Hide() end
     if E.Resource and E.Resource.HideWidgets then E.Resource.HideWidgets() end   -- P4c class resources
 end
