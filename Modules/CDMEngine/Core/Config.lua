@@ -23,6 +23,7 @@ local DEFAULTS = {
     groups     = {},
     containerX = 0,
     containerY = 0,
+    mode       = "native",            -- CDM display mode (Core/Mode.lua): "native" (default) | "engine"
     -- P4 icon extras (Display/IconExtras.lua):
     procGlow   = true,                -- glow the icon while its spell has an activation proc
     glowType   = "pixel",             -- "pixel" | "autocast" | "button" | "proc" (LibCustomGlow)

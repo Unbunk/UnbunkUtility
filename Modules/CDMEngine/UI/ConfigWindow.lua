@@ -38,18 +38,19 @@ local function CreateCDMEnginePanel(parent)
 
     local options = {
         { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["CDM Engine (beta)"] },
-        { type = "label", height = 18, text = L["A standalone Cooldown Manager, drawn beside the native one (beta)."] },
-        { type = "label", height = 18, text = L["Hidden by default; while shown it duplicates the native icons."] },
+        { type = "label", height = 18, text = L["A standalone Cooldown Manager (beta)."] },
+        { type = "label", height = 18, text = L["Engine mode hides the native CDM and shows this instead."] },
+        { type = "label", height = 18, text = L["Native mode (default) keeps the mature native display."] },
 
         -- ════════════ Engine (session actions) ════════════
         {
             type = "group", title = L["Engine"],
             build = function() return {
                 {
-                    type = "checkbox", label = L["Show CDM widgets"],
-                    get = function() return E.Layout and E.Layout.IsShown() end,
+                    type = "checkbox", label = L["Engine mode (hide native CDM, show the standalone engine)"],
+                    get = function() return ns.CDMMode and ns.CDMMode.IsEngine() end,
                     set = function(v)
-                        if E.Layout then E.Layout.SetShown(v) end
+                        if ns.CDMMode then ns.CDMMode.Set(v and "engine" or "native") end
                         if menu then menu.Refresh() end
                     end,
                 },
