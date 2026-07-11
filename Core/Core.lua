@@ -130,21 +130,25 @@ local function BuildNavTree()
         { name = L["General Settings"], subs = {
             { panel = L["Addon settings"] },
             { panel = L["Profiles"] },
-            { cat = L["Cooldown Manager"], subs = {
-                -- TEMP: old Essentials tab hidden from the nav while the new groups engine is validated.
-                -- The panel stays REGISTERED (not unregistered) — just removed from the tree.
-                -- { panel = L["Essentials"] },
-                { panel = L["Essential"] },
-                -- L["Utility"] resolves to the NEW CDMGroups Utility panel: CDMGroups loads after
-                -- GeneralSettings (see the .toc), so its RegisterModule(L["Utility"], …) supersedes the
-                -- OLD bucket panel under the same name. One "Utility" nav entry → the new groups panel.
-                { panel = L["Utility"] },
-                { panel = L["Buffs"] },
-                { panel = L["Bars"] },
-                { panel = L["Below player frame"] },
-                { panel = L["Free icons"] },
-                { panel = L["CDM Engine (beta)"] },
-            } },
+            { cat = L["Cooldown Manager"], subs = (function()
+                -- "CDM Settings (beta)" is the hub, always at the TOP: it picks which CDM engine is
+                -- active. The native engine's per-viewer config tabs the ENGINE replaces (Essential /
+                -- Utility / Buffs) show ONLY in native mode; ns.CDMMode.Set() -> ns.RefreshNav() rebuilds
+                -- this on a mode change. Bars / Below player / Free icons stay always (the engine doesn't
+                -- cover them).
+                local subs = { { panel = L["CDM Settings (beta)"] } }
+                if not (ns.CDMMode and ns.CDMMode.IsEngine()) then
+                    subs[#subs + 1] = { panel = L["Essential"] }
+                    -- L["Utility"] resolves to the NEW CDMGroups Utility panel (CDMGroups loads after
+                    -- GeneralSettings; its RegisterModule supersedes the old bucket panel of that name).
+                    subs[#subs + 1] = { panel = L["Utility"] }
+                    subs[#subs + 1] = { panel = L["Buffs"] }
+                end
+                subs[#subs + 1] = { panel = L["Bars"] }
+                subs[#subs + 1] = { panel = L["Below player frame"] }
+                subs[#subs + 1] = { panel = L["Free icons"] }
+                return subs
+            end)() },
         } },
         { name = L["Combat Utilities"], subs = {
             { panel = L["Combat settings"] },
