@@ -28,6 +28,14 @@ local DEFAULTS = {
     glowType   = "pixel",             -- "pixel" | "autocast" | "button" | "proc" (LibCustomGlow)
     glowColor  = { 0.96, 1, 0, 1 },   -- {r,g,b,a} for pixel/autocast (F5FF00) ; button/proc ignore it
     rangeCheck = true,                -- tint the icon red while the spell's target is out of range
+    -- P4c class resources (Display/ClassResource.lua) ; .position is set on first drag (nil = default anchor):
+    resource = {
+        enable     = true,
+        showCount  = 1,               -- how many of the spec's resources to draw (1 = the signature one)
+        barWidth   = 200, barHeight = 16,
+        pipSize    = 22,  pipSpacing = 3,
+        rowSpacing = 4,   showEmpty  = true,
+    },
 }
 Cfg.DEFAULTS = DEFAULTS
 
@@ -103,4 +111,43 @@ function Cfg.ClearAllGroupPos()
     local r = Root()
     if not r then return end
     r.groups = {}
+end
+
+-- ── P4c class-resource config (dedicated sub-table so /uucdmdesign reset can't wipe it) ─────────
+function Cfg.GetResource(key)
+    local r = Root()
+    local res = r and r.resource
+    local v = res and res[key]
+    if v == nil then
+        local d = DEFAULTS.resource
+        return ns.CopyDefault(d and d[key])
+    end
+    return v
+end
+
+function Cfg.SetResource(key, value)
+    local r = Root()
+    if not r then return end
+    r.resource = r.resource or {}
+    r.resource[key] = value
+end
+
+-- The resource widget's saved position, or nil (nil = default anchor). Validated like GetGroupPos.
+function Cfg.GetResourcePos()
+    local r = Root()
+    local p = r and r.resource and r.resource.position
+    if type(p) == "table" and type(p.x) == "number" and type(p.y) == "number" then return p end
+    return nil
+end
+
+function Cfg.SetResourcePos(x, y)
+    local r = Root()
+    if not (r and type(x) == "number" and type(y) == "number") then return end
+    r.resource = r.resource or {}
+    r.resource.position = { x = x, y = y }
+end
+
+function Cfg.ClearResourcePos()
+    local r = Root()
+    if r and r.resource then r.resource.position = nil end
 end
