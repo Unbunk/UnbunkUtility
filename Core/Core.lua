@@ -143,6 +143,7 @@ local function BuildNavTree()
                 { panel = L["Bars"] },
                 { panel = L["Below player frame"] },
                 { panel = L["Free icons"] },
+                { panel = L["CDM Engine (beta)"] },
             } },
         } },
         { name = L["Combat Utilities"], subs = {
