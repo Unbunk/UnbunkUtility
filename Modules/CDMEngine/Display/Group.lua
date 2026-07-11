@@ -19,6 +19,7 @@ local function BuildGroupFrame()
     local g = CreateFrame("Frame", nil, UIParent)
     if ns.SetTrackerIconStrata then ns.SetTrackerIconStrata(g) else g:SetFrameStrata("MEDIUM") end
     g.children = {}
+    g.trackers = {}   -- L2: hosted CDM tracker descriptors (module-owned frames; never E.Icon-released)
     g.w, g.h = 1, 1
     return g
 end
@@ -33,6 +34,7 @@ function Group.Setup(g, spec)
     g.spec = spec
     g.catKey = spec and spec.key   -- stable string key ("Essential"/...) for per-group designer positions
     if g.children then wipe(g.children) else g.children = {} end
+    if g.trackers then wipe(g.trackers) else g.trackers = {} end
     g.w, g.h = 1, 1
     g:Show()
 end
@@ -52,6 +54,16 @@ function Group.Release(g)
     g.spec = nil
     g.catKey = nil
     if g.children then wipe(g.children) end   -- child icons are freed by E.Icon.ReleaseAll, not here
+    -- L2: hosted tracker frames are module-owned (never E.Icon-released), but we MUST let go of them here —
+    -- re-parent each back to UIParent so a tracker that hid ITSELF (and so won't be re-collected by the next
+    -- PopulateGroup) is never left an invisible child of this pooled/reused group. A still-shown tracker is
+    -- immediately re-parented into the fresh group by PopulateGroup/ArrangeGroup, so this is a no-op for it.
+    if g.trackers then
+        for _, td in ipairs(g.trackers) do
+            if td.frame then td.frame:ClearAllPoints(); td.frame:SetParent(UIParent) end
+        end
+        wipe(g.trackers)
+    end
     g.w, g.h = 1, 1
     g:Hide()
     g:ClearAllPoints()

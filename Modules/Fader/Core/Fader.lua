@@ -95,7 +95,15 @@ local function ComponentFrames(comp, out)
         end
     end
     if comp.dest and ns.CDMAnchor and ns.CDMAnchor.GetIconFrames then
-        for _, f in ipairs(ns.CDMAnchor.GetIconFrames(comp.dest)) do out[#out + 1] = f end
+        -- Level 2: in engine mode the CDM engine HOSTS the essential/utility trackers and OWNS their alpha
+        -- (ArrangeGroup keeps them at 1). Fading them here would fight that — and, worse, leave them stuck
+        -- at the faded alpha on the switch back to native (LayoutCDMRow re-pins them but never rewrites
+        -- alpha), so they'd read as "gone". Skip a dest whose native viewer the engine masks; belowPlayer
+        -- has no viewer (not engine-hosted) so it keeps fading normally.
+        local vn = ns.CDM_VIEWER and ns.CDM_VIEWER[comp.dest]
+        if not (vn and ns.CDMMode and ns.CDMMode.IsViewerMasked and ns.CDMMode.IsViewerMasked(vn)) then
+            for _, f in ipairs(ns.CDMAnchor.GetIconFrames(comp.dest)) do out[#out + 1] = f end
+        end
     end
     return out
 end

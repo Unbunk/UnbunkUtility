@@ -76,9 +76,25 @@ local function ApplyMask()
 end
 
 -- ── Apply the whole mode: mask natives + show/hide the engine ─────────────────────────────────────
+local lastAppliedMode
 function M.Apply()
     ApplyMask()
     if E.Layout and E.Layout.SetShown then E.Layout.SetShown(M.IsEngine()) end
+    -- Re-route CDMAnchor (Level 2): owned() now returns the new value for essential/utility, so CDMAnchor
+    -- stops pinning the CDM trackers to the (masked) native viewer and lets the engine host them — and
+    -- re-anchors them back to the native viewer on switch to native. Coalesced inside CDMAnchor.
+    if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll(true) end
+    -- On an ACTUAL mode change, force the native-reuse (CDMGroups / BuffGroups) to a FULL relayout so it
+    -- reclaims the trackers the engine displaced. Leaving engine mode, Group.Release re-parented those
+    -- frames to UIParent + ClearAllPoints WITHOUT CDMGroups knowing, so its lastLayoutSig pass-level
+    -- early-out (which folds ns.StyleEpoch) would skip re-placing them and they'd stay orphaned (no point).
+    -- Bumping the epoch busts that signature so the next 0.2s RefreshLayout tick re-folds them. Gated on a
+    -- real change so a zone-change M.Apply (PLAYER_ENTERING_WORLD, same mode) doesn't churn a full re-style.
+    local m = M.Get()
+    if m ~= lastAppliedMode then
+        lastAppliedMode = m
+        if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end
+    end
 end
 
 function M.Set(mode)

@@ -274,7 +274,16 @@ function CDG.Make(dest)
 
     -- ── Enable ─────────────────────────────────────────────────────────────────
     -- Default OFF (the OLD bucket system keeps driving the viewer until the user opts in).
-    function I.Enabled() local s = Store(dest); return s and s.enabled == true or false end
+    -- Level 2: the standalone CDM engine (ns.CDMMode "engine") REPLACES this native-reuse engine for
+    -- essential/utility — it masks the viewer and hosts the trackers in its own layout. Report DISABLED in
+    -- engine mode so every driver here (the 0.2s RefreshLayout ticker, UNIT_AURA, the native-viewer relayout
+    -- hook — they ALL gate on Enabled()) stops re-pinning the trackers/viewer and no longer fights the engine
+    -- (which is why the trackers were stuck at UnbunkUtilityCDG_*_Group1, the native spot). Flips back the
+    -- instant the user returns to native mode; the always-running ticker re-folds within one 0.2s pass.
+    function I.Enabled()
+        if ns.CDMMode and ns.CDMMode.IsEngine and ns.CDMMode.IsEngine() then return false end
+        local s = Store(dest); return s and s.enabled == true or false
+    end
     function I.SetEnabled(v) local s = Store(dest); if s then s.enabled = v and true or false end end
 
     -- ── Group accessors ─────────────────────────────────────────────────────────

@@ -23,6 +23,17 @@ ns.CDM_VIEWER = {
 -- Ordered destination options for the dropdown (keys; labels localized below).
 ns.CDM_DEST_ORDER = { "essential", "utility", "belowPlayer" }
 
+-- ── Standalone CDM engine ownership (Level 2) ────────────────────────────────
+-- When the standalone engine (ns.CDMMode "engine") is active it HOSTS the essential/utility trackers in
+-- its own group layout and MASKS the native viewers. Every ownership/taint guard below therefore treats
+-- those two dests as "taken": the old bucket system must not pin our frames into — or write geometry on —
+-- the masked native viewer (writing a registered Edit Mode viewer is the 12.1.0 taint vector). Runtime-only
+-- probe (ns.CDMMode is set by a later-loading module), so referencing it here is a forward reference by design.
+local function EngineOwnsDest(dest)
+    return ns.CDMMode and ns.CDMMode.IsEngine and ns.CDMMode.IsEngine()
+        and (dest == "essential" or dest == "utility") or false
+end
+
 function ns.CDMDestLabel(key)
     local L = ns.L
     if key == "utility"     then return L["Cooldown Manager: Utility"] end
@@ -1640,10 +1651,10 @@ local function ReleaseAll()
 end
 
 local function LayoutCDMRow(viewer, dest, list)
-    -- OWNERSHIP GUARD (defensive): when the new "Cooldown groups" engine owns this dest it drives the
-    -- viewer's native frames itself — never lay out the old bucket grid here. DoRefresh already keeps
+    -- OWNERSHIP GUARD (defensive): when the "Cooldown groups" engine OR the standalone engine owns this
+    -- dest it drives the frames itself — never lay out the old bucket grid here. DoRefresh already keeps
     -- an owned dest out of `groups`, so this is normally unreached; it protects any direct caller.
-    if ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest) then
+    if (ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest)) or EngineOwnsDest(dest) then
         for _, d in ipairs(list) do if d.apply then pcall(d.apply) end end
         return
     end
@@ -1817,6 +1828,9 @@ end
 -- fn(alpha) on every fade step — so we register our icons there. Essential AND the
 -- below-player row follow the Essential viewer's fade; Utility follows Utility's.
 local function SetDestAlpha(dest, a)
+    -- L2: in engine mode the engine hosts the essential/utility trackers and keeps them fully visible;
+    -- the native fade (viewer masked) must not drive OUR frames' alpha down.
+    if EngineOwnsDest(dest) then return end
     a = a or 1   -- defensive: never pass nil to SetAlpha if an external alpha is missing
     for _, d in ipairs(appliers) do
         if d.frame and d.getCfg and d.getCfg("includeInCdm")
@@ -1946,11 +1960,26 @@ end
 -- (ns.CDMGroups.OwnsDest), it takes over that native viewer (e.g. EssentialCooldownViewer)
 -- and drives its frames into movable group containers. The OLD bucket system here must then
 -- NOT also route icons into that viewer or take it over.
+-- The standalone CDM ENGINE (ns.CDMMode "engine") likewise OWNS essential/utility: it hosts the CDM
+-- trackers in its own group layout, so this old bucket system must not pin/route them into the (masked)
+-- native viewer. Symmetric with CDMGroups.OwnsDest — see EngineOwnsDest near the top of the file.
 local function owned(dest)
-    return ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest) or false
+    return (ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest))
+        or EngineOwnsDest(dest) or false
 end
 
 local function DoRefreshBody(force)
+    -- L2 bridge (must run BEFORE the no-change early-out below): in engine mode, poke the engine to
+    -- re-collect its hosted trackers on EVERY refresh. A tracker becoming CDM-eligible/shown AFTER the last
+    -- engine rebuild — e.g. an equipped trinket's on-use spell resolving (cdmEligible flips nil→true), or a
+    -- tracker showing/hiding on its own 0.5s tick — does NOT move CDMAnchor's own native-row signature, so
+    -- it would be missed here until a REBUILD event or a manual mode switch (which is why it only folded in
+    -- "on the 2nd try"). ScheduleRebuild is coalesced and the engine's own ComputeSig gate keeps this cheap
+    -- (a full BuildLayout runs only on a real membership change); the tracker's tick calls RefreshAll ~2Hz.
+    if ns.CDMMode and ns.CDMMode.IsEngine and ns.CDMMode.IsEngine()
+        and ns.CDMEngine and ns.CDMEngine.Layout and ns.CDMEngine.Layout.ScheduleRebuild then
+        ns.CDMEngine.Layout.ScheduleRebuild()
+    end
     if force then
         -- Forced pass re-pins unconditionally; its ComputeSig result is unused, so skip
         -- the cost. Drop the baseline too: the next non-forced pass recomputes from scratch.
@@ -2029,6 +2058,7 @@ local function DoRefreshBody(force)
     -- Keep our icons matching Ayije's current fade alpha (icons just (re)laid out
     -- would otherwise pop to full opacity mid-fade).
     pcall(ReapplyFade)
+    -- (The L2 engine re-collect bridge runs at the TOP of this function, before the no-change early-out.)
 end
 
 local refreshing = false
@@ -2084,16 +2114,16 @@ end
 -- (e.g. a trinket pinned to the Essential row) was shown.
 local function OnNativeRelayout(viewer)
     -- TAINT + redundancy guard: this hook fires from INSIDE Blizzard's secure CooldownViewer:RefreshData.
-    -- When the new CDMGroups engine OWNS this dest it drives the viewer's frames itself, so the old bucket
-    -- re-pin is redundant — and the NativeSig + RefreshAll(true) below run a LOT of insecure work inside
-    -- Blizzard's secure refresh, tainting its subsequent aura/totem secret reads ("tainted by UnbunkUtility").
-    -- Bail out for an owned dest so none of that heavy work runs in the secure path.
-    if ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDM_VIEWER then
+    -- When the CDMGroups engine OR the standalone engine OWNS this dest it drives the viewer's frames itself,
+    -- so the old bucket re-pin is redundant — and the NativeSig + RefreshAll(true) below run a LOT of insecure
+    -- work inside Blizzard's secure refresh, tainting its subsequent aura/totem secret reads ("tainted by
+    -- UnbunkUtility"). Bail out for an owned dest so none of that heavy work runs in the secure path.
+    if ns.CDM_VIEWER then
         local nm = viewer.GetName and viewer:GetName()
         if nm then
             for dest, vname in pairs(ns.CDM_VIEWER) do
                 if vname == nm then
-                    if ns.CDMGroups.OwnsDest(dest) then return end
+                    if owned(dest) then return end   -- CDMGroups OR standalone engine owns it: skip the secure-pass re-pin
                     break
                 end
             end
