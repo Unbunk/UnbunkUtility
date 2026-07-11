@@ -134,6 +134,7 @@ function Icon.Update(f)
     end
     UpdateSwipe(f)
     UpdateCharges(f)
+    if E.IconExtras then E.IconExtras.Register(f) end   -- proc glow + range tint (registers once sid is resolved)
 end
 
 function Icon.Setup(f, cdmID)
@@ -158,6 +159,7 @@ end
 function Icon.Release(f)
     if not f then return end
     active[f] = nil
+    if E.IconExtras then E.IconExtras.Unregister(f) end   -- stop glow + disable range check + reset tint
     if f.Cooldown then
         f.Cooldown:SetScript("OnCooldownDone", nil)
         f.Cooldown:Clear()

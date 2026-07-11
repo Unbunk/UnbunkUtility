@@ -23,6 +23,11 @@ local DEFAULTS = {
     groups     = {},
     containerX = 0,
     containerY = 0,
+    -- P4 icon extras (Display/IconExtras.lua):
+    procGlow   = true,                -- glow the icon while its spell has an activation proc
+    glowType   = "pixel",             -- "pixel" | "autocast" | "button" | "proc" (LibCustomGlow)
+    glowColor  = { 0.96, 1, 0, 1 },   -- {r,g,b,a} for pixel/autocast (F5FF00) ; button/proc ignore it
+    rangeCheck = true,                -- tint the icon red while the spell's target is out of range
 }
 Cfg.DEFAULTS = DEFAULTS
 
@@ -44,6 +49,21 @@ function Cfg.GetContainerPos()
     local r = Root()
     if not r then return 0, 0 end
     return r.containerX or 0, r.containerY or 0
+end
+
+-- Generic scalar/table getter for the flat config keys (the P4 icon-extra flags). Falls back to a
+-- FRESH COPY of the default so a caller can't mutate the shared DEFAULTS table.
+function Cfg.Get(key)
+    local r = Root()
+    local v = r and r[key]
+    if v == nil then return ns.CopyDefault(DEFAULTS[key]) end
+    return v
+end
+
+function Cfg.Set(key, value)
+    local r = Root()
+    if not r then return end
+    r[key] = value
 end
 
 -- The saved position of a group, or nil (nil => auto-stack). Validates both axes are numbers so a
