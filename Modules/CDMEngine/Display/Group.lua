@@ -31,6 +31,7 @@ end
 
 function Group.Setup(g, spec)
     g.spec = spec
+    g.catKey = spec and spec.key   -- stable string key ("Essential"/...) for per-group designer positions
     if g.children then wipe(g.children) else g.children = {} end
     g.w, g.h = 1, 1
     g:Show()
@@ -49,6 +50,7 @@ function Group.Release(g)
     if not g then return end
     active[g] = nil
     g.spec = nil
+    g.catKey = nil
     if g.children then wipe(g.children) end   -- child icons are freed by E.Icon.ReleaseAll, not here
     g.w, g.h = 1, 1
     g:Hide()

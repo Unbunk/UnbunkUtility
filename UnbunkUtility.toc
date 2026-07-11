@@ -128,8 +128,10 @@ Modules/ReloadAnnounce/UI/ConfigWindow.lua
 Modules/ShowIDs/Core/ShowIDs.lua
 Modules/ShowIDs/UI/ConfigWindow.lua
 
-# CDMEngine — standalone "Coolinator-like" engine (WIP). P0 blob · P1 icons · P2 layout multi-groupes.
+# CDMEngine — standalone "Coolinator-like" engine (WIP). P0 blob · P1 icons · P2 layout · P3 designer.
 Modules/CDMEngine/Core/Blob.lua
+Modules/CDMEngine/Core/Config.lua
 Modules/CDMEngine/Display/Icon.lua
 Modules/CDMEngine/Display/Group.lua
 Modules/CDMEngine/Core/Layout.lua
+Modules/CDMEngine/Core/Design.lua
