@@ -87,7 +87,12 @@ local function ComponentFrames(comp, out)
     end
     if comp.native then
         local f = _G[comp.native]
-        if f then out[#out + 1] = f end
+        -- Level 2: in engine mode the CDM engine hides + owns the alpha of the viewers it covers, so
+        -- don't fade those (we'd fight its SetAlpha(0) re-force hook, and F.Apply's restore would too).
+        -- Viewers it doesn't cover (Bars = BuffBar) keep fading normally.
+        if f and not (ns.CDMMode and ns.CDMMode.IsViewerMasked and ns.CDMMode.IsViewerMasked(comp.native)) then
+            out[#out + 1] = f
+        end
     end
     if comp.dest and ns.CDMAnchor and ns.CDMAnchor.GetIconFrames then
         for _, f in ipairs(ns.CDMAnchor.GetIconFrames(comp.dest)) do out[#out + 1] = f end
