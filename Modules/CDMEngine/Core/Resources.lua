@@ -73,7 +73,8 @@ R.REGISTRY = {
     icicles              = { family = "auraBar",  spellID = 205473, max = 5 },
     ["tip-of-the-spear"] = { family = "auraBar",  spellID = 260286, max = 3 },
     ["maelstrom-weapon"] = { family = "auraPips", spellID = 344179, max = 10, divisor = 1 },
-    -- SLICE 3 label (stagger) still has NO descriptor -> skipped until its family lands.
+    -- SLICE 3: stagger (Brewmaster monk) — the one secret resource
+    stagger          = { family = "stagger" },
 }
 
 local prevSpecIdx = 1

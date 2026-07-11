@@ -48,7 +48,15 @@ end
 function Cfg.Init()
     if not (ns.db and ns.db.profile) then return end
     ns.db.profile.CDMEngine = ns.db.profile.CDMEngine or {}
-    ns.MergeDefaults(ns.db.profile.CDMEngine, DEFAULTS)
+    local cfg = ns.db.profile.CDMEngine
+    ns.MergeDefaults(cfg, DEFAULTS)
+    -- One-time migration: P4c changed the resource showCount default 1 -> 0 (0 = draw ALL the spec's
+    -- resources). MergeDefaults never overwrites an existing value, so early testers stayed on the old 1
+    -- and saw only their first resource. Reset it once, gated by a per-profile marker.
+    if cfg.resource and (cfg.resource._migrated or 0) < 1 then
+        cfg.resource.showCount = DEFAULTS.resource.showCount
+        cfg.resource._migrated = 1
+    end
 end
 ns.RegisterCfgInitHook(Cfg.Init)
 

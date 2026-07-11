@@ -53,8 +53,9 @@ local function ColorFor(power)
     if c then return c[1], c[2], c[3] end
     return 0.6, 0.6, 0.6
 end
-local RUNE_COLOR = { 0.00, 0.82, 1.00 }   -- runic blue (runes family)
-local AURA_COLOR = { 0.60, 0.80, 1.00 }   -- generic aura-stack colour (auraBar/auraPips)
+local RUNE_COLOR       = { 0.15, 0.45, 0.62 }   -- runes recharging (dim)
+local RUNE_READY_COLOR = { 0.20, 0.90, 1.00 }   -- runes ready (bright runic blue)
+local AURA_COLOR       = { 0.60, 0.80, 1.00 }   -- generic aura-stack colour (auraBar/auraPips)
 
 local function Cfg(key) return E.Cfg and E.Cfg.GetResource(key) end
 local function Say(msg)
@@ -232,18 +233,22 @@ Families.runes = {   -- 6 cells; each shows a rune (sorted by recharge start), C
                 c:Show()
                 if c.sb.SetTimerDuration then pcall(c.sb.SetTimerDuration, c.sb, nil) end   -- leave timer mode; re-armed below if on cd
                 if ready then
+                    c.sb:SetStatusBarColor(RUNE_READY_COLOR[1], RUNE_READY_COLOR[2], RUNE_READY_COLOR[3])
                     c.sb:SetMinMaxValues(0, 1); c.sb:SetValue(1)
-                elseif s > 0 and d > 0 and c.sb.SetTimerDuration
-                       and C_DurationUtil and C_DurationUtil.CreateDuration then
-                    c.runeDur = c.runeDur or C_DurationUtil.CreateDuration()
-                    if c.runeDur.SetTimeFromStart then
-                        c.runeDur:SetTimeFromStart(s, d)
-                        c.sb:SetTimerDuration(c.runeDur)   -- C-side recharge fill, no OnUpdate
-                    else
-                        c.sb:SetValue(0)
-                    end
                 else
-                    c.sb:SetValue(0)   -- fallback: empty while on cooldown (no timer API)
+                    c.sb:SetStatusBarColor(RUNE_COLOR[1], RUNE_COLOR[2], RUNE_COLOR[3])   -- cells are reused: re-impose per state
+                    if s > 0 and d > 0 and c.sb.SetTimerDuration
+                       and C_DurationUtil and C_DurationUtil.CreateDuration then
+                        c.runeDur = c.runeDur or C_DurationUtil.CreateDuration()
+                        if c.runeDur.SetTimeFromStart then
+                            c.runeDur:SetTimeFromStart(s, d)
+                            c.sb:SetTimerDuration(c.runeDur)   -- C-side recharge fill, no OnUpdate
+                        else
+                            c.sb:SetValue(0)
+                        end
+                    else
+                        c.sb:SetValue(0)   -- fallback: empty while on cooldown (no timer API)
+                    end
                 end
             end
         end
@@ -291,6 +296,44 @@ Families.auraPips = {   -- discrete pips whose fill = the player's stack count o
             elseif math.ceil(val) < i then c:SetShown(showEmpty); c.sb:SetValue(0)
             else c:Show(); c.sb:SetValue(cur % row.divisor) end
         end
+    end,
+}
+
+-- ── SLICE 3 family: stagger (Brewmaster monk) — the ONE secret resource ───────────────────────────
+-- No power event drives stagger, so it uses a PERMANENT per-cell OnUpdate (the documented exception to
+-- the no-ticker rule). The value is SECRET in combat when the player isn't allowed to read it, so we
+-- issecretvalue-guard FIRST, before any SetValue/compare (the contract noted at the Families table).
+-- the reference engine reads a configured multiplier we don't have -> hardcode the classic light/moderate/heavy
+-- thresholds at 30% / 60% of max health.
+local STAGGER_LIGHT, STAGGER_HEAVY = 0.30, 0.60
+local STAGGER_COLORS = {
+    light    = { 0.52, 1.00, 0.52 },
+    moderate = { 1.00, 0.90, 0.45 },
+    heavy    = { 1.00, 0.42, 0.42 },
+}
+Families.stagger = {
+    setup = function(row, desc, cfg)
+        local c = row.cells[1]
+        c:SetSize(cfg.barWidth, cfg.barHeight)
+        c.sb:SetMinMaxValues(0, 1)
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -(row._y or 0))
+        c:SetScript("OnUpdate", function(self)
+            local cur = UnitStagger and UnitStagger("player")
+            if cur == nil or issecretvalue(cur) then return end   -- secret in combat -> never read/compare it
+            local maxHP = UnitHealthMax("player")
+            if not (maxHP and maxHP > 0) then self.sb:SetValue(0); return end
+            local ratio = cur / maxHP
+            self.sb:SetValue(ratio > 1 and 1 or ratio)
+            local col = (ratio >= STAGGER_HEAVY and STAGGER_COLORS.heavy)
+                or (ratio >= STAGGER_LIGHT and STAGGER_COLORS.moderate)
+                or STAGGER_COLORS.light
+            self.sb:SetStatusBarColor(col[1], col[2], col[3])
+        end)
+    end,
+    update = function() end,   -- no data event; the permanent OnUpdate drives it (Families contract)
+    teardown = function(row)
+        for _, c in ipairs(row.cells) do c:SetScript("OnUpdate", nil) end
     end,
 }
 
@@ -437,7 +480,7 @@ Rebuild = function()
             Families[desc.family].setup(row, desc, cfg)
             RegisterFamilyEvents(desc.family)
             activeRows[#activeRows + 1] = row
-            local isBar = (desc.family == "bar" or desc.family == "auraBar")
+            local isBar = (desc.family == "bar" or desc.family == "auraBar" or desc.family == "stagger")
             local rowH = isBar and cfg.barHeight or cfg.pipSize
             local rowW = isBar and cfg.barWidth
                 or (#row.cells * (cfg.pipSize + cfg.pipSpacing) - cfg.pipSpacing)
