@@ -47,6 +47,9 @@ Blob.FIELD        = F
 Blob.LAYOUT_FIELD = L
 
 -- Ordered list of the categories we care about (label + enum), skipping any the client lacks.
+-- NB: 12.1.0 has only Essential/Utility/TrackedBuff/TrackedBar (verified in-game). "GroupBuff" is kept here
+-- purely as forward-compat — the `C[key] ~= nil` guard drops it (it is absent), so it never reaches the UI.
+-- The enum also carries internal HiddenSpell=-1 / HiddenAura=-2 buckets, which are NOT display categories.
 local function BuildCategories()
     local t = {}
     local C = Enum and Enum.CooldownViewerCategory
