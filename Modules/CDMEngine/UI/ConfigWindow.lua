@@ -123,6 +123,14 @@ local function CreateCDMEnginePanel(parent)
                         ReapplyExtras()
                     end,
                 },
+                {
+                    type = "checkbox", label = L["Show the global cooldown sweep"],
+                    get = function() return E.Cfg and E.Cfg.Get("showGcdSwipe") == true end,
+                    set = function(v)
+                        if E.Cfg then E.Cfg.Set("showGcdSwipe", v) end
+                        if E.Layout and E.Layout.ScheduleRebuild then E.Layout.ScheduleRebuild() end   -- re-drive UpdateSwipe
+                    end,
+                },
             } end,
         },
 
