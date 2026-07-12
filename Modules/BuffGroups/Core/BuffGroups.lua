@@ -169,6 +169,9 @@ local function FrameSpellId(nf)
     end
     return nil
 end
+-- Exposed so the CDM engine keys its hosted-frame map with the SAME resolver used to classify members,
+-- so a member frozen in the config resolves the same way (incl. the combat-secret / transform fallbacks).
+BG.FrameSpellId = FrameSpellId
 
 -- Split the tracked buffs into DISPLAYED (the EditMode "Tracked Buffs" section the user actually
 -- shows) and NOT-displayed, both in the category's canonical order. The displayed set is the

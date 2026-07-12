@@ -280,18 +280,11 @@ function Design.Reattach()
             if g.catKey then AttachLive(g.catKey, g); liveByKey[g.catKey] = g end
         end
     end
-    -- Placeholder only for an EMPTY hosted category (buff/bar with no active frames) so it can still be
-    -- grabbed to position it. Own-icon groups render whenever configured, so an empty one = nothing to place.
-    local spec = E.Layout and E.Layout.GetSpec()
-    if spec then
-        local emptyIdx = 0
-        for _, gs in ipairs(spec.groups) do
-            if gs.category ~= nil and gs.key and (gs.isBuff or gs.isBar) and not liveByKey[gs.key] then
-                AttachPlaceholder(gs.key, gs, emptyIdx)
-                emptyIdx = emptyIdx + 1
-            end
-        end
-    end
+    -- No category placeholders: with multi-group every rendered group is a LIVE per-group catKey
+    -- ("dest:groupId"), positioned when it has a shown member. The old empty-category placeholder was keyed by
+    -- the SPEC category key ("TrackedBuff"/"TrackedBar"), which never matches a live "buff:N" group — it drew a
+    -- stray overlay and saved a dead position. A hosted group with no active member simply has no overlay until
+    -- one of its buffs/bars is up (then it becomes grabbable).
     if E.Resource and E.Resource.IsShown() then   -- the class-resource widget is draggable too
         local rc = E.Resource.GetContainer()
         if rc then AttachLive("__resource__", rc) end

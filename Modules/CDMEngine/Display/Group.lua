@@ -39,6 +39,7 @@ function Group.Setup(g, spec)
     if g.trackers then wipe(g.trackers) else g.trackers = {} end
     if g.nativeBuffs then wipe(g.nativeBuffs) else g.nativeBuffs = {} end
     if g.nativeBars  then wipe(g.nativeBars)  else g.nativeBars  = {} end
+    g._iconRows, g._I, g._groupId = nil, nil, nil   -- own-icon grid state; re-set by MaterializeIconGroup (no stale refs)
     g.w, g.h = 1, 1
     g:Show()
 end

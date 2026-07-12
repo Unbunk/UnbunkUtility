@@ -315,13 +315,19 @@ end
 local cdmMaps = {}   -- dest -> { [spellId] = cdmID }
 local function RefreshCdmMap(gs)
     local dest = gs.trackerDest
-    local map = cdmMaps[dest]; if not map then map = {}; cdmMaps[dest] = map end
-    for _, cdmID in ipairs(E.Blob.GetTracked(gs.category, false)) do
-        local info = E.Blob.GetInfo(cdmID)
-        if info and info.isKnown ~= false then
-            local A = ns.CDMAnchor
-            local sid = A and A.NativeFrameSpellId and A.NativeFrameSpellId({ cooldownInfo = info })
-            if sid then map[sid] = cdmID end
+    local map = cdmMaps[dest]
+    -- Out of combat REBUILD FRESH: display spellIds resolve now, so a talent/spec rebind (spellId -> a NEW
+    -- cdmID) is reflected and orphan sids are pruned (no unbounded growth). In combat KEEP the cache: the
+    -- display ids are secret then, so a rebuild triggered by an aura change still resolves members from it.
+    if (not map) or (not InCombatLockdown()) then
+        map = {}; cdmMaps[dest] = map
+        for _, cdmID in ipairs(E.Blob.GetTracked(gs.category, false)) do
+            local info = E.Blob.GetInfo(cdmID)
+            if info and info.isKnown ~= false then
+                local A = ns.CDMAnchor
+                local sid = A and A.NativeFrameSpellId and A.NativeFrameSpellId({ cooldownInfo = info })
+                if sid then map[sid] = cdmID end
+            end
         end
     end
     return map
@@ -447,14 +453,21 @@ local function ShownFrameMap(gs)
     local map = {}
     if not (ns.CDMMode and ns.CDMMode.IsEngine()) or InEditMode() then return map end
     local A = ns.CDMAnchor
-    local enum, scratch
-    if gs.isBuff then enum = A and A.EnumBuffIcons; scratch = shownBuffScratch
-    else             enum = ns.BarGroups and ns.BarGroups.EnumBarFrames; scratch = shownBarScratch end
-    if not (enum and A and A.NativeFrameSpellId) then return map end
+    local mod     = gs.isBuff and ns.BuffGroups or ns.BarGroups
+    local enum    = gs.isBuff and (A and A.EnumBuffIcons) or (mod and mod.EnumBarFrames)
+    local scratch = gs.isBuff and shownBuffScratch or shownBarScratch
+    -- Key each frame with the SAME resolver the module uses to classify members (FrameSpellId: display id ->
+    -- GetSpellID -> cooldownInfo/linkedSpellIDs), PLUS the transform-stable base id — so a member frozen in the
+    -- config under any of those keys resolves, and a combat-secret / transform buff isn't dropped (it would
+    -- otherwise be sig-folded via the base id yet missing here, going invisible until combat ends).
+    local resolve = (mod and mod.FrameSpellId) or (A and A.NativeFrameSpellId)
+    if not (enum and resolve) then return map end
     for _, nf in ipairs(enum(scratch)) do
         if nf.IsShown and nf:IsShown() then
-            local sid = A.NativeFrameSpellId(nf)
-            if sid then map[sid] = nf end
+            local sid  = resolve(nf)
+            local base = A and A.NativeFrameBaseSpellId and A.NativeFrameBaseSpellId(nf)
+            if sid  then map[sid]  = nf end
+            if base then map[base] = nf end
         end
     end
     return map
@@ -611,6 +624,12 @@ local function ComputeSig()
             end
         end
     end
+    -- Fold the shared style epoch: a config EDIT bumps it (ns.BumpStyleEpoch, which also pokes our
+    -- ScheduleRebuild), so folding it here flips the sig on any edit -> a FULL BuildLayout (re-style +
+    -- re-arrange), not just the cheap RefreshAll path. Without this, per-icon/per-group style + layout edits
+    -- (border, timer/stack font, growDir, spacing, group re-assignment…) only apply on a membership change or
+    -- /reload — the phase-5b live-refresh would be inert. Mirrors the native modules (Engine/BuffGroups sigs).
+    sigParts[#sigParts + 1] = "E" .. (ns.StyleEpoch or 0)
     table.sort(sigParts)
     return table.concat(sigParts, ",")
 end
