@@ -62,12 +62,15 @@ function Cfg.Init()
     -- One-time migration: multi-group (parity phase 2/3) re-keyed the Essential/Utility group positions from
     -- the category name to "dest:groupId". Move any saved single-group position onto that dest's Group 1 so a
     -- positioned layout survives the upgrade. TrackedBuff/TrackedBar keep their (still single-group) keys.
-    if cfg.groups and (cfg._groupKeyMigrated or 0) < 1 then
-        for old, new in pairs({ Essential = "essential:1", Utility = "utility:1" }) do
+    -- v1: Essential/Utility -> dest:1 (own-icon multi-group). v2: TrackedBuff/TrackedBar -> buff:1/bar:1
+    -- (hosted multi-group). Idempotent (keeps an existing target), so a v0 or v1 profile upgrades cleanly.
+    if cfg.groups and (cfg._groupKeyMigrated or 0) < 2 then
+        for old, new in pairs({ Essential = "essential:1", Utility = "utility:1",
+                                TrackedBuff = "buff:1", TrackedBar = "bar:1" }) do
             if cfg.groups[old] and not cfg.groups[new] then cfg.groups[new] = cfg.groups[old] end
             cfg.groups[old] = nil
         end
-        cfg._groupKeyMigrated = 1
+        cfg._groupKeyMigrated = 2
     end
 end
 ns.RegisterCfgInitHook(Cfg.Init)
