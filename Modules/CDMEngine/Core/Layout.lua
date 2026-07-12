@@ -327,31 +327,99 @@ local function TrackerMapFor(dest)
     return m
 end
 
--- Materialise ONE engine group for a configured display group: its members in config order (GetGroupBuffs),
--- each a cooldown E.Icon (cdmID via the cache) or a hosted CDM tracker (by name). Kept only if non-empty.
+-- Grow-direction GRID packer for an own-icon group, mirroring the native CDMGroups layout (Engine.lua:1698):
+-- per-group growDir/spacing, multi-ROW via I.GroupRows; LEFT/UP reverse the pack axis; horizontal grows stack
+-- rows DOWN, vertical grows stack RIGHT; relPos drives the per-row cross alignment. Positions each member
+-- relative to g's TOPLEFT and sizes g to the whole block (the container / designer then places g).
+local HORIZONTAL_GROW = { RIGHT = true, LEFT = true, CENTER_H = true }
+local function ArrangeIconGroup(g)
+    local I, groupId = g._I, g._groupId
+    local grow       = (I and I.GGet(groupId, "growDir")) or "CENTER_H"
+    local spacing    = (I and I.GGet(groupId, "spacing")) or 4
+    local rp         = (I and I.GGet(groupId, "relPos"))  or "above"
+    local horizontal = HORIZONTAL_GROW[grow] == true
+    local reverse    = (grow == "LEFT" or grow == "UP")
+    local alignTop   = (rp == "below" or rp == "bottomleft" or rp == "bottomright")
+    -- Measure each row: MAIN extent (packed along the grow axis) + CROSS extent (max thickness).
+    local laid, maxMain, sumCross = {}, 0, 0
+    for _, row in ipairs(g._iconRows or {}) do
+        local mainExt, crossExt = 0, 0
+        for i, f in ipairs(row) do
+            local w, h  = f:GetWidth(), f:GetHeight()
+            local main  = horizontal and w or h
+            local cross = horizontal and h or w
+            mainExt = mainExt + main + (i > 1 and spacing or 0)
+            if cross > crossExt then crossExt = cross end
+        end
+        laid[#laid + 1] = { row = row, mainExt = mainExt, crossExt = crossExt }
+        if mainExt > maxMain then maxMain = mainExt end
+        sumCross = sumCross + crossExt + (#laid > 1 and spacing or 0)
+    end
+    -- Place: pack along MAIN (reversed for LEFT/UP), stack rows along CROSS, per-row cross alignment.
+    local crossCursor = 0
+    for _, lr in ipairs(laid) do
+        local mainCursor = reverse and lr.mainExt or 0
+        for _, f in ipairs(lr.row) do
+            local w, h = f:GetWidth(), f:GetHeight()
+            local main = horizontal and w or h
+            if reverse then mainCursor = mainCursor - main end
+            local x, y
+            if horizontal then
+                x = mainCursor
+                y = -crossCursor - (alignTop and 0 or (lr.crossExt - h))
+            else
+                x = crossCursor + (alignTop and 0 or (lr.crossExt - w))
+                y = -mainCursor
+            end
+            f:ClearAllPoints()
+            f:SetPoint("TOPLEFT", g, "TOPLEFT", x, y)
+            if reverse then mainCursor = mainCursor - spacing else mainCursor = mainCursor + main + spacing end
+        end
+        crossCursor = crossCursor + lr.crossExt + spacing
+    end
+    local boxW = horizontal and maxMain or sumCross
+    local boxH = horizontal and sumCross or maxMain
+    E.Group.SetDefaultSize(g, math.max(boxW, 1), math.max(boxH, 1))
+end
+
+-- Materialise ONE engine group for a configured display group, laid out as a GRID (I.GroupRows). Each member
+-- is a cooldown E.Icon (cdmID via the cache) or a hosted CDM tracker (by name, sized to the group).
 local function MaterializeIconGroup(gs, dest, I, groupId, sidMap, trackerMap)
     local g = E.Group.Acquire()
     E.Group.Setup(g, gs)
     g.catKey = dest .. ":" .. groupId   -- per-group key (Phase 3 designer positions migrate to this)
+    g._groupId, g._I = groupId, I        -- so ArrangeIconGroup reads this group's growDir/spacing/relPos
     g:SetParent(container)
-    for _, member in ipairs(I.GetGroupBuffs(groupId)) do
-        local cdmID = sidMap[member]
-        if cdmID then
-            local f = E.Icon.Acquire()
-            f._dest = dest
-            E.Icon.Setup(f, cdmID)
-            f:SetParent(g)
-            g.children[#g.children + 1] = f
-        elseif trackerMap and trackerMap[member] then
-            local td = trackerMap[member]
-            if td.frame and td.frame:IsShown() then
-                td.frame:SetParent(g)
-                g.trackers[#g.trackers + 1] = td
+    local iconW = I.GGet(groupId, "iconW") or 44
+    local iconH = I.GGet(groupId, "iconH") or 44
+    local rows = {}
+    for _, srcRow in ipairs(I.GroupRows(groupId)) do
+        local row = {}
+        for _, member in ipairs(srcRow) do
+            local cdmID = sidMap[member]
+            if cdmID then
+                local f = E.Icon.Acquire()
+                f._dest = dest
+                E.Icon.Setup(f, cdmID)
+                f:SetParent(g)
+                g.children[#g.children + 1] = f
+                row[#row + 1] = f
+            elseif trackerMap and trackerMap[member] then
+                local td = trackerMap[member]
+                if td.frame and td.frame:IsShown() then
+                    if td.setSize then td.setSize(iconW, iconH) else td.frame:SetSize(iconW, iconH) end
+                    td.frame:SetAlpha(1)
+                    td.frame:SetParent(g)
+                    g.trackers[#g.trackers + 1] = td
+                    row[#row + 1] = td.frame
+                end
             end
         end
+        if #row > 0 then rows[#rows + 1] = row end
     end
+    g._iconRows = rows
     if #g.children > 0 or #g.trackers > 0 then
-        ArrangeGroup(g)
+        ArrangeIconGroup(g)
         groupFrames[#groupFrames + 1] = g
     else
         E.Group.Release(g)
