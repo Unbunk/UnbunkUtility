@@ -1080,7 +1080,17 @@ ns.RegisterCfgInitHook(ns.ApplyBrandColor)
 -- is the fix for "the CDM tabs cost far more CPU than every other addon": we were paying
 -- a full restyle of every icon 5-20x/second when nothing about the styling had changed.
 ns.StyleEpoch = ns.StyleEpoch or 1
-function ns.BumpStyleEpoch() ns.StyleEpoch = (ns.StyleEpoch or 0) + 1 end
+function ns.BumpStyleEpoch()
+    ns.StyleEpoch = (ns.StyleEpoch or 0) + 1
+    -- LIVE-REFRESH the standalone CDM engine on any config edit. The native CDM modules bump this shared
+    -- epoch from their ApplyAll (which every config touch() routes through) + on a mode switch, and NEVER
+    -- per-frame. In engine mode the same native config drives the engine's render, so re-derive its layout.
+    -- Coalesced via ScheduleRebuild; the engine's own rebuild never bumps the epoch, so no loop.
+    if ns.CDMMode and ns.CDMMode.IsEngine and ns.CDMMode.IsEngine()
+       and ns.CDMEngine and ns.CDMEngine.Layout and ns.CDMEngine.Layout.ScheduleRebuild then
+        ns.CDMEngine.Layout.ScheduleRebuild()
+    end
+end
 -- A live brand-colour change can alter brand-derived icon defaults → invalidate the cache.
 ns.RegisterBrandColorHook(ns.BumpStyleEpoch)
 -- A native (Blizzard keybinding UI) rebind fires UPDATE_BINDINGS but never passes through a

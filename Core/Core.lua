@@ -131,22 +131,20 @@ local function BuildNavTree()
             { panel = L["Addon settings"] },
             { panel = L["Profiles"] },
             { cat = L["Cooldown Manager"], subs = (function()
-                -- "CDM Settings (beta)" is the hub, always at the TOP: it picks which CDM engine is
-                -- active. The native engine's per-viewer config tabs the ENGINE replaces (Essential /
-                -- Utility / Buffs / Bars) show ONLY in native mode; ns.CDMMode.Set() -> ns.RefreshNav()
-                -- rebuilds this on a mode change. Below player / Free icons stay always (the engine
-                -- doesn't cover them).
-                local subs = { { panel = L["CDM Settings (beta)"] } }
-                if not (ns.CDMMode and ns.CDMMode.IsEngine()) then
-                    subs[#subs + 1] = { panel = L["Essential"] }
-                    -- L["Utility"] resolves to the NEW CDMGroups Utility panel (CDMGroups loads after
-                    -- GeneralSettings; its RegisterModule supersedes the old bucket panel of that name).
-                    subs[#subs + 1] = { panel = L["Utility"] }
-                    subs[#subs + 1] = { panel = L["Buffs"] }
-                    subs[#subs + 1] = { panel = L["Bars"] }
-                end
-                subs[#subs + 1] = { panel = L["Below player frame"] }
-                subs[#subs + 1] = { panel = L["Free icons"] }
+                -- "CDM Settings (beta)" is the hub, always at the TOP: it picks which CDM engine is active.
+                -- The per-category tabs (Essential / Utility / Buffs / Bars) now show in BOTH modes: the same
+                -- config drives the native render AND the standalone engine (which reuses the native group
+                -- model as its layout source), so a single set of panels configures either engine. L["Utility"]
+                -- resolves to the NEW CDMGroups Utility panel (its RegisterModule supersedes the old bucket).
+                local subs = {
+                    { panel = L["CDM Settings (beta)"] },
+                    { panel = L["Essential"] },
+                    { panel = L["Utility"] },
+                    { panel = L["Buffs"] },
+                    { panel = L["Bars"] },
+                    { panel = L["Below player frame"] },
+                    { panel = L["Free icons"] },
+                }
                 return subs
             end)() },
         } },
