@@ -59,6 +59,16 @@ function Cfg.Init()
         cfg.resource.showCount = DEFAULTS.resource.showCount
         cfg.resource._migrated = 1
     end
+    -- One-time migration: multi-group (parity phase 2/3) re-keyed the Essential/Utility group positions from
+    -- the category name to "dest:groupId". Move any saved single-group position onto that dest's Group 1 so a
+    -- positioned layout survives the upgrade. TrackedBuff/TrackedBar keep their (still single-group) keys.
+    if cfg.groups and (cfg._groupKeyMigrated or 0) < 1 then
+        for old, new in pairs({ Essential = "essential:1", Utility = "utility:1" }) do
+            if cfg.groups[old] and not cfg.groups[new] then cfg.groups[new] = cfg.groups[old] end
+            cfg.groups[old] = nil
+        end
+        cfg._groupKeyMigrated = 1
+    end
 end
 ns.RegisterCfgInitHook(Cfg.Init)
 

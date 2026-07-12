@@ -158,7 +158,10 @@ local function AttachLive(catKey, g)
     o.target = g                 -- dragging moves the TARGET frame; the overlay follows it (SetAllPoints)
     o:ClearAllPoints()
     o:SetAllPoints(g)
-    o.label:SetText(catKey == "__resource__" and "Resources" or catKey)
+    o.label:SetText(catKey == "__resource__" and "Resources"
+        or (catKey:gsub("^(%a+):(%d+)$", function(d, n)   -- "essential:1" -> "Essential 1"
+            return d:sub(1, 1):upper() .. d:sub(2) .. " " .. n
+        end)))
     o:Raise()
 end
 
@@ -192,13 +195,10 @@ local function MoveAllBy(dx, dy)
     local ox, oy = E.Cfg.GetContainerPos()
     E.Cfg.SetContainerPos(ox + dx, oy + dy)
     E.Layout.ApplyContainerPosition()          -- container + auto groups move now
-    local spec = E.Layout.GetSpec()
-    if spec then
-        for _, gs in ipairs(spec.groups) do    -- shift every FREE group by the same delta
-            if gs.key then
-                local p = E.Cfg.GetGroupPos(gs.key)
-                if p then E.Cfg.SetGroupPos(gs.key, p.x + dx, p.y + dy) end
-            end
+    for _, g in ipairs(E.Layout.GetLiveGroups()) do   -- shift every FREE group by the same delta (per-group catKeys)
+        if g.catKey then
+            local p = E.Cfg.GetGroupPos(g.catKey)
+            if p then E.Cfg.SetGroupPos(g.catKey, p.x + dx, p.y + dy) end
         end
     end
     if E.Resource then   -- shift the resource widget too, but ONLY if it was actually placed (mirror the group loop)
@@ -272,21 +272,21 @@ end
 function Design.Reattach()
     if not Design.active then return end
     DetachAll()
-    local live = {}
+    -- One draggable overlay per LIVE group. Multi-group own-icon groups carry per-group catKeys
+    -- ("dest:groupId"); buff/bar groups carry the category key. Attach to whatever the layout actually built.
+    local liveByKey = {}
     if E.Layout then
         for _, g in ipairs(E.Layout.GetLiveGroups()) do
-            if g.catKey then live[g.catKey] = g end
+            if g.catKey then AttachLive(g.catKey, g); liveByKey[g.catKey] = g end
         end
     end
+    -- Placeholder only for an EMPTY hosted category (buff/bar with no active frames) so it can still be
+    -- grabbed to position it. Own-icon groups render whenever configured, so an empty one = nothing to place.
     local spec = E.Layout and E.Layout.GetSpec()
-    if not spec then return end
-    local emptyIdx = 0
-    for _, gs in ipairs(spec.groups) do
-        if gs.category ~= nil and gs.key then
-            local g = live[gs.key]
-            if g then
-                AttachLive(gs.key, g)
-            else
+    if spec then
+        local emptyIdx = 0
+        for _, gs in ipairs(spec.groups) do
+            if gs.category ~= nil and gs.key and (gs.isBuff or gs.isBar) and not liveByKey[gs.key] then
                 AttachPlaceholder(gs.key, gs, emptyIdx)
                 emptyIdx = emptyIdx + 1
             end
