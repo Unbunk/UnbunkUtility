@@ -160,6 +160,8 @@ local function EnumBarFrames(out)
     return out
 end
 BR.EnumBarFrames = EnumBarFrames
+-- Exposed so the CDM engine keys its hosted-bar map with the SAME resolver used to classify members.
+BR.FrameSpellId = FrameSpellId
 
 -- Split the tracked buffs into DISPLAYED (the ones the bar viewer actually shows) and the rest,
 -- in the category's canonical order. The displayed set is the bar viewer's POOL. Returns nil

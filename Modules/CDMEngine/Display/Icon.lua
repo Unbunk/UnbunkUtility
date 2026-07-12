@@ -131,6 +131,7 @@ function Icon.StyleFrame(f)
     -- mm:ss / colour-below-threshold, formatted C-side so it stays correct in combat). Secret-safe.
     local cd = f.Cooldown
     local showTimer = I.IconGet(sid, "showTimer") ~= false
+    f._showTimer = showTimer   -- cached so UpdateSwipe honours it (UpdateSwipe re-touches SetHideCountdownNumbers)
     if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(not showTimer) end
     if f._cdFont then
         f._cdFont:SetFont(ns.ResolveFontPath(I.IconGet(sid, "timerFontPath"), I.IconGet(sid, "timerFontKey")),
@@ -206,7 +207,7 @@ local function UpdateSwipe(f)
         onGcd = swipe ~= nil
     end
     if swipe and f.Cooldown.SetCooldownFromDurationObject then
-        f.Cooldown:SetHideCountdownNumbers(onGcd)   -- number on a real CD; hidden during the GCD spin
+        f.Cooldown:SetHideCountdownNumbers(onGcd or (f._showTimer == false))   -- honour showTimer=off; also hide during the GCD spin
         f.Cooldown:SetCooldownFromDurationObject(swipe)
     else
         f.Cooldown:Clear()
@@ -281,7 +282,12 @@ function Icon.Release(f)
         f.Cooldown:Clear()
     end
     if f.Count then f.Count:SetText(""); f.Count:Hide() end
-    f.cdmID, f.spellID, f.baseSpellID, f.info, f._lastGoodSid = nil, nil, nil, nil, nil
+    -- Blank the decorations so a POOLED frame reused in combat for a spell whose id is still secret (StyleFrame
+    -- early-outs) can't inherit the prior spell's title/keybind/border over the fallback art.
+    if f.Title   then f.Title:SetText("");   f.Title:Hide()   end
+    if f.Keybind then f.Keybind:SetText(""); f.Keybind:Hide() end
+    if ns.CDMAnchor and ns.CDMAnchor.ApplyFrameBorder then ns.CDMAnchor.ApplyFrameBorder(f, false) end
+    f.cdmID, f.spellID, f.baseSpellID, f.info, f._lastGoodSid, f._dest, f._showTimer = nil, nil, nil, nil, nil, nil, nil
     f:Hide()
     f:ClearAllPoints()
     f:SetParent(UIParent)
