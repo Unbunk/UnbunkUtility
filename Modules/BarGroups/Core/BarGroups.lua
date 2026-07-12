@@ -899,6 +899,17 @@ end
 -- bring-up while disabled, so this is the restart path together with BR.Rebuild.
 function BR.HookNativeViewerPublic() HookNativeViewer() end
 
+-- Full bring-up when the module (re)gains control of the native bar viewer: install the viewer hooks,
+-- rebuild the tracked set + layout, then ARM THE 3s SEED FALLBACK. The fallback is essential when we were
+-- DISABLED at login (so HookNativeViewer never ran and viewerLaidOut stayed false): without it the seed
+-- DEFERS forever (pendingSeed) and unassigned bars stay "Unused" -> pinned OFFSCREEN -> invisible. Shared by
+-- login AND the CDM engine->native mode switch (BarGroups re-enabled). Mirrors the proven login sequence.
+function BR.Activate()
+    HookNativeViewer()
+    BR.Rebuild()
+    DeferSeedUntilViewerReady()
+end
+
 -- ── Events ────────────────────────────────────────────────────────────────────
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
@@ -954,9 +965,8 @@ init:RegisterEvent("PLAYER_LOGIN")
 init:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
     -- Only stand up the engine (native-viewer hooks, tracked seed, layout) at login if currently
-    -- enabled. When disabled, the enable toggle's set handler does this on re-enable (BR.Rebuild).
+    -- enabled. When disabled, the re-enable paths (enable toggle / CDM engine->native switch) do this
+    -- via BR.Activate.
     if not BR.Enabled() then return end
-    HookNativeViewer()
-    BR.Rebuild()
-    DeferSeedUntilViewerReady()
+    BR.Activate()
 end)
