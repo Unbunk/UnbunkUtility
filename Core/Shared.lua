@@ -471,6 +471,18 @@ function ns.SpellRealCooldownSwipe(spellId)
     return C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(spellId, true)
 end
 
+-- OPTIONAL global-cooldown SWIPE (opt-in; SpellRealCooldownSwipe deliberately suppresses it so an idle spell
+-- looks ready). Returns the GCD's duration object ONLY when the spell's ACTIVE cooldown IS the GCD (a spell
+-- with no real cooldown, on the global). Lets the standalone engine draw a the reference engine-style GCD spin (no
+-- number). Secret-safe: isActive/isOnGCD are STRUCTURAL; GetSpellCooldownDuration(id, false) INCLUDES the GCD
+-- and returns a duration OBJECT (never the secret raw start/duration).
+function ns.SpellGcdSwipe(spellId)
+    if not (spellId and spellId ~= 0 and C_Spell and C_Spell.GetSpellCooldown) then return nil end
+    local cd = C_Spell.GetSpellCooldown(spellId)
+    if not (cd and cd.isActive and cd.isOnGCD == true) then return nil end
+    return C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(spellId, false)
+end
+
 -- Size of one physical screen pixel in UIParent-local units, for crisp 1px borders on fractional UI scale
 -- (768 = UIParent's reference height; divided by the effective scale). Returns nil if the values aren't
 -- ready yet, so callers fall back to the raw size. Mirrors the reference CDM addon's Pixel.GetSize formula. NOTE: a UI

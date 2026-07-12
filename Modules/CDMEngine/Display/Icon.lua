@@ -93,7 +93,15 @@ local function UpdateSwipe(f)
     local sid = f.spellID or f._lastGoodSid
     if not sid then f.Cooldown:Clear(); return end
     local swipe = ns.SpellRealCooldownSwipe and ns.SpellRealCooldownSwipe(sid)
+    local onGcd = false
+    -- Default ON (togglable): if there's no REAL cooldown, draw the global-cooldown sweep instead (the reference engine
+    -- style). Its number is hidden (a GCD "1" flashing on every cast is noise); a real cooldown keeps its number.
+    if not swipe and E.Cfg and E.Cfg.Get and E.Cfg.Get("showGcdSwipe") and ns.SpellGcdSwipe then
+        swipe = ns.SpellGcdSwipe(sid)
+        onGcd = swipe ~= nil
+    end
     if swipe and f.Cooldown.SetCooldownFromDurationObject then
+        f.Cooldown:SetHideCountdownNumbers(onGcd)   -- number on a real CD; hidden during the GCD spin
         f.Cooldown:SetCooldownFromDurationObject(swipe)
     else
         f.Cooldown:Clear()
