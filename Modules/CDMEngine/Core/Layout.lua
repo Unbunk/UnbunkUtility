@@ -294,6 +294,70 @@ local function ReleaseGroups()
     wipe(groupFrames)
 end
 
+-- ── Multi-group materialisation (own-draw cooldowns) ────────────────────────────────────────────
+-- The engine reuses the NATIVE CDMGroups group model as its layout source: ONE engine group per configured
+-- display group (Group 1, 2, … ; "Unused" = 0 is not rendered). Members are keyed by DISPLAY spellId (secret
+-- in combat) while the engine renders by cdmID — so we keep a PERSISTENT spellId->cdmID cache per dest,
+-- refreshed whenever a spellId resolves (out of combat) and never dropped, so a rebuild triggered IN COMBAT
+-- (an aura change flips the buff/bar sig and re-buckets every category) still resolves members from the cache.
+local cdmMaps = {}   -- dest -> { [spellId] = cdmID }
+local function RefreshCdmMap(gs)
+    local dest = gs.trackerDest
+    local map = cdmMaps[dest]; if not map then map = {}; cdmMaps[dest] = map end
+    for _, cdmID in ipairs(E.Blob.GetTracked(gs.category, false)) do
+        local info = E.Blob.GetInfo(cdmID)
+        if info and info.isKnown ~= false then
+            local A = ns.CDMAnchor
+            local sid = A and A.NativeFrameSpellId and A.NativeFrameSpellId({ cooldownInfo = info })
+            if sid then map[sid] = cdmID end
+        end
+    end
+    return map
+end
+
+-- name -> tracker descriptor for a dest (engine mode only): lets a group host the CDM trackers assigned to
+-- it alongside its cooldowns, matching how the native CDMGroups renders cooldowns + trackers together.
+local function TrackerMapFor(dest)
+    if not (ns.CDMMode and ns.CDMMode.IsEngine() and dest
+        and ns.CDMAnchor and ns.CDMAnchor.GetIconDescriptors) then return nil end
+    local m = {}
+    for _, td in ipairs(ns.CDMAnchor.GetIconDescriptors(dest)) do
+        if td.name then m[td.name] = td end
+    end
+    return m
+end
+
+-- Materialise ONE engine group for a configured display group: its members in config order (GetGroupBuffs),
+-- each a cooldown E.Icon (cdmID via the cache) or a hosted CDM tracker (by name). Kept only if non-empty.
+local function MaterializeIconGroup(gs, dest, I, groupId, sidMap, trackerMap)
+    local g = E.Group.Acquire()
+    E.Group.Setup(g, gs)
+    g.catKey = dest .. ":" .. groupId   -- per-group key (Phase 3 designer positions migrate to this)
+    g:SetParent(container)
+    for _, member in ipairs(I.GetGroupBuffs(groupId)) do
+        local cdmID = sidMap[member]
+        if cdmID then
+            local f = E.Icon.Acquire()
+            f._dest = dest
+            E.Icon.Setup(f, cdmID)
+            f:SetParent(g)
+            g.children[#g.children + 1] = f
+        elseif trackerMap and trackerMap[member] then
+            local td = trackerMap[member]
+            if td.frame and td.frame:IsShown() then
+                td.frame:SetParent(g)
+                g.trackers[#g.trackers + 1] = td
+            end
+        end
+    end
+    if #g.children > 0 or #g.trackers > 0 then
+        ArrangeGroup(g)
+        groupFrames[#groupFrames + 1] = g
+    else
+        E.Group.Release(g)
+    end
+end
+
 -- Full teardown + rebuild, bottom-up: each group is populated + arranged (so its size is final) BEFORE
 -- the container stacks them. E.Icon.ReleaseAll is the single owner of icon teardown.
 local function BuildLayout()
@@ -302,15 +366,42 @@ local function BuildLayout()
     ReleaseGroups()
     for _, gs in ipairs(SPEC.groups) do
         if gs.category ~= nil then
-            local g = E.Group.Acquire()
-            E.Group.Setup(g, gs)
-            g:SetParent(container)
-            PopulateGroup(g, gs)
-            if #g.children > 0 or #g.trackers > 0 or #g.nativeBuffs > 0 or #g.nativeBars > 0 then   -- hosted trackers/buffs/bars count too
-                ArrangeGroup(g)
-                groupFrames[#groupFrames + 1] = g
+            if gs.isBuff or gs.isBar then
+                -- Hosted native frames: still ONE group per category (buff/bar multi-group is Phase 4).
+                local g = E.Group.Acquire()
+                E.Group.Setup(g, gs)
+                g:SetParent(container)
+                PopulateGroup(g, gs)
+                if #g.nativeBuffs > 0 or #g.nativeBars > 0 then
+                    ArrangeGroup(g)
+                    groupFrames[#groupFrames + 1] = g
+                else
+                    E.Group.Release(g)
+                end
             else
-                E.Group.Release(g)   -- empty category: no phantom gap in the stack
+                -- Own-draw cooldowns: ONE engine group per configured CDMGroups display group (multi-group).
+                local I = gs.trackerDest and ns.CDMGroups and ns.CDMGroups[gs.trackerDest]
+                if I and I.GroupList and I.GetGroupBuffs then
+                    local sidMap     = RefreshCdmMap(gs)
+                    local trackerMap = TrackerMapFor(gs.trackerDest)
+                    for _, grp in ipairs(I.GroupList()) do
+                        if grp.id and grp.id ~= 0 then
+                            MaterializeIconGroup(gs, gs.trackerDest, I, grp.id, sidMap, trackerMap)
+                        end
+                    end
+                else
+                    -- Fallback (no CDMGroups instance): single-group render of the whole category.
+                    local g = E.Group.Acquire()
+                    E.Group.Setup(g, gs)
+                    g:SetParent(container)
+                    PopulateGroup(g, gs)
+                    if #g.children > 0 or #g.trackers > 0 then
+                        ArrangeGroup(g)
+                        groupFrames[#groupFrames + 1] = g
+                    else
+                        E.Group.Release(g)
+                    end
+                end
             end
         end
     end
@@ -364,6 +455,16 @@ local function ComputeSig()
                 for _, cdmID in ipairs(E.Blob.GetTracked(gs.category, false)) do
                     local info = E.Blob.GetInfo(cdmID)
                     sigParts[#sigParts + 1] = cdmID .. ((info and info.isKnown ~= false) and "+" or "-")
+                end
+                -- Fold each cooldown's GROUP so re-assigning it (or creating a group) forces a rebuild.
+                -- GroupOf is a pure read (no order-freeze mutation, unlike GetGroupBuffs); it uses the cached
+                -- spellId (unresolved in combat -> folds nothing, but assignments don't change in combat).
+                local I = gs.trackerDest and ns.CDMGroups and ns.CDMGroups[gs.trackerDest]
+                local map = cdmMaps[gs.trackerDest]
+                if I and I.GroupOf and map then
+                    for sid, cdmID in pairs(map) do
+                        sigParts[#sigParts + 1] = "G" .. cdmID .. ":" .. tostring(I.GroupOf(sid))
+                    end
                 end
             end
             -- L2: fold the hosted-tracker membership so a tracker showing/hiding forces a rebuild (not
