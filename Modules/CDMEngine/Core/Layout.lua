@@ -179,15 +179,21 @@ local function ArrangeGroup(g)
     local gs = g.spec
     local horizontal = (gs.direction ~= "column")
     local main, cross = 0, 0
-    local function Place(f, sz)
+    -- w = main-axis extent, h = cross-axis extent. Square callers pass one value (h defaults to w); the
+    -- own icons pass their CONFIG size (iconW/iconH may differ) so a non-square icon lays out correctly.
+    local function Place(f, w, h)
+        w = w or gs.size; h = h or w
         if main > 0 then main = main + gs.spacing end   -- gap only BETWEEN elements (no leading/trailing)
         f:ClearAllPoints()
-        if horizontal then f:SetPoint("LEFT", g, "LEFT", main, 0)
-        else               f:SetPoint("TOP",  g, "TOP",  0, -main) end
-        main  = main + sz
-        cross = math.max(cross, sz)
+        if horizontal then
+            f:SetPoint("LEFT", g, "LEFT", main, 0)
+            main = main + w; cross = math.max(cross, h)
+        else
+            f:SetPoint("TOP", g, "TOP", 0, -main)
+            main = main + h; cross = math.max(cross, w)
+        end
     end
-    for _, f in ipairs(g.children) do Place(f, gs.size) end
+    for _, f in ipairs(g.children) do Place(f, f:GetWidth(), f:GetHeight()) end
     -- L2: hosted trackers flow AFTER the cooldown icons, sized to the group and forced visible (the
     -- native viewer is masked; our anchored frames don't inherit its alpha, but the fade could touch them).
     for _, td in ipairs(g.trackers) do
