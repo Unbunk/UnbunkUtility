@@ -1122,6 +1122,10 @@ local function UpdateSounds(frameOf)
     soundSeeded = true
 end
 
+-- Exposed so the standalone CDM engine can restyle the buff frames it HOSTS (adopts) with the same recipe,
+-- from its deferred layout pass (taint-safe). Pure styling on a passed (nf, spellId) — no pin embedded.
+BG.StyleFrame = StyleFrame
+
 function BG.RefreshLayout()
     if not BG.Enabled() then
         HideAll()
