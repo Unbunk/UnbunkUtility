@@ -35,9 +35,18 @@ end
 
 local pool, active = {}, {}
 
--- Build a fresh handle. A black BACKGROUND fill + a 1px icon inset gives a clean 1px border for the
--- MVP (fancy masks/borders come later). The Cooldown swipe EMPTIES (SetReverse(false)) — it is a
--- cooldown, not a buff fill.
+local fontSeq = 0   -- unique name suffix for each frame's countdown Font object
+
+-- The CDMGroups config instance backing this icon's dest ("essential"/"utility"). The engine REUSES the
+-- native per-dest config (groups + per-icon overrides) as its single source of truth: I.IconGet(sid, key)
+-- resolves per-icon override -> group default -> template. Phase 1 wires only "essential".
+local function DestI(f)
+    return ns.CDMGroups and ns.CDMGroups[f._dest or "essential"]
+end
+
+-- Build a fresh handle. The icon FILLS the frame; the border is drawn as inset edges by StyleFrame
+-- (ns.CDMAnchor.ApplyFrameBorder) so it matches the native CDM look and honours the per-icon config. The
+-- Cooldown swipe EMPTIES (SetReverse(false)) — it is a cooldown, not a buff fill.
 local function BuildFrame()
     local f = CreateFrame("Frame", nil, UIParent)
     if ns.SetTrackerIconStrata then ns.SetTrackerIconStrata(f) else f:SetFrameStrata("MEDIUM") end
@@ -47,12 +56,10 @@ local function BuildFrame()
     f.Bg:SetColorTexture(0, 0, 0, 1)
 
     f.Icon = f:CreateTexture(nil, "ARTWORK")
-    f.Icon:SetPoint("TOPLEFT", 1, -1)
-    f.Icon:SetPoint("BOTTOMRIGHT", -1, 1)
+    f.Icon:SetAllPoints()   -- fills the frame; StyleFrame draws the border as inset edges over it
 
     local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
-    cd:SetPoint("TOPLEFT", 1, -1)
-    cd:SetPoint("BOTTOMRIGHT", -1, 1)
+    cd:SetAllPoints()
     cd:SetDrawEdge(false)
     cd:SetDrawSwipe(true)
     cd:SetReverse(false)              -- cooldown swipe empties as time passes
@@ -62,6 +69,16 @@ local function BuildFrame()
     f.Count = f:CreateFontString(nil, "OVERLAY", nil, 7)
     f.Count:SetFontObject("NumberFontNormal")
     f.Count:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -2, 2)
+
+    f.Title   = f:CreateFontString(nil, "OVERLAY", nil, 7)   -- free label (StyleFrame styles/positions/hides)
+    f.Keybind = f:CreateFontString(nil, "OVERLAY", nil, 7)   -- action-bar keybind text
+
+    -- A per-frame CreateFont object drives the C-side countdown number's font/colour via cd:SetCountdownFont
+    -- — the only way to restyle the secret-safe native countdown. Named uniquely so each pooled frame keeps
+    -- its own font.
+    fontSeq = fontSeq + 1
+    f._cdFontName = "UnbunkUtilityEngTimer" .. fontSeq
+    f._cdFont     = CreateFont(f._cdFontName)
 
     return f
 end
@@ -84,6 +101,94 @@ function Icon.ApplySize(f, size)
     size = size or ICON_SIZE
     f:SetSize(size, size)
     f.Icon:SetTexCoord(IconTexCoordFor(size, size))
+end
+
+-- Config-driven appearance PARITY with the native CDM: read the native per-icon config (I.IconGet resolves
+-- per-icon override -> group -> template) and restyle OUR OWN regions to match. Phase 1 covers border (shared
+-- ns.CDMAnchor.ApplyFrameBorder), the C-side countdown number (font/colour via a per-frame CreateFont +
+-- SetCountdownFont, plus the native decimals/mm:ss formatter — all secret-safe, drawn C-side), and the
+-- stack/charge count. Size + title + keybind + urgency tiers land in later slices. E.Icon is 100% ours, so
+-- every write here is taint-free. Cheap early-out when no CDMGroups dest backs this icon.
+function Icon.StyleFrame(f)
+    local I = DestI(f)
+    local sid = f._lastGoodSid or f.spellID
+    if not (I and sid and I.IconGet) then return end
+
+    -- Size: the icon fills the frame; ArrangeGroup then lays the group out by each icon's measured size,
+    -- so a non-square iconW/iconH flows correctly.
+    local iconW = I.IconGet(sid, "iconW") or ICON_SIZE
+    local iconH = I.IconGet(sid, "iconH") or ICON_SIZE
+    f:SetSize(iconW, iconH)
+    f.Icon:SetTexCoord(IconTexCoordFor(iconW, iconH))
+
+    -- Border: inset edges over the filled icon (default enabled / black / 1px), per the icon's config.
+    if ns.CDMAnchor and ns.CDMAnchor.ApplyFrameBorder then
+        ns.CDMAnchor.ApplyFrameBorder(f, I.IconGet(sid, "borderEnabled") ~= false,
+            I.IconGet(sid, "borderColor"), I.IconGet(sid, "borderSize"))
+    end
+
+    -- C-side countdown number: font + colour (via our per-frame Font) + the native formatter (decimals /
+    -- mm:ss / colour-below-threshold, formatted C-side so it stays correct in combat). Secret-safe.
+    local cd = f.Cooldown
+    local showTimer = I.IconGet(sid, "showTimer") ~= false
+    if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(not showTimer) end
+    if f._cdFont then
+        f._cdFont:SetFont(ns.ResolveFontPath(I.IconGet(sid, "timerFontPath"), I.IconGet(sid, "timerFontKey")),
+            I.IconGet(sid, "timerFontSize") or 14, I.IconGet(sid, "timerOutline") or "OUTLINE")
+        local tcol = I.IconGet(sid, "timerColor")
+        if tcol then f._cdFont:SetTextColor(tcol.r, tcol.g, tcol.b, tcol.a or 1) end
+        if cd.SetCountdownFont then cd:SetCountdownFont(f._cdFontName) end
+    end
+    if cd.SetCountdownFormatter then
+        cd:SetCountdownFormatter(ns.CDMGroups.CooldownFormatter
+            and ns.CDMGroups.CooldownFormatter.GetFor(I, sid) or nil)
+    end
+
+    -- Stack / charge count (our own Count FontString): font / colour / position per config.
+    if I.IconGet(sid, "showStack") ~= false then
+        f.Count:SetFont(ns.ResolveFontPath(I.IconGet(sid, "stackFontPath"), I.IconGet(sid, "stackFontKey")),
+            I.IconGet(sid, "stackFontSize") or 10, I.IconGet(sid, "stackOutline") or "OUTLINE")
+        local sc = I.IconGet(sid, "stackColor") or { r = 1, g = 1, b = 1, a = 1 }
+        f.Count:SetTextColor(sc.r, sc.g, sc.b, sc.a or 1)
+        if ns.AnchorFS then
+            ns.AnchorFS(f.Count, f, I.IconGet(sid, "stackPos") or "BOTTOMRIGHT",
+                I.IconGet(sid, "stackOffX"), I.IconGet(sid, "stackOffY"))
+        end
+    end
+
+    -- Title (free label over the icon; default OFF).
+    if I.IconGet(sid, "showTitle") == true then
+        f.Title:SetFont(ns.ResolveFontPath(I.IconGet(sid, "titleFontPath"), I.IconGet(sid, "titleFontKey")),
+            I.IconGet(sid, "titleFontSize") or 12, I.IconGet(sid, "titleOutline") or "OUTLINE")
+        local c = I.IconGet(sid, "titleColor") or { r = 1, g = 1, b = 1, a = 1 }
+        f.Title:SetTextColor(c.r, c.g, c.b, c.a or 1)
+        f.Title:SetDrawLayer("OVERLAY", 7)
+        if ns.AnchorFS then
+            ns.AnchorFS(f.Title, f, I.IconGet(sid, "titlePos") or "TOP",
+                I.IconGet(sid, "titleOffX"), I.IconGet(sid, "titleOffY"))
+        end
+        f.Title:SetText(I.IconGet(sid, "titleText") or "")
+        f.Title:Show()
+    else
+        f.Title:Hide()
+    end
+
+    -- Keybind text from the action bar (shared CDG keybind map; default OFF).
+    if I.IconGet(sid, "showKeybinds") == true and ns.CDGKeybinds and ns.CDGKeybinds.GetKeybindText then
+        f.Keybind:SetFont(ns.ResolveFontPath(I.IconGet(sid, "keybindFontPath"), I.IconGet(sid, "keybindFontKey")),
+            I.IconGet(sid, "keybindFontSize") or 12, I.IconGet(sid, "keybindOutline") or "OUTLINE")
+        local c = I.IconGet(sid, "keybindColor") or { r = 1, g = 1, b = 1, a = 1 }
+        f.Keybind:SetTextColor(c.r, c.g, c.b, c.a or 1)
+        f.Keybind:SetDrawLayer("OVERLAY", 7)
+        if ns.AnchorFS then
+            ns.AnchorFS(f.Keybind, f, I.IconGet(sid, "keybindPos") or "TOPLEFT",
+                I.IconGet(sid, "keybindOffX"), I.IconGet(sid, "keybindOffY"))
+        end
+        local txt = ns.CDGKeybinds.GetKeybindText(sid)
+        if txt and txt ~= "" then f.Keybind:SetText(txt); f.Keybind:Show() else f.Keybind:Hide() end
+    else
+        f.Keybind:Hide()
+    end
 end
 
 -- Swipe: ONE secret-safe source. ns.SpellRealCooldownSwipe returns the duration object of the real
@@ -139,6 +244,7 @@ function Icon.Update(f)
         Resolve(f)
         local sid = f.spellID or f._lastGoodSid
         f.Icon:SetTexture((sid and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)) or FALLBACK_ICON)
+        if sid then Icon.StyleFrame(f) end   -- re-style now that a config lookup by sid is possible
     end
     UpdateSwipe(f)
     UpdateCharges(f)
@@ -147,11 +253,13 @@ end
 
 function Icon.Setup(f, cdmID)
     f.cdmID = cdmID
+    f._dest = f._dest or "essential"   -- Phase 1 wires only Essential to the native config
     f.spellID, f.baseSpellID, f.info = nil, nil, nil
     Resolve(f)
     local sid = f.spellID or f._lastGoodSid
     f.Icon:SetTexture((sid and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)) or FALLBACK_ICON)
     Icon.ApplySize(f, ICON_SIZE)
+    Icon.StyleFrame(f)   -- config-driven border / countdown font / stacks (our own frame, no taint)
     f:Show()   -- a pooled icon was Hidden by Release; Setup means "display this" (symmetric)
     Icon.Update(f)
 end
