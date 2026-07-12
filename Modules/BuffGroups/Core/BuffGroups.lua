@@ -658,9 +658,14 @@ end
 -- recursing into itself.
 local function ReanchorStack(appl)
     local nf, sid = appl._uuStackNF, appl._uuStackSid
-    if not (nf and sid and ns.AnchorFS) then return end
+    if not (nf and sid and ns.AnchorFSRaw) then return end
+    -- RAW anchor: this fires from the Applications-FontString SetPoint hook, which Blizzard invokes
+    -- SYNCHRONOUSLY inside its secure RefreshData (aura stack/charge update). A non-raw SetPoint here taints
+    -- that execution and blows up Blizzard's later secret aura/charge comparisons (the documented residual CDM
+    -- taint). ns.AnchorFSRaw re-anchors via raw C setters (bypass taint AND our own SetPoint hook, so the
+    -- _uuReanchoring guard below is now belt-and-braces).
     appl._uuReanchoring = true
-    pcall(ns.AnchorFS, appl, nf, BG.IconGet(sid, "stackPos") or "BOTTOMRIGHT",
+    pcall(ns.AnchorFSRaw, appl, nf, BG.IconGet(sid, "stackPos") or "BOTTOMRIGHT",
         BG.IconGet(sid, "stackOffX"), BG.IconGet(sid, "stackOffY"))
     appl._uuReanchoring = false
 end
@@ -1476,7 +1481,7 @@ local function HookNativeViewer()
     if v.SetScale and not v._uuScaleHooked then
         v._uuScaleHooked = true
         hooksecurefunc(v, "SetScale", function(self, s)
-            if (s or 1) ~= 1 and BG.Enabled() then self:SetScale(1) end
+            if (s or 1) ~= 1 and BG.Enabled() then ns.RawSetScale(self, 1) end   -- raw: this hook can co-fire in the secure refresh
         end)
     end
 end

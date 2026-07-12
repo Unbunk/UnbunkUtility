@@ -200,6 +200,29 @@ function ns.AnchorFS(fs, frame, mode, ox, oy)
     fs:ClearAllPoints()
     fs:SetPoint(a[1], frame, a[2], a[3] + (ox or 0), a[4] + (oy or 0))
 end
+
+-- ── Raw (taint-safe) setters for re-imposing geometry from inside Blizzard's secure CDM refresh ────
+-- WoW widget setters are type-bound C closures. When one runs from a hooksecurefunc that re-imposes OUR
+-- geometry on a NATIVE frame/region while Blizzard is mid-secure-refresh, a NORMAL SetPoint/SetScale taints
+-- that execution and blows up Blizzard's later secret aura/totem/charge comparisons (cf. the CDM taint notes;
+-- CDMAnchor's PinNative already uses this trick). A raw C method captured off a throwaway proxy bypasses BOTH
+-- the taint AND our own hooks. A FontString needs its OWN proxy (its SetPoint is a different C closure than a
+-- Frame's), so CDMAnchor's Frame-proxy setters can't be reused for a FontString.
+local _fsProxy            = UIParent:CreateFontString(nil, "ARTWORK")
+local RawFSSetPoint       = _fsProxy.SetPoint
+local RawFSClearAllPoints = _fsProxy.ClearAllPoints
+-- Raw twin of ns.AnchorFS for the ONE tainted caller (BuffGroups ReanchorStack, which re-anchors the native
+-- stack-count FontString from inside Blizzard's secure RefreshData). ns.AnchorFS itself STAYS non-raw — it is
+-- shared with many safe deferred/config callers and must not change.
+function ns.AnchorFSRaw(fs, frame, mode, ox, oy)
+    local a = ns.ANCHOR_POINTS[mode] or ns.ANCHOR_POINTS.CENTER
+    RawFSClearAllPoints(fs)
+    RawFSSetPoint(fs, a[1], frame, a[2], a[3] + (ox or 0), a[4] + (oy or 0))
+end
+-- Raw SetScale for re-imposing scale=1 on a native VIEWER frame from its SetScale hook (BuffGroups /
+-- BarGroups / CDMGroups all lock the viewer scale). Frame-typed, so a Frame proxy is correct.
+ns.RawSetScale = CreateFrame("Frame").SetScale
+
 -- Localised dropdown label for an anchor mode (ns.L looked up lazily — the locale
 -- engine loads after this file, but these run only when a menu is built).
 function ns.AnchorLabel(mode)
