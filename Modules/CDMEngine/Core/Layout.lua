@@ -211,15 +211,20 @@ local function ArrangeGroup(g)
     -- swipe C-side (secret in combat, unredrawable — hence hosting the native frame).
     for _, nf in ipairs(g.nativeBuffs) do
         if main > 0 then main = main + gs.spacing end
-        if ns.CDMAnchor and ns.CDMAnchor.AdoptNativeTo then
-            ns.CDMAnchor.AdoptNativeTo(nf, g, main, 0, gs.size, gs.size)
-        end
+        local A, BGm = ns.CDMAnchor, ns.BuffGroups
+        local sid = A and A.NativeFrameSpellId and A.NativeFrameSpellId(nf)   -- nil (secret) in combat -> keep last style
+        local bw = (sid and BGm and BGm.IconGet and BGm.IconGet(sid, "iconW")) or gs.size
+        local bh = (sid and BGm and BGm.IconGet and BGm.IconGet(sid, "iconH")) or gs.size
+        if A and A.AdoptNativeTo then A.AdoptNativeTo(nf, g, main, 0, bw, bh) end
+        -- PARITY: restyle the hosted native buff frame with BuffGroups' own recipe (font/border/stack/colour;
+        -- its SetSize matches the adopt size). Runs in the deferred layout pass, never inside Blizzard's secure
+        -- refresh, so it is taint-safe (same as BuffGroups' own pass; ReanchorStack uses ns.AnchorFSRaw).
+        if sid and BGm and BGm.StyleFrame then BGm.StyleFrame(nf, sid) end
         -- Blizzard runs a per-FRAME alpha fade on the buff pool frames (aura in/out); the reparent doesn't
-        -- reset it and the viewer mask only guards the viewer, so clear a lingering sub-1 alpha or an adopted
-        -- buff could render dim. SetAlpha is taint-safe. Mirrors the hosted-tracker SetAlpha(1) above.
+        -- reset it and the viewer mask only guards the viewer, so clear a lingering sub-1 alpha. Taint-safe.
         if nf.GetAlpha and nf:GetAlpha() ~= 1 then nf:SetAlpha(1) end
-        main  = main + gs.size
-        cross = math.max(cross, gs.size)
+        main  = main + bw
+        cross = math.max(cross, bh)
     end
     -- Hosted native bar frames (TrackedBar): same model as buffs — ADOPT the native BuffBar pool frames so
     -- the masked BuffBarCooldownViewer's frames still render (Blizzard fills their secret value/duration
@@ -227,12 +232,19 @@ local function ArrangeGroup(g)
     -- resize) and flow per the group direction (column by default -> a vertical stack of bars).
     for _, nf in ipairs(g.nativeBars) do
         if main > 0 then main = main + gs.spacing end
-        local bw, bh = BarSize(nf)
-        if ns.CDMAnchor and ns.CDMAnchor.AdoptNativeTo then
+        local A, BRm = ns.CDMAnchor, ns.BarGroups
+        local sid = A and A.NativeFrameSpellId and A.NativeFrameSpellId(nf)
+        local dw, dh = BarSize(nf)
+        local bw = (sid and BRm and BRm.IconGet and BRm.IconGet(sid, "barWidth"))  or dw
+        local bh = (sid and BRm and BRm.IconGet and BRm.IconGet(sid, "barHeight")) or dh
+        if A and A.AdoptNativeTo then
             local x = horizontal and main or 0
             local y = horizontal and 0 or -main
-            ns.CDMAnchor.AdoptNativeTo(nf, g, x, y)   -- no w,h: keep Blizzard's native bar geometry
+            A.AdoptNativeTo(nf, g, x, y, bw, bh)   -- re-impose the styled bar size
         end
+        -- PARITY: restyle the hosted native bar (texture/colour/fill/icon side + size) with BarGroups' recipe,
+        -- in the deferred pass (taint-safe). StyleBarFrame's SetSize matches the adopt size above.
+        if sid and BRm and BRm.StyleBarFrame then BRm.StyleBarFrame(nf, sid) end
         if nf.GetAlpha and nf:GetAlpha() ~= 1 then nf:SetAlpha(1) end
         main  = main + (horizontal and bw or bh)
         cross = math.max(cross, horizontal and bh or bw)

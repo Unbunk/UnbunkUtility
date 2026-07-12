@@ -778,6 +778,10 @@ function BR.RefreshLayout()
 end
 -- The config UI's touch() calls this after every edit; force a full relayout pass since config
 -- changes are not in the native-state signature.
+-- Exposed so the standalone CDM engine can restyle the bar frames it HOSTS (adopts) with the same recipe,
+-- from its deferred layout pass (taint-safe). Pure styling on a passed (nf, spellId) — no pin embedded.
+BR.StyleBarFrame = StyleBarFrame
+
 function BR.ApplyAll() layoutDirty = true; BR.RefreshLayout() end
 
 function BR.Rebuild()
