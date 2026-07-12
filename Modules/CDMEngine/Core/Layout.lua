@@ -22,7 +22,7 @@ local SPEC = {
     groups = {
         { key = "Essential",   category = Cat("Essential"),   direction = "row", size = 40, spacing = 4, trackerDest = "essential" },
         { key = "Utility",     category = Cat("Utility"),     direction = "row", size = 34, spacing = 4, trackerDest = "utility"   },
-        { key = "TrackedBuff", category = Cat("TrackedBuff"), direction = "row", size = 30, spacing = 4 },
+        { key = "TrackedBuff", category = Cat("TrackedBuff"), direction = "row", size = 30, spacing = 4, isBuff = true },
     },
 }
 
@@ -54,10 +54,54 @@ local function EnsureContainer()
     ApplyContainerPosition()
 end
 
+-- ── Tracked buffs: HOST the native BuffIcon frames ──────────────────────────────────────────────
+-- A buff's aura STACKS / DURATION are SECRET in combat, so the engine cannot redraw a buff faithfully (its
+-- own icons would show spell data — charges/cooldown — not aura data). Blizzard renders the buff C-side in
+-- the native BuffIcon viewer, which keeps one pool frame per tracked buff and toggles its IsShown() as the
+-- aura comes/goes. So the engine HOSTS the SHOWN native frames — re-anchored into our group via the shared
+-- CDMAnchor.PinNativeTo (raw re-anchor + re-impose hooks; taint-safe, the same primitive BuffGroups uses).
+-- BuffIcon is left VISIBLE (not alpha-masked — see Mode.lua) so the hosted frames render. Secret-safe: we
+-- read only the frame's structural shown-state + spell id, never the secret aura duration.
+local nativeBuffEnum = {}
+local function InEditMode()
+    return (EditModeManagerFrame and EditModeManagerFrame.IsShown and EditModeManagerFrame:IsShown()) or false
+end
+-- A per-frame identity that SURVIVES combat: a buff's DISPLAY spell id is SECRET in combat (nil), so fall
+-- back to the base id, then to the frame's own identity (the pool keeps one frame per displayed buff). The
+-- rebuild signature keys on this — else two secret-id buffs would both fold to one token and a same-tick
+-- 1-for-1 swap (count unchanged) would slip past the no-change early-out, ghost-pinning the expired frame.
+local function BuffFrameKey(nf)
+    local A = ns.CDMAnchor
+    local sid = A and (A.NativeFrameSpellId(nf) or (A.NativeFrameBaseSpellId and A.NativeFrameBaseSpellId(nf)))
+    return sid and tostring(sid) or ("F" .. tostring(nf))
+end
+local function BuffFrameOrder(a, b)
+    local A = ns.CDMAnchor
+    local ka = (A and (A.NativeFrameSpellId(a) or (A.NativeFrameBaseSpellId and A.NativeFrameBaseSpellId(a)))) or 0
+    local kb = (A and (A.NativeFrameSpellId(b) or (A.NativeFrameBaseSpellId and A.NativeFrameBaseSpellId(b)))) or 0
+    if ka ~= kb then return ka < kb end
+    return tostring(a) < tostring(b)   -- stable tiebreak when both ids are secret (combat -> both 0)
+end
+local function CollectShownBuffFrames(out)
+    wipe(out)
+    if InEditMode() then return out end   -- don't host Blizzard EditMode preview sample frames (shown, no live aura)
+    local A = ns.CDMAnchor
+    if not (A and A.EnumBuffIcons) then return out end
+    for _, nf in ipairs(A.EnumBuffIcons(nativeBuffEnum)) do
+        if nf.IsShown and nf:IsShown() then out[#out + 1] = nf end   -- shown pool frame == aura currently up
+    end
+    table.sort(out, BuffFrameOrder)
+    return out
+end
+
 -- ── Materialisation ───────────────────────────────────────────────────────────────────────────
--- Populate a group with an E.Icon per known cooldownID of its category. ApplySize(size) is MANDATORY
--- after Setup, which hardcodes ICON_SIZE.
+-- Populate a group: an E.Icon per known cooldownID (Essential / Utility) OR the hosted native buff frames
+-- (TrackedBuff). ApplySize(size) is MANDATORY after Setup, which hardcodes ICON_SIZE.
 local function PopulateGroup(g, gs)
+    if gs.isBuff then
+        CollectShownBuffFrames(g.nativeBuffs)   -- host the native BuffIcon frames; ArrangeGroup pins them
+        return
+    end
     local list = E.Blob.GetTracked(gs.category, false)   -- false = the configured subset
     for _, cdmID in ipairs(list) do
         local info = E.Blob.GetInfo(cdmID)
@@ -108,6 +152,23 @@ local function ArrangeGroup(g)
             f:SetAlpha(1)
             Place(f, gs.size)
         end
+    end
+    -- Hosted native buff frames (TrackedBuff): Blizzard's OWN pool frames — ADOPT them (SetParent onto our
+    -- group + raw re-impose) so the BuffIcon viewer can be alpha-0-masked and they still render (they inherit
+    -- our group's alpha, not the masked viewer's). AdoptNativeTo anchors TOPLEFT->g TOPLEFT; a buff group
+    -- holds only these, so the row is self-consistent. Blizzard keeps rendering their aura stacks / duration
+    -- swipe C-side (secret in combat, unredrawable — hence hosting the native frame).
+    for _, nf in ipairs(g.nativeBuffs) do
+        if main > 0 then main = main + gs.spacing end
+        if ns.CDMAnchor and ns.CDMAnchor.AdoptNativeTo then
+            ns.CDMAnchor.AdoptNativeTo(nf, g, main, 0, gs.size, gs.size)
+        end
+        -- Blizzard runs a per-FRAME alpha fade on the buff pool frames (aura in/out); the reparent doesn't
+        -- reset it and the viewer mask only guards the viewer, so clear a lingering sub-1 alpha or an adopted
+        -- buff could render dim. SetAlpha is taint-safe. Mirrors the hosted-tracker SetAlpha(1) above.
+        if nf.GetAlpha and nf:GetAlpha() ~= 1 then nf:SetAlpha(1) end
+        main  = main + gs.size
+        cross = math.max(cross, gs.size)
     end
     local w = horizontal and main or cross
     local h = horizontal and cross or main
@@ -178,7 +239,7 @@ local function BuildLayout()
             E.Group.Setup(g, gs)
             g:SetParent(container)
             PopulateGroup(g, gs)
-            if #g.children > 0 or #g.trackers > 0 then   -- a group with ONLY hosted trackers still counts
+            if #g.children > 0 or #g.trackers > 0 or #g.nativeBuffs > 0 then   -- hosted trackers/buffs count too
                 ArrangeGroup(g)
                 groupFrames[#groupFrames + 1] = g
             else
@@ -206,9 +267,23 @@ local function ComputeSig()
     wipe(sigParts)
     for _, gs in ipairs(SPEC.groups) do
         if gs.category ~= nil then
-            for _, cdmID in ipairs(E.Blob.GetTracked(gs.category, false)) do
-                local info = E.Blob.GetInfo(cdmID)
-                sigParts[#sigParts + 1] = cdmID .. ((info and info.isKnown ~= false) and "+" or "-")
+            if gs.isBuff then
+                -- Fold the SHOWN native buff frames (by combat-stable identity) so a buff coming/going flips
+                -- the sig and re-hosts. AuraDispatch (below) triggers this; the fixed event list doesn't cover
+                -- auras. Gated on EditMode to match CollectShownBuffFrames (no preview sample frames).
+                local A = ns.CDMAnchor
+                if A and A.EnumBuffIcons and A.NativeFrameSpellId and not InEditMode() then
+                    for _, nf in ipairs(A.EnumBuffIcons(nativeBuffEnum)) do
+                        if nf.IsShown and nf:IsShown() then
+                            sigParts[#sigParts + 1] = "B" .. BuffFrameKey(nf)
+                        end
+                    end
+                end
+            else
+                for _, cdmID in ipairs(E.Blob.GetTracked(gs.category, false)) do
+                    local info = E.Blob.GetInfo(cdmID)
+                    sigParts[#sigParts + 1] = cdmID .. ((info and info.isKnown ~= false) and "+" or "-")
+                end
             end
             -- L2: fold the hosted-tracker membership so a tracker showing/hiding forces a rebuild (not
             -- just a refresh) — the cheap path can't re-collect frames.
@@ -275,6 +350,15 @@ local function RegisterEvents()
 end
 local function UnregisterEvents()
     ev:UnregisterAllEvents()
+end
+
+-- Tracked buffs come/go via aura changes, which the fixed event list above doesn't cover. Route the SHARED
+-- coalesced player-aura broadcaster to a REBUILD — ComputeSig folds the active-buff set, so a buff up/down
+-- flips the sig and re-collects. SECRET-SAFE: the callback only schedules; it never reads aura data. Acts
+-- only while the engine is shown (native mode = no-op) — and in engine mode the ceded CDMGroups/BuffGroups
+-- aura callbacks no-op, so this adds no net aura fan-out.
+if ns.AuraDispatch and ns.AuraDispatch.Register then
+    ns.AuraDispatch.Register("player", function() if shown then ScheduleRebuild() end end)
 end
 
 -- ── Show / hide (shared by the slash and by the designer's auto-show) ────────────────────────────

@@ -18,10 +18,17 @@ local E = ns.CDMEngine
 ns.CDMMode = ns.CDMMode or {}
 local M = ns.CDMMode
 
--- The viewers the ENGINE replaces = its 3 SPEC groups (Essential / Utility / TrackedBuff). It does NOT
--- draw Tracked BARS, so BuffBarCooldownViewer is intentionally left visible + configurable (its "Bars"
--- config tab stays in the nav even in engine mode).
+-- The viewers the ENGINE COVERS = its 3 SPEC groups (Essential / Utility / TrackedBuff). It does NOT draw
+-- Tracked BARS, so BuffBarCooldownViewer is left visible + configurable (its "Bars" config tab stays in the
+-- nav even in engine mode).
 local VIEWERS = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }
+
+-- ALL three viewers are alpha-MASKED in engine mode. Essential/Utility are replaced by the engine's own
+-- icons. TrackedBuff's aura stacks/duration are SECRET in combat (unredrawable), so the engine HOSTS the
+-- native BuffIcon frames — but it ADOPTS them (SetParent onto its group, CDMAnchor.AdoptNativeTo) so they
+-- render from the engine group, NOT from under the masked viewer. So masking BuffIcon is safe now: an
+-- adopted frame escapes the mask (inherits the group's alpha), and any un-adopted pool leftover stays
+-- invisible under the alpha-0 viewer (closing the old "un-hosted buff flashes at the native spot" wart).
 
 -- ── Source of truth (persisted in the engine config as "mode") ────────────────────────────────────
 function M.Get()
@@ -63,7 +70,7 @@ local function ApplyMask()
     local engine = M.IsEngine()
     for _, name in ipairs(VIEWERS) do
         local f = _G[name]
-        if f and f.SetAlpha then
+        if f and f.SetAlpha then   -- all 3 covered viewers alpha-masked (BuffIcon's frames are ADOPTED out)
             EnsureHook(f)
             if engine then
                 ForceMask(f); masked[f] = true
@@ -94,6 +101,19 @@ function M.Apply()
     if m ~= lastAppliedMode then
         lastAppliedMode = m
         if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end
+        -- BuffGroups cede/uncede (Level 2): its 0.2s ticker early-outs BEFORE RefreshLayout when disabled,
+        -- so poke it once on a real mode change. Native return: re-pins the native buff frames immediately
+        -- (the epoch bump above busts its layout early-out). Engine: RefreshLayout self-routes to HideAll,
+        -- and we ALSO hide the cast-triggered custom-buff frames — they are anchored to (not children of) the
+        -- group container, so neither the viewer's SetAlpha(0) mask nor HideAll's container:Hide reaches them
+        -- and they'd otherwise linger on screen over the engine's TrackedBuff widgets.
+        if ns.BuffGroups then
+            if ns.BuffGroups.RefreshLayout then ns.BuffGroups.RefreshLayout() end
+            if M.IsEngine() and ns.BuffGroups.HideAllCustomFrames then ns.BuffGroups.HideAllCustomFrames() end
+        end
+        -- CustomCDM owns the buff's free-icon fallback: when BuffGroups cedes (engine) BuffMirrored flips
+        -- false so its free swipe must render so the buff never vanishes; on return to native it re-hides it.
+        if ns.CustomCDM and ns.CustomCDM.UpdateAll then ns.CustomCDM.UpdateAll() end
     end
 end
 

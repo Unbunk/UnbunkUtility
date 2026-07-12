@@ -968,6 +968,7 @@ local RawClearAllPoints = _proxy.ClearAllPoints
 -- without re-triggering our own hooks.
 local RawSetSize        = _proxy.SetSize
 local RawSetScale       = _proxy.SetScale
+local RawSetParent      = _proxy.SetParent   -- raw C reparent for the SetParent-ADOPT path (AdoptNativeTo below)
 
 local containers     = {}     -- dest -> our container frame
 local editModeActive = false
@@ -1629,6 +1630,85 @@ end
 ns.CDMAnchor.PinNativeTo = PinNative
 function ns.CDMAnchor.ReleaseNativePin(nf)
     if nf then nf._uuPin = nil; HideNativeBorder(nf) end
+end
+
+-- ── SetParent-ADOPT hosting (buffs) ───────────────────────────────────────────
+-- Unlike PinNative (which re-anchors a frame WHILE it stays a child of the live viewer, so the viewer must
+-- be kept VISIBLE), AdoptNativeTo REPARENTS the native pool frame onto an engine-owned host frame — so the
+-- native viewer can be alpha-0-masked and the adopted frame still renders (it now inherits the HOST's alpha,
+-- not the masked viewer's). This is the reference engine's buff model (AuraIconRetail.lua:31), confirmed taint-safe on
+-- 12.1.0 by /uucdmspike. Every write is a RAW C method (bypasses taint AND our own hooks); the re-impose
+-- hooks re-force parent+point+size when Blizzard's secure RefreshData re-pools the frame back under the viewer.
+local function AdoptNativeTo(nf, host, x, y, w, h)
+    local a = nf._uuAdopt or {}
+    local unchanged = a.host == host and a.x == x and a.y == y and a.w == w and a.h == h
+    a.host, a.x, a.y, a.w, a.h = host, x, y, w, h
+    nf._uuAdopt = a
+    if not CanWrite(nf) then return end
+    if unchanged and nf._uuAdoptHook and nf:GetParent() == host then return end   -- nothing to re-impose
+    if not nf._uuAdoptHook then
+        nf._uuAdoptHook = true
+        -- Re-impose PARENT: Blizzard re-pools/reparents frames under the viewer on RefreshData; force them
+        -- back to our host so the alpha-0 viewer can never reclaim (and thus hide) an adopted buff. Raw
+        -- setters bypass this same hook (no recursion) and bypass taint from inside the secure refresh.
+        hooksecurefunc(nf, "SetParent", function(self)
+            local ad = self._uuAdopt
+            if not ad or self._uuAdoptApplying or not CanWrite(self) then return end
+            if self:GetParent() ~= ad.host then
+                self._uuAdoptApplying = true
+                RawSetParent(self, ad.host)
+                RawClearAllPoints(self)
+                RawSetPoint(self, "TOPLEFT", ad.host, "TOPLEFT", ad.x, ad.y)
+                if ad.w and ad.h then RawSetSize(self, ad.w, ad.h) end
+                self._uuAdoptApplying = false
+            end
+        end)
+        hooksecurefunc(nf, "SetPoint", function(self)   -- re-impose POINT (relative to host)
+            local ad = self._uuAdopt
+            if not ad or self._uuAdoptApplying or not CanWrite(self) then return end
+            self._uuAdoptApplying = true
+            RawClearAllPoints(self)
+            RawSetPoint(self, "TOPLEFT", ad.host, "TOPLEFT", ad.x, ad.y)
+            self._uuAdoptApplying = false
+        end)
+        local function reSize(self)                      -- re-impose SIZE (mirrors PinNative)
+            local ad = self._uuAdopt
+            if not (ad and ad.w and ad.h) or self._uuAdoptSizing or not CanWrite(self) then return end
+            if self:GetWidth() ~= ad.w or self:GetHeight() ~= ad.h then
+                self._uuAdoptSizing = true; RawSetSize(self, ad.w, ad.h); self._uuAdoptSizing = false
+            end
+        end
+        hooksecurefunc(nf, "SetSize",   reSize)
+        hooksecurefunc(nf, "SetWidth",  reSize)
+        hooksecurefunc(nf, "SetHeight", reSize)
+        hooksecurefunc(nf, "SetScale", function(self, s)
+            if (s or 1) ~= 1 and self._uuAdopt and CanWrite(self) then RawSetScale(self, 1) end
+        end)
+    end
+    nf._uuAdoptApplying = true
+    RawSetParent(nf, host)
+    RawClearAllPoints(nf)
+    RawSetPoint(nf, "TOPLEFT", host, "TOPLEFT", x, y)
+    if w and h then RawSetSize(nf, w, h) end
+    if nf:GetScale() ~= 1 then RawSetScale(nf, 1) end
+    nf._uuAdoptApplying = false
+end
+ns.CDMAnchor.AdoptNativeTo = AdoptNativeTo
+
+-- Hand an adopted native frame BACK to its viewer (switch-to-native / group release). RawSetParent back so
+-- the viewer's own layout re-owns it; clear _uuAdopt so the re-impose hooks go inert. NEVER Hide/Show it
+-- (those are the durable-state taint vectors) — it keeps Blizzard's shown-state; the viewer re-lays-it-out.
+function ns.CDMAnchor.ReleaseNativeAdopt(nf, viewer)
+    if not nf then return end
+    local had = nf._uuAdopt
+    nf._uuAdopt = nil
+    if had and CanWrite(nf) then
+        nf._uuAdoptApplying = true
+        RawSetParent(nf, viewer or _G.BuffIconCooldownViewer or UIParent)
+        RawClearAllPoints(nf)
+        nf._uuAdoptApplying = false
+    end
+    HideNativeBorder(nf)
 end
 
 -- Hand the viewer back to Blizzard/EditMode (icons removed, or entering EditMode).
