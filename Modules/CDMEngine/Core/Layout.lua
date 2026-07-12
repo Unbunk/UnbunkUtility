@@ -438,6 +438,48 @@ local function MaterializeIconGroup(gs, dest, I, groupId, sidMap, trackerMap)
     end
 end
 
+-- ── Multi-group hosting (buffs / bars) ──────────────────────────────────────────────────────────
+-- Buffs/Bars HOST the native pool frames. To split them into the configured groups we key each SHOWN frame
+-- by its display spellId (NativeFrameSpellId — readable in combat for buff/bar frames, unlike the aura's
+-- secret duration/stacks; this mirrors BuffGroups.RefreshLayout's frameOf map) and assign it to its group.
+local shownBuffScratch, shownBarScratch = {}, {}
+local function ShownFrameMap(gs)
+    local map = {}
+    if not (ns.CDMMode and ns.CDMMode.IsEngine()) or InEditMode() then return map end
+    local A = ns.CDMAnchor
+    local enum, scratch
+    if gs.isBuff then enum = A and A.EnumBuffIcons; scratch = shownBuffScratch
+    else             enum = ns.BarGroups and ns.BarGroups.EnumBarFrames; scratch = shownBarScratch end
+    if not (enum and A and A.NativeFrameSpellId) then return map end
+    for _, nf in ipairs(enum(scratch)) do
+        if nf.IsShown and nf:IsShown() then
+            local sid = A.NativeFrameSpellId(nf)
+            if sid then map[sid] = nf end
+        end
+    end
+    return map
+end
+
+-- Materialise ONE engine group for a configured buff/bar display group: its SHOWN members in config order
+-- (GetGroupBuffs). ArrangeGroup then adopts + styles the hosted frames. Kept only if it has a shown member.
+local function MaterializeHostGroup(gs, dest, groupId, mod, frameOf)
+    local g = E.Group.Acquire()
+    E.Group.Setup(g, gs)
+    g.catKey = dest .. ":" .. groupId
+    g:SetParent(container)
+    local bucket = gs.isBuff and g.nativeBuffs or g.nativeBars
+    for _, member in ipairs(mod.GetGroupBuffs(groupId)) do
+        local nf = frameOf[member]
+        if nf then bucket[#bucket + 1] = nf end
+    end
+    if #bucket > 0 then
+        ArrangeGroup(g)
+        groupFrames[#groupFrames + 1] = g
+    else
+        E.Group.Release(g)
+    end
+end
+
 -- Full teardown + rebuild, bottom-up: each group is populated + arranged (so its size is final) BEFORE
 -- the container stacks them. E.Icon.ReleaseAll is the single owner of icon teardown.
 local function BuildLayout()
@@ -447,16 +489,28 @@ local function BuildLayout()
     for _, gs in ipairs(SPEC.groups) do
         if gs.category ~= nil then
             if gs.isBuff or gs.isBar then
-                -- Hosted native frames: still ONE group per category (buff/bar multi-group is Phase 4).
-                local g = E.Group.Acquire()
-                E.Group.Setup(g, gs)
-                g:SetParent(container)
-                PopulateGroup(g, gs)
-                if #g.nativeBuffs > 0 or #g.nativeBars > 0 then
-                    ArrangeGroup(g)
-                    groupFrames[#groupFrames + 1] = g
+                -- Hosted native frames: ONE engine group per configured buff/bar display group.
+                local mod  = gs.isBuff and ns.BuffGroups or ns.BarGroups
+                local dest = gs.isBuff and "buff" or "bar"
+                if mod and mod.GroupList and mod.GetGroupBuffs then
+                    local frameOf = ShownFrameMap(gs)
+                    for _, grp in ipairs(mod.GroupList()) do
+                        if grp.id and grp.id ~= 0 then
+                            MaterializeHostGroup(gs, dest, grp.id, mod, frameOf)
+                        end
+                    end
                 else
-                    E.Group.Release(g)
+                    -- Fallback (module not ready): the single-group hosting of every shown frame.
+                    local g = E.Group.Acquire()
+                    E.Group.Setup(g, gs)
+                    g:SetParent(container)
+                    PopulateGroup(g, gs)
+                    if #g.nativeBuffs > 0 or #g.nativeBars > 0 then
+                        ArrangeGroup(g)
+                        groupFrames[#groupFrames + 1] = g
+                    else
+                        E.Group.Release(g)
+                    end
                 end
             else
                 -- Own-draw cooldowns: ONE engine group per configured CDMGroups display group (multi-group).
