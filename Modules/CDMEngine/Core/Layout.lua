@@ -15,7 +15,11 @@ local _, ns = ...
 ns.CDMEngine = ns.CDMEngine or {}
 local E = ns.CDMEngine
 
--- Hardcoded MVP layout: icon groups + hosted native buff/bar rows, stacked vertically. GroupBuff is P4.
+-- Hardcoded layout: icon groups + hosted native buff/bar rows, stacked vertically. This covers ALL FOUR real
+-- CDM display categories. 12.1.0 has NO 5th display category: Enum.CooldownViewerCategory is only
+-- {Essential=0, Utility=1, TrackedBuff=2, TrackedBar=3} plus the internal hidden buckets HiddenSpell=-1 /
+-- HiddenAura=-2 (not viewers). "GroupBuff" does NOT exist on the client (verified in-game) — the engine is
+-- category-complete.
 local function Cat(key) return Enum and Enum.CooldownViewerCategory and Enum.CooldownViewerCategory[key] end
 local SPEC = {
     container = { direction = "column", spacing = 8 },
