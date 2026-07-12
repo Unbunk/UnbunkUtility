@@ -1243,6 +1243,7 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
             -- Refresh() re-applies on toggle, forcing a CDMAnchor refresh so the OLD bucket system
             -- releases / re-takes the Essential viewer immediately.
             { type = "checkbox", label = enableLabel,
+              enabledBy = function() return not (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- native-only toggle; the engine renders this dest regardless
               get = function() return I.Enabled() end,
               set = function(v)
                   I.SetEnabled(v)
@@ -1256,7 +1257,7 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                   if menu then menu.Refresh() end
               end },
             { type = "group", title = cadreTitle,
-              enabledBy = function() return I.Enabled() end,
+              enabledBy = function() return I.Enabled() or (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- editable in engine mode too (same config drives the engine)
               build = function()
                 wipe(strips)
                 local entries = {}

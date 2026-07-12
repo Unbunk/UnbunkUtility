@@ -815,6 +815,7 @@ local function CreateBarsPanel(parent)
     local options = {
         { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["Bars"] },
         { type = "checkbox", label = L["Enable custom CDM Bars"],
+          enabledBy = function() return not (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- native-only toggle; the engine renders this category regardless
           get = function() return BR.Enabled() end,
           set = function(v)
               BR.SetEnabled(v)
@@ -840,7 +841,7 @@ local function CreateBarsPanel(parent)
         { type = "label", font = "UnbunkUtilityBody", height = 30,
           text = L["A custom layout built from the native bar Cooldown Manager. Enable the \"Buff Bar\" viewer in Blizzard's Edit Mode for bars to appear."] },
         { type = "group", title = L["Bar groups"],
-          enabledBy = function() return BR.Enabled() end,
+          enabledBy = function() return BR.Enabled() or (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- editable in engine mode too (same config drives the engine)
           build = function()
             wipe(strips)
             local entries = {}
