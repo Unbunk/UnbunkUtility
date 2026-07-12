@@ -133,9 +133,9 @@ local function BuildNavTree()
             { cat = L["Cooldown Manager"], subs = (function()
                 -- "CDM Settings (beta)" is the hub, always at the TOP: it picks which CDM engine is
                 -- active. The native engine's per-viewer config tabs the ENGINE replaces (Essential /
-                -- Utility / Buffs) show ONLY in native mode; ns.CDMMode.Set() -> ns.RefreshNav() rebuilds
-                -- this on a mode change. Bars / Below player / Free icons stay always (the engine doesn't
-                -- cover them).
+                -- Utility / Buffs / Bars) show ONLY in native mode; ns.CDMMode.Set() -> ns.RefreshNav()
+                -- rebuilds this on a mode change. Below player / Free icons stay always (the engine
+                -- doesn't cover them).
                 local subs = { { panel = L["CDM Settings (beta)"] } }
                 if not (ns.CDMMode and ns.CDMMode.IsEngine()) then
                     subs[#subs + 1] = { panel = L["Essential"] }
@@ -143,8 +143,8 @@ local function BuildNavTree()
                     -- GeneralSettings; its RegisterModule supersedes the old bucket panel of that name).
                     subs[#subs + 1] = { panel = L["Utility"] }
                     subs[#subs + 1] = { panel = L["Buffs"] }
+                    subs[#subs + 1] = { panel = L["Bars"] }
                 end
-                subs[#subs + 1] = { panel = L["Bars"] }
                 subs[#subs + 1] = { panel = L["Below player frame"] }
                 subs[#subs + 1] = { panel = L["Free icons"] }
                 return subs

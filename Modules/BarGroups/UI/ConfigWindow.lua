@@ -818,9 +818,10 @@ local function CreateBarsPanel(parent)
           get = function() return BR.Enabled() end,
           set = function(v)
               BR.SetEnabled(v)
-              -- Live transition: on enable do a full bring-up (re-hook + re-seed + relayout) since
-              -- login/events skip work while off; on disable RefreshLayout falls through to HideAll.
-              if v then BR.HookNativeViewerPublic(); BR.Rebuild() else BR.ApplyAll() end
+              -- Live transition: on enable do the full login-style bring-up (re-hook + re-seed + relayout
+              -- + 3s seed fallback) since login/events skip work while off; on disable RefreshLayout falls
+              -- through to HideAll.
+              if v then BR.Activate() else BR.ApplyAll() end
               if menu then menu.Refresh() end
               -- The native bar viewer only comes up cleanly through a fresh login/reload, so on ENABLE
               -- offer a reload (the live bring-up above is best-effort only).

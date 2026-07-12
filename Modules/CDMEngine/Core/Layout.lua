@@ -15,7 +15,7 @@ local _, ns = ...
 ns.CDMEngine = ns.CDMEngine or {}
 local E = ns.CDMEngine
 
--- Hardcoded MVP layout: 3 icon groups stacked vertically. TrackedBar (bars) + GroupBuff are P3/P4.
+-- Hardcoded MVP layout: icon groups + hosted native buff/bar rows, stacked vertically. GroupBuff is P4.
 local function Cat(key) return Enum and Enum.CooldownViewerCategory and Enum.CooldownViewerCategory[key] end
 local SPEC = {
     container = { direction = "column", spacing = 8 },
@@ -23,6 +23,7 @@ local SPEC = {
         { key = "Essential",   category = Cat("Essential"),   direction = "row", size = 40, spacing = 4, trackerDest = "essential" },
         { key = "Utility",     category = Cat("Utility"),     direction = "row", size = 34, spacing = 4, trackerDest = "utility"   },
         { key = "TrackedBuff", category = Cat("TrackedBuff"), direction = "row", size = 30, spacing = 4, isBuff = true },
+        { key = "TrackedBar",  category = Cat("TrackedBar"),  direction = "column", size = 20, spacing = 4, isBar = true },
     },
 }
 
@@ -84,6 +85,10 @@ local function BuffFrameOrder(a, b)
 end
 local function CollectShownBuffFrames(out)
     wipe(out)
+    -- Only HOST native frames when the viewer is actually alpha-masked (engine mode). In native mode
+    -- BuffGroups still owns/pins these pool frames, so adopting them too would double-own (SetPoint/SetParent
+    -- ping-pong) if the widgets are shown via /uucdmwidgets or the designer. Mirrors the trackerDest gate.
+    if not (ns.CDMMode and ns.CDMMode.IsEngine()) then return out end
     if InEditMode() then return out end   -- don't host Blizzard EditMode preview sample frames (shown, no live aura)
     local A = ns.CDMAnchor
     if not (A and A.EnumBuffIcons) then return out end
@@ -94,12 +99,48 @@ local function CollectShownBuffFrames(out)
     return out
 end
 
+-- ── Tracked bars: HOST the native BuffBar frames (same rationale as buffs) ───────────────────────
+-- A bar renders an aura's DURATION / fill, both SECRET in combat (BuffBar:SetValue + its min/max ARE
+-- secret — reading them taints), so the engine cannot redraw a bar; it HOSTS the native BuffBar pool
+-- frames exactly like TrackedBuff. Enumerate via ns.BarGroups.EnumBarFrames (the shared bar-pool reader)
+-- and keep only the SHOWN ones (a shown pool frame == the buff is up). BuffBarCooldownViewer is alpha-
+-- masked (Mode.lua) and the frames are ADOPTED out onto our group, so they render from us. Bars are wide
+-- rows (not square icons), so ArrangeGroup hosts them at their NATIVE size and flows them by direction.
+local nativeBarEnum = {}
+local function CollectShownBarFrames(out)
+    wipe(out)
+    if not (ns.CDMMode and ns.CDMMode.IsEngine()) then return out end   -- only host when masked (engine); else BarGroups owns the frames
+    if InEditMode() then return out end   -- don't host Blizzard EditMode preview sample bars
+    local BG = ns.BarGroups
+    if not (BG and BG.EnumBarFrames) then return out end
+    for _, nf in ipairs(BG.EnumBarFrames(nativeBarEnum)) do
+        if nf.IsShown and nf:IsShown() then out[#out + 1] = nf end   -- shown pool frame == aura up
+    end
+    table.sort(out, BuffFrameOrder)   -- shared identity comparator (works on any cooldownInfo frame)
+    return out
+end
+
+-- The on-screen size of a native bar. Frame geometry is NOT secret (unlike its fill value), so this is a
+-- safe read; fall back to sane defaults if the pool frame hasn't been laid out yet.
+local BAR_FALLBACK_W, BAR_FALLBACK_H = 200, 20
+local function BarSize(nf)
+    local w = (nf.GetWidth and nf:GetWidth()) or 0
+    local h = (nf.GetHeight and nf:GetHeight()) or 0
+    if not (type(w) == "number" and w > 1) then w = BAR_FALLBACK_W end
+    if not (type(h) == "number" and h > 1) then h = BAR_FALLBACK_H end
+    return w, h
+end
+
 -- ── Materialisation ───────────────────────────────────────────────────────────────────────────
 -- Populate a group: an E.Icon per known cooldownID (Essential / Utility) OR the hosted native buff frames
 -- (TrackedBuff). ApplySize(size) is MANDATORY after Setup, which hardcodes ICON_SIZE.
 local function PopulateGroup(g, gs)
     if gs.isBuff then
         CollectShownBuffFrames(g.nativeBuffs)   -- host the native BuffIcon frames; ArrangeGroup pins them
+        return
+    end
+    if gs.isBar then
+        CollectShownBarFrames(g.nativeBars)     -- host the native BuffBar frames; ArrangeGroup adopts them
         return
     end
     local list = E.Blob.GetTracked(gs.category, false)   -- false = the configured subset
@@ -170,6 +211,22 @@ local function ArrangeGroup(g)
         main  = main + gs.size
         cross = math.max(cross, gs.size)
     end
+    -- Hosted native bar frames (TrackedBar): same model as buffs — ADOPT the native BuffBar pool frames so
+    -- the masked BuffBarCooldownViewer's frames still render (Blizzard fills their secret value/duration
+    -- C-side). Bars are WIDE rows, so host them at their NATIVE size (pass no w,h -> AdoptNativeTo won't
+    -- resize) and flow per the group direction (column by default -> a vertical stack of bars).
+    for _, nf in ipairs(g.nativeBars) do
+        if main > 0 then main = main + gs.spacing end
+        local bw, bh = BarSize(nf)
+        if ns.CDMAnchor and ns.CDMAnchor.AdoptNativeTo then
+            local x = horizontal and main or 0
+            local y = horizontal and 0 or -main
+            ns.CDMAnchor.AdoptNativeTo(nf, g, x, y)   -- no w,h: keep Blizzard's native bar geometry
+        end
+        if nf.GetAlpha and nf:GetAlpha() ~= 1 then nf:SetAlpha(1) end
+        main  = main + (horizontal and bw or bh)
+        cross = math.max(cross, horizontal and bh or bw)
+    end
     local w = horizontal and main or cross
     local h = horizontal and cross or main
     E.Group.SetDefaultSize(g, math.max(w, 1), math.max(h, 1))
@@ -239,7 +296,7 @@ local function BuildLayout()
             E.Group.Setup(g, gs)
             g:SetParent(container)
             PopulateGroup(g, gs)
-            if #g.children > 0 or #g.trackers > 0 or #g.nativeBuffs > 0 then   -- hosted trackers/buffs count too
+            if #g.children > 0 or #g.trackers > 0 or #g.nativeBuffs > 0 or #g.nativeBars > 0 then   -- hosted trackers/buffs/bars count too
                 ArrangeGroup(g)
                 groupFrames[#groupFrames + 1] = g
             else
@@ -272,10 +329,24 @@ local function ComputeSig()
                 -- the sig and re-hosts. AuraDispatch (below) triggers this; the fixed event list doesn't cover
                 -- auras. Gated on EditMode to match CollectShownBuffFrames (no preview sample frames).
                 local A = ns.CDMAnchor
-                if A and A.EnumBuffIcons and A.NativeFrameSpellId and not InEditMode() then
+                if A and A.EnumBuffIcons and A.NativeFrameSpellId and not InEditMode()
+                   and ns.CDMMode and ns.CDMMode.IsEngine() then   -- only fold hosted frames (engine mode)
                     for _, nf in ipairs(A.EnumBuffIcons(nativeBuffEnum)) do
                         if nf.IsShown and nf:IsShown() then
                             sigParts[#sigParts + 1] = "B" .. BuffFrameKey(nf)
+                        end
+                    end
+                end
+            elseif gs.isBar then
+                -- Fold the SHOWN native bar frames (combat-stable identity, prefix "R" so bar keys can never
+                -- collide with a buff "B" key) so a bar coming/going flips the sig and re-hosts. Same aura
+                -- trigger as buffs (AuraDispatch below); gated on EditMode to match CollectShownBarFrames.
+                local BG, A = ns.BarGroups, ns.CDMAnchor
+                if BG and BG.EnumBarFrames and A and A.NativeFrameSpellId and not InEditMode()
+                   and ns.CDMMode and ns.CDMMode.IsEngine() then   -- only fold hosted frames (engine mode)
+                    for _, nf in ipairs(BG.EnumBarFrames(nativeBarEnum)) do
+                        if nf.IsShown and nf:IsShown() then
+                            sigParts[#sigParts + 1] = "R" .. BuffFrameKey(nf)
                         end
                     end
                 end
