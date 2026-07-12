@@ -889,7 +889,7 @@ local function HookNativeViewer()
     if v.SetScale and not v._uuScaleHooked then
         v._uuScaleHooked = true
         hooksecurefunc(v, "SetScale", function(self, s)
-            if (s or 1) ~= 1 and BR.Enabled() then self:SetScale(1) end
+            if (s or 1) ~= 1 and BR.Enabled() then ns.RawSetScale(self, 1) end   -- raw: this hook can co-fire in the secure refresh
         end)
     end
 end
