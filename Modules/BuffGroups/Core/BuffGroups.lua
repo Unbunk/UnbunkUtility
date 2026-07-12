@@ -1147,6 +1147,11 @@ function BG.RefreshLayout()
     for sid, nf in pairs(frameOf) do
         sp[#sp + 1] = sid .. (FrameShown(nf) and "+" or "-")
     end
+    -- Fold ns.StyleEpoch (mirrors CDMGroups): a mode switch (native<->engine) bumps it, so leaving engine
+    -- mode busts this early-out and forces ONE full re-pin of the native buff frames BuffGroups released
+    -- while it was ceded — otherwise an unchanged buff set would early-out and the frames would stay in
+    -- Blizzard's default layout instead of the user's groups. Bumped only on user actions, never per-frame.
+    sp[#sp + 1] = "E" .. (ns.StyleEpoch or 0)
     table.sort(sp)
     local sig = table.concat(sp, ",")
     if not layoutDirty and sig == lastLayoutSig then

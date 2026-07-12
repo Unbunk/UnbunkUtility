@@ -273,7 +273,15 @@ end
 ns.RegisterCfgInitHook(BG.CfgInit)
 
 -- ── Enable ─────────────────────────────────────────────────────────────────────
-function BG.Enabled() local s = Store(); return not s or s.enabled ~= false end
+-- Level 2: the standalone CDM engine (ns.CDMMode "engine") masks BuffIconCooldownViewer and draws its own
+-- TrackedBuff group, so report DISABLED in engine mode — every driver here (the 0.2s RefreshLayout ticker,
+-- UNIT_AURA, the native-viewer relayout hook) gates on Enabled(), so this stops BuffGroups re-styling the
+-- (masked) native buff frames and fighting the engine. Flips back the instant the user returns to native
+-- (the always-running ticker re-pins within a pass; the mode-switch StyleEpoch bump busts its early-out).
+function BG.Enabled()
+    if ns.CDMMode and ns.CDMMode.IsEngine and ns.CDMMode.IsEngine() then return false end
+    local s = Store(); return not s or s.enabled ~= false
+end
 function BG.SetEnabled(v) local s = Store(); if s then s.enabled = v and true or false end end
 
 -- ── Group accessors ─────────────────────────────────────────────────────────────

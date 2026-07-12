@@ -20,6 +20,7 @@ local function BuildGroupFrame()
     if ns.SetTrackerIconStrata then ns.SetTrackerIconStrata(g) else g:SetFrameStrata("MEDIUM") end
     g.children = {}
     g.trackers = {}   -- L2: hosted CDM tracker descriptors (module-owned frames; never E.Icon-released)
+    g.nativeBuffs = {}   -- hosted NATIVE BuffIcon pool frames (re-anchored via CDMAnchor.PinNativeTo)
     g.w, g.h = 1, 1
     return g
 end
@@ -35,6 +36,7 @@ function Group.Setup(g, spec)
     g.catKey = spec and spec.key   -- stable string key ("Essential"/...) for per-group designer positions
     if g.children then wipe(g.children) else g.children = {} end
     if g.trackers then wipe(g.trackers) else g.trackers = {} end
+    if g.nativeBuffs then wipe(g.nativeBuffs) else g.nativeBuffs = {} end
     g.w, g.h = 1, 1
     g:Show()
 end
@@ -63,6 +65,16 @@ function Group.Release(g)
             if td.frame then td.frame:ClearAllPoints(); td.frame:SetParent(UIParent) end
         end
         wipe(g.trackers)
+    end
+    -- Hosted native BuffIcon frames: hand them BACK to their viewer (ReleaseNativeAdopt RawSetParents them
+    -- onto BuffIconCooldownViewer + clears our _uuAdopt so the re-impose hooks go inert). A still-active buff
+    -- is immediately re-adopted by the next PopulateGroup/ArrangeGroup; an expired one is re-owned by the
+    -- viewer's own layout (which hides it). Never Hide/Show them (taint vectors).
+    if g.nativeBuffs then
+        for _, nf in ipairs(g.nativeBuffs) do
+            if ns.CDMAnchor and ns.CDMAnchor.ReleaseNativeAdopt then ns.CDMAnchor.ReleaseNativeAdopt(nf) end
+        end
+        wipe(g.nativeBuffs)
     end
     g.w, g.h = 1, 1
     g:Hide()
