@@ -418,11 +418,6 @@ local specQueued = false
 local function DoSpecRebuild()
     specQueued = false
     if not shown then return end
-    if E.Design and E.Design.dragging then   -- never rebuild under a drag: re-arm and let the drop run it
-        specQueued = true
-        C_Timer.After(0, DoSpecRebuild)
-        return
-    end
     Rebuild()
 end
 function ScheduleSpecRebuild()
@@ -455,9 +450,6 @@ Rebuild = function()
     UnregisterData()
     if not Cfg("enable") then
         container:Hide()
-        -- still let the designer re-evaluate: with the widget off, R.IsShown() is false so Reattach
-        -- detaches the now-stale '__resource__' overlay instead of leaving a grabbable frame behind.
-        if E.Design and E.Design.Reattach then E.Design.Reattach() end
         return
     end
 
@@ -491,7 +483,6 @@ Rebuild = function()
     container:SetSize(math.max(w, 1), math.max(y - rowSpacing, 1))
     container:SetShown(#activeRows > 0)
     ApplyPosition()
-    if E.Design and E.Design.Reattach then E.Design.Reattach() end   -- designer re-glues its overlay
 end
 
 -- ── Public surface (mirrors E.Layout.*; driven by Layout's Show/Hide hooks + the designer) ─────────

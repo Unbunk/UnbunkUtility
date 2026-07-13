@@ -65,6 +65,14 @@ end
 -- engine has it live (shown + positioned); until then (CDM off, empty Group 1, or the brief
 -- window right after a /reload) we fall back to the native viewer. belowPlayer -> PlayerFrame.
 local function GroupOneBox(dest)
+    -- Engine mode: CDMGroups is disabled (its Group 1 container is hidden), the standalone engine draws its
+    -- OWN group frames — so anchor to / adapt from the engine's Group 1 frame for this dest instead.
+    if ns.CDMMode and ns.CDMMode.IsEngine() then
+        local L  = ns.CDMEngine and ns.CDMEngine.Layout
+        local ef = L and L.GroupFrame and L.GroupFrame(dest .. ":1")
+        if ef and ef:IsShown() and ef:GetLeft() then return ef end
+        return nil
+    end
     local inst = ns.CDMGroups and ns.CDMGroups[dest]
     local box  = inst and inst.GetContainer and inst.GetContainer(1)
     if box and box:IsShown() and box:GetLeft() then return box end
@@ -73,6 +81,9 @@ end
 
 local function AnchorDestFrame(dest)
     if dest == "belowPlayer" then return _G.PlayerFrame end
+    -- In engine mode NEVER fall back to the native viewer: it's alpha-masked and sits at the NATIVE layout
+    -- position, not where the engine draws — anchoring there would drop the cast bar in the wrong place.
+    if ns.CDMMode and ns.CDMMode.IsEngine() then return GroupOneBox(dest) end
     return GroupOneBox(dest) or ns.GetCDMViewer(dest)
 end
 
@@ -274,6 +285,10 @@ local function OnAnchorSizeChanged()
         CB.ApplyPosition()
     end)
 end
+-- The standalone CDM engine draws its groups into POOLED frames (identity changes each rebuild) and the
+-- native Group 1 box it would otherwise hook is hidden in engine mode, so the engine calls this after every
+-- build to re-read the current engine group frame (anchor + adapt-width). Same coalesced re-apply.
+CB.NotifyAnchorChanged = OnAnchorSizeChanged
 
 local hookedBoxes = {}
 local function HookGroupOneBoxes()

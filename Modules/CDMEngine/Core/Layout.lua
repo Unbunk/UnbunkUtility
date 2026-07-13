@@ -34,21 +34,9 @@ local SPEC = {
 local container
 local shown = false
 local groupFrames = {}
-local designHook          -- set by the designer (E.Design); called after each BuildLayout to re-attach overlays
 
 local function Say(msg)
     if ns.Print then ns.Print(msg) else print("|cff338cff[UnbunkUtility]|r " .. tostring(msg)) end
-end
-
--- Container base position = the whole auto-stack block's offset. Driven live by the P4b move-all handle
--- (Design.MoveAllBy -> Cfg.SetContainerPos); ApplyContainerPosition re-pins the container to
--- CENTER/UIParent at containerX/Y (default 0,0).
-local function ApplyContainerPosition()
-    if not container then return end
-    local x, y = 0, 0
-    if E.Cfg then x, y = E.Cfg.GetContainerPos() end
-    container:ClearAllPoints()
-    container:SetPoint("CENTER", UIParent, "CENTER", x or 0, y or 0)
 end
 
 local function EnsureContainer()
@@ -56,7 +44,7 @@ local function EnsureContainer()
     container = CreateFrame("Frame", "UnbunkCDMEngineContainer", UIParent)
     if ns.SetTrackerIconStrata then ns.SetTrackerIconStrata(container) end
     container:SetSize(1, 1)
-    ApplyContainerPosition()
+    container:SetPoint("CENTER", UIParent, "CENTER", 0, 0)   -- auto-stack block base = screen centre
 end
 
 -- ── Tracked buffs: HOST the native BuffIcon frames ──────────────────────────────────────────────
@@ -254,22 +242,41 @@ local function ArrangeGroup(g)
     E.Group.SetDefaultSize(g, math.max(w, 1), math.max(h, 1))
 end
 
--- A group is "free" (designer-placed) when it has a saved position; it is anchored directly to
--- UIParent by ApplyFreePositions and is NOT part of the auto-stack. Absence of a saved position =
--- auto-stack (the P2 behaviour, unchanged) — which is also what "reset" restores.
-local function IsFree(g)
-    return (E.Cfg and E.Cfg.GetGroupPos(g.catKey)) ~= nil
+-- The per-group screen-centre position configured in the group's OWN tab (CDMGroups / BuffGroups /
+-- BarGroups — the "Position (offset from screen center)" X/Y = posX/posY). The engine reuses that native
+-- config as its single source of truth (no separate designer store): it treats posX/posY as a screen-
+-- centre offset and ignores the native anchorTo (whose viewers are masked in engine mode). catKey is
+-- "dest:groupId" (essential:1 / utility:2 / buff:1 / bar:1). Both axes must be set for a group to be
+-- "positioned"; otherwise it auto-stacks.
+local function GroupTabInstance(dest)
+    if dest == "essential" or dest == "utility" then return ns.CDMGroups and ns.CDMGroups[dest] end
+    if dest == "buff" then return ns.BuffGroups end
+    if dest == "bar"  then return ns.BarGroups end
+    return nil
+end
+local function GroupTabPos(g)
+    local dest, gid = tostring(g.catKey or ""):match("^(%a+):(%d+)$")
+    local I = dest and GroupTabInstance(dest)
+    if not (I and I.GGet and gid) then return nil end
+    gid = tonumber(gid)
+    local x, y = I.GGet(gid, "posX"), I.GGet(gid, "posY")
+    if type(x) == "number" and type(y) == "number" then return x, y end
+    return nil
 end
 
--- Re-impose the saved CENTER/UIParent anchor of every free group. Idempotent, called last in a build
--- (and in the cheap refresh path) so the config always has the final word on position.
+-- A group is "free" (positioned) when its tab has an explicit posX/posY; absence = auto-stack.
+local function IsFree(g)
+    return GroupTabPos(g) ~= nil
+end
+
+-- Re-impose each positioned group's CENTER/UIParent anchor from its tab posX/posY. Idempotent, called
+-- last in a build (and in the cheap refresh path) so the config always has the final word on position.
 local function ApplyFreePositions()
-    if not E.Cfg then return end
     for _, g in ipairs(groupFrames) do
-        local p = E.Cfg.GetGroupPos(g.catKey)
-        if p then
+        local x, y = GroupTabPos(g)
+        if x then
             g:ClearAllPoints()
-            g:SetPoint("CENTER", UIParent, "CENTER", p.x, p.y)
+            g:SetPoint("CENTER", UIParent, "CENTER", x, y)
         end
     end
 end
@@ -308,11 +315,28 @@ end
 
 -- ── Multi-group materialisation (own-draw cooldowns) ────────────────────────────────────────────
 -- The engine reuses the NATIVE CDMGroups group model as its layout source: ONE engine group per configured
--- display group (Group 1, 2, … ; "Unused" = 0 is not rendered). Members are keyed by DISPLAY spellId (secret
--- in combat) while the engine renders by cdmID — so we keep a PERSISTENT spellId->cdmID cache per dest,
--- refreshed whenever a spellId resolves (out of combat) and never dropped, so a rebuild triggered IN COMBAT
--- (an aura change flips the buff/bar sig and re-buckets every category) still resolves members from the cache.
+-- display group (Group 1, 2, … ; "Unused" = 0 is not rendered). The engine renders by cdmID, so we keep a
+-- PERSISTENT spellId->cdmID cache per dest. The cache is deliberately BROAD:
+--   * keyed by BOTH the DISPLAY spellId AND the STABLE BASE spellId — CDMGroups members (I.GroupRows) are
+--     BASE-keyed, so a transformed/override cooldown (base ~= display) must resolve via the base key;
+--   * built from BOTH own-draw categories (Essential AND Utility) and the AVAILABLE superset, NOT just
+--     gs.category's configured set — CDMGroups lets you assign a cooldown ACROSS categories into a group
+--     (e.g. a Utility cooldown like Invisibility placed in the Essential group), so a cross-category member
+--     resolves only if the map spans both. Otherwise that member (and its whole row) silently vanishes.
+-- GroupRows is the gate on WHICH members render, so a broad map adds no spurious icons. Refreshed whenever
+-- spellIds resolve (out of combat) and never dropped, so a rebuild triggered IN COMBAT (an aura change flips
+-- the buff/bar sig and re-buckets every category) still resolves members from the cache.
 local cdmMaps = {}   -- dest -> { [spellId] = cdmID }
+local ownDrawCats    -- the Essential + Utility category enums, harvested from SPEC (own-draw = has trackerDest)
+local function OwnDrawCategories()
+    if not ownDrawCats then
+        ownDrawCats = {}
+        for _, g in ipairs(SPEC.groups) do
+            if g.trackerDest and g.category ~= nil then ownDrawCats[#ownDrawCats + 1] = g.category end
+        end
+    end
+    return ownDrawCats
+end
 local function RefreshCdmMap(gs)
     local dest = gs.trackerDest
     local map = cdmMaps[dest]
@@ -321,12 +345,16 @@ local function RefreshCdmMap(gs)
     -- display ids are secret then, so a rebuild triggered by an aura change still resolves members from it.
     if (not map) or (not InCombatLockdown()) then
         map = {}; cdmMaps[dest] = map
-        for _, cdmID in ipairs(E.Blob.GetTracked(gs.category, false)) do
-            local info = E.Blob.GetInfo(cdmID)
-            if info and info.isKnown ~= false then
-                local A = ns.CDMAnchor
-                local sid = A and A.NativeFrameSpellId and A.NativeFrameSpellId({ cooldownInfo = info })
-                if sid then map[sid] = cdmID end
+        local A = ns.CDMAnchor
+        for _, cat in ipairs(OwnDrawCategories()) do
+            for _, cdmID in ipairs(E.Blob.GetTracked(cat, true)) do   -- available superset, across BOTH own-draw cats
+                local info = E.Blob.GetInfo(cdmID)
+                if info and info.isKnown ~= false then
+                    local sid  = A and A.NativeFrameSpellId     and A.NativeFrameSpellId({ cooldownInfo = info })
+                    local base = A and A.NativeFrameBaseSpellId and A.NativeFrameBaseSpellId({ cooldownInfo = info })
+                    if sid  and map[sid]  == nil then map[sid]  = cdmID end   -- first category wins on any collision
+                    if base and map[base] == nil then map[base] = cdmID end
+                end
             end
         end
     end
@@ -553,8 +581,9 @@ local function BuildLayout()
         end
     end
     ArrangeContainer()
-    ApplyFreePositions()                   -- free groups: pinned to UIParent, the last word on position
-    if designHook then designHook() end    -- designer re-attaches overlays onto the fresh pooled frames
+    ApplyFreePositions()                   -- positioned groups: pinned to UIParent, the last word on position
+    if E.Icon.RefreshPressPoll then E.Icon.RefreshPressPoll() end   -- (dis)arm the press-overlay poller
+    if ns.CastBar and ns.CastBar.NotifyAnchorChanged then ns.CastBar.NotifyAnchorChanged() end   -- cast bar re-adapts to the engine group
 end
 
 -- ── Coalesced, DEFERRED relayout (Phase 1 firewall, generalised) ────────────────────────────────
@@ -643,9 +672,6 @@ end
 local function DoDeferredRebuild()
     rebuildQueued = false
     if not shown then return end
-    -- Never tear down / re-pool a group while the user holds it under a drag: re-arm and let the drop
-    -- (which clears Design.dragging) run the build. Bounds to one empty timer per frame of an active drag.
-    if E.Design and E.Design.dragging then ScheduleRebuild(); return end
     local sig = ComputeSig()
     if sig == lastSig then
         RefreshAll()
@@ -712,27 +738,32 @@ local function HideWidgets()
     shown = false
     UnregisterEvents()
     E.Icon.ReleaseAll()
+    if E.Icon.RefreshPressPoll then E.Icon.RefreshPressPoll() end   -- no active icons now -> stop the poller
     ReleaseGroups()   -- Group.Release re-parents every hosted tracker back to UIParent (single owner of that handoff)
     if container then container:Hide() end
     if E.Resource and E.Resource.HideWidgets then E.Resource.HideWidgets() end   -- P4c class resources
 end
 
--- ── Public surface for the designer (Core/Design.lua) ────────────────────────────────────────────
+-- ── Public surface (Core/Mode.lua drives Show/Hide; the /uucdmwidgets slash toggles) ─────────────
 E.Layout = E.Layout or {}
 function E.Layout.IsShown()         return shown end
 function E.Layout.GetSpec()         return SPEC end
-function E.Layout.GetLiveGroups()   return groupFrames end
 function E.Layout.ScheduleRebuild() ScheduleRebuild() end
-function E.Layout.SetDesignHook(fn) designHook = fn end
-function E.Layout.EnsureShown()     EnsureShown() end
 function E.Layout.HideWidgets()     HideWidgets() end
-function E.Layout.ApplyContainerPosition() ApplyContainerPosition() end   -- move the whole block (P4b move-all)
--- Config-panel toggle (mirrors the /uucdmwidgets slash: exit the designer before hiding).
+-- The live engine group frame for a catKey ("essential:1" / "utility:1" / …), or nil — the cast bar uses it
+-- to anchor to / adapt its width from the engine's OWN group in engine mode (the native viewer it would
+-- otherwise use is alpha-masked and sits at the native layout position, not where the engine draws).
+function E.Layout.GroupFrame(catKey)
+    for _, g in ipairs(groupFrames) do
+        if g.catKey == catKey then return g end
+    end
+    return nil
+end
+-- Config-panel toggle (mirrors the /uucdmwidgets slash).
 function E.Layout.SetShown(v)
     if v then
         EnsureShown()
     else
-        if E.Design and E.Design.IsActive() then E.Design.Exit() end
         HideWidgets()
     end
 end
@@ -742,7 +773,6 @@ SLASH_UUCDMWIDGETS1 = "/uucdmwidgets"
 SlashCmdList["UUCDMWIDGETS"] = function()
     if not (E.Blob and E.Icon and E.Group) then Say("CDMEngine not ready."); return end
     if shown then
-        if E.Design and E.Design.IsActive() then E.Design.Exit() end   -- avoid overlays orphaned on released frames
         HideWidgets()
         Say("CDM widgets: OFF")
     else
@@ -753,9 +783,8 @@ end
 
 -- A profile switch / import wholesale-replaces the saved config: force a full rebuild so the NEW
 -- profile's group positions are read (lastSig = nil guarantees BuildLayout, not the cheap path). The
--- designer STAYS OPEN — its still-armed designHook re-attaches the overlays onto the rebuilt frames at
--- the new profile's positions. The deferred rebuild runs after ns.db.profile is repointed + CfgInit
--- re-merged, so ApplyFreePositions reads the right profile.
+-- deferred rebuild runs after ns.db.profile is repointed + CfgInit re-merged, so ApplyFreePositions
+-- reads the right profile.
 ns.RegisterReloadHook(function()
     if shown then lastSig = nil; ScheduleRebuild() end
 end)
