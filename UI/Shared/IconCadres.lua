@@ -451,6 +451,32 @@ IC.SectionKeys = { timer = TIMER_KEYS, title = TITLE_KEYS, stack = STACK_KEYS }
 
 -- ── per-cadre builders (each returns ONE BuildMenu entry, override/free auto-adapting) ──
 
+-- The standalone-engine display extras (range tint + global-cooldown sweep). Unlike the rest of a "CDM
+-- settings" cadre these are NOT per-scope overrides: they drive the ENGINE's own-drawn icons and are
+-- stored + read GLOBALLY on ns.CDMEngine.Cfg (IconExtras range tint + Icon.UpdateSwipe GCD sweep), so the
+-- SAME toggle surfaces in every "CDM settings" cadre (group / override / free-icon / front+end of row).
+-- Both default ON (CDMEngine Config DEFAULTS). HIDDEN outside engine mode (engine-only features), via
+-- `shown` — so mode switches must rebuild the panel (M.Set -> ReloadAll) for the predicate to re-evaluate.
+-- Callers append() them right AFTER "Show Keybinds" so they land above a cadre's Grow direction if present.
+function IC.AppendEngineDisplayExtras(list)
+    local function Eng() return ns.CDMEngine end
+    local function inEngine() return ns.CDMMode and ns.CDMMode.IsEngine() end
+    list[#list + 1] = { type = "checkbox", label = L["Range check"], shown = inEngine,
+      get = function() local e = Eng(); return e and e.Cfg and e.Cfg.Get("rangeCheck") == true end,
+      set = function(v)
+          local e = Eng()
+          if e and e.Cfg then e.Cfg.Set("rangeCheck", v and true or false) end
+          if e and e.IconExtras and e.IconExtras.ReapplyAll then e.IconExtras.ReapplyAll() end
+      end }
+    list[#list + 1] = { type = "checkbox", label = L["Show global cooldown sweep"], shown = inEngine,
+      get = function() local e = Eng(); return e and e.Cfg and e.Cfg.Get("showGcdSwipe") == true end,
+      set = function(v)
+          local e = Eng()
+          if e and e.Cfg then e.Cfg.Set("showGcdSwipe", v and true or false) end
+          if e and e.Layout and e.Layout.ScheduleRebuild then e.Layout.ScheduleRebuild() end
+      end }
+end
+
 -- CDM settings: flash the icon while its action-bar keybind is HELD (press overlay) +
 -- draw that keybind on the icon. Both opt-in (default off).
 function IC.CdmSettings(bundle)
@@ -466,6 +492,7 @@ function IC.CdmSettings(bundle)
         e[#e + 1] = { type = "checkbox", label = L["Show Keybinds"], enabledBy = gated,
           get = function() return bundle.get("showKeybinds") == true end,
           set = function(v) bundle.set("showKeybinds", v and true or false); bundle.touch() end }
+        IC.AppendEngineDisplayExtras(e)   -- engine range check + GCD sweep (global), right after keybinds
         return e
     end }
 end

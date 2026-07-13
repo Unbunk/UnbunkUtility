@@ -151,7 +151,17 @@ function M.Set(mode)
     mode = (mode == "engine") and "engine" or "native"
     if E.Cfg then E.Cfg.Set("mode", mode) end
     M.Apply()
-    if ns.RefreshNav then ns.RefreshNav() end   -- show/hide the native-engine config tabs (Essential/Utility/Buffs)
+    -- Rebuild the config panels so the mode-conditional `shown` entries re-evaluate: the engine display
+    -- extras (range check / GCD sweep) are hidden in native, and the native "Enable" toggles are hidden in
+    -- engine. ShowSubTab CACHES a built panel and RefreshNav only re-shows the cache, so a plain nav refresh
+    -- would leave those `shown` predicates stale after a switch. ReloadAll invalidates the cached panels
+    -- (cheap — only the ACTIVE one rebuilds now, the rest lazily on next open) and refreshes the nav. Only
+    -- M.Set (the user toggle) hits this; the PLAYER_ENTERING_WORLD / profile-reload paths call M.Apply direct.
+    if ns.profiles and ns.profiles.ReloadAll then
+        ns.profiles.ReloadAll()
+    elseif ns.RefreshNav then
+        ns.RefreshNav()
+    end
 end
 
 function M.Toggle() M.Set(M.IsEngine() and "native" or "engine") end
