@@ -72,6 +72,11 @@ local function BuildFrame()
 
     f.Title   = f:CreateFontString(nil, "OVERLAY", nil, 7)   -- free label (StyleFrame styles/positions/hides)
     f.Keybind = f:CreateFontString(nil, "OVERLAY", nil, 7)   -- action-bar keybind text
+    -- Give both a default font up front: StyleFrame only sets a font when the feature is ENABLED (both default
+    -- OFF), yet Release SetText("")s them to blank inherited text. A fontless FontString errors on SetText
+    -- ("Font not set"), so seed a font object at creation (like Count above); StyleFrame overrides it when shown.
+    f.Title:SetFontObject("GameFontHighlightSmall")
+    f.Keybind:SetFontObject("GameFontHighlightSmall")
 
     -- A per-frame CreateFont object drives the C-side countdown number's font/colour via cd:SetCountdownFont
     -- — the only way to restyle the secret-safe native countdown. Named uniquely so each pooled frame keeps
