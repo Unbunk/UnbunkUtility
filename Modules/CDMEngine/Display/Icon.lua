@@ -116,7 +116,12 @@ end
 -- every write here is taint-free. Cheap early-out when no CDMGroups dest backs this icon.
 function Icon.StyleFrame(f)
     local I = DestI(f)
-    local sid = f._lastGoodSid or f.spellID
+    -- Resolve config by the STABLE BASE spellId: CDMGroups keys iconCfg (per-icon overrides) AND the group
+    -- assign store by base (I.GroupOf/I.IconGet). Using the DISPLAY id for a transformed cooldown (e.g.
+    -- Blink 1953 -> Shimmer 212653) makes GroupOf() fall through to Unused(0) -> the icon reads the template
+    -- default size/style instead of its real group's -> it renders oversized/mis-styled. Fall back to the
+    -- display id only if the base hasn't resolved yet (secret in combat before the first out-of-combat pass).
+    local sid = f.baseSpellID or f._lastGoodSid or f.spellID
     if not (I and sid and I.IconGet) then return end
 
     -- Size: the icon fills the frame; ArrangeGroup then lays the group out by each icon's measured size,
@@ -291,6 +296,7 @@ function Icon.Release(f)
     -- early-outs) can't inherit the prior spell's title/keybind/border over the fallback art.
     if f.Title   then f.Title:SetText("");   f.Title:Hide()   end
     if f.Keybind then f.Keybind:SetText(""); f.Keybind:Hide() end
+    if f.PressOverlay then f.PressOverlay:Hide() end
     if ns.CDMAnchor and ns.CDMAnchor.ApplyFrameBorder then ns.CDMAnchor.ApplyFrameBorder(f, false) end
     f.cdmID, f.spellID, f.baseSpellID, f.info, f._lastGoodSid, f._dest, f._showTimer = nil, nil, nil, nil, nil, nil, nil
     f:Hide()
@@ -301,4 +307,77 @@ end
 
 function Icon.ReleaseAll()
     for f in pairs(active) do Icon.Release(f) end
+end
+
+-- ── Press overlay: flash the icon while its action-bar keybind is physically HELD, mirroring the native
+-- CDMGroups poller (Engine.lua). Taint-free: only IsKeyDown / modifier getters + a plain texture on OUR own
+-- frame; the config (showPressOverlay / pressOverlayColor) resolves per-icon by the BASE spellId via the
+-- backing CDMGroups instance. A single 0.05s poller runs ONLY while at least one shown icon wants it. ────
+local PRESS_FALLBACK = { r = 1, g = 1, b = 1, a = 0.35 }
+local function FrameOverlay(f)
+    if f.PressOverlay then return f.PressOverlay end
+    local tex = f:CreateTexture(nil, "OVERLAY", nil, 1)   -- above the icon (ARTWORK), below border/text (sublevel 7)
+    tex:SetAllPoints(f)
+    tex:Hide()
+    f.PressOverlay = tex
+    return tex
+end
+local function ComboDown(c)
+    if c.shift ~= IsShiftKeyDown()   then return false end
+    if c.ctrl  ~= IsControlKeyDown() then return false end
+    if c.alt   ~= IsAltKeyDown()     then return false end
+    return IsKeyDown(c.key)
+end
+local function AnyComboDown(combos)
+    for _, c in ipairs(combos) do if ComboDown(c) then return true end end
+    return false
+end
+-- Press overlay is registered under the action's spellId, which may be the BASE or the live DISPLAY id, so
+-- try both (mirrors CDMGroups' keyToDisplay fallback).
+local function IconCombos(f, sid)
+    if not (ns.CDGKeybinds and ns.CDGKeybinds.GetRawCombos) then return nil end
+    local combos = ns.CDGKeybinds.GetRawCombos(sid)
+    if not combos and f.spellID and f.spellID ~= sid then
+        combos = ns.CDGKeybinds.GetRawCombos(f.spellID)
+    end
+    return combos
+end
+local pressAccum = 0
+local pressPoll = CreateFrame("Frame")
+pressPoll:Hide()
+pressPoll:SetScript("OnUpdate", function(_, dt)
+    pressAccum = pressAccum + dt
+    if pressAccum < 0.05 then return end
+    pressAccum = 0
+    local typing = GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()   -- don't flash while typing in a box
+    for f in pairs(active) do
+        local I   = DestI(f)
+        local sid = f.baseSpellID or f._lastGoodSid or f.spellID
+        local want = false
+        if (not typing) and I and sid and I.IconGet and I.IconGet(sid, "showPressOverlay") == true then
+            local combos = IconCombos(f, sid)
+            if combos and AnyComboDown(combos) then want = true end
+        end
+        if want then
+            local ov = FrameOverlay(f)
+            local pc = (I and I.IconGet(sid, "pressOverlayColor")) or PRESS_FALLBACK
+            ov:SetColorTexture(pc.r, pc.g, pc.b, pc.a or 0.35)
+            ov:Show()
+        elseif f.PressOverlay then
+            f.PressOverlay:Hide()
+        end
+    end
+end)
+
+-- Enable the poller only when a shown icon actually wants the overlay (avoid an idle 0.05s OnUpdate). Called
+-- by Layout after every build; a showPressOverlay edit bumps ns.StyleEpoch -> a full rebuild -> this re-runs.
+function Icon.RefreshPressPoll()
+    for f in pairs(active) do
+        local I   = DestI(f)
+        local sid = f.baseSpellID or f._lastGoodSid or f.spellID
+        if I and sid and I.IconGet and I.IconGet(sid, "showPressOverlay") == true then
+            pressPoll:Show(); return
+        end
+    end
+    pressPoll:Hide()
 end

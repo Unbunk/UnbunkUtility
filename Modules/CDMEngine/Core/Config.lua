@@ -16,13 +16,7 @@ local E = ns.CDMEngine
 local Cfg = {}
 E.Cfg = Cfg
 
--- groups[catKey] = { x = <number>, y = <number> } ; a missing sub-table = that group is auto-stacked.
--- containerX/Y = the whole auto-stack block's base offset, driven live by the P4b move-all handle
--- (Design.MoveAllBy -> Cfg.SetContainerPos).
 local DEFAULTS = {
-    groups     = {},
-    containerX = 0,
-    containerY = 0,
     mode       = "native",            -- CDM display mode (Core/Mode.lua): "native" (default) | "engine"
     -- P4 icon extras (Display/IconExtras.lua):
     procGlow   = true,                -- glow the icon while its spell has an activation proc
@@ -59,34 +53,8 @@ function Cfg.Init()
         cfg.resource.showCount = DEFAULTS.resource.showCount
         cfg.resource._migrated = 1
     end
-    -- One-time migration: multi-group (parity phase 2/3) re-keyed the Essential/Utility group positions from
-    -- the category name to "dest:groupId". Move any saved single-group position onto that dest's Group 1 so a
-    -- positioned layout survives the upgrade. TrackedBuff/TrackedBar keep their (still single-group) keys.
-    -- v1: Essential/Utility -> dest:1 (own-icon multi-group). v2: TrackedBuff/TrackedBar -> buff:1/bar:1
-    -- (hosted multi-group). Idempotent (keeps an existing target), so a v0 or v1 profile upgrades cleanly.
-    if cfg.groups and (cfg._groupKeyMigrated or 0) < 2 then
-        for old, new in pairs({ Essential = "essential:1", Utility = "utility:1",
-                                TrackedBuff = "buff:1", TrackedBar = "bar:1" }) do
-            if cfg.groups[old] and not cfg.groups[new] then cfg.groups[new] = cfg.groups[old] end
-            cfg.groups[old] = nil
-        end
-        cfg._groupKeyMigrated = 2
-    end
 end
 ns.RegisterCfgInitHook(Cfg.Init)
-
--- Container base offset — the whole auto-stack block's CENTER/UIParent offset (P4b "move all").
-function Cfg.GetContainerPos()
-    local r = Root()
-    if not r then return 0, 0 end
-    return r.containerX or 0, r.containerY or 0
-end
-
-function Cfg.SetContainerPos(x, y)
-    local r = Root()
-    if not (r and type(x) == "number" and type(y) == "number") then return end
-    r.containerX, r.containerY = x, y
-end
 
 -- Generic scalar/table getter for the flat config keys (the P4 icon-extra flags). Falls back to a
 -- FRESH COPY of the default so a caller can't mutate the shared DEFAULTS table.
@@ -101,39 +69,6 @@ function Cfg.Set(key, value)
     local r = Root()
     if not r then return end
     r[key] = value
-end
-
--- The saved position of a group, or nil (nil => auto-stack). Validates both axes are numbers so a
--- half-written table never yields a partial SetPoint.
-function Cfg.GetGroupPos(catKey)
-    local r = Root()
-    if not (r and catKey) then return nil end
-    local g = r.groups and r.groups[catKey]
-    if type(g) == "table" and type(g.x) == "number" and type(g.y) == "number" then
-        return g
-    end
-    return nil
-end
-
-function Cfg.SetGroupPos(catKey, x, y)
-    local r = Root()
-    if not (r and catKey and type(x) == "number" and type(y) == "number") then return end
-    r.groups = r.groups or {}
-    r.groups[catKey] = { x = x, y = y }
-end
-
--- Reset ONE group back to auto-stack.
-function Cfg.ClearGroupPos(catKey)
-    local r = Root()
-    if not (r and catKey and r.groups) then return end
-    r.groups[catKey] = nil
-end
-
--- Reset ALL groups back to auto-stack.
-function Cfg.ClearAllGroupPos()
-    local r = Root()
-    if not r then return end
-    r.groups = {}
 end
 
 -- ── P4c class-resource config (dedicated sub-table so /uucdmdesign reset can't wipe it) ─────────
@@ -155,7 +90,8 @@ function Cfg.SetResource(key, value)
     r.resource[key] = value
 end
 
--- The resource widget's saved position, or nil (nil = default anchor). Validated like GetGroupPos.
+-- The resource widget's saved position, or nil (nil = default anchor). Validates both axes are numbers
+-- so a half-written table never yields a partial SetPoint.
 function Cfg.GetResourcePos()
     local r = Root()
     local p = r and r.resource and r.resource.position
