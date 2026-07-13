@@ -1131,24 +1131,30 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
         -- three are per-GROUP (the engine reads them per group in RefreshLayout), so they live here, not in
         -- the per-icon override editor.
         local function CDMSettingsGroup(id)
-            return { type = "group", title = L["CDM settings"], build = function() return {
-                { type = "checkbox", label = L["Show press overlay"],
-                  get = function() return I.GGet(id, "showPressOverlay") == true end,
-                  set = function(v) I.GSet(id, "showPressOverlay", v and true or false); touch() end },
-                { type = "checkbox", label = L["Show Keybinds"],
-                  get = function() return I.GGet(id, "showKeybinds") == true end,
-                  set = function(v) I.GSet(id, "showKeybinds", v and true or false); touch() end },
-                { type = "dropdown", label = L["Grow direction"], width = 180, height = 50,
+            return { type = "group", title = L["CDM settings"], build = function()
+                local e = {
+                    { type = "checkbox", label = L["Show press overlay"],
+                      get = function() return I.GGet(id, "showPressOverlay") == true end,
+                      set = function(v) I.GSet(id, "showPressOverlay", v and true or false); touch() end },
+                    { type = "checkbox", label = L["Show Keybinds"],
+                      get = function() return I.GGet(id, "showKeybinds") == true end,
+                      set = function(v) I.GSet(id, "showKeybinds", v and true or false); touch() end },
+                }
+                -- Engine range check + GCD sweep, right after Show Keybinds (above Grow direction). Shared
+                -- IC helper: global engine toggles (E.Cfg), greyed outside engine mode.
+                IC.AppendEngineDisplayExtras(e)
+                e[#e + 1] = { type = "dropdown", label = L["Grow direction"], width = 180, height = 50,
                   getList = GrowList,
                   getCurrentKey = function() return GrowLabel(I.GGet(id, "growDir")) end,
-                  onSelect = function(label) I.GSet(id, "growDir", GrowFromLabel(label)); touch() end },
-                { type = "checkbox", label = L["Static Display"],
+                  onSelect = function(label) I.GSet(id, "growDir", GrowFromLabel(label)); touch() end }
+                e[#e + 1] = { type = "checkbox", label = L["Static Display"],
                   get = function() return I.GGet(id, "staticDisplay") == true end,
-                  set = function(v) I.GSet(id, "staticDisplay", v and true or false); touch() end },
-                { type = "textinput", label = L["Spacing"], width = 46, numeric = true, min = 0, max = 64, maxLetters = 2,
+                  set = function(v) I.GSet(id, "staticDisplay", v and true or false); touch() end }
+                e[#e + 1] = { type = "textinput", label = L["Spacing"], width = 46, numeric = true, min = 0, max = 64, maxLetters = 2,
                   get = function() return I.GGet(id, "spacing") or 1 end,
-                  set = function(v) if v ~= nil then I.GSet(id, "spacing", v); touch() end end },
-            } end }
+                  set = function(v) if v ~= nil then I.GSet(id, "spacing", v); touch() end end }
+                return e
+            end }
         end
 
         -- The Rows sub-cadre: "Max icon per row" → the group's maxPerRow. Changing it re-chunks the strip
@@ -1243,7 +1249,7 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
             -- Refresh() re-applies on toggle, forcing a CDMAnchor refresh so the OLD bucket system
             -- releases / re-takes the Essential viewer immediately.
             { type = "checkbox", label = enableLabel,
-              enabledBy = function() return not (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- native-only toggle; the engine renders this dest regardless
+              shown = function() return not (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- native-only toggle: hidden in engine mode (the engine renders this dest regardless)
               get = function() return I.Enabled() end,
               set = function(v)
                   I.SetEnabled(v)

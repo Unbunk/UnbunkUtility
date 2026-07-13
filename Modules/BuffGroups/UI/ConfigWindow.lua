@@ -801,7 +801,7 @@ local function CreateBuffsPanel(parent)
         -- The module's global enable, OUTSIDE the cadre (just under the title). It greys the whole
         -- cadre below (enabledBy) when off; Refresh() re-applies that on toggle.
         { type = "checkbox", label = L["Enable custom CDM buffs"],
-          enabledBy = function() return not (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- native-only toggle; the engine renders this category regardless
+          shown = function() return not (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- native-only toggle: hidden in engine mode (the engine renders this category regardless)
           get = function() return BG.Enabled() end,
           set = function(v) BG.SetEnabled(v); touch(); if menu then menu.Refresh() end end },
         -- The module's global cadre: every group cadre + Create group + Unused live inside it. It
