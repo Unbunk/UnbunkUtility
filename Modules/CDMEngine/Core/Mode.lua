@@ -127,6 +127,20 @@ function M.Apply()
                 ns.BarGroups.Activate()
             end
         end
+        -- CDMGroups (Essential/Utility) cede/uncede (Level 2): unlike BuffGroups/BarGroups above, this was
+        -- NOT poked on a mode change — it relied on the epoch bump + the 0.2s state ticker to re-take. That
+        -- leaves a transient window right after switching to native where the re-owned native item frames
+        -- still show at the PRE-engine geometry (their border redraws at the stale size) until the next
+        -- ticker fires. Poke both dests directly so the full re-style (nf:SetSize + border) runs immediately,
+        -- mirroring the Buff/Bar pokes. Taint-safe: RefreshLayout gates on I.Enabled() (true in native mode),
+        -- defers all secret reads via ScheduleRelayout, and writes native geometry only through the raw
+        -- re-impose hooks. In engine mode it self-routes to HideAll (cede), matching the module's own bring-up.
+        if ns.CDMGroups then
+            for _, k in ipairs({ "essential", "utility" }) do
+                local I = ns.CDMGroups[k]
+                if I and I.RefreshLayout then I.RefreshLayout() end
+            end
+        end
         -- CustomCDM owns the buff's free-icon fallback: when BuffGroups cedes (engine) BuffMirrored flips
         -- false so its free swipe must render so the buff never vanishes; on return to native it re-hides it.
         if ns.CustomCDM and ns.CustomCDM.UpdateAll then ns.CustomCDM.UpdateAll() end
