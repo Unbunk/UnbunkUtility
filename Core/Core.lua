@@ -131,19 +131,21 @@ local function BuildNavTree()
             { panel = L["Addon settings"] },
             { panel = L["Profiles"] },
             { cat = L["Cooldown Manager"], subs = (function()
-                -- "CDM Settings (beta)" is the hub, always at the TOP: it picks which CDM engine is active.
+                -- "CDM Settings" is the hub, always at the TOP: it picks which CDM engine is active.
                 -- The per-category tabs (Essential / Utility / Buffs / Bars) now show in BOTH modes: the same
                 -- config drives the native render AND the standalone engine (which reuses the native group
                 -- model as its layout source), so a single set of panels configures either engine. L["Utility"]
                 -- resolves to the NEW CDMGroups Utility panel (its RegisterModule supersedes the old bucket).
+                -- "Class resources" (engine-only widget) sits at the BOTTOM, after Free icons.
                 local subs = {
-                    { panel = L["CDM Settings (beta)"] },
+                    { panel = L["CDM Settings"] },
                     { panel = L["Essential"] },
                     { panel = L["Utility"] },
                     { panel = L["Buffs"] },
                     { panel = L["Bars"] },
                     { panel = L["Below player frame"] },
                     { panel = L["Free icons"] },
+                    { panel = L["Class resources"] },
                 }
                 return subs
             end)() },
