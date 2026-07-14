@@ -24,16 +24,28 @@ local DEFAULTS = {
     glowColor  = { 0.96, 1, 0, 1 },   -- {r,g,b,a} for pixel/autocast (F5FF00) ; button/proc ignore it
     rangeCheck = true,                -- tint the icon red while the spell's target is out of range
     showGcdSwipe = true,              -- default ON: draw the global cooldown as a radial spin (no number) on cooldown icons
-    -- P4c class resources (Display/ClassResource.lua) ; .position is set on first drag (nil = default anchor):
+    -- P4c class resources (Display/ClassResource.lua). Per-SPEC, per-BAR config lives under .bars
+    -- (bars[specKey][barIndex] = sparse overrides of BAR_DEFAULTS below); .enable is the master toggle.
     resource = {
-        enable     = true,
-        showCount  = 0,               -- 0 = draw ALL the spec's resources; N>0 = cap to N (1 = signature only)
-        barWidth   = 200, barHeight = 16,
-        pipSize    = 22,  pipSpacing = 3,
-        rowSpacing = 4,   showEmpty  = true,
+        enable = true,
+        bars   = {},
     },
 }
 Cfg.DEFAULTS = DEFAULTS
+
+-- Per-bar defaults (one resource bar). Config is keyed per SPEC: each spec's ORDERED resources
+-- (R.Detect()) get their own bar settings, indexed 1..N. anchorTo is index-dependent (bar 1 -> Essential,
+-- bar N -> the previous bar) so it's resolved in Cfg.GetBar, not stored here.
+Cfg.BAR_DEFAULTS = {
+    enable    = true,
+    barWidth  = 200, barHeight = 16,
+    pipSize   = 22,  pipSpacing = 3,
+    showEmpty = true,
+    adaptTo   = "essential",
+    placement = "above",
+    posX = 0, posY = 0,
+    unlocked = false,
+}
 
 -- 'CDMEngine' is a BRAND-NEW profile key (never persisted before this branch), so its casing is free
 -- to choose; we fix it here and never rename it (cf. the profile-key-casing rule for the old keys).
@@ -46,13 +58,6 @@ function Cfg.Init()
     ns.db.profile.CDMEngine = ns.db.profile.CDMEngine or {}
     local cfg = ns.db.profile.CDMEngine
     ns.MergeDefaults(cfg, DEFAULTS)
-    -- One-time migration: P4c changed the resource showCount default 1 -> 0 (0 = draw ALL the spec's
-    -- resources). MergeDefaults never overwrites an existing value, so early testers stayed on the old 1
-    -- and saw only their first resource. Reset it once, gated by a per-profile marker.
-    if cfg.resource and (cfg.resource._migrated or 0) < 1 then
-        cfg.resource.showCount = DEFAULTS.resource.showCount
-        cfg.resource._migrated = 1
-    end
     -- One-time migration: the standalone engine is now the DEFAULT display mode. MergeDefaults already wrote
     -- "native" into every profile created under the old default, so flip those to "engine" ONCE. The marker
     -- lets a later DELIBERATE switch back to native stick (we never re-flip); new profiles merged "engine"
@@ -98,23 +103,27 @@ function Cfg.SetResource(key, value)
     r.resource[key] = value
 end
 
--- The resource widget's saved position, or nil (nil = default anchor). Validates both axes are numbers
--- so a half-written table never yields a partial SetPoint.
-function Cfg.GetResourcePos()
+-- Per-spec, per-bar resource config. specKey = R.GetSpecKey() (numeric specID or CLASSFILE string),
+-- normalised to a string table key so it round-trips. i = the resource's 1-based position in R.Detect().
+-- Falls back to BAR_DEFAULTS; anchorTo defaults to Essential for bar 1, the previous bar otherwise.
+function Cfg.GetBar(specKey, i, key)
     local r = Root()
-    local p = r and r.resource and r.resource.position
-    if type(p) == "table" and type(p.x) == "number" and type(p.y) == "number" then return p end
-    return nil
+    local bars = r and r.resource and r.resource.bars
+    local sb = bars and specKey and bars[tostring(specKey)]
+    local b  = sb and i and sb[i]
+    local v  = b and b[key]
+    if v ~= nil then return v end
+    if key == "anchorTo" then return (i and i > 1) and ("bar" .. (i - 1)) or "essential" end
+    return Cfg.BAR_DEFAULTS[key]
 end
 
-function Cfg.SetResourcePos(x, y)
+function Cfg.SetBar(specKey, i, key, val)
     local r = Root()
-    if not (r and type(x) == "number" and type(y) == "number") then return end
+    if not (r and specKey and i and key) then return end
     r.resource = r.resource or {}
-    r.resource.position = { x = x, y = y }
-end
-
-function Cfg.ClearResourcePos()
-    local r = Root()
-    if r and r.resource then r.resource.position = nil end
+    r.resource.bars = r.resource.bars or {}
+    local sk = tostring(specKey)
+    r.resource.bars[sk] = r.resource.bars[sk] or {}
+    r.resource.bars[sk][i] = r.resource.bars[sk][i] or {}
+    r.resource.bars[sk][i][key] = val
 end
