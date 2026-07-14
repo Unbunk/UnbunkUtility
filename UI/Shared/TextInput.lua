@@ -34,6 +34,13 @@ function ns.ui.CreateTextInput(config)
     -- is clamped to [min, max] and the clamped value is written back into the box.
     local minVal     = config.min
     local maxVal     = config.max
+    -- Optional `disabled` (boolean | function -> boolean): greys the box + text and blocks input. Re-evaluated
+    -- by result.Refresh() (which a panel calls on menu.Refresh), so a live toggle reflects immediately.
+    local getDisabled = config.disabled
+    local function IsDisabled()
+        if type(getDisabled) == "function" then return getDisabled() and true or false end
+        return getDisabled == true
+    end
 
     local result = {}
 
@@ -108,6 +115,20 @@ function ns.ui.CreateTextInput(config)
     function result.GetText()
         return editBox:GetText()
     end
+
+    -- Apply the (possibly live) disabled state: grey + block input, or restore. Call after a config change.
+    function result.Refresh()
+        if IsDisabled() then
+            editBox:Disable(); editBox:ClearFocus()
+            editBox:SetTextColor(0.5, 0.5, 0.5, 1)
+            fill:SetColorTexture(0.08, 0.08, 0.08, 0.95)
+        else
+            editBox:Enable()
+            editBox:SetTextColor(1, 1, 1, 1)
+            fill:SetColorTexture(0.12, 0.12, 0.12, 0.95)
+        end
+    end
+    result.Refresh()
 
     result.frame   = container
     result.editBox = editBox

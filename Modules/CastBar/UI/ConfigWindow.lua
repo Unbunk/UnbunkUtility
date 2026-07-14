@@ -49,13 +49,30 @@ local function CreateCastBarPanel(parent)
     end
 
     -- A CDM-destination dropdown (essential / utility / below player) for a config key.
+    local function ResBarTargets() return (ns.ResourceBarAnchorTargets and ns.ResourceBarAnchorTargets()) or {} end
     local function cdmDestDropdown(label, key, onChange, whenFn)
         return { type = "dropdown", label = label, width = 220, height = 50, when = whenFn,
-            -- Plain 3-way dest picker (no front/end split): the cast bar stores a raw
-            -- cdmDest key, so use the key list rather than the per-tracker 4-option choices.
-            getList       = function() return ns.CDMDestKeyList() end,
-            getCurrentKey = function() return ns.CDMDestLabel(CB.CfgGet(key) or "essential") end,
-            onSelect      = function(lbl) CB.CfgSet(key, ns.CDMDestKeyFromLabel(lbl)); if onChange then onChange() end end }
+            -- Plain 3-way dest picker (no front/end split) + the class-resource bars (+ "Last bar"): the cast
+            -- bar stores a raw cdmDest or "resbar:*" key, so map labels against both sets.
+            getList = function()
+                local t = ns.CDMDestKeyList()
+                for _, tgt in ipairs(ResBarTargets()) do t[#t + 1] = tgt.label end
+                return t
+            end,
+            getCurrentKey = function()
+                local k = CB.CfgGet(key) or "essential"
+                if ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(k) then
+                    for _, tgt in ipairs(ResBarTargets()) do if tgt.key == k then return tgt.label end end
+                    return (ns.L and ns.L["Last bar"]) or k
+                end
+                return ns.CDMDestLabel(k)
+            end,
+            onSelect = function(lbl)
+                local resk
+                for _, tgt in ipairs(ResBarTargets()) do if tgt.label == lbl then resk = tgt.key break end end
+                CB.CfgSet(key, resk or ns.CDMDestKeyFromLabel(lbl))
+                if onChange then onChange() end
+            end }
     end
 
     -- A statusbar-texture dropdown (LibSharedMedia) for a config key. Shows the EFFECTIVE key

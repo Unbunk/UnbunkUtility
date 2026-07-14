@@ -254,29 +254,78 @@ local function GroupTabInstance(dest)
     if dest == "bar"  then return ns.BarGroups end
     return nil
 end
-local function GroupTabPos(g)
+local function GroupTabGet(g, key)
     local dest, gid = tostring(g.catKey or ""):match("^(%a+):(%d+)$")
     local I = dest and GroupTabInstance(dest)
     if not (I and I.GGet and gid) then return nil end
-    gid = tonumber(gid)
-    local x, y = I.GGet(gid, "posX"), I.GGet(gid, "posY")
+    return I.GGet(tonumber(gid), key)
+end
+local function GroupTabPos(g)
+    local x, y = GroupTabGet(g, "posX"), GroupTabGet(g, "posY")
     if type(x) == "number" and type(y) == "number" then return x, y end
     return nil
 end
+-- placement key -> { group point, anchor point } (mirrors BuffGroups/BarGroups RELPOS_POINTS). Used only
+-- when a group rides a resource bar (below).
+local RELPOS_POINTS = {
+    above       = { "BOTTOM",      "TOP"         },
+    below       = { "TOP",         "BOTTOM"      },
+    left        = { "RIGHT",       "LEFT"        },
+    right       = { "LEFT",        "RIGHT"       },
+    topleft     = { "BOTTOMRIGHT", "TOPLEFT"     },
+    topright    = { "BOTTOMLEFT",  "TOPRIGHT"    },
+    bottomleft  = { "TOPRIGHT",    "BOTTOMLEFT"  },
+    bottomright = { "TOPLEFT",     "BOTTOMRIGHT" },
+}
 
--- A group is "free" (positioned) when its tab has an explicit posX/posY; absence = auto-stack.
+-- A group is "free" (positioned) when its tab has an explicit posX/posY OR anchors it to a resource bar
+-- (anchorTo = "resbar:*"); absence of both = auto-stack.
 local function IsFree(g)
-    return GroupTabPos(g) ~= nil
+    if GroupTabPos(g) ~= nil then return true end
+    local a = GroupTabGet(g, "anchorTo")
+    return (ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(a)) or false
 end
 
--- Re-impose each positioned group's CENTER/UIParent anchor from its tab posX/posY. Idempotent, called
--- last in a build (and in the cheap refresh path) so the config always has the final word on position.
+-- A frame's named-point coordinates in SCREEN pixels (effective scale folded in), or nil if unpositioned.
+local function ScreenPoint(f, point)
+    local l, b, w, h = f:GetLeft(), f:GetBottom(), f:GetWidth(), f:GetHeight()
+    local s = f:GetEffectiveScale()
+    if not (l and b and w and h and s) then return nil end
+    local x = point:find("LEFT") and l or (point:find("RIGHT") and (l + w) or (l + w / 2))
+    local y = point:find("BOTTOM") and b or (point:find("TOP") and (b + h) or (b + h / 2))
+    return x * s, y * s
+end
+
+-- Re-impose each positioned group's anchor. A tab anchorTo of "resbar:*" is the ONE native anchor the
+-- engine honours: it points at OUR resource-bar proxy (not a masked native viewer), so the group rides that
+-- bar (relPos side + posX/posY offset) — e.g. Buffs under the last resource bar. Everything else is a plain
+-- screen-centre offset from the tab posX/posY. Idempotent; called last in a build + the cheap refresh path.
 local function ApplyFreePositions()
     for _, g in ipairs(groupFrames) do
-        local x, y = GroupTabPos(g)
-        if x then
+        local a = GroupTabGet(g, "anchorTo")
+        if ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(a) then
+            local rf     = ns.ResolveResourceBarFrame and ns.ResolveResourceBarFrame(a)
+            local x, y   = GroupTabPos(g)
+            local pts    = RELPOS_POINTS[GroupTabGet(g, "relPos") or "above"] or RELPOS_POINTS.above
+            local bx, by
+            if rf then bx, by = ScreenPoint(rf, pts[2]) end   -- NB: keep as an if, not `rf and ScreenPoint(...)` (that `and` truncates the 2nd return)
+            local gs     = g:GetEffectiveScale()
             g:ClearAllPoints()
-            g:SetPoint("CENTER", UIParent, "CENTER", x, y)
+            if bx and gs and gs > 0 then
+                -- Pin at the bar's edge in ABSOLUTE UIParent coords, NOT a live SetPoint into rf: the engine
+                -- groups are children of `container` and resource bars anchor back to essential:1 (also a
+                -- child), so a SetPoint into that chain trips WoW's circular-dependency guard. The deferred
+                -- ReapplyPositions poke (on every resource (re)build) keeps it tracking the bar.
+                g:SetPoint(pts[1], UIParent, "BOTTOMLEFT", bx / gs + (x or 0), by / gs + (y or 0))
+            else
+                g:SetPoint("CENTER", UIParent, "CENTER", x or 0, y or 0)   -- bar absent / unpositioned -> screen centre
+            end
+        else
+            local x, y = GroupTabPos(g)
+            if x then
+                g:ClearAllPoints()
+                g:SetPoint("CENTER", UIParent, "CENTER", x, y)
+            end
         end
     end
 end
@@ -583,6 +632,7 @@ local function BuildLayout()
     ArrangeContainer()
     ApplyFreePositions()                   -- positioned groups: pinned to UIParent, the last word on position
     if E.Icon.RefreshPressPoll then E.Icon.RefreshPressPoll() end   -- (dis)arm the press-overlay poller
+    if E.Icon.RefreshTierPoll  then E.Icon.RefreshTierPoll()  end   -- (dis)arm the timer-threshold size poller
     if ns.CastBar and ns.CastBar.NotifyAnchorChanged then ns.CastBar.NotifyAnchorChanged() end   -- cast bar re-adapts to the engine group
     if E.Resource and E.Resource.Reposition then E.Resource.Reposition() end   -- resource bars re-anchor to the (pooled) group frames
 end
@@ -740,6 +790,7 @@ local function HideWidgets()
     UnregisterEvents()
     E.Icon.ReleaseAll()
     if E.Icon.RefreshPressPoll then E.Icon.RefreshPressPoll() end   -- no active icons now -> stop the poller
+    if E.Icon.RefreshTierPoll  then E.Icon.RefreshTierPoll()  end
     ReleaseGroups()   -- Group.Release re-parents every hosted tracker back to UIParent (single owner of that handoff)
     if container then container:Hide() end
     if E.Resource and E.Resource.HideWidgets then E.Resource.HideWidgets() end   -- P4c class resources
@@ -751,6 +802,9 @@ function E.Layout.IsShown()         return shown end
 function E.Layout.GetSpec()         return SPEC end
 function E.Layout.ScheduleRebuild() ScheduleRebuild() end
 function E.Layout.HideWidgets()     HideWidgets() end
+-- Cheap re-pin of the positioned groups (no rebuild). The resource module pokes this after a bar (re)build
+-- so a group anchored to "resbar:*" re-resolves once its bar appears / disappears.
+function E.Layout.ReapplyPositions() if shown then ApplyFreePositions() end end
 -- The live engine group frame for a catKey ("essential:1" / "utility:1" / …), or nil — the cast bar uses it
 -- to anchor to / adapt its width from the engine's OWN group in engine mode (the native viewer it would
 -- otherwise use is alpha-masked and sits at the native layout position, not where the engine draws).

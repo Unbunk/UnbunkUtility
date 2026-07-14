@@ -30,6 +30,7 @@ UI/Shared/TextInput.lua
 UI/Shared/ColorPicker.lua
 UI/Shared/Prompt.lua
 UI/Shared/Checkbox.lua
+UI/Shared/Slider.lua
 UI/Shared/Dropdown.lua
 UI/Shared/CollapsibleSection.lua
 UI/Shared/TextEditor.lua

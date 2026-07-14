@@ -38,9 +38,24 @@ Cfg.DEFAULTS = DEFAULTS
 -- bar N -> the previous bar) so it's resolved in Cfg.GetBar, not stored here.
 Cfg.BAR_DEFAULTS = {
     enable    = true,
-    barWidth  = 200, barHeight = 16,
-    pipSize   = 22,  pipSpacing = 3,
+    barWidth  = 200, barHeight = 16,   -- pips fill this: each pip = barWidth/N wide x barHeight tall, no gaps
     showEmpty = true,
+    -- showSplit has NO flat default: it's resolved PER-FAMILY (primary "bar" resources like mana default OFF,
+    -- pips default ON), so GetBar returns nil when unset and the row + config UI apply the family default.
+    -- Continuous "bar" resources (e.g. mana) with split ON: place a divider every (splitUnit / splitCount) of
+    -- the resource, i.e. `splitCount` dividers per `splitUnit` amount. splitUnit (X) is editable; splitCount is
+    -- the slider. Non-"bar" families (pips) ignore these — they divide between pips.
+    splitUnit  = 50000,            -- X: resource amount per unit
+    splitCount = 2,                -- dividers per splitUnit (the slider)
+    splitThickness = 1,            -- divider line width in PHYSICAL px
+    -- value / percent text (continuous "bar" resources only, e.g. mana): each can show, each positioned
+    -- left / center / right, both allowed at once. Default: value ON at LEFT + percent ON at RIGHT.
+    showValueText   = true, valueTextPos   = "left",
+    showPercentText = true, percentTextPos = "right",
+    -- per-text font styling (fontKey resolved to a path via ns.ResolveFontPath / LSM; default = Fira Mono)
+    valueFontKey   = "Fira Mono", valueFontSize   = 12, valueOutline   = "OUTLINE", valueColor   = { r = 1, g = 1, b = 1, a = 1 },
+    percentFontKey = "Fira Mono", percentFontSize = 12, percentOutline = "OUTLINE", percentColor = { r = 1, g = 1, b = 1, a = 1 },
+    adaptWidth = true,             -- when true, the bar width follows adaptTo's frame (Bar width greyed); else fixed
     adaptTo   = "essential",
     placement = "above",
     posX = 0, posY = 0,
@@ -113,7 +128,7 @@ function Cfg.GetBar(specKey, i, key)
     local b  = sb and i and sb[i]
     local v  = b and b[key]
     if v ~= nil then return v end
-    if key == "anchorTo" then return (i and i > 1) and ("bar" .. (i - 1)) or "essential" end
+    if key == "anchorTo" then return (i and i > 1) and ("resbar:" .. (i - 1)) or "essential" end
     return Cfg.BAR_DEFAULTS[key]
 end
 

@@ -80,6 +80,11 @@ local function GroupOneBox(dest)
 end
 
 local function AnchorDestFrame(dest)
+    -- Class-resource bar target ("resbar:*") -> the shared proxy handle (nil while absent -> ApplyPosition/
+    -- ApplyLayout fall back to their saved position / width, same as any missing anchor).
+    if ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(dest) then
+        return ns.ResolveResourceBarFrame(dest)
+    end
     if dest == "belowPlayer" then return _G.PlayerFrame end
     -- In engine mode NEVER fall back to the native viewer: it's alpha-masked and sits at the NATIVE layout
     -- position, not where the engine draws — anchoring there would drop the cast bar in the wrong place.
