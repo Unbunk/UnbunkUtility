@@ -431,6 +431,11 @@ local function ContainerAnchor(g)
             or (ns.GetCDMViewer and ns.GetCDMViewer(anchorTo))
     elseif anchorTo == "belowPlayer" then
         rel = ResolvePlayerFrame()
+    elseif ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(anchorTo) then
+        -- Ride a class-resource bar; nil while that bar is absent -> fall back to Essential (stay visible).
+        rel = ns.ResolveResourceBarFrame(anchorTo)
+            or (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame("essential"))
+            or (ns.GetCDMViewer and ns.GetCDMViewer("essential"))
     end
     return pts[1], rel or UIParent, pts[2]
 end

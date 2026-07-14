@@ -150,6 +150,7 @@ function Icon.StyleFrame(f)
         if tcol then f._cdFont:SetTextColor(tcol.r, tcol.g, tcol.b, tcol.a or 1) end
         if cd.SetCountdownFont then cd:SetCountdownFont(f._cdFontName) end
     end
+    f._tierScale = nil   -- just set the BASE size; the tier poller re-applies any threshold scale next tick
     if cd.SetCountdownFormatter then
         cd:SetCountdownFormatter(ns.CDMGroups.CooldownFormatter
             and ns.CDMGroups.CooldownFormatter.GetFor(I, sid) or nil)
@@ -202,12 +203,32 @@ function Icon.StyleFrame(f)
     end
 end
 
+-- Is a charge/stack still usable? currentCharges is SECRET in combat -> treat as "not determinable" (false),
+-- which desaturates on cooldown, matching the native TimerIcon behaviour (ChargesAvailable / ApplyCdDesat).
+local function ChargeAvailable(sid)
+    local ci = sid and C_Spell and C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
+    if not ci then return false end
+    local cur = ci.currentCharges
+    if cur == nil or issecretvalue(cur) then return false end
+    return cur > 0
+end
+-- "Darken icon when on cd with stacks" parity with the native path (TimerIcon.ApplyCdDesat): on a REAL
+-- cooldown, grey the icon — unless a charge is still usable AND the darken-with-stacks toggle is OFF.
+local function ApplyDesat(f, onRealCd)
+    if not (f.Icon and f.Icon.SetDesaturated) then return end
+    if not onRealCd then f.Icon:SetDesaturated(false); return end
+    local I   = DestI(f)
+    local sid = f.baseSpellID or f._lastGoodSid or f.spellID
+    local darken = I and sid and I.IconGet and I.IconGet(sid, "darkenOnCdWithStacks") == true
+    f.Icon:SetDesaturated(darken or not ChargeAvailable(f.spellID or f._lastGoodSid))
+end
+
 -- Swipe: ONE secret-safe source. ns.SpellRealCooldownSwipe returns the duration object of the real
 -- cooldown (or the recharging charge's arc), or nil when the spell is idle / only on GCD — in which
 -- case we Clear() (drawing a swipe then would look falsely ready/busy).
 local function UpdateSwipe(f)
     local sid = f.spellID or f._lastGoodSid
-    if not sid then f.Cooldown:Clear(); return end
+    if not sid then f.Cooldown:Clear(); ApplyDesat(f, false); return end
     local swipe = ns.SpellRealCooldownSwipe and ns.SpellRealCooldownSwipe(sid)
     local onGcd = false
     -- Default ON (togglable): if there's no REAL cooldown, draw the global-cooldown sweep instead (Coolinator
@@ -222,6 +243,7 @@ local function UpdateSwipe(f)
     else
         f.Cooldown:Clear()
     end
+    ApplyDesat(f, swipe ~= nil and not onGcd)   -- grey on a REAL cooldown (GCD spin never greys)
 end
 
 -- Charge count. Only shown for a multi-charge spell that is not full. In combat currentCharges is
@@ -292,13 +314,14 @@ function Icon.Release(f)
         f.Cooldown:Clear()
     end
     if f.Count then f.Count:SetText(""); f.Count:Hide() end
+    if f.Icon and f.Icon.SetDesaturated then f.Icon:SetDesaturated(false) end   -- pooled reuse: start lit
     -- Blank the decorations so a POOLED frame reused in combat for a spell whose id is still secret (StyleFrame
     -- early-outs) can't inherit the prior spell's title/keybind/border over the fallback art.
     if f.Title   then f.Title:SetText("");   f.Title:Hide()   end
     if f.Keybind then f.Keybind:SetText(""); f.Keybind:Hide() end
     if f.PressOverlay then f.PressOverlay:Hide() end
     if ns.CDMAnchor and ns.CDMAnchor.ApplyFrameBorder then ns.CDMAnchor.ApplyFrameBorder(f, false) end
-    f.cdmID, f.spellID, f.baseSpellID, f.info, f._lastGoodSid, f._dest, f._showTimer = nil, nil, nil, nil, nil, nil, nil
+    f.cdmID, f.spellID, f.baseSpellID, f.info, f._lastGoodSid, f._dest, f._showTimer, f._tierScale = nil, nil, nil, nil, nil, nil, nil, nil
     f:Hide()
     f:ClearAllPoints()
     f:SetParent(UIParent)
@@ -380,4 +403,63 @@ function Icon.RefreshPressPoll()
         end
     end
     pressPoll:Hide()
+end
+
+-- ── Timer-urgency SIZE scaling (timerThresholds): the countdown number GROWS below a configured time. The
+-- number is drawn C-side (secret-safe) so we can't restyle it from its value per frame; instead we read the
+-- cooldown's REMAINING time (GetSpellCooldown — readable everywhere EXCEPT instanced combat, where it's
+-- secret, so we hold the last size) on a throttled tick and rescale the per-frame countdown Font. Colour
+-- below a threshold is already handled C-side by the CooldownFormatter, so only SIZE lives here. ───────────
+local function TierScaleFor(f)
+    local I   = DestI(f)
+    local sid = f.baseSpellID or f._lastGoodSid or f.spellID
+    if not (I and sid and I.IconGet and I.IconGet(sid, "timerThresholdsEnabled") == true) then return 1 end
+    local thr = I.IconGet(sid, "timerThresholds")
+    if type(thr) ~= "table" then return 1 end
+    local dsid = f.spellID or f._lastGoodSid
+    local cd = dsid and C_Spell and C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(dsid)
+    if not (cd and cd.isActive) then return 1 end                       -- ready -> base size
+    local st, du = cd.startTime, cd.duration
+    if st == nil or du == nil or issecretvalue(st) or issecretvalue(du) then return nil end   -- secret -> hold
+    local remaining = (st + du) - GetTime()
+    if remaining <= 0 then return 1 end
+    local best, bestAt   -- the most urgent matching tier (smallest `time` the remaining has fallen to/below)
+    for _, x in ipairs(thr) do
+        local at = x.time or 0
+        if remaining <= at and (not bestAt or at < bestAt) then best, bestAt = x, at end
+    end
+    return (best and best.size) or 1   -- size = a scale multiplier (parity with TimerIcon SetTimerFont)
+end
+local function ApplyTierSize(f)
+    local scale = TierScaleFor(f)
+    if scale == nil or f._tierScale == scale then return end   -- secret time held, or unchanged -> nothing to do
+    f._tierScale = scale
+    local I   = DestI(f)
+    local sid = f.baseSpellID or f._lastGoodSid or f.spellID
+    if not (I and sid and f._cdFont) then return end
+    local base = I.IconGet(sid, "timerFontSize") or 14
+    f._cdFont:SetFont(ns.ResolveFontPath(I.IconGet(sid, "timerFontPath"), I.IconGet(sid, "timerFontKey")),
+        math.max(8, math.floor(base * scale)), I.IconGet(sid, "timerOutline") or "OUTLINE")
+    if f.Cooldown.SetCountdownFont then f.Cooldown:SetCountdownFont(f._cdFontName) end
+end
+local tierAccum = 0
+local tierPoll = CreateFrame("Frame")
+tierPoll:Hide()
+tierPoll:SetScript("OnUpdate", function(_, dt)
+    tierAccum = tierAccum + dt
+    if tierAccum < 0.2 then return end
+    tierAccum = 0
+    for f in pairs(active) do ApplyTierSize(f) end
+end)
+-- Enable the tier poller only while a shown icon has thresholds ON (avoid an idle OnUpdate). Layout calls this
+-- after every build; a threshold edit bumps ns.StyleEpoch -> a rebuild -> this re-runs.
+function Icon.RefreshTierPoll()
+    for f in pairs(active) do
+        local I   = DestI(f)
+        local sid = f.baseSpellID or f._lastGoodSid or f.spellID
+        if I and sid and I.IconGet and I.IconGet(sid, "timerThresholdsEnabled") == true then
+            tierPoll:Show(); return
+        end
+    end
+    tierPoll:Hide()
 end

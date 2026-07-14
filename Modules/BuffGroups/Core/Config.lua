@@ -35,7 +35,7 @@ BG.GROUP_CAP = 12
 -- key a saved group predates (so adding a key here needs no data migration).
 local GROUP_TEMPLATE = {
     -- placement
-    anchorTo = "essential",    -- "essential" | "utility" | "belowPlayer" | "screen"
+    anchorTo = "resbar:last",  -- "essential" | "utility" | "belowPlayer" | "screen" | "resbar:<i>" | "resbar:last"
     relPos   = "above",        -- side/corner of the anchor: above|below|left|right|topleft|topright|bottomleft|bottomright
     growDir  = "CENTER_H",     -- "RIGHT" | "LEFT" | "UP" | "DOWN" | "CENTER_H" | "CENTER_V"
     spacing  = 0,
@@ -280,6 +280,16 @@ function BG.CfgInit()
             if gid == 0 then s.assign[sid] = nil end
         end
         if s.order then s.order[0] = nil end
+    end
+    -- One-shot: "Buffs" now default-anchor to the LAST class-resource bar (buff group sits under the resource
+    -- bars). Flip groups still on the OLD default ("essential", set by the V6 reset) to "resbar:last"; groups
+    -- the user set to anything else (utility / belowPlayer / screen) are preserved. A spec with no resource
+    -- bars resolves the anchor to Essential as a graceful fallback (see ContainerAnchor / Layout).
+    if not s.buffAnchorLastBarV1 then
+        s.buffAnchorLastBarV1 = true
+        for _, g in pairs(s.groups) do
+            if (g.anchorTo or "essential") == "essential" then g.anchorTo = "resbar:last" end
+        end
     end
 end
 ns.RegisterCfgInitHook(BG.CfgInit)

@@ -98,6 +98,7 @@ local GROUP_TEMPLATE = {
     titlePos      = "TOP", titleOffX = 0, titleOffY = 0,
     -- stack / charge count text (native Applications restyle)
     showStack     = true, showAtZero = false,
+    darkenOnCdWithStacks = true,   -- default: grey the icon while on cooldown even if it still has charges/stacks
     stackFontKey  = "Fira Mono", stackFontPath = nil, stackFontSize = 10, stackOutline = "OUTLINE",
     stackColor    = { r = 1, g = 1, b = 1, a = 1 },
     stackPos      = "BOTTOMRIGHT", stackOffX = 0, stackOffY = 0,
@@ -141,7 +142,7 @@ local function MakeGroup1(dest)
         g.anchorTo = "essential"
         g.relPos   = "below"
         g.posX     = 0
-        g.posY     = -300   -- default: below screen center
+        g.posY     = -285   -- default: below screen center
         g.iconW    = 38
         g.iconH    = 38
     else
@@ -240,6 +241,12 @@ function CDG.Make(dest)
                 s.groups[1].iconH = 38
                 s.groups[1].posY  = -300
             end
+        end
+        -- One-time: UTILITY Group 1's default Y is now -285 (a small upward nudge from the prior -300 that V2
+        -- set). Apply once to a profile whose Y still sits at that -300 default; a later manual change sticks.
+        if dest == "utility" and not s.utilityDefaultsV3 then
+            s.utilityDefaultsV3 = true
+            if s.groups[1] and s.groups[1].posY == -300 then s.groups[1].posY = -285 end
         end
         -- One-time: the default group spacing is now 0 (icons flush). Apply to EXISTING groups (both dests)
         -- once; MergeDefaults left their saved spacing at the old default. A later manual change sticks.

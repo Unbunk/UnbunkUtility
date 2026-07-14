@@ -25,19 +25,30 @@ local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
 -- ── anchorTo / growDir / relPos / iconPosition / fillDirection option maps ──────
 local ANCHOR_ORDER = { "essential", "utility", "belowPlayer", "screen" }
+-- The current spec's resource bars (+ "Last bar") as extra anchor targets, from the shared source. Anchoring
+-- a group to a "resbar:*" key rides that bar in both modes (native = ContainerAnchor; engine = Layout).
+local function ResBarTargets()
+    return (ns.ResourceBarAnchorTargets and ns.ResourceBarAnchorTargets()) or {}
+end
 local function AnchorLabel(key)
     if key == "essential"   then return L["Essential"]    end
     if key == "screen"      then return L["Screen"]       end
     if key == "belowPlayer" then return L["Below player"] end
+    if type(key) == "string" and key:match("^resbar:") then
+        for _, tgt in ipairs(ResBarTargets()) do if tgt.key == key then return tgt.label end end
+        return L["Last bar"] or key
+    end
     return L["Utility"]
 end
 local function AnchorList()
     local t = {}
     for _, k in ipairs(ANCHOR_ORDER) do t[#t + 1] = AnchorLabel(k) end
+    for _, tgt in ipairs(ResBarTargets()) do t[#t + 1] = tgt.label end
     return t
 end
 local function AnchorFromLabel(label)
     for _, k in ipairs(ANCHOR_ORDER) do if AnchorLabel(k) == label then return k end end
+    for _, tgt in ipairs(ResBarTargets()) do if tgt.label == label then return tgt.key end end
     return "utility"
 end
 
