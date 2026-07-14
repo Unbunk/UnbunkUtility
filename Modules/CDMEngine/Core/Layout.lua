@@ -584,6 +584,7 @@ local function BuildLayout()
     ApplyFreePositions()                   -- positioned groups: pinned to UIParent, the last word on position
     if E.Icon.RefreshPressPoll then E.Icon.RefreshPressPoll() end   -- (dis)arm the press-overlay poller
     if ns.CastBar and ns.CastBar.NotifyAnchorChanged then ns.CastBar.NotifyAnchorChanged() end   -- cast bar re-adapts to the engine group
+    if E.Resource and E.Resource.Reposition then E.Resource.Reposition() end   -- resource bars re-anchor to the (pooled) group frames
 end
 
 -- ── Coalesced, DEFERRED relayout (Phase 1 firewall, generalised) ────────────────────────────────
