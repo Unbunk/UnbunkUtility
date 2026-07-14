@@ -38,7 +38,7 @@ local GROUP_TEMPLATE = {
     anchorTo = "essential",    -- "essential" | "utility" | "belowPlayer" | "screen"
     relPos   = "above",        -- side/corner of the anchor: above|below|left|right|topleft|topright|bottomleft|bottomright
     growDir  = "CENTER_H",     -- "RIGHT" | "LEFT" | "UP" | "DOWN" | "CENTER_H" | "CENTER_V"
-    spacing  = 1,
+    spacing  = 0,
     staticDisplay = false,     -- false: only currently-active buffs take a slot (reflow); true: every member keeps its slot
     -- geometry
     iconW = 36, iconH = 36,
@@ -74,7 +74,7 @@ local GROUP_TEMPLATE = {
     showStack     = true, showAtZero = false,
     stackFontKey  = "Fira Mono", stackFontPath = nil, stackFontSize = 8, stackOutline = "OUTLINE",
     stackColor    = { r = 1, g = 1, b = 1, a = 1 },
-    stackPos      = "BOTTOMRIGHT", stackOffX = 2, stackOffY = -2,
+    stackPos      = "BOTTOMRIGHT", stackOffX = 0, stackOffY = 0,
     -- sound alert (PER-ICON only — the pencil editor writes these via IconSet; no group
     -- panel exposes them, it's not a group-inherited visual). Both off by default so the
     -- new keys backfill harmlessly via MergeDefaults (no migration). The sound keys are
@@ -180,6 +180,12 @@ function BG.CfgInit()
             g.posY = 0
         end
     end
+    -- One-time: the default group spacing is now 0 (icons flush). Apply to EXISTING groups once (the V6
+    -- reset above set the old spacing=1; MergeDefaults won't change a saved value). A later manual change sticks.
+    if not s.spacingZeroV1 then
+        s.spacingZeroV1 = true
+        for _, g in pairs(s.groups) do g.spacing = 0 end
+    end
     -- One-shot: smaller default timer (12) / stacks (8) fonts and the stacks offset (2,-2), applied
     -- to existing groups (changed defaults don't retro-fill). Timer thresholds are NEW keys, so they
     -- backfill onto existing groups via MergeDefaults above — no migration needed for those.
@@ -191,6 +197,12 @@ function BG.CfgInit()
             g.stackOffX = 2
             g.stackOffY = -2
         end
+    end
+    -- One-time: stack/charge count offsets default to 0 (centred on stackPos). Apply to EXISTING groups
+    -- once (the V7 reset above set 2/-2); a later manual change sticks.
+    if not s.stackOffsetZeroV1 then
+        s.stackOffsetZeroV1 = true
+        for _, g in pairs(s.groups) do g.stackOffX = 0; g.stackOffY = 0 end
     end
     -- One-shot: time thresholds now default OFF. The scalar backfilled onto existing groups as
     -- TRUE (via MergeDefaults, when its default was true) and a changed default won't retro-apply,
