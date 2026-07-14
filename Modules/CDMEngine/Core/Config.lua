@@ -17,7 +17,7 @@ local Cfg = {}
 E.Cfg = Cfg
 
 local DEFAULTS = {
-    mode       = "native",            -- CDM display mode (Core/Mode.lua): "native" (default) | "engine"
+    mode       = "engine",            -- CDM display mode (Core/Mode.lua): "engine" (default) | "native"
     -- P4 icon extras (Display/IconExtras.lua):
     procGlow   = true,                -- glow the icon while its spell has an activation proc
     glowType   = "pixel",             -- "pixel" | "autocast" | "button" | "proc" (LibCustomGlow)
@@ -52,6 +52,14 @@ function Cfg.Init()
     if cfg.resource and (cfg.resource._migrated or 0) < 1 then
         cfg.resource.showCount = DEFAULTS.resource.showCount
         cfg.resource._migrated = 1
+    end
+    -- One-time migration: the standalone engine is now the DEFAULT display mode. MergeDefaults already wrote
+    -- "native" into every profile created under the old default, so flip those to "engine" ONCE. The marker
+    -- lets a later DELIBERATE switch back to native stick (we never re-flip); new profiles merged "engine"
+    -- and skip the flip.
+    if (cfg._modeDefaultV or 0) < 1 then
+        if cfg.mode == "native" then cfg.mode = "engine" end
+        cfg._modeDefaultV = 1
     end
 end
 ns.RegisterCfgInitHook(Cfg.Init)
