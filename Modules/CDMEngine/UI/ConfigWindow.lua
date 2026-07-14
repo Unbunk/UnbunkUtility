@@ -1,39 +1,21 @@
 -- Modules/CDMEngine/UI/ConfigWindow.lua
 --
--- Config panel for the standalone CDM engine (ns.CDMEngine). Declarative BuildMenu, mirroring the
--- other modules (pilot: PITracker/UI/ConfigWindow.lua). It exposes the engine's persisted knobs and a
--- few session actions:
---   Engine        : show/hide the widgets, toggle design mode, reset group positions.
---   Class resources: enable, show-all vs signature, bar/pip sizes, empty pips, reset position.
---                   Applied live via E.Resource.Rebuild().
--- Everything the panel drives is our OWN config / frames — no native-frame contact.
+-- Config panels for the standalone CDM engine (ns.CDMEngine). Declarative BuildMenu.
+--   CDM Settings   : pick the active engine (native vs standalone) + how each group is positioned.
+--   Class resources: its OWN tab (registered after "Free icons" in the nav) — enable, show-all vs
+--                    signature, bar/pip sizes, empty pips, reset position. Applied live via E.Resource.Rebuild().
+-- Everything the panels drive is our OWN config / frames — no native-frame contact.
 
 local _, ns = ...
 local L = ns.L
 ns.CDMEngine = ns.CDMEngine or {}
 local E = ns.CDMEngine
 
+-- ── CDM Settings: which engine is active + a positioning hint ──────────────────────
 local function CreateCDMEnginePanel(parent)
-    local menu   -- forward-declared so set() closures can call menu.Refresh()
-
-    -- Live-apply shorthands (all guarded — the engine modules load before this panel is ever opened,
-    -- but stay defensive).
-    local function RebuildResources() if E.Resource and E.Resource.Rebuild then E.Resource.Rebuild() end end
-    local function ResourcesOn() return E.Cfg and E.Cfg.GetResource("enable") == true end
-
-    -- Numeric size field for a resource.* key (integer, clamped by the widget's min/max).
-    local function NumEntry(label, key, mn, mx)
-        return {
-            type = "textinput", label = label, width = 60, numeric = true, min = mn, max = mx, maxLetters = 4,
-            get = function() return E.Cfg and E.Cfg.GetResource(key) end,
-            set = function(v)
-                if v and E.Cfg then E.Cfg.SetResource(key, math.floor(v)); RebuildResources() end
-            end,
-        }
-    end
-
+    local menu   -- forward-declared so the mode button can call menu.Rebuild()
     local options = {
-        { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["CDM Settings (beta)"] },
+        { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["CDM Settings"] },
         { type = "label", height = 18, text = L["Choose which Cooldown Manager engine is active."] },
         { type = "label", height = 18, text = L["Native = full-featured (its Essential/Utility/Buffs tabs appear below)."] },
         { type = "label", height = 18, text = L["Standalone = the beta engine, configured here."] },
@@ -62,8 +44,31 @@ local function CreateCDMEnginePanel(parent)
                 },
             } end,
         },
+    }
 
-        -- ════════════ Class resources (persisted; live via Rebuild) ════════════
+    menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
+    return menu
+end
+
+-- ── Class resources: its own tab (persisted; live via Rebuild) ─────────────────────
+local function CreateClassResourcesPanel(parent)
+    local menu   -- forward-declared so set() closures can call menu.Refresh()
+
+    local function RebuildResources() if E.Resource and E.Resource.Rebuild then E.Resource.Rebuild() end end
+    local function ResourcesOn() return E.Cfg and E.Cfg.GetResource("enable") == true end
+
+    -- Numeric size field for a resource.* key (integer, clamped by the widget's min/max).
+    local function NumEntry(label, key, mn, mx)
+        return {
+            type = "textinput", label = label, width = 60, numeric = true, min = mn, max = mx, maxLetters = 4,
+            get = function() return E.Cfg and E.Cfg.GetResource(key) end,
+            set = function(v)
+                if v and E.Cfg then E.Cfg.SetResource(key, math.floor(v)); RebuildResources() end
+            end,
+        }
+    end
+
+    local options = {
         {
             type = "group", title = L["Class resources"],
             gate = { enabled = function() return ResourcesOn() end, master = "resEnable" },
@@ -115,5 +120,6 @@ end
 
 -- ── Registration ────────────────────────────────────────────────────────────────
 UnbunkUtility.OnAddonLoaded(function()
-    UnbunkUtility.RegisterModule(L["CDM Settings (beta)"], nil, CreateCDMEnginePanel)
+    UnbunkUtility.RegisterModule(L["CDM Settings"],    nil, CreateCDMEnginePanel)
+    UnbunkUtility.RegisterModule(L["Class resources"], nil, CreateClassResourcesPanel)
 end)
