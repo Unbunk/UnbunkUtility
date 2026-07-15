@@ -32,7 +32,7 @@ local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 -- ── anchorTo / growDir option maps (label <-> stored key) ──────────────────────
 -- A group's anchor target and grow direction are plain group keys; the dropdowns map a
 -- localised label to/from the stored key (ns.AnchorList-style, but a fixed local set).
-local ANCHOR_ORDER = { "essential", "utility", "belowPlayer", "screen" }
+local ANCHOR_ORDER = { "essential", "utility", "belowPlayer", "belowFront", "belowEnd", "screen" }
 -- The current spec's resource bars (+ "Last bar") as extra anchor targets, from the shared source. Anchoring
 -- a group to a "resbar:*" key rides that resource bar in BOTH modes (native = ContainerAnchor; engine =
 -- Layout.ApplyFreePositions). Empty when the spec has no resources.
@@ -40,9 +40,11 @@ local function ResBarTargets()
     return (ns.ResourceBarAnchorTargets and ns.ResourceBarAnchorTargets()) or {}
 end
 local function AnchorLabel(key)
-    if key == "essential"   then return L["Essential"]    end
-    if key == "screen"      then return L["Screen"]       end
-    if key == "belowPlayer" then return L["Below player"] end
+    if key == "essential"   then return L["Essential"]                  end
+    if key == "screen"      then return L["Screen"]                     end
+    if key == "belowPlayer" then return L["Below player frame"]         end
+    if key == "belowFront"  then return L["Below player frame (front)"] end
+    if key == "belowEnd"    then return L["Below player frame (end)"]   end
     if type(key) == "string" and key:match("^resbar:") then
         for _, tgt in ipairs(ResBarTargets()) do if tgt.key == key then return tgt.label end end
         return L["Last bar"] or key   -- stored resbar key whose bar isn't in the current spec

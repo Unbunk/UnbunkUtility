@@ -336,8 +336,8 @@ local function EngineAnchorFrame(g, a)
         return GroupFrameByKey(a .. ":1")
             or (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(a)) or nil
     end
-    if a == "belowPlayer" then
-        return (ns.ResolvePlayerFrame and ns.ResolvePlayerFrame()) or nil
+    if ns.IsBelowAnchorKey and ns.IsBelowAnchorKey(a) then   -- belowPlayer (middle) / belowFront / belowEnd
+        return (ns.ResolveBelowFrame and ns.ResolveBelowFrame(a)) or nil
     end
     return nil
 end
@@ -349,7 +349,7 @@ local function IsAnchoredKey(g, a)
     if ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(a) then return true end
     local dest = GroupDest(g)
     if dest ~= "buff" and dest ~= "bar" then return false end
-    return a == "essential" or a == "utility" or a == "belowPlayer"
+    return a == "essential" or a == "utility" or (ns.IsBelowAnchorKey and ns.IsBelowAnchorKey(a)) or false
 end
 local function IsFree(g)
     if GroupTabPos(g) ~= nil then return true end
