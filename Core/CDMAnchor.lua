@@ -1551,6 +1551,10 @@ end
 -- Hide the addon-drawn CDM border edges on a native frame (used when it drops out of the
 -- active set so a stale border doesn't linger; ApplyNativeBorder re-shows it if re-pinned).
 local function HideNativeBorder(nf)
+    -- A frame ADOPTED by the standalone engine (nf._uuAdopt) owns its border via the engine's StyleFrame pass;
+    -- BuffGroups' disabled-mode HideAll runs ReleaseNativePin on the SAME frames every ~0.2s tick, so without
+    -- this guard it would strip the engine-drawn border right after each build. Leave adopted frames alone.
+    if nf._uuAdopt then return end
     if nf._uuBorderEdges then
         for _, t in pairs(nf._uuBorderEdges) do t:Hide() end
     end

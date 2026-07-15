@@ -199,7 +199,13 @@ local function ArrangeGroup(g)
     -- swipe C-side (secret in combat, unredrawable — hence hosting the native frame).
     for _, nf in ipairs(g.nativeBuffs) do
         if main > 0 then main = main + gs.spacing end
-        local A, BGm = ns.CDMAnchor, ns.BuffGroups
+        local BGm = ns.BuffGroups
+        if nf.ph then   -- Static Display: reserve an inactive buff's slot (size from its config), adopt nothing
+            local bw = (nf.sid and BGm and BGm.IconGet and BGm.IconGet(nf.sid, "iconW")) or gs.size
+            local bh = (nf.sid and BGm and BGm.IconGet and BGm.IconGet(nf.sid, "iconH")) or gs.size
+            main = main + bw; cross = math.max(cross, bh)
+        else
+        local A = ns.CDMAnchor
         local sid = A and A.NativeFrameSpellId and A.NativeFrameSpellId(nf)   -- nil (secret) in combat -> keep last style
         local bw = (sid and BGm and BGm.IconGet and BGm.IconGet(sid, "iconW")) or gs.size
         local bh = (sid and BGm and BGm.IconGet and BGm.IconGet(sid, "iconH")) or gs.size
@@ -213,6 +219,7 @@ local function ArrangeGroup(g)
         if nf.GetAlpha and nf:GetAlpha() ~= 1 then nf:SetAlpha(1) end
         main  = main + bw
         cross = math.max(cross, bh)
+        end
     end
     -- Hosted native bar frames (TrackedBar): same model as buffs — ADOPT the native BuffBar pool frames so
     -- the masked BuffBarCooldownViewer's frames still render (Blizzard fills their secret value/duration
@@ -220,7 +227,14 @@ local function ArrangeGroup(g)
     -- resize) and flow per the group direction (column by default -> a vertical stack of bars).
     for _, nf in ipairs(g.nativeBars) do
         if main > 0 then main = main + gs.spacing end
-        local A, BRm = ns.CDMAnchor, ns.BarGroups
+        local BRm = ns.BarGroups
+        if nf.ph then   -- Static Display: reserve an inactive bar's slot (size from its config), adopt nothing
+            local bw = (nf.sid and BRm and BRm.IconGet and BRm.IconGet(nf.sid, "barWidth"))  or BAR_FALLBACK_W
+            local bh = (nf.sid and BRm and BRm.IconGet and BRm.IconGet(nf.sid, "barHeight")) or BAR_FALLBACK_H
+            main = main + (horizontal and bw or bh)
+            cross = math.max(cross, horizontal and bh or bw)
+        else
+        local A = ns.CDMAnchor
         local sid = A and A.NativeFrameSpellId and A.NativeFrameSpellId(nf)
         local dw, dh = BarSize(nf)
         local bw = (sid and BRm and BRm.IconGet and BRm.IconGet(sid, "barWidth"))  or dw
@@ -236,6 +250,7 @@ local function ArrangeGroup(g)
         if nf.GetAlpha and nf:GetAlpha() ~= 1 then nf:SetAlpha(1) end
         main  = main + (horizontal and bw or bh)
         cross = math.max(cross, horizontal and bh or bw)
+        end
     end
     local w = horizontal and main or cross
     local h = horizontal and cross or main
@@ -435,12 +450,15 @@ local function ArrangeIconGroup(g)
     local horizontal = HORIZONTAL_GROW[grow] == true
     local reverse    = (grow == "LEFT" or grow == "UP")
     local alignTop   = (rp == "below" or rp == "bottomleft" or rp == "bottomright")
+    -- An entry is either a live frame OR a Static-Display PLACEHOLDER ({ ph = true, w, h }) reserving a slot
+    -- for an absent member — measured like a frame, but positioned as nothing.
+    local function EntrySize(f) if f.ph then return f.w or 44, f.h or 44 end return f:GetWidth(), f:GetHeight() end
     -- Measure each row: MAIN extent (packed along the grow axis) + CROSS extent (max thickness).
     local laid, maxMain, sumCross = {}, 0, 0
     for _, row in ipairs(g._iconRows or {}) do
         local mainExt, crossExt = 0, 0
         for i, f in ipairs(row) do
-            local w, h  = f:GetWidth(), f:GetHeight()
+            local w, h  = EntrySize(f)
             local main  = horizontal and w or h
             local cross = horizontal and h or w
             mainExt = mainExt + main + (i > 1 and spacing or 0)
@@ -455,7 +473,7 @@ local function ArrangeIconGroup(g)
     for _, lr in ipairs(laid) do
         local mainCursor = reverse and lr.mainExt or 0
         for _, f in ipairs(lr.row) do
-            local w, h = f:GetWidth(), f:GetHeight()
+            local w, h = EntrySize(f)
             local main = horizontal and w or h
             if reverse then mainCursor = mainCursor - main end
             local x, y
@@ -466,8 +484,10 @@ local function ArrangeIconGroup(g)
                 x = crossCursor + (alignTop and 0 or (lr.crossExt - w))
                 y = -mainCursor
             end
-            f:ClearAllPoints()
-            f:SetPoint("TOPLEFT", g, "TOPLEFT", x, y)
+            if not f.ph then                              -- placeholder reserves the slot but pins nothing
+                f:ClearAllPoints()
+                f:SetPoint("TOPLEFT", g, "TOPLEFT", x, y)
+            end
             if reverse then mainCursor = mainCursor - spacing else mainCursor = mainCursor + main + spacing end
         end
         crossCursor = crossCursor + lr.crossExt + spacing
@@ -487,11 +507,13 @@ local function MaterializeIconGroup(gs, dest, I, groupId, sidMap, trackerMap)
     g:SetParent(container)
     local iconW = I.GGet(groupId, "iconW") or 44
     local iconH = I.GGet(groupId, "iconH") or 44
-    local rows = {}
+    local staticDisplay = I.GGet(groupId, "staticDisplay") == true   -- reserve a slot for absent/hidden members
+    local rows, placeholders = {}, 0
     for _, srcRow in ipairs(I.GroupRows(groupId)) do
         local row = {}
         for _, member in ipairs(srcRow) do
             local cdmID = sidMap[member]
+            local td    = trackerMap and trackerMap[member]
             if cdmID then
                 local f = E.Icon.Acquire()
                 f._dest = dest
@@ -499,21 +521,21 @@ local function MaterializeIconGroup(gs, dest, I, groupId, sidMap, trackerMap)
                 f:SetParent(g)
                 g.children[#g.children + 1] = f
                 row[#row + 1] = f
-            elseif trackerMap and trackerMap[member] then
-                local td = trackerMap[member]
-                if td.frame and td.frame:IsShown() then
-                    if td.setSize then td.setSize(iconW, iconH) else td.frame:SetSize(iconW, iconH) end
-                    td.frame:SetAlpha(1)
-                    td.frame:SetParent(g)
-                    g.trackers[#g.trackers + 1] = td
-                    row[#row + 1] = td.frame
-                end
+            elseif td and td.frame and td.frame:IsShown() then
+                if td.setSize then td.setSize(iconW, iconH) else td.frame:SetSize(iconW, iconH) end
+                td.frame:SetAlpha(1)
+                td.frame:SetParent(g)
+                g.trackers[#g.trackers + 1] = td
+                row[#row + 1] = td.frame
+            elseif staticDisplay then
+                row[#row + 1] = { ph = true, w = iconW, h = iconH }   -- absent cooldown / hidden tracker: reserve slot
+                placeholders = placeholders + 1
             end
         end
         if #row > 0 then rows[#rows + 1] = row end
     end
     g._iconRows = rows
-    if #g.children > 0 or #g.trackers > 0 then
+    if #g.children > 0 or #g.trackers > 0 or placeholders > 0 then
         ArrangeIconGroup(g)
         groupFrames[#groupFrames + 1] = g
     else
@@ -557,12 +579,16 @@ local function MaterializeHostGroup(gs, dest, groupId, mod, frameOf)
     E.Group.Setup(g, gs)
     g.catKey = dest .. ":" .. groupId
     g:SetParent(container)
+    local staticDisplay = mod.GGet and mod.GGet(groupId, "staticDisplay") == true   -- reserve inactive slots
     local bucket = gs.isBuff and g.nativeBuffs or g.nativeBars
+    local shown = 0
     for _, member in ipairs(mod.GetGroupBuffs(groupId)) do
         local nf = frameOf[member]
-        if nf then bucket[#bucket + 1] = nf end
+        if nf then bucket[#bucket + 1] = nf; shown = shown + 1
+        elseif staticDisplay then bucket[#bucket + 1] = { ph = true, sid = member } end   -- inactive: reserve slot
     end
-    if #bucket > 0 then
+    -- Keep the group if it hosts a shown member OR (static) reserves any slot; but not a purely-empty group.
+    if shown > 0 or (staticDisplay and #bucket > 0) then
         ArrangeGroup(g)
         groupFrames[#groupFrames + 1] = g
     else
