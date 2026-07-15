@@ -543,6 +543,27 @@ function CDG.Make(dest)
         return #rows
     end
 
+    -- Re-wrap a group's saved rows into rows of its CURRENT maxPerRow, PRESERVING the linear member order
+    -- (unlike SortGroupNativeOrder, which first re-sorts by native rank). Called when maxPerRow changes so a
+    -- group whose explicit rows were FROZEN at a different width reflows to the new cap — GroupRows returns
+    -- the stored rows verbatim, so lowering maxPerRow alone never re-chunked them (the reported bug: rows of
+    -- 6 stayed 6 after setting maxPerRow=4). Fixes BOTH the native layout and the standalone engine (both
+    -- read GroupRows). Writes the explicit-row store.
+    function I.RechunkGroup(groupId)
+        if groupId == 0 then return end   -- Unused (Group 0): order is irrelevant and never persisted
+        local members = I.GetGroupBuffs(groupId)   -- flat, in stored order (GroupRows-derived)
+        local per = I.MaxPerRow(groupId)
+        local rows, row = {}, {}
+        for _, sid in ipairs(members) do
+            if #row >= per then rows[#rows + 1] = row; row = {} end
+            row[#row + 1] = sid
+        end
+        if #row > 0 then rows[#rows + 1] = row end
+        if #rows == 0 then rows[1] = {} end   -- keep row 1 so an empty group still has a landing row
+        local s = Store(dest)
+        if s then s.order = s.order or {}; s.order[groupId] = rows end
+    end
+
     -- Strip spellId out of every row of a group's stored order (in place); drop rows left empty,
     -- keeping at least one row. Used by MoveBuff before re-inserting at the destination.
     local function RemoveFromOrder(groupId, spellId)
