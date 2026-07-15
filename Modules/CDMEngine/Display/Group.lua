@@ -40,6 +40,7 @@ function Group.Setup(g, spec)
     if g.nativeBuffs then wipe(g.nativeBuffs) else g.nativeBuffs = {} end
     if g.nativeBars  then wipe(g.nativeBars)  else g.nativeBars  = {} end
     g._iconRows, g._I, g._groupId = nil, nil, nil   -- own-icon grid state; re-set by MaterializeIconGroup (no stale refs)
+    g._relPos = nil   -- row cross-alignment hint; re-set by MaterializeHostGroup (never stale on a pooled group)
     g.w, g.h = 1, 1
     g:Show()
 end

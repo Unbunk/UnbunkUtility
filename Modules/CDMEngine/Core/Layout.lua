@@ -166,6 +166,9 @@ end
 local function ArrangeGroup(g)
     local gs = g.spec
     local horizontal = (gs.direction ~= "column")
+    -- Cross-axis alignment from the group's placement (g._relPos): "above" (default) shares the BOTTOM edge so
+    -- a SHORTER icon sits flush at the bottom of the row; "below"/bottom-corners share the TOP edge.
+    local alignTop = (g._relPos == "below" or g._relPos == "bottomleft" or g._relPos == "bottomright")
     local main, cross = 0, 0
     -- w = main-axis extent, h = cross-axis extent. Square callers pass one value (h defaults to w); the
     -- own icons pass their CONFIG size (iconW/iconH may differ) so a non-square icon lays out correctly.
@@ -197,19 +200,26 @@ local function ArrangeGroup(g)
     -- our group's alpha, not the masked viewer's). AdoptNativeTo anchors TOPLEFT->g TOPLEFT; a buff group
     -- holds only these, so the row is self-consistent. Blizzard keeps rendering their aura stacks / duration
     -- swipe C-side (secret in combat, unredrawable — hence hosting the native frame).
+    -- Pre-pass: the TALLEST hosted buff sets the row's cross extent, so a shorter icon can share a common edge —
+    -- the BOTTOM edge for "above" placement (default), the TOP edge for "below". Without this every buff was
+    -- adopted at y=0 (top-aligned), leaving a shorter icon floating with a gap at the bottom of the row.
+    local A, BGm = ns.CDMAnchor, ns.BuffGroups
+    local maxBuffH = 0
+    for _, nf in ipairs(g.nativeBuffs) do
+        local s = nf.ph and nf.sid or (A and A.NativeFrameSpellId and A.NativeFrameSpellId(nf))
+        maxBuffH = math.max(maxBuffH, (s and BGm and BGm.IconGet and BGm.IconGet(s, "iconH")) or gs.size)
+    end
     for _, nf in ipairs(g.nativeBuffs) do
         if main > 0 then main = main + gs.spacing end
-        local BGm = ns.BuffGroups
         if nf.ph then   -- Static Display: reserve an inactive buff's slot (size from its config), adopt nothing
             local bw = (nf.sid and BGm and BGm.IconGet and BGm.IconGet(nf.sid, "iconW")) or gs.size
-            local bh = (nf.sid and BGm and BGm.IconGet and BGm.IconGet(nf.sid, "iconH")) or gs.size
-            main = main + bw; cross = math.max(cross, bh)
+            main = main + bw
         else
-        local A = ns.CDMAnchor
         local sid = A and A.NativeFrameSpellId and A.NativeFrameSpellId(nf)   -- nil (secret) in combat -> keep last style
         local bw = (sid and BGm and BGm.IconGet and BGm.IconGet(sid, "iconW")) or gs.size
         local bh = (sid and BGm and BGm.IconGet and BGm.IconGet(sid, "iconH")) or gs.size
-        if A and A.AdoptNativeTo then A.AdoptNativeTo(nf, g, main, 0, bw, bh) end
+        local yoff = alignTop and 0 or -(maxBuffH - bh)   -- "above" -> flush with the row's BOTTOM edge
+        if A and A.AdoptNativeTo then A.AdoptNativeTo(nf, g, main, yoff, bw, bh) end
         -- PARITY: restyle the hosted native buff frame with BuffGroups' own recipe (font/border/stack/colour;
         -- its SetSize matches the adopt size). Runs in the deferred layout pass, never inside Blizzard's secure
         -- refresh, so it is taint-safe (same as BuffGroups' own pass; ReanchorStack uses ns.AnchorFSRaw).
@@ -217,10 +227,10 @@ local function ArrangeGroup(g)
         -- Blizzard runs a per-FRAME alpha fade on the buff pool frames (aura in/out); the reparent doesn't
         -- reset it and the viewer mask only guards the viewer, so clear a lingering sub-1 alpha. Taint-safe.
         if nf.GetAlpha and nf:GetAlpha() ~= 1 then nf:SetAlpha(1) end
-        main  = main + bw
-        cross = math.max(cross, bh)
+        main = main + bw
         end
     end
+    cross = math.max(cross, maxBuffH)
     -- Hosted native bar frames (TrackedBar): same model as buffs — ADOPT the native BuffBar pool frames so
     -- the masked BuffBarCooldownViewer's frames still render (Blizzard fills their secret value/duration
     -- C-side). Bars are WIDE rows, so host them at their NATIVE size (pass no w,h -> AdoptNativeTo won't
@@ -578,6 +588,7 @@ local function MaterializeHostGroup(gs, dest, groupId, mod, frameOf)
     local g = E.Group.Acquire()
     E.Group.Setup(g, gs)
     g.catKey = dest .. ":" .. groupId
+    g._relPos = (mod.GGet and mod.GGet(groupId, "relPos")) or "above"   -- drives row cross-alignment in ArrangeGroup
     g:SetParent(container)
     local staticDisplay = mod.GGet and mod.GGet(groupId, "staticDisplay") == true   -- reserve inactive slots
     local bucket = gs.isBuff and g.nativeBuffs or g.nativeBars
