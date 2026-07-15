@@ -38,6 +38,14 @@ local function BaseOf(sid)
     return b or sid
 end
 
+-- The CDMGroups config instance backing this icon's dest ("essential"/"utility"). The engine own-draw
+-- cooldowns REUSE the native per-icon glow config as their source of truth (glowEnabled/glowType/glowColor),
+-- exactly like the native CDMGroups renderer — NOT the engine's global E.Cfg (which the user's Essential/
+-- Utility "Glow" cadre never writes to). Mirrors Icon.lua's DestI.
+local function DestI(f)
+    return ns.CDMGroups and ns.CDMGroups[f._dest or "essential"]
+end
+
 -- ── LibCustomGlow wrappers (start/stop by glowType), parented to OUR icon frame ───────────────────
 local GLOW_FNS = {}
 if LCG then
@@ -63,7 +71,15 @@ if LCG then
     end
 end
 
-local function GlowColorArray()
+-- Effective glow colour as an LCG array {r,g,b,a}. CDMGroups stores glowColor as a HASH {r,g,b,a}; the
+-- engine's global E.Cfg (fallback path) stores it as an ARRAY {c[1..4]}.
+local function GlowColorArray(f)
+    local I = f and DestI(f)
+    local sid = f and (f.spellID or f._lastGoodSid)
+    if I and I.IconGet and sid then
+        local c = I.IconGet(sid, "glowColor")
+        if type(c) == "table" then return { c.r or 1, c.g or 1, c.b or 1, c.a or 1 } end
+    end
     local c = E.Cfg and E.Cfg.Get("glowColor")
     if type(c) == "table" then return { c[1] or 1, c[2] or 1, c[3] or 1, c[4] or 1 } end
     return { 0.96, 1, 0, 1 }
@@ -81,14 +97,26 @@ end
 -- Track the active type so we Start/Stop only on a REAL change (LCG animates itself; restarting churns).
 local function UpdateGlow(f)
     if not (f and LCG) then return end
-    local enabled  = E.Cfg and E.Cfg.Get("procGlow") == true
-    local wantType = (enabled and f._uuProcced) and (E.Cfg.Get("glowType") or "pixel") or nil
+    -- Read the icon's per-spell glow config from its dest's CDMGroups instance (the Essential/Utility "Glow"
+    -- cadre: glowEnabled = "show glow on proc", glowType, glowColor). Fall back to the engine's global E.Cfg
+    -- only when there is no CDMGroups instance (e.g. the fallback single-group render with no dest).
+    local I   = DestI(f)
+    local sid = f.spellID or f._lastGoodSid
+    local enabled, glowType
+    if I and I.IconGet and sid then
+        enabled  = I.IconGet(sid, "glowEnabled") == true
+        glowType = I.IconGet(sid, "glowType") or "pixel"
+    else
+        enabled  = E.Cfg and E.Cfg.Get("procGlow") == true
+        glowType = (E.Cfg and E.Cfg.Get("glowType")) or "pixel"
+    end
+    local wantType = (enabled and f._uuProcced) and glowType or nil
     if f._uuGlowActive == wantType then return end
     if f._uuGlowActive then StopGlow(f) end
     if not wantType then return end
     local fns = GLOW_FNS[wantType]
     if fns and fns.start then
-        pcall(fns.start, f, GlowColorArray())
+        pcall(fns.start, f, GlowColorArray(f))
         f._uuGlowActive = wantType
     end
 end
