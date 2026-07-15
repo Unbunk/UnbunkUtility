@@ -68,9 +68,15 @@ local function CreateCastBarPanel(parent)
                 return ns.CDMDestLabel(k)
             end,
             onSelect = function(lbl)
-                local resk
-                for _, tgt in ipairs(ResBarTargets()) do if tgt.label == lbl then resk = tgt.key break end end
-                CB.CfgSet(key, resk or ns.CDMDestKeyFromLabel(lbl))
+                local k
+                for _, tgt in ipairs(ResBarTargets()) do if tgt.label == lbl then k = tgt.key break end end
+                if not k and ns.CDM_DEST_ORDER then
+                    for _, d in ipairs(ns.CDM_DEST_ORDER) do if ns.CDMDestLabel(d) == lbl then k = d break end end
+                end
+                -- No match -> KEEP the current value. CDMDestKeyFromLabel defaults to "essential", so a resbar
+                -- label that missed above (target list momentarily empty) would otherwise silently reset the anchor.
+                if not k then return end
+                CB.CfgSet(key, k)
                 if onChange then onChange() end
             end }
     end

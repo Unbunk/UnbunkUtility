@@ -49,7 +49,8 @@ end
 local function AnchorFromLabel(label)
     for _, k in ipairs(ANCHOR_ORDER) do if AnchorLabel(k) == label then return k end end
     for _, tgt in ipairs(ResBarTargets()) do if tgt.label == label then return tgt.key end end
-    return "utility"
+    return nil   -- no match: KEEP the current value (a bar label fails to resolve only when the target list is
+                 -- momentarily empty); the old "utility" fallback silently broke the anchor. See BuffGroups.
 end
 
 -- Bars stack vertically, so only DOWN / UP are exposed.
@@ -731,7 +732,8 @@ local function CreateBarsPanel(parent)
               getList = AnchorList,
               getCurrentKey = function() return AnchorLabel(BR.GGet(id, "anchorTo")) end,
               onSelect = function(label)
-                  BR.GSet(id, "anchorTo", AnchorFromLabel(label)); touch()
+                  local k = AnchorFromLabel(label); if not k then return end
+                  BR.GSet(id, "anchorTo", k); touch()
                   if C_Timer and C_Timer.After then C_Timer.After(0, rebuild) else rebuild() end
               end }
           -- Placement (side/corner of the anchor) is meaningless when anchored to the screen centre.
