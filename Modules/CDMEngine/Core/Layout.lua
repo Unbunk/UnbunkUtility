@@ -208,6 +208,9 @@ local function ArrangeGroup(g)
     for _, nf in ipairs(g.nativeBuffs) do
         local s = nf.ph and nf.sid or (A and A.NativeFrameSpellId and A.NativeFrameSpellId(nf))
         maxBuffH = math.max(maxBuffH, (s and BGm and BGm.IconGet and BGm.IconGet(s, "iconH")) or gs.size)
+        -- Cache each buff's border OUTSET so the pack can line up the OUTER border edges (a thicker native/
+        -- dispel border must not stick out past the others). Icons stay full-size; only their y shifts.
+        nf._uuBO = (not nf.ph) and BGm and BGm.BorderOutset and BGm.BorderOutset(nf, s) or 0
     end
     for _, nf in ipairs(g.nativeBuffs) do
         if main > 0 then main = main + gs.spacing end
@@ -218,7 +221,11 @@ local function ArrangeGroup(g)
         local sid = A and A.NativeFrameSpellId and A.NativeFrameSpellId(nf)   -- nil (secret) in combat -> keep last style
         local bw = (sid and BGm and BGm.IconGet and BGm.IconGet(sid, "iconW")) or gs.size
         local bh = (sid and BGm and BGm.IconGet and BGm.IconGet(sid, "iconH")) or gs.size
-        local yoff = alignTop and 0 or -(maxBuffH - bh)   -- "above" -> flush with the row's BOTTOM edge
+        -- Line up the OUTER border edges (not the icon edges): shift each frame by its own border outset so
+        -- the border edge sits on the row line — thicker-bordered icons move IN (their icon body offsets), the
+        -- borders align, and nothing spills past the row. "above" -> bottom edge; "below" -> top edge.
+        local ob = nf._uuBO or 0
+        local yoff = alignTop and (-ob) or (-(maxBuffH - bh) + ob)
         if A and A.AdoptNativeTo then A.AdoptNativeTo(nf, g, main, yoff, bw, bh) end
         -- PARITY: restyle the hosted native buff frame with BuffGroups' own recipe (font/border/stack/colour;
         -- its SetSize matches the adopt size). Runs in the deferred layout pass, never inside Blizzard's secure

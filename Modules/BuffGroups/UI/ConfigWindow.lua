@@ -733,7 +733,7 @@ local function CreateBuffsPanel(parent)
 
     -- Group Border / Glow — shared IC builders fed a plain group bundle. Border default ON
     -- (~= false); Glow = buff variant ("Show glow" + colour, no glow-type dropdown).
-    local function BorderGroup(id) return IC.Border(GroupBundle(id), { defaultOn = true, ctx = groupCtx }) end
+    local function BorderGroup(id) return IC.Border(GroupBundle(id), { defaultOn = true, ctx = groupCtx, nativeBorder = true }) end
     local function GlowGroup(id)   return IC.Glow(GroupBundle(id), { variant = "buff", ctx = groupCtx }) end
 
     local function IconsGroup(id)
