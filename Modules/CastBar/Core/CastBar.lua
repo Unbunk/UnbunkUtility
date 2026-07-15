@@ -85,7 +85,9 @@ local function AnchorDestFrame(dest)
     if ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(dest) then
         return ns.ResolveResourceBarFrame(dest)
     end
-    if dest == "belowPlayer" then return _G.PlayerFrame end
+    if ns.IsBelowAnchorKey and ns.IsBelowAnchorKey(dest) then   -- belowPlayer (middle) / belowFront / belowEnd
+        return ns.ResolveBelowFrame and ns.ResolveBelowFrame(dest)
+    end
     -- In engine mode NEVER fall back to the native viewer: it's alpha-masked and sits at the NATIVE layout
     -- position, not where the engine draws — anchoring there would drop the cast bar in the wrong place.
     if ns.CDMMode and ns.CDMMode.IsEngine() then return GroupOneBox(dest) end

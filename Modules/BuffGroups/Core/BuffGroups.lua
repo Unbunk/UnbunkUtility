@@ -614,8 +614,8 @@ local function ContainerAnchor(g)
         -- relative SetPoint to its TOP/BOTTOM edge then auto-follows it. Fall back to the native viewer.
         rel = (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(anchorTo))
             or (ns.GetCDMViewer and ns.GetCDMViewer(anchorTo))
-    elseif anchorTo == "belowPlayer" then
-        rel = ResolvePlayerFrame()
+    elseif ns.IsBelowAnchorKey and ns.IsBelowAnchorKey(anchorTo) then
+        rel = ns.ResolveBelowFrame and ns.ResolveBelowFrame(anchorTo)   -- belowPlayer (middle) / belowFront / belowEnd
     elseif ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(anchorTo) then
         -- Ride a class-resource bar (e.g. Buffs under the last bar). nil while that bar is absent (spec has
         -- none / disabled) -> fall back to Essential so the group stays visible near the CDM, not at 0,0.

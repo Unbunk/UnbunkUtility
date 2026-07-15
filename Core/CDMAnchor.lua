@@ -20,8 +20,10 @@ ns.CDM_VIEWER = {
     utility   = "UtilityCooldownViewer",
 }
 
--- Ordered destination options for the dropdown (keys; labels localized below).
-ns.CDM_DEST_ORDER = { "essential", "utility", "belowPlayer" }
+-- Ordered destination options for the dropdown (keys; labels localized below). belowPlayer = the MIDDLE of the
+-- two below-player rows; belowFront / belowEnd = the individual rows (they have no native viewer, so the taint /
+-- signature loops that key off ns.CDM_VIEWER simply skip them).
+ns.CDM_DEST_ORDER = { "essential", "utility", "belowPlayer", "belowFront", "belowEnd" }
 
 -- ── Standalone CDM engine ownership (Level 2) ────────────────────────────────
 -- When the standalone engine (ns.CDMMode "engine") is active it HOSTS the essential/utility trackers in
@@ -38,6 +40,8 @@ function ns.CDMDestLabel(key)
     local L = ns.L
     if key == "utility"     then return L["Cooldown Manager: Utility"] end
     if key == "belowPlayer" then return L["Below player frame"]        end
+    if key == "belowFront"  then return L["Below player frame (front)"] end
+    if key == "belowEnd"    then return L["Below player frame (end)"]   end
     return L["Cooldown Manager: Essential"]
 end
 
@@ -476,6 +480,34 @@ local function ResolvePlayerFrame()
     return nil
 end
 ns.ResolvePlayerFrame = ResolvePlayerFrame   -- shared: the engine's "belowPlayer" anchor resolves through this
+
+-- ── Below-player anchor rows (shared across resource bars / cast bar / Buff+Bar groups) ──────────────
+-- The below-player CDM layout draws TWO icon rows: FRONT (UnbunkUtilityCDMBelowRow) and END
+-- (UnbunkUtilityCDMBelowRowEnd). Anything can ride them via three keys, mirroring the resource-bar targets:
+--   belowFront  -> the front row
+--   belowEnd    -> the end row
+--   belowPlayer -> the MIDDLE of the two (a helper frame spanning front top-left .. end bottom-right, so its
+--                  centre is the row centre; follows both rows live via SetPoint)
+-- When the below-player rows don't exist (that layout isn't populated) we fall back to the PLAYER FRAME, so
+-- "Below player frame" keeps working literally. Returns nil only if even the player frame is unavailable.
+local belowMiddle
+function ns.IsBelowAnchorKey(key)
+    return key == "belowPlayer" or key == "belowFront" or key == "belowEnd"
+end
+function ns.ResolveBelowFrame(key)
+    local front = _G["UnbunkUtilityCDMBelowRow"]
+    local endf  = _G["UnbunkUtilityCDMBelowRowEnd"]
+    if key == "belowFront" and front then return front end
+    if key == "belowEnd"   and endf  then return endf  end
+    if key == "belowPlayer" and front and endf then
+        if not belowMiddle then belowMiddle = CreateFrame("Frame", nil, UIParent) end
+        belowMiddle:ClearAllPoints()
+        belowMiddle:SetPoint("TOPLEFT",     front, "TOPLEFT",     0, 0)
+        belowMiddle:SetPoint("BOTTOMRIGHT", endf,  "BOTTOMRIGHT", 0, 0)
+        return belowMiddle
+    end
+    return ResolvePlayerFrame()   -- rows absent -> the player frame itself
+end
 
 -- Every player-frame frame the BETA fader should fade: any loaded custom unit-frame
 -- addon's player frame (ElvUI's ElvUF_Player, Unhalted's UUF_Player, …) PLUS Blizzard's
