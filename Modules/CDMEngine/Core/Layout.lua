@@ -310,12 +310,50 @@ local RELPOS_POINTS = {
     bottomright = { "TOPLEFT",     "BOTTOMRIGHT" },
 }
 
--- A group is "free" (positioned) when its tab has an explicit posX/posY OR anchors it to a resource bar
--- (anchorTo = "resbar:*"); absence of both = auto-stack.
+-- The engine group frame for a catKey ("essential:1"/"utility:1"/…), or nil.
+local function GroupFrameByKey(catKey)
+    for _, gf in ipairs(groupFrames) do if gf.catKey == catKey then return gf end end
+    return nil
+end
+local function GroupDest(g) return tostring(g.catKey or ""):match("^(%a+):") end
+-- Resolve an anchorTo key to a LIVE frame for absolute-pin positioning, mirroring the native ContainerAnchor
+-- targets so a Buff/Bar group anchors the SAME way in engine mode:
+--   resbar:*           -> the shared resource-bar proxy handle,
+--   essential/utility  -> the engine's OWN block for that dest (Group 1's frame; own-drawn in engine mode),
+--   belowPlayer        -> the player frame.
+-- The essential/utility/belowPlayer targets are honoured ONLY for the HOST groups (Buffs/Bars), whose anchorTo
+-- the USER sets. The engine's own essential/utility blocks keep their tab posX/posY — their native
+-- anchorTo (default "essential"/"screen") is a NATIVE-mode layout concept, not an engine position, so honouring
+-- it here would move them. (resbar is buff/bar-only in practice, so it needs no such gate.)
+local function EngineAnchorFrame(g, a)
+    if not a then return nil end
+    if ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(a) then
+        return (ns.ResolveResourceBarFrame and ns.ResolveResourceBarFrame(a)) or nil
+    end
+    local dest = GroupDest(g)
+    if dest ~= "buff" and dest ~= "bar" then return nil end
+    if a == "essential" or a == "utility" then
+        return GroupFrameByKey(a .. ":1")
+            or (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(a)) or nil
+    end
+    if a == "belowPlayer" then
+        return (ns.ResolvePlayerFrame and ns.ResolvePlayerFrame()) or nil
+    end
+    return nil
+end
+-- A group is "free" (absolute-pinned) when its tab sets posX/posY OR anchors it to an HONOURED target
+-- (resbar for any; essential / utility / belowPlayer for host groups); absence of both = auto-stack. Keyed on
+-- the KEY (not live resolution) so an anchored group never flickers to auto-stack while its target is absent.
+local function IsAnchoredKey(g, a)
+    if not a then return false end
+    if ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(a) then return true end
+    local dest = GroupDest(g)
+    if dest ~= "buff" and dest ~= "bar" then return false end
+    return a == "essential" or a == "utility" or a == "belowPlayer"
+end
 local function IsFree(g)
     if GroupTabPos(g) ~= nil then return true end
-    local a = GroupTabGet(g, "anchorTo")
-    return (ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(a)) or false
+    return IsAnchoredKey(g, GroupTabGet(g, "anchorTo"))
 end
 
 -- A frame's named-point coordinates in SCREEN pixels (effective scale folded in), or nil if unpositioned.
@@ -328,29 +366,29 @@ local function ScreenPoint(f, point)
     return x * s, y * s
 end
 
--- Re-impose each positioned group's anchor. A tab anchorTo of "resbar:*" is the ONE native anchor the
--- engine honours: it points at OUR resource-bar proxy (not a masked native viewer), so the group rides that
--- bar (relPos side + posX/posY offset) — e.g. Buffs under the last resource bar. Everything else is a plain
--- screen-centre offset from the tab posX/posY. Idempotent; called last in a build + the cheap refresh path.
+-- Re-impose each positioned group's anchor. A tab anchorTo of resbar:* / essential / utility / belowPlayer
+-- resolves (EngineAnchorFrame) to a live frame the group rides (relPos side + posX/posY offset) — e.g. Buffs
+-- under the last resource bar, or above the Utility block. Anything unresolved is a plain screen-centre offset
+-- from the tab posX/posY. Idempotent; called last in a build + the cheap refresh path.
 local function ApplyFreePositions()
     for _, g in ipairs(groupFrames) do
-        local a = GroupTabGet(g, "anchorTo")
-        if ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(a) then
-            local rf     = ns.ResolveResourceBarFrame and ns.ResolveResourceBarFrame(a)
-            local x, y   = GroupTabPos(g)
-            local pts    = RELPOS_POINTS[GroupTabGet(g, "relPos") or "above"] or RELPOS_POINTS.above
+        local a  = GroupTabGet(g, "anchorTo")
+        local rf = EngineAnchorFrame(g, a)
+        if rf then
+            local x, y = GroupTabPos(g)
+            local pts  = RELPOS_POINTS[GroupTabGet(g, "relPos") or "above"] or RELPOS_POINTS.above
             local bx, by
             if rf then bx, by = ScreenPoint(rf, pts[2]) end   -- NB: keep as an if, not `rf and ScreenPoint(...)` (that `and` truncates the 2nd return)
-            local gs     = g:GetEffectiveScale()
+            local gs   = g:GetEffectiveScale()
             g:ClearAllPoints()
             if bx and gs and gs > 0 then
-                -- Pin at the bar's edge in ABSOLUTE UIParent coords, NOT a live SetPoint into rf: the engine
-                -- groups are children of `container` and resource bars anchor back to essential:1 (also a
-                -- child), so a SetPoint into that chain trips WoW's circular-dependency guard. The deferred
-                -- ReapplyPositions poke (on every resource (re)build) keeps it tracking the bar.
+                -- Pin at the target's edge in ABSOLUTE UIParent coords, NOT a live SetPoint into rf: the engine
+                -- groups are children of `container` and the target (a resource bar / essential block) can anchor
+                -- back into that chain, so a live SetPoint trips WoW's circular-dependency guard. The deferred
+                -- ReapplyPositions poke (on every (re)build) keeps it tracking the target.
                 g:SetPoint(pts[1], UIParent, "BOTTOMLEFT", bx / gs + (x or 0), by / gs + (y or 0))
             else
-                g:SetPoint("CENTER", UIParent, "CENTER", x or 0, y or 0)   -- bar absent / unpositioned -> screen centre
+                g:SetPoint("CENTER", UIParent, "CENTER", x or 0, y or 0)   -- target absent -> screen centre
             end
         else
             local x, y = GroupTabPos(g)
