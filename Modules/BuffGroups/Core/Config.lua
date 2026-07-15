@@ -51,6 +51,10 @@ local GROUP_TEMPLATE = {
     borderEnabled = true,
     borderColor   = { r = 0, g = 0, b = 0, a = 1 },
     borderSize    = 1,
+    -- "native border": the debuff dispel-type colour carried on OUR inset border (replaces Masque's
+    -- outsetting DebuffBorderMBB). Its own toggle + thickness, independent of the regular border above.
+    showNativeBorder = true,
+    nativeBorderSize = 3,
     -- glow (LibCustomGlow-style highlight around an active icon); colour defaults to F5FF00 even off
     glowEnabled = false,
     glowColor   = { r = 0.96, g = 1, b = 0, a = 1 },   -- F5FF00
@@ -103,7 +107,7 @@ local DEFAULT_GROUP1 = ns.DeepCopy(GROUP_TEMPLATE)
 DEFAULT_GROUP1.id   = 1
 DEFAULT_GROUP1.name = "Group 1"
 DEFAULT_GROUP1.posX = 0
-DEFAULT_GROUP1.posY = 2   -- small upward nudge above the Essential block (the default anchor)
+DEFAULT_GROUP1.posY = 0   -- flush at the anchor (default anchor = last bar)
 
 local DEFAULTS = {
     enabled = true,
@@ -248,11 +252,11 @@ function BG.CfgInit()
             g.glowEnabled = false
         end
     end
-    -- One-shot: Group 1's default Y becomes 2 (a small upward nudge above the Essential block, the
-    -- default anchor). Applied once to a profile whose Group 1 predates this default (it was 0).
-    if not s.g1DefaultYV1 then
-        s.g1DefaultYV1 = true
-        if s.groups[1] then s.groups[1].posY = 2 end
+    -- One-shot: Group 1's default Y is now 0 (flush at the anchor). A NEW flag (V2) re-runs this on profiles
+    -- that took the earlier posY=2 default (g1DefaultYV1), so Group 1 sits at the anchor by default again.
+    if not s.g1DefaultYV2 then
+        s.g1DefaultYV2 = true
+        if s.groups[1] then s.groups[1].posY = 0 end
     end
     -- One-shot: re-sort every EXISTING group's saved order so its NATIVE buffs follow the native
     -- on-screen order (the EditMode "Tracked Buffs" arrangement, read via BG.NativeOrder), with the

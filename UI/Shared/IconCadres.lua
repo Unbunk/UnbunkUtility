@@ -586,6 +586,20 @@ function IC.Border(bundle, opts)
           enabledBy = function() return gated() and isOn() end,
           get = function() return bundle.get("borderSize") or 1 end,
           set = function(v) if v and v > 0 then bundle.set("borderSize", v); bundle.touch() end end }
+        -- opts.nativeBorder (buff groups): a sub-cadre for the debuff dispel-type "native" border carried on
+        -- OUR inset border (replaces Masque's outsetting DebuffBorderMBB). Its own show toggle + thickness.
+        if opts.nativeBorder then
+            local nbOn = function() return bundle.get("showNativeBorder") ~= false end
+            e[#e + 1] = { type = "group", title = L["Native border"], build = function() return {
+                { type = "checkbox", label = L["Show native border"],
+                  get = nbOn,
+                  set = function(v) bundle.set("showNativeBorder", v and true or false); bundle.touch(); refresh() end },
+                { type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+                  enabledBy = nbOn,
+                  get = function() return bundle.get("nativeBorderSize") or 3 end,
+                  set = function(v) if v and v > 0 then bundle.set("nativeBorderSize", v); bundle.touch() end end },
+            } end }
+        end
         return e
     end }
 end
