@@ -1163,7 +1163,9 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
             return { type = "group", title = L["Rows"], build = function() return {
                 { type = "textinput", label = L["Max icon per row"], width = 46, numeric = true, min = 1, max = 20, maxLetters = 2,
                   get = function() return I.GGet(id, "maxPerRow") or 6 end,
-                  set = function(v) if v and v >= 1 then I.GSet(id, "maxPerRow", math.floor(v)); touch(); rebuild() end end },
+                  -- RechunkGroup re-wraps the stored rows to the new cap (GroupRows returns them verbatim, so
+                  -- a group frozen at a wider maxPerRow wouldn't otherwise reflow — native + engine alike).
+                  set = function(v) if v and v >= 1 then I.GSet(id, "maxPerRow", math.floor(v)); I.RechunkGroup(id); touch(); rebuild() end end },
             } end }
         end
 
