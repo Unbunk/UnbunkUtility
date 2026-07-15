@@ -409,7 +409,7 @@ local function TitleSection(bundle)
 end
 
 local STACK_KEYS = {
-    "showStack", "showAtZero", "stackShowZero", "darkenOnCdWithStacks",
+    "showStack", "showAtZero", "stackShowZero", "darkenOnCdWithStacks", "showCdWithStacks",
     "stackFontKey", "stackFontPath", "stackFontSize", "stackOutline",
     "stackColor", "stackPos", "stackOffX", "stackOffY",
 }
@@ -432,6 +432,12 @@ local function StacksSection(bundle, opts)
             e[#e + 1] = { type = "checkbox", ref = "stackshowzero", label = L["Show at 0 stacks"], enabledBy = gated,
                   get = function() return bundle.get("stackShowZero") ~= false end,
                   set = function(v) bundle.set("stackShowZero", v); bundle.touch() end }
+            -- Draw the cooldown/recharge swipe + countdown even while the spell still has a usable charge/stack
+            -- (off, a spell with a charge left draws no swipe). Default ON (native CooldownViewer parity; the
+            -- CDM cooldown groups seed showCdWithStacks=true in their template).
+            e[#e + 1] = { type = "checkbox", ref = "showcdwithstacks", label = L["Show cd with 1 stacks or more"], enabledBy = gated,
+                  get = function() return bundle.get("showCdWithStacks") ~= false end,
+                  set = function(v) bundle.set("showCdWithStacks", v and true or false); bundle.touch() end }
             -- OFF (default): a cooldown keeps the icon lit while a charge/stack is still usable, greying it
             -- only once none remain. ON: the icon greys on cooldown regardless of remaining charges.
             e[#e + 1] = { type = "checkbox", ref = "darkenoncdwithstacks", label = L["Darken icon when on cd with stacks"], enabledBy = gated,

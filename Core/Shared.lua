@@ -494,6 +494,21 @@ function ns.SpellRealCooldownSwipe(spellId)
     return C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(spellId, true)
 end
 
+-- Charge RECHARGE swipe: the recharging-charge arc for a MULTI-charge spell EVEN while a charge is still
+-- usable. GetSpellCooldown().isActive is FALSE whenever any charge remains (verified via runtime dump: a
+-- Shimmer at 1/2 reports isActive=false), so SpellRealCooldownSwipe draws nothing and the engine's own-draw
+-- icon shows no recharge — unlike Blizzard's native CooldownViewer, which always draws it. Returns the charge
+-- DURATION OBJECT (secret-safe; consumed C-side by Cooldown:SetCooldownFromDurationObject). At FULL charges the
+-- object is already elapsed, so the widget draws nothing. Powers the "Show cd with 1 stacks or more" option.
+-- maxCharges is a STRUCTURAL field (readable in combat); currentCharges is never read here (it is secret).
+function ns.SpellChargeRechargeSwipe(spellId)
+    if not (spellId and spellId ~= 0 and C_Spell and C_Spell.GetSpellCharges) then return nil end
+    local ci = C_Spell.GetSpellCharges(spellId)
+    local maxc = ci and ci.maxCharges
+    if not (maxc and not (issecretvalue and issecretvalue(maxc)) and maxc > 1) then return nil end
+    return (C_Spell.GetSpellChargeDuration and C_Spell.GetSpellChargeDuration(spellId)) or nil
+end
+
 -- OPTIONAL global-cooldown SWIPE (opt-in; SpellRealCooldownSwipe deliberately suppresses it so an idle spell
 -- looks ready). Returns the GCD's duration object ONLY when the spell's ACTIVE cooldown IS the GCD (a spell
 -- with no real cooldown, on the global). Lets the standalone engine draw a the reference engine-style GCD spin (no

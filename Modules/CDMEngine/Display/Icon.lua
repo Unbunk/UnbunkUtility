@@ -108,6 +108,30 @@ function Icon.ApplySize(f, size)
     f.Icon:SetTexCoord(IconTexCoordFor(size, size))
 end
 
+-- Re-anchor the native Cooldown's countdown FontString to the configured timer position (timerPos/OffX/OffY),
+-- parity with CDMGroups' StyleCooldownRegions/AnchorTimerFS. The Cooldown creates its number FontString
+-- LAZILY (first time it shows) and re-centres it when the cooldown restarts, so we (re)find + cache the
+-- region and re-apply on each swipe start. No-op unless the icon has a NON-default timer position.
+local function AnchorCountdown(f)
+    if not (f._timerReanchor and ns.AnchorFS) then return end
+    local cd = f.Cooldown
+    if not cd then return end
+    local fs = f._cdText
+    if not (fs and fs.SetPoint) then
+        fs = cd.Text or cd.text
+        if not (fs and fs.IsObjectType and fs:IsObjectType("FontString")) then
+            fs = nil
+            for _, r in ipairs({ cd:GetRegions() }) do
+                if r and r.IsObjectType and r:IsObjectType("FontString") then fs = r; break end
+            end
+        end
+        f._cdText = fs
+    end
+    if fs and fs.SetPoint then
+        pcall(ns.AnchorFS, fs, f, f._timerPos or "CENTER", f._timerOffX, f._timerOffY)
+    end
+end
+
 -- Config-driven appearance PARITY with the native CDM: read the native per-icon config (I.IconGet resolves
 -- per-icon override -> group -> template) and restyle OUR OWN regions to match. Phase 1 covers border (shared
 -- ns.CDMAnchor.ApplyFrameBorder), the C-side countdown number (font/colour via a per-frame CreateFont +
@@ -142,6 +166,9 @@ function Icon.StyleFrame(f)
     local cd = f.Cooldown
     local showTimer = I.IconGet(sid, "showTimer") ~= false
     f._showTimer = showTimer   -- cached so UpdateSwipe honours it (UpdateSwipe re-touches SetHideCountdownNumbers)
+    -- "Show cd with 1 stacks or more" (default ON): draw the recharge arc for a multi-charge spell even while a
+    -- charge is usable (a real cooldown is inactive then). Cached so UpdateSwipe reads it cheaply every refresh.
+    f._showCdWithStacks = I.IconGet(sid, "showCdWithStacks") ~= false
     if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(not showTimer) end
     if f._cdFont then
         f._cdFont:SetFont(ns.ResolveFontPath(I.IconGet(sid, "timerFontPath"), I.IconGet(sid, "timerFontKey")),
@@ -155,6 +182,14 @@ function Icon.StyleFrame(f)
         cd:SetCountdownFormatter(ns.CDMGroups.CooldownFormatter
             and ns.CDMGroups.CooldownFormatter.GetFor(I, sid) or nil)
     end
+    -- Timer text POSITION (timerPos/OffX/OffY): re-anchor the native countdown FontString to match CDMGroups.
+    -- Cached + re-applied on each swipe start (the Cooldown re-centres its number when it restarts).
+    f._timerPos  = I.IconGet(sid, "timerPos") or "CENTER"
+    f._timerOffX = I.IconGet(sid, "timerOffX")
+    f._timerOffY = I.IconGet(sid, "timerOffY")
+    f._timerReanchor = (f._timerPos ~= "CENTER")
+        or (f._timerOffX and f._timerOffX ~= 0) or (f._timerOffY and f._timerOffY ~= 0) or false
+    AnchorCountdown(f)
 
     -- Stack / charge count (our own Count FontString): font / colour / position per config.
     if I.IconGet(sid, "showStack") ~= false then
@@ -229,8 +264,14 @@ end
 local function UpdateSwipe(f)
     local sid = f.spellID or f._lastGoodSid
     if not sid then f.Cooldown:Clear(); ApplyDesat(f, false); return end
-    local swipe = ns.SpellRealCooldownSwipe and ns.SpellRealCooldownSwipe(sid)
+    local realSwipe = ns.SpellRealCooldownSwipe and ns.SpellRealCooldownSwipe(sid)
+    local swipe = realSwipe
     local onGcd = false
+    -- "Show cd with 1 stacks or more": no real cooldown (a charge is still usable) but the user wants the
+    -- recharge arc drawn anyway, like the native CooldownViewer. Secret-safe object; nothing is drawn at full.
+    if not swipe and f._showCdWithStacks and ns.SpellChargeRechargeSwipe then
+        swipe = ns.SpellChargeRechargeSwipe(sid)
+    end
     -- Default ON (togglable): if there's no REAL cooldown, draw the global-cooldown sweep instead (the reference engine
     -- style). Its number is hidden (a GCD "1" flashing on every cast is noise); a real cooldown keeps its number.
     if not swipe and E.Cfg and E.Cfg.Get and E.Cfg.Get("showGcdSwipe") and ns.SpellGcdSwipe then
@@ -240,10 +281,13 @@ local function UpdateSwipe(f)
     if swipe and f.Cooldown.SetCooldownFromDurationObject then
         f.Cooldown:SetHideCountdownNumbers(onGcd or (f._showTimer == false))   -- honour showTimer=off; also hide during the GCD spin
         f.Cooldown:SetCooldownFromDurationObject(swipe)
+        AnchorCountdown(f)   -- the Cooldown re-centres its number on (re)start; re-apply the configured position
     else
         f.Cooldown:Clear()
     end
-    ApplyDesat(f, swipe ~= nil and not onGcd)   -- grey on a REAL cooldown (GCD spin never greys)
+    -- Desaturation is driven by the REAL cooldown only: a recharge arc drawn by "Show cd with 1 stacks or
+    -- more" leaves the icon LIT (a charge is still usable), and the GCD spin never greys (realSwipe is nil then).
+    ApplyDesat(f, realSwipe ~= nil)
 end
 
 -- Charge count. Only shown for a multi-charge spell that is not full. In combat currentCharges is
@@ -441,6 +485,7 @@ local function ApplyTierSize(f)
     f._cdFont:SetFont(ns.ResolveFontPath(I.IconGet(sid, "timerFontPath"), I.IconGet(sid, "timerFontKey")),
         math.max(8, math.floor(base * scale)), I.IconGet(sid, "timerOutline") or "OUTLINE")
     if f.Cooldown.SetCountdownFont then f.Cooldown:SetCountdownFont(f._cdFontName) end
+    AnchorCountdown(f)   -- SetCountdownFont can re-centre the number; hold the configured position
 end
 local tierAccum = 0
 local tierPoll = CreateFrame("Frame")
