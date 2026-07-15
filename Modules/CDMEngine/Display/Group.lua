@@ -75,7 +75,7 @@ function Group.Release(g)
     -- viewer's own layout (which hides it). Never Hide/Show them (taint vectors).
     if g.nativeBuffs then
         for _, nf in ipairs(g.nativeBuffs) do
-            if ns.CDMAnchor and ns.CDMAnchor.ReleaseNativeAdopt then ns.CDMAnchor.ReleaseNativeAdopt(nf) end
+            if not nf.ph and ns.CDMAnchor and ns.CDMAnchor.ReleaseNativeAdopt then ns.CDMAnchor.ReleaseNativeAdopt(nf) end
         end
         wipe(g.nativeBuffs)
     end
@@ -83,7 +83,7 @@ function Group.Release(g)
     -- pass the BAR viewer explicitly — ReleaseNativeAdopt defaults to the BuffIcon viewer.
     if g.nativeBars then
         for _, nf in ipairs(g.nativeBars) do
-            if ns.CDMAnchor and ns.CDMAnchor.ReleaseNativeAdopt then
+            if not nf.ph and ns.CDMAnchor and ns.CDMAnchor.ReleaseNativeAdopt then
                 ns.CDMAnchor.ReleaseNativeAdopt(nf, _G.BuffBarCooldownViewer)
             end
         end
