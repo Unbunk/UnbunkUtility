@@ -60,7 +60,11 @@ local function AnchorFromLabel(label)
         if AnchorLabel(k) == label then return k end
     end
     for _, tgt in ipairs(ResBarTargets()) do if tgt.label == label then return tgt.key end end
-    return "utility"
+    -- No match. Return nil so the caller KEEPS the current value instead of clobbering it: a resource-bar
+    -- label ("2: icicles") fails to resolve here only when ResBarTargets() is momentarily empty (Detect() has
+    -- no spec yet, e.g. right after login) — the old "utility" fallback silently turned that into a broken
+    -- non-bar anchor (screen centre in engine mode). See the /uubaranchor investigation.
+    return nil
 end
 
 local GROW_ORDER = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER_H", "CENTER_V" }
@@ -700,7 +704,7 @@ local function CreateBuffsPanel(parent)
             { type = "dropdown", label = L["Anchor to"], width = 180, height = 50,
               getList = AnchorList,
               getCurrentKey = function() return AnchorLabel(BG.GGet(id, "anchorTo")) end,
-              onSelect = function(label) BG.GSet(id, "anchorTo", AnchorFromLabel(label)); touch() end },
+              onSelect = function(label) local k = AnchorFromLabel(label); if k then BG.GSet(id, "anchorTo", k); touch() end end },
             { type = "dropdown", label = L["Placement"], width = 180, height = 50,
               getList = RelPosList,
               getCurrentKey = function() return RelPosLabel(BG.GGet(id, "relPos")) end,
