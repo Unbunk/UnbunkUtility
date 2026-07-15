@@ -475,6 +475,7 @@ local function ResolvePlayerFrame()
     end
     return nil
 end
+ns.ResolvePlayerFrame = ResolvePlayerFrame   -- shared: the engine's "belowPlayer" anchor resolves through this
 
 -- Every player-frame frame the BETA fader should fade: any loaded custom unit-frame
 -- addon's player frame (ElvUI's ElvUF_Player, Unhalted's UUF_Player, …) PLUS Blizzard's
