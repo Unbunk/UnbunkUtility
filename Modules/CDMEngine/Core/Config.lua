@@ -60,6 +60,14 @@ Cfg.BAR_DEFAULTS = {
     placement = "above",
     posX = 0, posY = 0,
     unlocked = false,
+    -- Per-bar APPEARANCE. barTexture / bgTexture are LSM "statusbar" keys (default "Better Blizzard", the
+    -- bundled texture — same default as CastBar / BarGroups). bgColor is the background tint ({r,g,b,a});
+    -- default black 85%. barColor (the FILL colour) is deliberately LEFT UNSET: its default is PER-FAMILY
+    -- (mana blue, rune, aura, stagger, ...), so GetBar returns nil and ClassResource's SetFill applies the
+    -- family/state colour — while the config swatch shows that family colour via R.DefaultFillColor.
+    barTexture = "Better Blizzard",
+    bgTexture  = "Better Blizzard",
+    bgColor    = { r = 0, g = 0, b = 0, a = 0.85 },
 }
 
 -- 'CDMEngine' is a BRAND-NEW profile key (never persisted before this branch), so its casing is free

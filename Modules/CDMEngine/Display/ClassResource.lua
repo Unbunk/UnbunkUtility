@@ -182,6 +182,42 @@ local function UpdateBarText(row, cur, mx)
     end
 end
 
+-- ── Per-bar appearance: fill texture / fill colour / background texture / background colour ──────
+-- All optional (nil = the built-in look). ResolveStatusbar falls back to solid WHITE8X8 (the historical
+-- fill); SetFill only overrides the family/state colour when row.barColor is set; StyleCells paints the
+-- background (nil bgTexture = a flat colour, defaulting to black 85%).
+local LSM_RES = LibStub and LibStub("LibSharedMedia-3.0", true)
+local function ResolveStatusbar(key)
+    if key and key ~= "" and LSM_RES and LSM_RES:IsValid("statusbar", key) then
+        return LSM_RES:Fetch("statusbar", key)
+    end
+    return "Interface/Buttons/WHITE8X8"
+end
+local function SetFill(row, sb, r, g, b)
+    local oc = row.barColor
+    if oc then sb:SetStatusBarColor(oc.r or 1, oc.g or 1, oc.b or 1) else sb:SetStatusBarColor(r, g, b) end
+end
+-- Paint every cell's fill texture + background. Runs once per (re)build AFTER the family sized/placed the
+-- cells; pooled cells are ALWAYS fully re-styled here so no stale texture survives a reuse.
+local function StyleCells(row, cfg)
+    local barTex = ResolveStatusbar(cfg.barTexture)
+    local bgTex  = (cfg.bgTexture and cfg.bgTexture ~= "" and LSM_RES and LSM_RES:IsValid("statusbar", cfg.bgTexture))
+                   and LSM_RES:Fetch("statusbar", cfg.bgTexture) or nil
+    local bg     = cfg.bgColor
+    for _, c in ipairs(row.cells) do
+        c.sb:SetStatusBarTexture(barTex)
+        if bgTex then
+            c.bg:SetTexture(bgTex)
+            if bg then c.bg:SetVertexColor(bg.r or 1, bg.g or 1, bg.b or 1, bg.a or 1)
+            else c.bg:SetVertexColor(1, 1, 1, 1) end
+        elseif bg then
+            c.bg:SetColorTexture(bg.r or 0, bg.g or 0, bg.b or 0, bg.a or 0.85)
+        else
+            c.bg:SetColorTexture(0, 0, 0, 0.85)
+        end
+    end
+end
+
 -- ── Families: contract = setup(row, desc, cfg) + update(row) [+ teardown(row)] ──────────────────
 -- Cells are parented to row.frame (the bar's OWN frame) at offset 0; the frame is positioned as a whole.
 local Families = {}
@@ -193,7 +229,7 @@ Families.bar = {
         c:ClearAllPoints()
         c:SetPoint("TOPLEFT", row.frame, "TOPLEFT", 0, 0)
         row.power = desc.power
-        c.sb:SetStatusBarColor(ColorFor(desc.power))
+        SetFill(row, c.sb, ColorFor(desc.power))
         ApplyBarText(row)
         Families.bar.update(row)
     end,
@@ -213,7 +249,7 @@ Families.pips = {
         row.power, row.divisor = desc.power, desc.divisor or 1
         for i, c in ipairs(row.cells) do
             c:SetSize(cfg.barWidth / math.max(#row.cells, 1), cfg.barHeight)
-            c.sb:SetStatusBarColor(ColorFor(desc.power))
+            SetFill(row, c.sb, ColorFor(desc.power))
             c.sb:SetMinMaxValues(0, row.divisor)
             c:ClearAllPoints()
             c:SetPoint("TOPLEFT", row.frame, "TOPLEFT", (i - 1) * (cfg.barWidth / math.max(#row.cells, 1)), 0)
@@ -247,7 +283,7 @@ Families.essence = {
         row.power = desc.power
         for i, c in ipairs(row.cells) do
             c:SetSize(cfg.barWidth / math.max(#row.cells, 1), cfg.barHeight)
-            c.sb:SetStatusBarColor(ColorFor(desc.power))
+            SetFill(row, c.sb, ColorFor(desc.power))
             c.sb:SetMinMaxValues(0, 1000)
             c:ClearAllPoints()
             c:SetPoint("TOPLEFT", row.frame, "TOPLEFT", (i - 1) * (cfg.barWidth / math.max(#row.cells, 1)), 0)
@@ -293,7 +329,7 @@ Families.runes = {
     setup = function(row, desc, cfg)
         for i, c in ipairs(row.cells) do
             c:SetSize(cfg.barWidth / math.max(#row.cells, 1), cfg.barHeight)
-            c.sb:SetStatusBarColor(RUNE_COLOR[1], RUNE_COLOR[2], RUNE_COLOR[3])
+            SetFill(row, c.sb, RUNE_COLOR[1], RUNE_COLOR[2], RUNE_COLOR[3])
             c.sb:SetMinMaxValues(0, 1)
             c:ClearAllPoints()
             c:SetPoint("TOPLEFT", row.frame, "TOPLEFT", (i - 1) * (cfg.barWidth / math.max(#row.cells, 1)), 0)
@@ -315,10 +351,10 @@ Families.runes = {
                 c:Show()
                 if c.sb.SetTimerDuration then pcall(c.sb.SetTimerDuration, c.sb, nil) end
                 if ready then
-                    c.sb:SetStatusBarColor(RUNE_READY_COLOR[1], RUNE_READY_COLOR[2], RUNE_READY_COLOR[3])
+                    SetFill(row, c.sb, RUNE_READY_COLOR[1], RUNE_READY_COLOR[2], RUNE_READY_COLOR[3])
                     c.sb:SetMinMaxValues(0, 1); c.sb:SetValue(1)
                 else
-                    c.sb:SetStatusBarColor(RUNE_COLOR[1], RUNE_COLOR[2], RUNE_COLOR[3])
+                    SetFill(row, c.sb, RUNE_COLOR[1], RUNE_COLOR[2], RUNE_COLOR[3])
                     if s > 0 and d > 0 and c.sb.SetTimerDuration
                        and C_DurationUtil and C_DurationUtil.CreateDuration then
                         c.runeDur = c.runeDur or C_DurationUtil.CreateDuration()
@@ -342,7 +378,7 @@ Families.auraBar = {
         row.spellID, row.max = desc.spellID, desc.max or 1
         local c = row.cells[1]
         c:SetSize(cfg.barWidth, cfg.barHeight)
-        c.sb:SetStatusBarColor(AURA_COLOR[1], AURA_COLOR[2], AURA_COLOR[3])
+        SetFill(row, c.sb, AURA_COLOR[1], AURA_COLOR[2], AURA_COLOR[3])
         c.sb:SetMinMaxValues(0, row.max)
         c:ClearAllPoints()
         c:SetPoint("TOPLEFT", row.frame, "TOPLEFT", 0, 0)
@@ -360,7 +396,7 @@ Families.auraPips = {
         row.spellID, row.divisor = desc.spellID, desc.divisor or 1
         for i, c in ipairs(row.cells) do
             c:SetSize(cfg.barWidth / math.max(#row.cells, 1), cfg.barHeight)
-            c.sb:SetStatusBarColor(AURA_COLOR[1], AURA_COLOR[2], AURA_COLOR[3])
+            SetFill(row, c.sb, AURA_COLOR[1], AURA_COLOR[2], AURA_COLOR[3])
             c.sb:SetMinMaxValues(0, row.divisor)
             c:ClearAllPoints()
             c:SetPoint("TOPLEFT", row.frame, "TOPLEFT", (i - 1) * (cfg.barWidth / math.max(#row.cells, 1)), 0)
@@ -404,7 +440,7 @@ Families.stagger = {
             local col = (ratio >= STAGGER_HEAVY and STAGGER_COLORS.heavy)
                 or (ratio >= STAGGER_LIGHT and STAGGER_COLORS.moderate)
                 or STAGGER_COLORS.light
-            self.sb:SetStatusBarColor(col[1], col[2], col[3])
+            SetFill(row, self.sb, col[1], col[2], col[3])
         end)
     end,
     update = function() end,
@@ -810,11 +846,15 @@ Rebuild = function()
                 local cfg = {
                     barWidth  = AdaptedBarWidth(specKey, i),   -- adapts to adaptTo when adaptWidth is on, else fixed
                     barHeight = Bar(specKey, i, "barHeight") or 16,
+                    barTexture = Bar(specKey, i, "barTexture"),   -- LSM statusbar (nil = solid WHITE8X8)
+                    bgTexture  = Bar(specKey, i, "bgTexture"),    -- LSM statusbar (nil = flat colour background)
+                    bgColor    = Bar(specKey, i, "bgColor"),      -- {r,g,b,a} (nil = black 85%)
                 }
                 local bf  = AcquireBarFrame()
                 local ss  = Bar(specKey, i, "showSplit")
                 if ss == nil then ss = (desc.family ~= "bar") end   -- primary "bar" bars default split OFF; pips ON
                 local row = { family = desc.family, desc = desc, cells = {}, frame = bf,
+                              barColor = Bar(specKey, i, "barColor"),   -- per-bar fill colour override ({r,g,b,a}; nil = family/state colour)
                               showEmpty = Bar(specKey, i, "showEmpty") ~= false,
                               showSplit = ss == true,
                               showValueText   = Bar(specKey, i, "showValueText")   == true,
@@ -836,7 +876,8 @@ Rebuild = function()
                               percentColor    = Bar(specKey, i, "percentColor") }
                 bf.row = row
                 for k = 1, CellCountFor(desc) do row.cells[k] = AcquireCell(bf) end
-                Families[desc.family].setup(row, desc, cfg)
+                StyleCells(row, cfg)               -- paint fill texture + bg FIRST: SetStatusBarTexture RESETS the fill colour to white
+                Families[desc.family].setup(row, desc, cfg)   -- family SetFill re-colours AFTER, so the family/state colour wins over that reset
                 RegisterFamilyEvents(desc.family)
                 -- Both bars AND pips fill barWidth x barHeight (pips = N equal segments of it).
                 bf:SetSize(math.max(cfg.barWidth, 1), math.max(cfg.barHeight, 1))
@@ -930,6 +971,55 @@ function R.RefreshText()
             end
         end
     end
+end
+
+-- Light re-style of the fill TEXTURE + BACKGROUND + fill-colour override without a full rebuild — cheap
+-- enough for the colour swatch's LIVE drag (mirrors RefreshText). Re-reads the appearance config into each
+-- row and re-applies it to the existing cells. NOTE: a CLEARED barColor (revert to the family/state colour)
+-- still needs a full rebuild, but the swatch only ever SETS a colour, so live drag stays smooth here.
+function R.RefreshStyle()
+    if not shown then return end
+    local specKey = R.GetSpecKey()
+    for i, bf in pairs(bars) do
+        local row = bf.row
+        if row then
+            row.barColor = Bar(specKey, i, "barColor")
+            StyleCells(row, {
+                barTexture = Bar(specKey, i, "barTexture"),
+                bgTexture  = Bar(specKey, i, "bgTexture"),
+                bgColor    = Bar(specKey, i, "bgColor"),
+            })
+            -- StyleCells' SetStatusBarTexture reset the fill to white -> re-apply the EFFECTIVE fill colour
+            -- (per-bar override OR the family default) for the DEFAULT (unset barColor) case too, not only when
+            -- an override is set. Runes/stagger further self-correct to their live state on the next data event.
+            local fc = row.barColor or R.DefaultFillColor(i)
+            if fc then
+                for _, c in ipairs(row.cells) do
+                    c.sb:SetStatusBarColor(fc.r or 1, fc.g or 1, fc.b or 1)
+                end
+            end
+        end
+    end
+end
+
+-- The default FILL colour a bar renders when barColor is UNSET — so the config swatch can display it (mana
+-- blue, etc.) instead of blank. A single representative colour for the multi-state families (runes / aura /
+-- stagger). Reads the CURRENT spec's resource for bar `i` (the config panel is always current-spec).
+function R.DefaultFillColor(i)
+    local labels = R.Detect()
+    local desc   = labels and labels[i] and R.REGISTRY[labels[i]]
+    if not desc then return { r = 0.6, g = 0.6, b = 0.6, a = 1 } end
+    local fam = desc.family
+    if fam == "runes" then
+        return { r = RUNE_COLOR[1], g = RUNE_COLOR[2], b = RUNE_COLOR[3], a = 1 }
+    elseif fam == "auraBar" or fam == "auraPips" then
+        return { r = AURA_COLOR[1], g = AURA_COLOR[2], b = AURA_COLOR[3], a = 1 }
+    elseif fam == "stagger" then
+        local col = STAGGER_COLORS.light
+        return { r = col[1], g = col[2], b = col[3], a = 1 }
+    end
+    local r, g, b = ColorFor(desc.power)
+    return { r = r, g = g, b = b, a = 1 }
 end
 
 -- Profile change / import / RESET re-runs the reload hooks: fully REBUILD the bars so a wiped/loaded config

@@ -136,8 +136,9 @@ local function CreateClassResourcesPanel(parent)
     local R = E.Resource
 
     local function Get(specKey, i, key) return E.Cfg and E.Cfg.GetBar(specKey, i, key) end
-    local function ReRes()  if R and R.Rebuild     then R.Rebuild()     end end   -- cell/size change -> full rebuild
-    local function RePos()  if R and R.Reposition  then R.Reposition()  end end   -- position/anchor -> re-anchor only
+    local function ReRes()  if R and R.Rebuild      then R.Rebuild()      end end  -- cell/size change -> full rebuild
+    local function RePos()  if R and R.Reposition   then R.Reposition()   end end  -- position/anchor -> re-anchor only
+    local function ReStyle() if R and R.RefreshStyle then R.RefreshStyle() end end  -- texture/colour/bg -> live re-style (no rebuild)
     local function ResourcesOn() return E.Cfg and E.Cfg.GetResource("enable") == true end
 
     -- Integer size field for a per-bar key. `disabled` (optional fn) greys it when true.
@@ -202,6 +203,7 @@ local function CreateClassResourcesPanel(parent)
     -- The "Bar settings" sub-cadre: Bar width (greyed when "Adapt width to" is on) / Bar height, then the
     -- "Adapt width to" toggle + its target dropdown (label-less: the checkbox names it), then Show empty pips.
     local function BarSettingsCadre(specKey, i)
+        local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
         return { type = "group", title = L["Bar settings"], build = function() return {
             {
                 type = "checkbox", label = L["Adapt width to"],
@@ -220,6 +222,50 @@ local function CreateClassResourcesPanel(parent)
             NumEntry(L["Bar width"], specKey, i, "barWidth", 40, 600,
                 function() return Get(specKey, i, "adaptWidth") == true end),
             NumEntry(L["Bar height"], specKey, i, "barHeight", 4, 60),
+            {   -- Bar/Pips fill texture (LSM statusbar; unset = solid WHITE8X8)
+                type = "dropdown", label = L["Bar/Pips texture"], width = 220, height = 50, searchable = true,
+                getList = function() return LSM and LSM:List("statusbar") or {} end,
+                getCurrentKey = function() return Get(specKey, i, "barTexture") end,
+                onSelect = function(lbl) if E.Cfg then E.Cfg.SetBar(specKey, i, "barTexture", lbl); ReStyle() end end,
+            },
+            {   -- Bar/Pips fill colour ({r,g,b,a}; unset = the per-family/state colour)
+                type = "textEditor", label = L["Bar/Pips color"],
+                showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                getColor = function()
+                    return Get(specKey, i, "barColor")
+                        or (R and R.DefaultFillColor and R.DefaultFillColor(i))   -- family default (mana blue, etc.)
+                end,
+                onColorChange = function(r, g, b, a)
+                    if not E.Cfg then return end
+                    -- Choosing the family DEFAULT means "keep the dynamic family/state colour" -> store nil. The
+                    -- colour picker re-fires the synthesized default on a no-op cancel (OnHide), so this stops that
+                    -- from FREEZING the bar's dynamic colour (runes/stagger/aura), and lets picking the default
+                    -- revert to dynamic. ~1/255 tolerance covers the picker's byte round-trip.
+                    local d = R and R.DefaultFillColor and R.DefaultFillColor(i)
+                    if d and math.abs((d.r or 1) - r) < 0.004
+                         and math.abs((d.g or 1) - g) < 0.004
+                         and math.abs((d.b or 1) - b) < 0.004 then
+                        E.Cfg.SetBar(specKey, i, "barColor", nil)
+                    else
+                        E.Cfg.SetBar(specKey, i, "barColor", { r = r, g = g, b = b, a = a })
+                    end
+                    ReStyle()
+                end,
+            },
+            {   -- Background texture (LSM statusbar; unset = flat colour)
+                type = "dropdown", label = L["Background texture"], width = 220, height = 50, searchable = true,
+                getList = function() return LSM and LSM:List("statusbar") or {} end,
+                getCurrentKey = function() return Get(specKey, i, "bgTexture") end,
+                onSelect = function(lbl) if E.Cfg then E.Cfg.SetBar(specKey, i, "bgTexture", lbl); ReStyle() end end,
+            },
+            {   -- Background colour ({r,g,b,a}; unset = black 85%)
+                type = "textEditor", label = L["Background color"],
+                showText = false, showFont = false, showSize = false, showOutline = false, showColor = true,
+                getColor = function() return Get(specKey, i, "bgColor") end,
+                onColorChange = function(r, g, b, a)
+                    if E.Cfg then E.Cfg.SetBar(specKey, i, "bgColor", { r = r, g = g, b = b, a = a }); ReStyle() end
+                end,
+            },
             {
                 type = "checkbox", label = L["Show empty pips"],
                 get = function() return Get(specKey, i, "showEmpty") ~= false end,
