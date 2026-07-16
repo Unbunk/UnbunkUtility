@@ -271,8 +271,19 @@ function BR.GetGroupBuffs(groupId)
     end
     local rest = {}
     for sid in pairs(assigned) do if not seen[sid] then rest[#rest + 1] = sid end end
-    table.sort(rest)
-    for _, sid in ipairs(rest) do out[#out + 1] = sid end
+    if #rest > 0 then
+        -- Order the not-yet-saved members by the NATIVE on-screen order (the EditMode arrangement), matching
+        -- the RefreshTracked seed + BuffGroups. So a fresh / just-reset profile lists them in native order, not
+        -- by raw spellId. (NativeOrder is only computed when there's actually something to place.)
+        local rank, r = {}, 0
+        for _, sid in ipairs(BR.NativeOrder() or {}) do if rank[sid] == nil then r = r + 1; rank[sid] = r end end
+        table.sort(rest, function(a, b)
+            local ra, rb = rank[a] or math.huge, rank[b] or math.huge
+            if ra ~= rb then return ra < rb end
+            return a < b
+        end)
+        for _, sid in ipairs(rest) do out[#out + 1] = sid end
+    end
     return out
 end
 
