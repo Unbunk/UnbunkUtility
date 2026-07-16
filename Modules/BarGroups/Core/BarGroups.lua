@@ -208,9 +208,12 @@ local function FrameLayoutIndex(nf)
     return li
 end
 
+-- NO viewerLaidOut gate: the "Copy native CDM order" button must work while the module is DISABLED (engine
+-- mode owns the bars, so viewerLaidOut is never set). The pool is read directly (EnumerateActive) and each
+-- layoutIndex read is secret-guarded (FrameLayoutIndex), so an empty/stale pool just yields an empty order.
 function BR.NativeOrder()
     local v = _G[BAR_VIEWER]
-    if not (viewerLaidOut and v and v.itemFramePool and v.itemFramePool.EnumerateActive) then
+    if not (v and v.itemFramePool and v.itemFramePool.EnumerateActive) then
         return nil
     end
     local entries, n = {}, 0
@@ -262,10 +265,14 @@ function BR.IsDisplayable(sid) return displayedCache[sid] == true end
 -- actually changes, so the strip's red flags / tooltips re-evaluate after EditMode edits.
 BR.onDisplayedChanged = nil
 
--- Recompute the DISPLAYED set straight into displayedCache; return true if it CHANGED.
+-- Recompute the DISPLAYED set straight into displayedCache; return true if it CHANGED. NO viewerLaidOut gate:
+-- the config's live refresh must work while the module is DISABLED (engine mode owns the bars, so viewerLaidOut
+-- is never set — and installing the viewer hook to set it collapsed the engine's adopted bars). The pool is read
+-- directly; the `poolCount == 0` guard below covers the not-yet-laid-out / just-cleared case, and the per-frame
+-- reads are all secret-guarded, so a stale/empty read is harmless (it just returns false without clobbering).
 function BR.RefreshDisplayedCache()
     local v = _G[BAR_VIEWER]
-    if not (viewerLaidOut and v and v.itemFramePool and v.itemFramePool.EnumerateActive) then
+    if not (v and v.itemFramePool and v.itemFramePool.EnumerateActive) then
         return false
     end
     local inPool, poolCount = {}, 0
@@ -789,7 +796,15 @@ end
 -- from its deferred layout pass (taint-safe). Pure styling on a passed (nf, spellId) — no pin embedded.
 BR.StyleBarFrame = StyleBarFrame
 
-function BR.ApplyAll() layoutDirty = true; BR.RefreshLayout() end
+-- The config UI's touch() calls this after every edit. Bump the shared style epoch FIRST so the standalone
+-- engine (which HOSTS the bars in engine mode, BR disabled) re-derives its layout — otherwise a bar order /
+-- spacing / static / style edit only re-ran BR.RefreshLayout (a no-op while disabled) and never reached the
+-- engine, so nothing updated live. Mirrors BG.ApplyAll / I.ApplyAll.
+function BR.ApplyAll()
+    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end
+    layoutDirty = true
+    BR.RefreshLayout()
+end
 
 function BR.Rebuild()
     BR.RefreshTracked()

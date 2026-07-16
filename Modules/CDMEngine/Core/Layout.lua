@@ -169,12 +169,13 @@ local function ArrangeGroup(g)
     -- Cross-axis alignment from the group's placement (g._relPos): "above" (default) shares the BOTTOM edge so
     -- a SHORTER icon sits flush at the bottom of the row; "below"/bottom-corners share the TOP edge.
     local alignTop = (g._relPos == "below" or g._relPos == "bottomleft" or g._relPos == "bottomright")
+    local spacing = g._spacing or gs.spacing   -- honour the host group's own spacing; fall back to the SPEC default
     local main, cross = 0, 0
     -- w = main-axis extent, h = cross-axis extent. Square callers pass one value (h defaults to w); the
     -- own icons pass their CONFIG size (iconW/iconH may differ) so a non-square icon lays out correctly.
     local function Place(f, w, h)
         w = w or gs.size; h = h or w
-        if main > 0 then main = main + gs.spacing end   -- gap only BETWEEN elements (no leading/trailing)
+        if main > 0 then main = main + spacing end   -- gap only BETWEEN elements (no leading/trailing)
         f:ClearAllPoints()
         if horizontal then
             f:SetPoint("LEFT", g, "LEFT", main, 0)
@@ -213,7 +214,7 @@ local function ArrangeGroup(g)
         nf._uuBO = (not nf.ph) and BGm and BGm.BorderOutset and BGm.BorderOutset(nf, s) or 0
     end
     for _, nf in ipairs(g.nativeBuffs) do
-        if main > 0 then main = main + gs.spacing end
+        if main > 0 then main = main + spacing end
         if nf.ph then   -- Static Display: reserve an inactive buff's slot (size from its config), adopt nothing
             local bw = (nf.sid and BGm and BGm.IconGet and BGm.IconGet(nf.sid, "iconW")) or gs.size
             main = main + bw
@@ -243,7 +244,7 @@ local function ArrangeGroup(g)
     -- C-side). Bars are WIDE rows, so host them at their NATIVE size (pass no w,h -> AdoptNativeTo won't
     -- resize) and flow per the group direction (column by default -> a vertical stack of bars).
     for _, nf in ipairs(g.nativeBars) do
-        if main > 0 then main = main + gs.spacing end
+        if main > 0 then main = main + spacing end
         local BRm = ns.BarGroups
         if nf.ph then   -- Static Display: reserve an inactive bar's slot (size from its config), adopt nothing
             local bw = (nf.sid and BRm and BRm.IconGet and BRm.IconGet(nf.sid, "barWidth"))  or BAR_FALLBACK_W
@@ -634,6 +635,7 @@ local function MaterializeHostGroup(gs, dest, groupId, mod, frameOf)
     E.Group.Setup(g, gs)
     g.catKey = dest .. ":" .. groupId
     g._relPos = (mod.GGet and mod.GGet(groupId, "relPos")) or "above"   -- drives row cross-alignment in ArrangeGroup
+    g._spacing = mod.GGet and mod.GGet(groupId, "spacing")              -- honour the group's own spacing (not the SPEC default)
     g:SetParent(container)
     local staticDisplay = mod.GGet and mod.GGet(groupId, "staticDisplay") == true   -- reserve inactive slots
     local bucket = gs.isBuff and g.nativeBuffs or g.nativeBars
@@ -665,6 +667,16 @@ local function BuildLayout()
                 local mod  = gs.isBuff and ns.BuffGroups or ns.BarGroups
                 local dest = gs.isBuff and "buff" or "bar"
                 if mod and mod.GroupList and mod.GetGroupBuffs then
+                    -- Classify the CURRENT displayed set BEFORE reading GroupOf: an unassigned member lands in
+                    -- Group 1 only if the module reports it displayed (mod.IsDisplayed / displayedCache). While the
+                    -- module is disabled (engine mode owns it) its own ticker only refreshes that cache when its
+                    -- config panel is open, so without this the bars/buffs default to Unused and never get hosted.
+                    -- On a real change, forward it to the config strip (onDisplayedChanged) — the engine pre-empts
+                    -- the module's ticker, so it must notify. DEFERRED so we never rebuild the config UI mid-layout.
+                    if mod.RefreshDisplayedCache and mod.RefreshDisplayedCache() and mod.onDisplayedChanged then
+                        local cb = mod.onDisplayedChanged
+                        C_Timer.After(0, function() if type(cb) == "function" then cb() end end)
+                    end
                     local frameOf = ShownFrameMap(gs)
                     for _, grp in ipairs(mod.GroupList()) do
                         if grp.id and grp.id ~= 0 then
