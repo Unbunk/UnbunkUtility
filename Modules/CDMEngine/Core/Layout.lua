@@ -333,9 +333,17 @@ local function EngineAnchorFrame(g, a)
     end
     local dest = GroupDest(g)
     if dest ~= "buff" and dest ~= "bar" then return nil end
-    if a == "essential" or a == "utility" then
-        return GroupFrameByKey(a .. ":1")
-            or (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(a)) or nil
+    if ns.ParseCDMGroupKey then
+        local d, gid = ns.ParseCDMGroupKey(a)   -- "essential:2"/"utility:1"/"buff:1"/"bar:1" (or legacy plain -> :1)
+        if d then
+            local target = GroupFrameByKey(d .. ":" .. gid)
+            if target == g then return nil end   -- a group must NEVER anchor to itself
+            if target then return target end
+            if d == "essential" or d == "utility" then   -- engine frame not up yet -> native Group-1 fallback
+                return (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(d)) or nil
+            end
+            return nil
+        end
     end
     if ns.IsBelowAnchorKey and ns.IsBelowAnchorKey(a) then   -- belowPlayer (middle) / belowFront / belowEnd
         return (ns.ResolveBelowFrame and ns.ResolveBelowFrame(a)) or nil
@@ -350,7 +358,8 @@ local function IsAnchoredKey(g, a)
     if ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(a) then return true end
     local dest = GroupDest(g)
     if dest ~= "buff" and dest ~= "bar" then return false end
-    return a == "essential" or a == "utility" or (ns.IsBelowAnchorKey and ns.IsBelowAnchorKey(a)) or false
+    return (ns.IsCDMGroupAnchorKey and ns.IsCDMGroupAnchorKey(a))
+        or (ns.IsBelowAnchorKey and ns.IsBelowAnchorKey(a)) or false
 end
 local function IsFree(g)
     if GroupTabPos(g) ~= nil then return true end

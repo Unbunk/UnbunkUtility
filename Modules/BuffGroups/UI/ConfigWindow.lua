@@ -32,15 +32,22 @@ local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 -- ── anchorTo / growDir option maps (label <-> stored key) ──────────────────────
 -- A group's anchor target and grow direction are plain group keys; the dropdowns map a
 -- localised label to/from the stored key (ns.AnchorList-style, but a fixed local set).
-local ANCHOR_ORDER = { "essential", "utility", "belowPlayer", "belowFront", "belowEnd", "screen" }
+-- The FLAT (non-group) anchor targets. The four CDM group TYPES are offered PER GROUP via GroupTargets()
+-- (shared source in Core/CDMAnchor.lua), so "essential"/"utility" no longer live here as singletons.
+local ANCHOR_ORDER = { "belowPlayer", "belowFront", "belowEnd", "screen" }
 -- The current spec's resource bars (+ "Last bar") as extra anchor targets, from the shared source. Anchoring
 -- a group to a "resbar:*" key rides that resource bar in BOTH modes (native = ContainerAnchor; engine =
 -- Layout.ApplyFreePositions). Empty when the spec has no resources.
 local function ResBarTargets()
     return (ns.ResourceBarAnchorTargets and ns.ResourceBarAnchorTargets()) or {}
 end
+-- One entry per GROUP of every type: "Essential (Group 1)", "Utility (Group 2)", "Buffs (Group 1)", "Bars
+-- (Group 1)"… excludeKey omits THIS group's own key so it can never anchor to itself.
+local function GroupTargets(excludeKey)
+    return (ns.CDMGroupAnchorTargets and ns.CDMGroupAnchorTargets(nil, excludeKey)) or {}
+end
 local function AnchorLabel(key)
-    if key == "essential"   then return L["Essential"]                  end
+    if ns.IsCDMGroupAnchorKey and ns.IsCDMGroupAnchorKey(key) then return ns.CDMGroupAnchorLabel(key) end
     if key == "screen"      then return L["Screen"]                     end
     if key == "belowPlayer" then return L["Below player frame"]         end
     if key == "belowFront"  then return L["Below player frame (front)"] end
@@ -49,23 +56,24 @@ local function AnchorLabel(key)
         for _, tgt in ipairs(ResBarTargets()) do if tgt.key == key then return tgt.label end end
         return L["Last bar"] or key   -- stored resbar key whose bar isn't in the current spec
     end
-    return L["Utility"]
+    return tostring(key)
 end
-local function AnchorList()
+local function AnchorList(excludeKey)
     local t = {}
+    for _, tgt in ipairs(GroupTargets(excludeKey)) do t[#t + 1] = tgt.label end
     for _, k in ipairs(ANCHOR_ORDER) do t[#t + 1] = AnchorLabel(k) end
     for _, tgt in ipairs(ResBarTargets()) do t[#t + 1] = tgt.label end
     return t
 end
 local function AnchorFromLabel(label)
+    for _, tgt in ipairs(GroupTargets()) do if tgt.label == label then return tgt.key end end
     for _, k in ipairs(ANCHOR_ORDER) do
         if AnchorLabel(k) == label then return k end
     end
     for _, tgt in ipairs(ResBarTargets()) do if tgt.label == label then return tgt.key end end
-    -- No match. Return nil so the caller KEEPS the current value instead of clobbering it: a resource-bar
-    -- label ("2: icicles") fails to resolve here only when ResBarTargets() is momentarily empty (Detect() has
-    -- no spec yet, e.g. right after login) — the old "utility" fallback silently turned that into a broken
-    -- non-bar anchor (screen centre in engine mode). See the /uubaranchor investigation.
+    -- No match. Return nil so the caller KEEPS the current value instead of clobbering it: a resource-bar /
+    -- per-group label fails to resolve here only when its source list is momentarily empty (Detect() / the
+    -- group set has no entry yet, e.g. right after login). See the /uubaranchor investigation.
     return nil
 end
 
@@ -704,7 +712,7 @@ local function CreateBuffsPanel(parent)
     local function PositionGroup(id)
         return { type = "group", title = L["Position"], build = function() return {
             { type = "dropdown", label = L["Anchor to"], width = 180, height = 50,
-              getList = AnchorList,
+              getList = function() return AnchorList("buff:" .. id) end,   -- exclude this group's own key
               getCurrentKey = function() return AnchorLabel(BG.GGet(id, "anchorTo")) end,
               onSelect = function(label) local k = AnchorFromLabel(label); if k then BG.GSet(id, "anchorTo", k); touch() end end },
             { type = "dropdown", label = L["Placement"], width = 180, height = 50,

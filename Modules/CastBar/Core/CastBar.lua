@@ -65,16 +65,20 @@ end
 -- engine has it live (shown + positioned); until then (CDM off, empty Group 1, or the brief
 -- window right after a /reload) we fall back to the native viewer. belowPlayer -> PlayerFrame.
 local function GroupOneBox(dest)
-    -- Engine mode: CDMGroups is disabled (its Group 1 container is hidden), the standalone engine draws its
-    -- OWN group frames — so anchor to / adapt from the engine's Group 1 frame for this dest instead.
+    -- `dest` is a per-group key ("essential:2" / "buff:1" / …) or a legacy plain type ("essential" -> group 1).
+    -- Engine mode: CDMGroups is disabled (its container is hidden), the standalone engine draws its OWN group
+    -- frames — so anchor to / adapt from the engine's frame for this dest:group instead.
+    if not ns.ParseCDMGroupKey then return nil end
+    local d, id = ns.ParseCDMGroupKey(dest)   -- NOT `(X and X())`: parens/`and` truncate multi-returns -> id=nil
+    if not d then return nil end
     if ns.CDMMode and ns.CDMMode.IsEngine() then
         local L  = ns.CDMEngine and ns.CDMEngine.Layout
-        local ef = L and L.GroupFrame and L.GroupFrame(dest .. ":1")
+        local ef = L and L.GroupFrame and L.GroupFrame(d .. ":" .. id)
         if ef and ef:IsShown() and ef:GetLeft() then return ef end
         return nil
     end
-    local inst = ns.CDMGroups and ns.CDMGroups[dest]
-    local box  = inst and inst.GetContainer and inst.GetContainer(1)
+    local inst = (d == "buff" and ns.BuffGroups) or (d == "bar" and ns.BarGroups) or (ns.CDMGroups and ns.CDMGroups[d])
+    local box  = inst and inst.GetContainer and inst.GetContainer(id)
     if box and box:IsShown() and box:GetLeft() then return box end
     return nil
 end
