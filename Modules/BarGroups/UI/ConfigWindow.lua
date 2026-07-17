@@ -24,14 +24,21 @@ local GROUP_CAP = BR.GROUP_CAP or 12
 local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
 -- ── anchorTo / growDir / relPos / iconPosition / fillDirection option maps ──────
-local ANCHOR_ORDER = { "essential", "utility", "belowPlayer", "belowFront", "belowEnd", "screen" }
+-- The FLAT (non-group) anchor targets. The four CDM group TYPES are offered PER GROUP via GroupTargets()
+-- (shared source in Core/CDMAnchor.lua); "essential"/"utility" no longer live here as singletons.
+local ANCHOR_ORDER = { "belowPlayer", "belowFront", "belowEnd", "screen" }
 -- The current spec's resource bars (+ "Last bar") as extra anchor targets, from the shared source. Anchoring
 -- a group to a "resbar:*" key rides that bar in both modes (native = ContainerAnchor; engine = Layout).
 local function ResBarTargets()
     return (ns.ResourceBarAnchorTargets and ns.ResourceBarAnchorTargets()) or {}
 end
+-- One entry per GROUP of every type ("Essential (Group 1)" … "Bars (Group 1)"); excludeKey omits THIS group's
+-- own key so it can't anchor to itself.
+local function GroupTargets(excludeKey)
+    return (ns.CDMGroupAnchorTargets and ns.CDMGroupAnchorTargets(nil, excludeKey)) or {}
+end
 local function AnchorLabel(key)
-    if key == "essential"   then return L["Essential"]                  end
+    if ns.IsCDMGroupAnchorKey and ns.IsCDMGroupAnchorKey(key) then return ns.CDMGroupAnchorLabel(key) end
     if key == "screen"      then return L["Screen"]                     end
     if key == "belowPlayer" then return L["Below player frame"]         end
     if key == "belowFront"  then return L["Below player frame (front)"] end
@@ -40,19 +47,21 @@ local function AnchorLabel(key)
         for _, tgt in ipairs(ResBarTargets()) do if tgt.key == key then return tgt.label end end
         return L["Last bar"] or key
     end
-    return L["Utility"]
+    return tostring(key)
 end
-local function AnchorList()
+local function AnchorList(excludeKey)
     local t = {}
+    for _, tgt in ipairs(GroupTargets(excludeKey)) do t[#t + 1] = tgt.label end
     for _, k in ipairs(ANCHOR_ORDER) do t[#t + 1] = AnchorLabel(k) end
     for _, tgt in ipairs(ResBarTargets()) do t[#t + 1] = tgt.label end
     return t
 end
 local function AnchorFromLabel(label)
+    for _, tgt in ipairs(GroupTargets()) do if tgt.label == label then return tgt.key end end
     for _, k in ipairs(ANCHOR_ORDER) do if AnchorLabel(k) == label then return k end end
     for _, tgt in ipairs(ResBarTargets()) do if tgt.label == label then return tgt.key end end
-    return nil   -- no match: KEEP the current value (a bar label fails to resolve only when the target list is
-                 -- momentarily empty); the old "utility" fallback silently broke the anchor. See BuffGroups.
+    return nil   -- no match: KEEP the current value (a bar / per-group label fails to resolve only when its
+                 -- source list is momentarily empty); the old "utility" fallback silently broke the anchor.
 end
 
 -- Bars stack vertically, so only DOWN / UP are exposed.
@@ -731,7 +740,7 @@ local function CreateBarsPanel(parent)
           -- Changing the anchor toggles whether Placement is shown (Screen is always centred, so it
           -- has no side/corner) — rebuild (deferred so the open dropdown isn't torn down mid-select).
           e[#e + 1] = { type = "dropdown", label = L["Anchor to"], width = 180, height = 50,
-              getList = AnchorList,
+              getList = function() return AnchorList("bar:" .. id) end,   -- exclude this group's own key
               getCurrentKey = function() return AnchorLabel(BR.GGet(id, "anchorTo")) end,
               onSelect = function(label)
                   local k = AnchorFromLabel(label); if not k then return end

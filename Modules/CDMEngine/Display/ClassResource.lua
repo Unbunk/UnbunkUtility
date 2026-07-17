@@ -496,21 +496,24 @@ R.REL_ORDER = { "above", "below", "left", "right", "topleft", "topright", "botto
 -- Anchor-to targets shared by "Anchor to" (+ the previous bars) and "Adapt to".
 R.DEST_ORDER = { "essential", "utility", "belowPlayer", "belowFront", "belowEnd", "buff" }
 
-local GROUP_CATKEY = { essential = "essential:1", utility = "utility:1", buff = "buff:1" }
--- Resolve an Essential/Utility/Buff dest to a live frame: the engine's OWN group frame in engine mode,
--- else the native CDMGroups/BuffGroups Group-1 container (falling back to the raw viewer).
+-- Resolve an Essential/Utility/Buff/Bar dest — now a per-group key ("essential:2" / …) or a legacy plain
+-- type (-> group 1) — to a live frame: the engine's OWN group frame in engine mode, else the native module's
+-- per-group container (falling back to the raw viewer).
 local function GroupFrameFor(dest)
+    if not ns.ParseCDMGroupKey then return nil end
+    local d, id = ns.ParseCDMGroupKey(dest)   -- NOT `(X and X())`: parens/`and` truncate multi-returns -> id=nil
+    if not d then return nil end
     if ns.CDMMode and ns.CDMMode.IsEngine() then
         local L = E.Layout
-        local ef = L and L.GroupFrame and L.GroupFrame(GROUP_CATKEY[dest])
+        local ef = L and L.GroupFrame and L.GroupFrame(d .. ":" .. id)
         if ef and ef.IsShown and ef:IsShown() and ef:GetLeft() then return ef end
         return nil
     end
-    local inst = (dest == "buff") and ns.BuffGroups or (ns.CDMGroups and ns.CDMGroups[dest])
-    local box  = inst and inst.GetContainer and inst.GetContainer(1)
+    local inst = (d == "buff" and ns.BuffGroups) or (d == "bar" and ns.BarGroups) or (ns.CDMGroups and ns.CDMGroups[d])
+    local box  = inst and inst.GetContainer and inst.GetContainer(id)
     if box and box:IsShown() and box:GetLeft() then return box end
-    if dest == "buff" then return _G.BuffIconCooldownViewer end
-    return ns.GetCDMViewer and ns.GetCDMViewer(dest) or nil
+    if d == "buff" then return _G.BuffIconCooldownViewer end
+    return ns.GetCDMViewer and ns.GetCDMViewer(d) or nil
 end
 -- "Below player frame" (plain) = the MIDDLE of the two below-player buckets: a helper frame spanning from
 -- the front bucket's top-left to the end bucket's bottom-right, so its CENTRE is the row centre (front/end

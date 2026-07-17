@@ -113,6 +113,85 @@ function ns.CDMApplyDestChoice(label, setCfg)
     end
 end
 
+-- ── Per-group anchor targets (shared by every positional "Anchor to" / "Adapt to" dropdown) ─────────
+-- The four groupable CDM dests. Each positional anchor/adapt dropdown offers one entry PER GROUP of each
+-- type, labelled "<Type> (<group name>)", keyed "dest:groupId" — the engine's own catKey, resolvable by
+-- E.Layout.GroupFrame (engine mode) or the module's GetContainer(id) (native mode). The list is DYNAMIC: it
+-- re-reads each module's GroupList() every time it is built, so a created / deleted group appears / disappears.
+local GROUP_DESTS = {
+    { dest = "essential", label = "Essential", inst = function() return ns.CDMGroups and ns.CDMGroups.essential end },
+    { dest = "utility",   label = "Utility",   inst = function() return ns.CDMGroups and ns.CDMGroups.utility   end },
+    { dest = "buff",      label = "Buffs",     inst = function() return ns.BuffGroups end },
+    { dest = "bar",       label = "Bars",      inst = function() return ns.BarGroups  end },
+}
+local function GroupDestInstance(dest)
+    for _, gd in ipairs(GROUP_DESTS) do if gd.dest == dest then return gd.inst() end end
+    return nil
+end
+local function GroupTypeLabel(dest)
+    for _, gd in ipairs(GROUP_DESTS) do if gd.dest == dest then return (ns.L and ns.L[gd.label]) or gd.label end end
+    return nil
+end
+-- Normalise a stored anchor key to (dest, id): "essential:2" -> "essential",2 ; a legacy plain type key
+-- "essential" -> "essential",1. Returns nil for non-group keys (below*, screen, resbar, ...).
+local function ParseGroupKey(key)
+    if type(key) ~= "string" then return nil end
+    local dest, id = key:match("^(%a+):(%d+)$")
+    if not dest then dest, id = key:match("^(%a+)$"), "1" end
+    if dest == "essential" or dest == "utility" or dest == "buff" or dest == "bar" then
+        return dest, tonumber(id)
+    end
+    return nil
+end
+ns.ParseCDMGroupKey = ParseGroupKey
+
+-- Ordered { {key=,label=}, ... } per-group targets. `dests` = a set like {essential=true,buff=true} (nil = all
+-- four types). `excludeKey` omits one entry (a group must not offer ITSELF as a target). Dynamic.
+function ns.CDMGroupAnchorTargets(dests, excludeKey)
+    local out = {}
+    for _, gd in ipairs(GROUP_DESTS) do
+        if not dests or dests[gd.dest] then
+            local I = gd.inst()
+            local list = I and I.GroupList and I.GroupList()
+            if type(list) == "table" then
+                for _, grp in ipairs(list) do
+                    local id = grp.id
+                    if id and id ~= 0 then
+                        local key = gd.dest .. ":" .. id
+                        if key ~= excludeKey then
+                            out[#out + 1] = { key = key,
+                                label = GroupTypeLabel(gd.dest) .. " (" .. (grp.name or ("Group " .. id)) .. ")" }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return out
+end
+-- Label for a stored per-group (or legacy plain-type) key, or nil if `key` is not a CDM-group key.
+function ns.CDMGroupAnchorLabel(key)
+    local dest, id = ParseGroupKey(key)
+    if not dest then return nil end
+    local I = GroupDestInstance(dest)
+    local name = I and I.GGet and I.GGet(id, "name")
+    return GroupTypeLabel(dest) .. " (" .. (name or ("Group " .. id)) .. ")"
+end
+function ns.IsCDMGroupAnchorKey(key) return (ParseGroupKey(key)) ~= nil end
+-- Resolve a per-group (or legacy plain-type) key to a LIVE frame: the engine group frame in engine mode, else
+-- the native module's per-group container. nil if that group's frame isn't up yet (caller keeps its fallback).
+function ns.ResolveCDMGroupFrame(key)
+    local dest, id = ParseGroupKey(key)
+    if not dest then return nil end
+    if ns.CDMMode and ns.CDMMode.IsEngine() then
+        local E = ns.CDMEngine
+        local f = E and E.Layout and E.Layout.GroupFrame and E.Layout.GroupFrame(dest .. ":" .. id)
+        if f then return f end
+    end
+    local I = GroupDestInstance(dest)
+    return (I and I.GetContainer and I.GetContainer(id)) or nil
+end
+
 -- Live viewer frame for a destination, or nil (belowPlayer / CDM off / not loaded).
 function ns.GetCDMViewer(dest)
     local name = ns.CDM_VIEWER[dest]

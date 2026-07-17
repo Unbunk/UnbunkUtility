@@ -52,7 +52,9 @@ end
 
 -- ── Class resources: one cadre per resource bar (per spec) ─────────────────────────
 -- Anchor / adapt target keys ↔ labels (the 6 CDM targets; "Anchor to" also offers the earlier bars).
-local DEST_KEYS  = { "essential", "utility", "belowPlayer", "belowFront", "belowEnd", "buff" }
+-- The four CDM group TYPES are offered PER GROUP via CDMTargets() (shared source in Core/CDMAnchor.lua); only
+-- the FLAT below-player buckets remain singletons here. DEST_LABEL keeps the type labels for the legacy fallback.
+local DEST_KEYS  = { "belowPlayer", "belowFront", "belowEnd" }
 local DEST_LABEL = {
     essential   = L["Essential"],
     utility     = L["Utility"],
@@ -67,14 +69,12 @@ local PLACE_LABEL = {
     above = L["Above"], below = L["Below"], left = L["Left"], right = L["Right"],
     topleft = L["Top-left"], topright = L["Top-right"], bottomleft = L["Bottom-left"], bottomright = L["Bottom-right"],
 }
-local function DestLabels()
-    local t = {}
-    for _, k in ipairs(DEST_KEYS) do t[#t + 1] = DEST_LABEL[k] end
+-- Per-group targets (Essential/Utility/Buffs/Bars — one entry per group) + the flat below-player buckets.
+-- Dynamic: re-reads each type's GroupList() every build, so a created / deleted group appears / disappears.
+local function CDMTargets()
+    local t = (ns.CDMGroupAnchorTargets and ns.CDMGroupAnchorTargets(nil)) or {}
+    for _, k in ipairs(DEST_KEYS) do t[#t + 1] = { key = k, label = DEST_LABEL[k] } end
     return t
-end
-local function DestKeyFromLabel(lbl)
-    for _, k in ipairs(DEST_KEYS) do if DEST_LABEL[k] == lbl then return k end end
-    return "essential"
 end
 -- Resource-bar anchor targets (Last bar + "N: name") for the current spec, from the shared source.
 local function ResBarTargets()
@@ -92,22 +92,24 @@ local function IsSelfTarget(key, i)
 end
 -- CDM dests + every resource bar (Last bar + "N: name") EXCEPT bar i itself. Shared by "Anchor to" + "Adapt to".
 local function TargetLabels(i)
-    local t = DestLabels()
+    local t = {}
+    for _, tgt in ipairs(CDMTargets()) do t[#t + 1] = tgt.label end
     for _, tgt in ipairs(ResBarTargets()) do
         if not IsSelfTarget(tgt.key, i) then t[#t + 1] = tgt.label end
     end
     return t
 end
 local function TargetLabelFor(key, i)
+    if ns.IsCDMGroupAnchorKey and ns.IsCDMGroupAnchorKey(key) then return ns.CDMGroupAnchorLabel(key) end
     for _, tgt in ipairs(ResBarTargets()) do if tgt.key == key then return tgt.label end end
     local n = (type(key) == "string") and key:match("^bar(%d+)$")   -- legacy per-bar key -> its resbar label
     if n then for _, tgt in ipairs(ResBarTargets()) do if tgt.key == ("resbar:" .. n) then return tgt.label end end end
-    return DEST_LABEL[key] or DEST_LABEL.essential
+    return DEST_LABEL[key] or tostring(key)
 end
 local function TargetKeyFromLabel(lbl)
-    for _, k in ipairs(DEST_KEYS) do if DEST_LABEL[k] == lbl then return k end end
+    for _, tgt in ipairs(CDMTargets()) do if tgt.label == lbl then return tgt.key end end
     for _, tgt in ipairs(ResBarTargets()) do if tgt.label == lbl then return tgt.key end end
-    return "essential"
+    return nil   -- no match -> caller keeps the current value (don't clobber)
 end
 local function PlaceLabels()
     local t = {}
@@ -217,7 +219,7 @@ local function CreateClassResourcesPanel(parent)
                 type = "dropdown", width = 180, height = 40,   -- no label: the checkbox above names it
                 getList = function() return TargetLabels(i) end,
                 getCurrentKey = function() return TargetLabelFor(Get(specKey, i, "adaptTo"), i) end,
-                onSelect = function(lbl) if E.Cfg then E.Cfg.SetBar(specKey, i, "adaptTo", TargetKeyFromLabel(lbl)); ReRes() end end,
+                onSelect = function(lbl) local k = TargetKeyFromLabel(lbl); if E.Cfg and k then E.Cfg.SetBar(specKey, i, "adaptTo", k); ReRes() end end,
             },
             NumEntry(L["Bar width"], specKey, i, "barWidth", 40, 600,
                 function() return Get(specKey, i, "adaptWidth") == true end),
@@ -369,7 +371,7 @@ local function CreateClassResourcesPanel(parent)
                 type = "dropdown", label = L["Anchor to"], width = 180, height = 50,
                 getList = function() return TargetLabels(i) end,
                 getCurrentKey = function() return TargetLabelFor(Get(specKey, i, "anchorTo"), i) end,
-                onSelect = function(lbl) if E.Cfg then E.Cfg.SetBar(specKey, i, "anchorTo", TargetKeyFromLabel(lbl)); RePos() end end,
+                onSelect = function(lbl) local k = TargetKeyFromLabel(lbl); if E.Cfg and k then E.Cfg.SetBar(specKey, i, "anchorTo", k); RePos() end end,
             },
             {
                 type = "dropdown", label = L["Placement"], width = 180, height = 50,
