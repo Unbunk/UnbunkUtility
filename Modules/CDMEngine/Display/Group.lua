@@ -34,7 +34,7 @@ end
 
 function Group.Setup(g, spec)
     g.spec = spec
-    g.catKey = spec and spec.key   -- stable string key ("Essential"/...) for per-group designer positions
+    g.catKey = spec and spec.key   -- stable string key ("Essential"/...) for per-group tab-driven positions
     if g.children then wipe(g.children) else g.children = {} end
     if g.trackers then wipe(g.trackers) else g.trackers = {} end
     if g.nativeBuffs then wipe(g.nativeBuffs) else g.nativeBuffs = {} end

@@ -436,6 +436,20 @@ local function ContainerAnchor(g)
     if anchorTo == "essential" or anchorTo == "utility" then
         rel = (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(anchorTo))
             or (ns.GetCDMViewer and ns.GetCDMViewer(anchorTo))
+    elseif ns.IsCDMGroupAnchorKey and ns.IsCDMGroupAnchorKey(anchorTo) then
+        -- Per-group CDM target ("essential:1"/"utility:2"/"buff:1"/"bar:1"). The reworked anchor dropdown
+        -- writes these "dest:id" keys (even for Group 1); resolve to that group's real container (native
+        -- per-group frame / engine group frame), else fall back to the dest's Group-1 anchor / native viewer
+        -- while it isn't laid out yet. Mirrors CastBar.GroupOneBox — without this the key matched no branch
+        -- and the group anchored to UIParent (screen corner).
+        local dest = ns.ParseCDMGroupKey(anchorTo)
+        local box  = ns.ResolveCDMGroupFrame and ns.ResolveCDMGroupFrame(anchorTo)
+        if box and box:IsShown() and box:GetLeft() then
+            rel = box
+        else
+            rel = (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(dest))
+                or (ns.GetCDMViewer and ns.GetCDMViewer(dest))
+        end
     elseif ns.IsBelowAnchorKey and ns.IsBelowAnchorKey(anchorTo) then
         rel = ns.ResolveBelowFrame and ns.ResolveBelowFrame(anchorTo)   -- belowPlayer (middle) / belowFront / belowEnd
     elseif ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(anchorTo) then

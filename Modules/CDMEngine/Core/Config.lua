@@ -1,6 +1,6 @@
 -- Modules/CDMEngine/Core/Config.lua
 --
--- Phase 3 of the standalone CDM engine (ns.CDMEngine): the persistence layer for the designer. It
+-- Phase 3 of the standalone CDM engine (ns.CDMEngine): the config / persistence layer. It
 -- follows the addon's canonical config idiom (BResTracker/Core/Config.lua): a DEFAULTS table merged
 -- into ns.db.profile.CDMEngine by a CfgInit hook, plus small guarded accessors. Everything lives in
 -- the PROFILE table, so it round-trips across /reload and travels with the active profile on
@@ -107,7 +107,7 @@ function Cfg.Set(key, value)
     r[key] = value
 end
 
--- ── P4c class-resource config (dedicated sub-table so /uucdmdesign reset can't wipe it) ─────────
+-- ── P4c class-resource config (dedicated sub-table, isolated from the flat P4 keys) ─────────────
 function Cfg.GetResource(key)
     local r = Root()
     local res = r and r.resource

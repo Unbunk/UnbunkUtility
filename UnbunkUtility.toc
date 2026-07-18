@@ -129,7 +129,7 @@ Modules/ReloadAnnounce/UI/ConfigWindow.lua
 Modules/ShowIDs/Core/ShowIDs.lua
 Modules/ShowIDs/UI/ConfigWindow.lua
 
-# CDMEngine — standalone "the reference engine-like" engine (WIP). P0 blob · P1 icons · P2 layout · tab-driven positions.
+# CDMEngine — standalone "the reference engine-like" engine (default display mode). Own-draw cooldowns + adopted native buffs/bars + class resources; tab-driven per-group positions.
 Modules/CDMEngine/Core/Blob.lua
 Modules/CDMEngine/Core/Config.lua
 Modules/CDMEngine/Display/Icon.lua

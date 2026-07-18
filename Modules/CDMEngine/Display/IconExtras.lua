@@ -75,7 +75,9 @@ end
 -- engine's global E.Cfg (fallback path) stores it as an ARRAY {c[1..4]}.
 local function GlowColorArray(f)
     local I = f and DestI(f)
-    local sid = f and (f.spellID or f._lastGoodSid)
+    -- Config is BASE-keyed (CDMGroups keys iconCfg/GroupOf by base spellId), like Icon.StyleFrame — a
+    -- transformed cooldown (Blink 1953 -> Shimmer 212653) would otherwise read the template default colour.
+    local sid = f and (f.baseSpellID or f._lastGoodSid or f.spellID)
     if I and I.IconGet and sid then
         local c = I.IconGet(sid, "glowColor")
         if type(c) == "table" then return { c.r or 1, c.g or 1, c.b or 1, c.a or 1 } end
@@ -101,7 +103,7 @@ local function UpdateGlow(f)
     -- cadre: glowEnabled = "show glow on proc", glowType, glowColor). Fall back to the engine's global E.Cfg
     -- only when there is no CDMGroups instance (e.g. the fallback single-group render with no dest).
     local I   = DestI(f)
-    local sid = f.spellID or f._lastGoodSid
+    local sid = f.baseSpellID or f._lastGoodSid or f.spellID   -- BASE-keyed config (see GlowColorArray)
     local enabled, glowType
     if I and I.IconGet and sid then
         enabled  = I.IconGet(sid, "glowEnabled") == true
@@ -195,9 +197,9 @@ function Extras.Unregister(f)
     if f.Icon then f.Icon:SetVertexColor(1, 1, 1, 1) end
 end
 
--- Re-apply glow + range to every registered icon. NOT called in Phase 4a (the enable/type/colour flags
--- have no runtime setter yet); it is the reconcile seam the P4b designer must call after Cfg.Set on
--- procGlow/glowType/glowColor/rangeCheck (the reconcilers otherwise only re-read on event/Register). The
+-- Re-apply glow + range to every registered icon. This is the extras' live-refresh reconcile seam, called
+-- by the "Range check" toggle in IC.AppendEngineDisplayExtras (UI/Shared/IconCadres.lua) after Cfg.Set
+-- (procGlow/glowType/glowColor still have no UI setter yet, so only rangeCheck exercises it today). The
 -- unconditional StopGlow forces a restart so a glowColour-only change repaints (LCG captures the colour
 -- at Start time; the type-keyed UpdateGlow gate would otherwise swallow a colour-only change).
 function Extras.ReapplyAll()
