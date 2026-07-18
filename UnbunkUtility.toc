@@ -2,6 +2,9 @@
 ## Title: Unbunk Utility
 ## Notes: Utility addon
 ## Author: Unbunk
+## X-Curse-Project-ID: 1553040
+## X-Wago-ID: b6XeJjKp
+## X-WoWI-ID: 27166
 ## Version: @project-version@
 ## SavedVariables: HealerRangeDB, DeathAlertDB, BLTrackerDB, PotionTrackerDB, TrinketTrackerDB, UnbunkUtilityDB, PITrackerDB, PlayerDeathDB, BResTrackerDB, HealthstoneTrackerDB, UnbunkUtilityAceDB
 ## IconTexture: Interface\AddOns\UnbunkUtility\Media\Icons\UnbunkUtility.tga
