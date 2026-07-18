@@ -518,6 +518,40 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                     maxLetters = entry.maxLetters,
                     text       = entry.get and tostring(entry.get() or "") or "",
                     onEnter    = entry.set,
+                    disabled   = entry.disabled,
+                })
+                if labelFs then
+                    widget.frame:SetPoint("TOPLEFT", labelFs, "BOTTOMLEFT", 0, -2)
+                else
+                    widget.frame:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", 0, 0)
+                end
+                if entry.get or entry.disabled then
+                    addRefresh = function()
+                        if entry.get then widget.SetText(tostring(entry.get() or "")) end
+                        if widget.Refresh then widget.Refresh() end   -- re-evaluate the disabled state
+                    end
+                end
+
+            elseif t == "slider" then
+                hostFrame = CreateFrame("Frame", nil, content)
+                local labelFs
+                if entry.label then
+                    labelFs = hostFrame:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH4")
+                    labelFs:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", 0, 0)
+                    labelFs:SetText(entry.label)
+                end
+                spentHeight = entry.height or (entry.label and 48 or 30)
+                widget = ns.ui.CreateSlider({
+                    parent    = hostFrame,
+                    width     = entry.width or 200,
+                    min       = entry.min or 0,
+                    max       = entry.max or 100,
+                    step      = entry.step or 1,
+                    value     = entry.get and entry.get() or (entry.min or 0),
+                    format    = entry.format,
+                    onChange  = entry.set,
+                    editBox   = entry.editBox,
+                    editWidth = entry.editWidth,
                 })
                 if labelFs then
                     widget.frame:SetPoint("TOPLEFT", labelFs, "BOTTOMLEFT", 0, -2)
@@ -525,7 +559,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                     widget.frame:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", 0, 0)
                 end
                 if entry.get then
-                    addRefresh = function() widget.SetText(tostring(entry.get() or "")) end
+                    addRefresh = function() widget.SetValue(entry.get()) end
                 end
 
             elseif t == "label" or t == "header" then

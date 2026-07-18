@@ -1,0 +1,47 @@
+name: Package release asset
+
+# Attaches a clean `UnbunkUtility.zip` to every published release. Its root folder is `UnbunkUtility/`
+# (per .pkgmeta `package-as`), so it drops straight into Interface/AddOns and WoW loads it without any
+# rename — unlike GitHub's auto "Source code" archives, which are named `UnbunkUtility-<version>` and
+# extract to a mismatched folder the game won't load.
+#
+# The zip is built with `git archive` from the released tag, matching the manual recipe. The pathspec is
+# an allow-list of the shipping paths, so dev files (.git*, .pkgmeta, README.md, .github) are excluded
+# without a strip step. Add a new top-level folder here if the addon ever gains one.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)package, e.g. v5.1.1"
+        required: true
+
+permissions:
+  contents: write   # upload the asset to the release
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: t
+        run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the released tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.t.outputs.tag }}
+          fetch-depth: 1
+
+      - name: Build UnbunkUtility.zip (root folder = UnbunkUtility/)
+        run: |
+          git archive --format=zip --prefix=UnbunkUtility/ \
+            -o UnbunkUtility.zip HEAD \
+            -- Core Libs Locales Media Modules UI UnbunkUtility.toc
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ steps.t.outputs.tag }}" UnbunkUtility.zip --clobber

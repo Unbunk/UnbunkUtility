@@ -160,6 +160,8 @@ local function EnumBarFrames(out)
     return out
 end
 BR.EnumBarFrames = EnumBarFrames
+-- Exposed so the CDM engine keys its hosted-bar map with the SAME resolver used to classify members.
+BR.FrameSpellId = FrameSpellId
 
 -- Split the tracked buffs into DISPLAYED (the ones the bar viewer actually shows) and the rest,
 -- in the category's canonical order. The displayed set is the bar viewer's POOL. Returns nil
@@ -206,9 +208,12 @@ local function FrameLayoutIndex(nf)
     return li
 end
 
+-- NO viewerLaidOut gate: the "Copy native CDM order" button must work while the module is DISABLED (engine
+-- mode owns the bars, so viewerLaidOut is never set). The pool is read directly (EnumerateActive) and each
+-- layoutIndex read is secret-guarded (FrameLayoutIndex), so an empty/stale pool just yields an empty order.
 function BR.NativeOrder()
     local v = _G[BAR_VIEWER]
-    if not (viewerLaidOut and v and v.itemFramePool and v.itemFramePool.EnumerateActive) then
+    if not (v and v.itemFramePool and v.itemFramePool.EnumerateActive) then
         return nil
     end
     local entries, n = {}, 0
@@ -260,10 +265,14 @@ function BR.IsDisplayable(sid) return displayedCache[sid] == true end
 -- actually changes, so the strip's red flags / tooltips re-evaluate after EditMode edits.
 BR.onDisplayedChanged = nil
 
--- Recompute the DISPLAYED set straight into displayedCache; return true if it CHANGED.
+-- Recompute the DISPLAYED set straight into displayedCache; return true if it CHANGED. NO viewerLaidOut gate:
+-- the config's live refresh must work while the module is DISABLED (engine mode owns the bars, so viewerLaidOut
+-- is never set — and installing the viewer hook to set it collapsed the engine's adopted bars). The pool is read
+-- directly; the `poolCount == 0` guard below covers the not-yet-laid-out / just-cleared case, and the per-frame
+-- reads are all secret-guarded, so a stale/empty read is harmless (it just returns false without clobbering).
 function BR.RefreshDisplayedCache()
     local v = _G[BAR_VIEWER]
-    if not (viewerLaidOut and v and v.itemFramePool and v.itemFramePool.EnumerateActive) then
+    if not (v and v.itemFramePool and v.itemFramePool.EnumerateActive) then
         return false
     end
     local inPool, poolCount = {}, 0
@@ -427,8 +436,27 @@ local function ContainerAnchor(g)
     if anchorTo == "essential" or anchorTo == "utility" then
         rel = (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(anchorTo))
             or (ns.GetCDMViewer and ns.GetCDMViewer(anchorTo))
-    elseif anchorTo == "belowPlayer" then
-        rel = ResolvePlayerFrame()
+    elseif ns.IsCDMGroupAnchorKey and ns.IsCDMGroupAnchorKey(anchorTo) then
+        -- Per-group CDM target ("essential:1"/"utility:2"/"buff:1"/"bar:1"). The reworked anchor dropdown
+        -- writes these "dest:id" keys (even for Group 1); resolve to that group's real container (native
+        -- per-group frame / engine group frame), else fall back to the dest's Group-1 anchor / native viewer
+        -- while it isn't laid out yet. Mirrors CastBar.GroupOneBox — without this the key matched no branch
+        -- and the group anchored to UIParent (screen corner).
+        local dest = ns.ParseCDMGroupKey(anchorTo)
+        local box  = ns.ResolveCDMGroupFrame and ns.ResolveCDMGroupFrame(anchorTo)
+        if box and box:IsShown() and box:GetLeft() then
+            rel = box
+        else
+            rel = (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(dest))
+                or (ns.GetCDMViewer and ns.GetCDMViewer(dest))
+        end
+    elseif ns.IsBelowAnchorKey and ns.IsBelowAnchorKey(anchorTo) then
+        rel = ns.ResolveBelowFrame and ns.ResolveBelowFrame(anchorTo)   -- belowPlayer (middle) / belowFront / belowEnd
+    elseif ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(anchorTo) then
+        -- Ride a class-resource bar; nil while that bar is absent -> fall back to Essential (stay visible).
+        rel = ns.ResolveResourceBarFrame(anchorTo)
+            or (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame("essential"))
+            or (ns.GetCDMViewer and ns.GetCDMViewer("essential"))
     end
     return pts[1], rel or UIParent, pts[2]
 end
@@ -778,7 +806,19 @@ function BR.RefreshLayout()
 end
 -- The config UI's touch() calls this after every edit; force a full relayout pass since config
 -- changes are not in the native-state signature.
-function BR.ApplyAll() layoutDirty = true; BR.RefreshLayout() end
+-- Exposed so the standalone CDM engine can restyle the bar frames it HOSTS (adopts) with the same recipe,
+-- from its deferred layout pass (taint-safe). Pure styling on a passed (nf, spellId) — no pin embedded.
+BR.StyleBarFrame = StyleBarFrame
+
+-- The config UI's touch() calls this after every edit. Bump the shared style epoch FIRST so the standalone
+-- engine (which HOSTS the bars in engine mode, BR disabled) re-derives its layout — otherwise a bar order /
+-- spacing / static / style edit only re-ran BR.RefreshLayout (a no-op while disabled) and never reached the
+-- engine, so nothing updated live. Mirrors BG.ApplyAll / I.ApplyAll.
+function BR.ApplyAll()
+    if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end
+    layoutDirty = true
+    BR.RefreshLayout()
+end
 
 function BR.Rebuild()
     BR.RefreshTracked()
@@ -889,7 +929,7 @@ local function HookNativeViewer()
     if v.SetScale and not v._uuScaleHooked then
         v._uuScaleHooked = true
         hooksecurefunc(v, "SetScale", function(self, s)
-            if (s or 1) ~= 1 and BR.Enabled() then self:SetScale(1) end
+            if (s or 1) ~= 1 and BR.Enabled() then ns.RawSetScale(self, 1) end   -- raw: this hook can co-fire in the secure refresh
         end)
     end
 end
@@ -898,6 +938,17 @@ end
 -- (refreshHooked / _uuScaleHooked guards), so a repeat call is a no-op. Login + events now skip the
 -- bring-up while disabled, so this is the restart path together with BR.Rebuild.
 function BR.HookNativeViewerPublic() HookNativeViewer() end
+
+-- Full bring-up when the module (re)gains control of the native bar viewer: install the viewer hooks,
+-- rebuild the tracked set + layout, then ARM THE 3s SEED FALLBACK. The fallback is essential when we were
+-- DISABLED at login (so HookNativeViewer never ran and viewerLaidOut stayed false): without it the seed
+-- DEFERS forever (pendingSeed) and unassigned bars stay "Unused" -> pinned OFFSCREEN -> invisible. Shared by
+-- login AND the CDM engine->native mode switch (BarGroups re-enabled). Mirrors the proven login sequence.
+function BR.Activate()
+    HookNativeViewer()
+    BR.Rebuild()
+    DeferSeedUntilViewerReady()
+end
 
 -- ── Events ────────────────────────────────────────────────────────────────────
 local ev = CreateFrame("Frame")
@@ -954,9 +1005,8 @@ init:RegisterEvent("PLAYER_LOGIN")
 init:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
     -- Only stand up the engine (native-viewer hooks, tracked seed, layout) at login if currently
-    -- enabled. When disabled, the enable toggle's set handler does this on re-enable (BR.Rebuild).
+    -- enabled. When disabled, the re-enable paths (enable toggle / CDM engine->native switch) do this
+    -- via BR.Activate.
     if not BR.Enabled() then return end
-    HookNativeViewer()
-    BR.Rebuild()
-    DeferSeedUntilViewerReady()
+    BR.Activate()
 end)

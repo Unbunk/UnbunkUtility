@@ -409,7 +409,7 @@ local function TitleSection(bundle)
 end
 
 local STACK_KEYS = {
-    "showStack", "showAtZero", "stackShowZero", "darkenOnCdWithStacks",
+    "showStack", "showAtZero", "stackShowZero", "darkenOnCdWithStacks", "showCdWithStacks",
     "stackFontKey", "stackFontPath", "stackFontSize", "stackOutline",
     "stackColor", "stackPos", "stackOffX", "stackOffY",
 }
@@ -432,6 +432,12 @@ local function StacksSection(bundle, opts)
             e[#e + 1] = { type = "checkbox", ref = "stackshowzero", label = L["Show at 0 stacks"], enabledBy = gated,
                   get = function() return bundle.get("stackShowZero") ~= false end,
                   set = function(v) bundle.set("stackShowZero", v); bundle.touch() end }
+            -- Draw the cooldown/recharge swipe + countdown even while the spell still has a usable charge/stack
+            -- (off, a spell with a charge left draws no swipe). Default ON (native CooldownViewer parity; the
+            -- CDM cooldown groups seed showCdWithStacks=true in their template).
+            e[#e + 1] = { type = "checkbox", ref = "showcdwithstacks", label = L["Show cd with 1 stacks or more"], enabledBy = gated,
+                  get = function() return bundle.get("showCdWithStacks") ~= false end,
+                  set = function(v) bundle.set("showCdWithStacks", v and true or false); bundle.touch() end }
             -- OFF (default): a cooldown keeps the icon lit while a charge/stack is still usable, greying it
             -- only once none remain. ON: the icon greys on cooldown regardless of remaining charges.
             e[#e + 1] = { type = "checkbox", ref = "darkenoncdwithstacks", label = L["Darken icon when on cd with stacks"], enabledBy = gated,
@@ -451,6 +457,32 @@ IC.SectionKeys = { timer = TIMER_KEYS, title = TITLE_KEYS, stack = STACK_KEYS }
 
 -- ── per-cadre builders (each returns ONE BuildMenu entry, override/free auto-adapting) ──
 
+-- The standalone-engine display extras (range tint + global-cooldown sweep). Unlike the rest of a "CDM
+-- settings" cadre these are NOT per-scope overrides: they drive the ENGINE's own-drawn icons and are
+-- stored + read GLOBALLY on ns.CDMEngine.Cfg (IconExtras range tint + Icon.UpdateSwipe GCD sweep), so the
+-- SAME toggle surfaces in every "CDM settings" cadre (group / override / free-icon / front+end of row).
+-- Both default ON (CDMEngine Config DEFAULTS). HIDDEN outside engine mode (engine-only features), via
+-- `shown` — so mode switches must rebuild the panel (M.Set -> ReloadAll) for the predicate to re-evaluate.
+-- Callers append() them right AFTER "Show Keybinds" so they land above a cadre's Grow direction if present.
+function IC.AppendEngineDisplayExtras(list)
+    local function Eng() return ns.CDMEngine end
+    local function inEngine() return ns.CDMMode and ns.CDMMode.IsEngine() end
+    list[#list + 1] = { type = "checkbox", label = L["Range check"], shown = inEngine,
+      get = function() local e = Eng(); return e and e.Cfg and e.Cfg.Get("rangeCheck") == true end,
+      set = function(v)
+          local e = Eng()
+          if e and e.Cfg then e.Cfg.Set("rangeCheck", v and true or false) end
+          if e and e.IconExtras and e.IconExtras.ReapplyAll then e.IconExtras.ReapplyAll() end
+      end }
+    list[#list + 1] = { type = "checkbox", label = L["Show global cooldown sweep"], shown = inEngine,
+      get = function() local e = Eng(); return e and e.Cfg and e.Cfg.Get("showGcdSwipe") == true end,
+      set = function(v)
+          local e = Eng()
+          if e and e.Cfg then e.Cfg.Set("showGcdSwipe", v and true or false) end
+          if e and e.Layout and e.Layout.ScheduleRebuild then e.Layout.ScheduleRebuild() end
+      end }
+end
+
 -- CDM settings: flash the icon while its action-bar keybind is HELD (press overlay) +
 -- draw that keybind on the icon. Both opt-in (default off).
 function IC.CdmSettings(bundle)
@@ -466,6 +498,7 @@ function IC.CdmSettings(bundle)
         e[#e + 1] = { type = "checkbox", label = L["Show Keybinds"], enabledBy = gated,
           get = function() return bundle.get("showKeybinds") == true end,
           set = function(v) bundle.set("showKeybinds", v and true or false); bundle.touch() end }
+        IC.AppendEngineDisplayExtras(e)   -- engine range check + GCD sweep (global), right after keybinds
         return e
     end }
 end
@@ -553,6 +586,20 @@ function IC.Border(bundle, opts)
           enabledBy = function() return gated() and isOn() end,
           get = function() return bundle.get("borderSize") or 1 end,
           set = function(v) if v and v > 0 then bundle.set("borderSize", v); bundle.touch() end end }
+        -- opts.nativeBorder (buff groups): a sub-cadre for the debuff dispel-type "native" border carried on
+        -- OUR inset border (replaces Masque's outsetting DebuffBorderMBB). Its own show toggle + thickness.
+        if opts.nativeBorder then
+            local nbOn = function() return bundle.get("showNativeBorder") ~= false end
+            e[#e + 1] = { type = "group", title = L["Native border"], build = function() return {
+                { type = "checkbox", label = L["Show native border"],
+                  get = nbOn,
+                  set = function(v) bundle.set("showNativeBorder", v and true or false); bundle.touch(); refresh() end },
+                { type = "textinput", label = L["Border thickness"], width = 46, numeric = true, min = 1, max = 16, maxLetters = 2,
+                  enabledBy = nbOn,
+                  get = function() return bundle.get("nativeBorderSize") or 3 end,
+                  set = function(v) if v and v > 0 then bundle.set("nativeBorderSize", v); bundle.touch() end end },
+            } end }
+        end
         return e
     end }
 end

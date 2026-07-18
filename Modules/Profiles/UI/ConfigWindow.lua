@@ -7,7 +7,7 @@
 -- dropdown toggle labels) is preserved verbatim via captured upvalues. The
 -- export/import boxes are ns.ui.CreateTextInput fields (maxLetters = 0 so the
 -- blob isn't truncated) the user copies from / pastes into, kept inside "custom"
--- blocks so the AceSerializer round-trip is untouched.
+-- blocks so the export/import round-trip is untouched.
 
 local _, ns = ...
 local L = ns.L

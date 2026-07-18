@@ -180,6 +180,15 @@ function BG.HideInactiveCustomFrames()
     end
 end
 
+-- Hide EVERY drawn frame, active or not — the Level-2 engine-cede path. These frames are anchored to (not
+-- children of) the group container, so the viewer's SetAlpha(0) mask and HideAll's container:Hide never
+-- reach them; a still-active buff would linger visible. Active buffs stay TRACKED (not Deactivated), so the
+-- next full RefreshLayout on return to native re-Shows them, and CustomCDM renders them via its free icon
+-- while BuffGroups is ceded (BuffMirrored flips false). Called from ns.CDMMode on a real mode change.
+function BG.HideAllCustomFrames()
+    for _, f in pairs(iconFrames) do f:Hide() end
+end
+
 -- Activate / deactivate are exposed (the engine's PLAYER_DEAD handler + diagnostics use them).
 BG.ActivateCustom   = Activate
 BG.DeactivateCustom = Deactivate
