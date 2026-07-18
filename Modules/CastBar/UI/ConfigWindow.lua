@@ -49,13 +49,44 @@ local function CreateCastBarPanel(parent)
     end
 
     -- A CDM-destination dropdown (essential / utility / below player) for a config key.
+    local function ResBarTargets() return (ns.ResourceBarAnchorTargets and ns.ResourceBarAnchorTargets()) or {} end
+    -- Per-group CDM targets (Essential/Utility/Buffs/Bars — one entry PER GROUP) + the flat below-player
+    -- buckets (from the shared CDM dest vocabulary, minus essential/utility which are now per-group) + the
+    -- class-resource bars. Dynamic (re-reads the group lists each build). Stored key = "dest:id" / below* / resbar.
+    local function CastBarTargets()
+        local t = (ns.CDMGroupAnchorTargets and ns.CDMGroupAnchorTargets(nil)) or {}
+        -- ns.CDM_DEST_ORDER holds KEYS ({essential,utility,belowPlayer,belowFront,belowEnd}); keep only the flat
+        -- below-player buckets here (essential/utility are now per-group above). NB: ns.CDMDestKeyList returns
+        -- LABELS, not keys — do NOT iterate it here.
+        for _, d in ipairs(ns.CDM_DEST_ORDER or {}) do
+            if d ~= "essential" and d ~= "utility" then t[#t + 1] = { key = d, label = ns.CDMDestLabel(d) } end
+        end
+        for _, tgt in ipairs(ResBarTargets()) do t[#t + 1] = tgt end
+        return t
+    end
     local function cdmDestDropdown(label, key, onChange, whenFn)
         return { type = "dropdown", label = label, width = 220, height = 50, when = whenFn,
-            -- Plain 3-way dest picker (no front/end split): the cast bar stores a raw
-            -- cdmDest key, so use the key list rather than the per-tracker 4-option choices.
-            getList       = function() return ns.CDMDestKeyList() end,
-            getCurrentKey = function() return ns.CDMDestLabel(CB.CfgGet(key) or "essential") end,
-            onSelect      = function(lbl) CB.CfgSet(key, ns.CDMDestKeyFromLabel(lbl)); if onChange then onChange() end end }
+            getList = function()
+                local t = {}
+                for _, tgt in ipairs(CastBarTargets()) do t[#t + 1] = tgt.label end
+                return t
+            end,
+            getCurrentKey = function()
+                local k = CB.CfgGet(key) or "essential"
+                if ns.IsCDMGroupAnchorKey and ns.IsCDMGroupAnchorKey(k) then return ns.CDMGroupAnchorLabel(k) end
+                for _, tgt in ipairs(CastBarTargets()) do if tgt.key == k then return tgt.label end end
+                if ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(k) then return (ns.L and ns.L["Last bar"]) or k end
+                return ns.CDMDestLabel(k)
+            end,
+            onSelect = function(lbl)
+                local k
+                for _, tgt in ipairs(CastBarTargets()) do if tgt.label == lbl then k = tgt.key break end end
+                -- No match -> KEEP the current value (the target list can be momentarily empty at login), so a
+                -- label that missed above never silently resets the anchor.
+                if not k then return end
+                CB.CfgSet(key, k)
+                if onChange then onChange() end
+            end }
     end
 
     -- A statusbar-texture dropdown (LibSharedMedia) for a config key. Shows the EFFECTIVE key

@@ -442,24 +442,32 @@ local function CreateBelowPlayerPanel(parent)
             -- ════════════ CDM settings ════════════
             -- Per-bucket "Show press overlay" / "Show Keybinds" (TimerIcon reads these via
             -- ns.CDMAnchor.GetDestCdmFlag for any icon in this bucket) + grow/static/spacing. Flags default OFF.
-            { type = "group", title = L["CDM settings"], build = function() return {
-                { type = "checkbox", label = L["Show press overlay"],
-                  get = function() return ns.CDMAnchor and ns.CDMAnchor.GetDestCdmFlag(dest, "showPressOverlay") or false end,
-                  set = function(v) if ns.CDMAnchor then ns.CDMAnchor.SetDestCdmFlag(dest, "showPressOverlay", v) end end },
-                { type = "checkbox", label = L["Show Keybinds"],
-                  get = function() return ns.CDMAnchor and ns.CDMAnchor.GetDestCdmFlag(dest, "showKeybinds") or false end,
-                  set = function(v) if ns.CDMAnchor then ns.CDMAnchor.SetDestCdmFlag(dest, "showKeybinds", v) end end },
-                { type = "dropdown", label = L["Grow direction"], width = 180, height = 50,
+            { type = "group", title = L["CDM settings"], build = function()
+                local e = {
+                    { type = "checkbox", label = L["Show press overlay"],
+                      get = function() return ns.CDMAnchor and ns.CDMAnchor.GetDestCdmFlag(dest, "showPressOverlay") or false end,
+                      set = function(v) if ns.CDMAnchor then ns.CDMAnchor.SetDestCdmFlag(dest, "showPressOverlay", v) end end },
+                    { type = "checkbox", label = L["Show Keybinds"],
+                      get = function() return ns.CDMAnchor and ns.CDMAnchor.GetDestCdmFlag(dest, "showKeybinds") or false end,
+                      set = function(v) if ns.CDMAnchor then ns.CDMAnchor.SetDestCdmFlag(dest, "showKeybinds", v) end end },
+                }
+                -- Engine range check + GCD sweep, right after Show Keybinds (above Grow direction). Shared
+                -- IC helper: global engine toggles, greyed outside engine mode.
+                if ns.ui and ns.ui.IconCadres and ns.ui.IconCadres.AppendEngineDisplayExtras then
+                    ns.ui.IconCadres.AppendEngineDisplayExtras(e)
+                end
+                e[#e + 1] = { type = "dropdown", label = L["Grow direction"], width = 180, height = 50,
                   getList = (ns.CDMGroups and ns.CDMGroups.GrowList) or function() return {} end,
                   getCurrentKey = function() return (ns.CDMGroups and ns.CDMGroups.GrowLabel(GDC("growDir", "RIGHT"))) or "" end,
-                  onSelect = function(label) if ns.CDMGroups then SDC("growDir", ns.CDMGroups.GrowFromLabel(label)) end end },
-                { type = "checkbox", label = L["Static Display"],
+                  onSelect = function(label) if ns.CDMGroups then SDC("growDir", ns.CDMGroups.GrowFromLabel(label)) end end }
+                e[#e + 1] = { type = "checkbox", label = L["Static Display"],
                   get = function() return GDC("staticDisplay", false) and true or false end,
-                  set = function(v) SDC("staticDisplay", v and true or false) end },
-                { type = "textinput", label = L["Spacing"], width = 46, numeric = true, min = 0, max = 64, maxLetters = 2,
+                  set = function(v) SDC("staticDisplay", v and true or false) end }
+                e[#e + 1] = { type = "textinput", label = L["Spacing"], width = 46, numeric = true, min = 0, max = 64, maxLetters = 2,
                   get = function() return GDC("spacing", 0) end,
-                  set = function(v) if v ~= nil then SDC("spacing", v) end end },
-            } end },
+                  set = function(v) if v ~= nil then SDC("spacing", v) end end }
+                return e
+            end },
 
             -- Border for every icon in this bucket (the CDM manages it; free icons use their own).
             DestBorderEntry(dest),

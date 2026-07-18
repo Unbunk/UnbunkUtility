@@ -20,13 +20,28 @@ ns.CDM_VIEWER = {
     utility   = "UtilityCooldownViewer",
 }
 
--- Ordered destination options for the dropdown (keys; labels localized below).
-ns.CDM_DEST_ORDER = { "essential", "utility", "belowPlayer" }
+-- Ordered destination options for the dropdown (keys; labels localized below). belowPlayer = the MIDDLE of the
+-- two below-player rows; belowFront / belowEnd = the individual rows (they have no native viewer, so the taint /
+-- signature loops that key off ns.CDM_VIEWER simply skip them).
+ns.CDM_DEST_ORDER = { "essential", "utility", "belowPlayer", "belowFront", "belowEnd" }
+
+-- ── Standalone CDM engine ownership (Level 2) ────────────────────────────────
+-- When the standalone engine (ns.CDMMode "engine") is active it HOSTS the essential/utility trackers in
+-- its own group layout and MASKS the native viewers. Every ownership/taint guard below therefore treats
+-- those two dests as "taken": the old bucket system must not pin our frames into — or write geometry on —
+-- the masked native viewer (writing a registered Edit Mode viewer is the 12.1.0 taint vector). Runtime-only
+-- probe (ns.CDMMode is set by a later-loading module), so referencing it here is a forward reference by design.
+local function EngineOwnsDest(dest)
+    return ns.CDMMode and ns.CDMMode.IsEngine and ns.CDMMode.IsEngine()
+        and (dest == "essential" or dest == "utility") or false
+end
 
 function ns.CDMDestLabel(key)
     local L = ns.L
     if key == "utility"     then return L["Cooldown Manager: Utility"] end
     if key == "belowPlayer" then return L["Below player frame"]        end
+    if key == "belowFront"  then return L["Below player frame (front)"] end
+    if key == "belowEnd"    then return L["Below player frame (end)"]   end
     return L["Cooldown Manager: Essential"]
 end
 
@@ -96,6 +111,85 @@ function ns.CDMApplyDestChoice(label, setCfg)
     else
         setCfg("cdmDest", "essential");   setCfg("cdmAtEnd", true)
     end
+end
+
+-- ── Per-group anchor targets (shared by every positional "Anchor to" / "Adapt to" dropdown) ─────────
+-- The four groupable CDM dests. Each positional anchor/adapt dropdown offers one entry PER GROUP of each
+-- type, labelled "<Type> (<group name>)", keyed "dest:groupId" — the engine's own catKey, resolvable by
+-- E.Layout.GroupFrame (engine mode) or the module's GetContainer(id) (native mode). The list is DYNAMIC: it
+-- re-reads each module's GroupList() every time it is built, so a created / deleted group appears / disappears.
+local GROUP_DESTS = {
+    { dest = "essential", label = "Essential", inst = function() return ns.CDMGroups and ns.CDMGroups.essential end },
+    { dest = "utility",   label = "Utility",   inst = function() return ns.CDMGroups and ns.CDMGroups.utility   end },
+    { dest = "buff",      label = "Buffs",     inst = function() return ns.BuffGroups end },
+    { dest = "bar",       label = "Bars",      inst = function() return ns.BarGroups  end },
+}
+local function GroupDestInstance(dest)
+    for _, gd in ipairs(GROUP_DESTS) do if gd.dest == dest then return gd.inst() end end
+    return nil
+end
+local function GroupTypeLabel(dest)
+    for _, gd in ipairs(GROUP_DESTS) do if gd.dest == dest then return (ns.L and ns.L[gd.label]) or gd.label end end
+    return nil
+end
+-- Normalise a stored anchor key to (dest, id): "essential:2" -> "essential",2 ; a legacy plain type key
+-- "essential" -> "essential",1. Returns nil for non-group keys (below*, screen, resbar, ...).
+local function ParseGroupKey(key)
+    if type(key) ~= "string" then return nil end
+    local dest, id = key:match("^(%a+):(%d+)$")
+    if not dest then dest, id = key:match("^(%a+)$"), "1" end
+    if dest == "essential" or dest == "utility" or dest == "buff" or dest == "bar" then
+        return dest, tonumber(id)
+    end
+    return nil
+end
+ns.ParseCDMGroupKey = ParseGroupKey
+
+-- Ordered { {key=,label=}, ... } per-group targets. `dests` = a set like {essential=true,buff=true} (nil = all
+-- four types). `excludeKey` omits one entry (a group must not offer ITSELF as a target). Dynamic.
+function ns.CDMGroupAnchorTargets(dests, excludeKey)
+    local out = {}
+    for _, gd in ipairs(GROUP_DESTS) do
+        if not dests or dests[gd.dest] then
+            local I = gd.inst()
+            local list = I and I.GroupList and I.GroupList()
+            if type(list) == "table" then
+                for _, grp in ipairs(list) do
+                    local id = grp.id
+                    if id and id ~= 0 then
+                        local key = gd.dest .. ":" .. id
+                        if key ~= excludeKey then
+                            out[#out + 1] = { key = key,
+                                label = GroupTypeLabel(gd.dest) .. " (" .. (grp.name or ("Group " .. id)) .. ")" }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return out
+end
+-- Label for a stored per-group (or legacy plain-type) key, or nil if `key` is not a CDM-group key.
+function ns.CDMGroupAnchorLabel(key)
+    local dest, id = ParseGroupKey(key)
+    if not dest then return nil end
+    local I = GroupDestInstance(dest)
+    local name = I and I.GGet and I.GGet(id, "name")
+    return GroupTypeLabel(dest) .. " (" .. (name or ("Group " .. id)) .. ")"
+end
+function ns.IsCDMGroupAnchorKey(key) return (ParseGroupKey(key)) ~= nil end
+-- Resolve a per-group (or legacy plain-type) key to a LIVE frame: the engine group frame in engine mode, else
+-- the native module's per-group container. nil if that group's frame isn't up yet (caller keeps its fallback).
+function ns.ResolveCDMGroupFrame(key)
+    local dest, id = ParseGroupKey(key)
+    if not dest then return nil end
+    if ns.CDMMode and ns.CDMMode.IsEngine() then
+        local E = ns.CDMEngine
+        local f = E and E.Layout and E.Layout.GroupFrame and E.Layout.GroupFrame(dest .. ":" .. id)
+        if f then return f end
+    end
+    local I = GroupDestInstance(dest)
+    return (I and I.GetContainer and I.GetContainer(id)) or nil
 end
 
 -- Live viewer frame for a destination, or nil (belowPlayer / CDM off / not loaded).
@@ -463,6 +557,35 @@ local function ResolvePlayerFrame()
         return main or pf
     end
     return nil
+end
+ns.ResolvePlayerFrame = ResolvePlayerFrame   -- shared: the engine's "belowPlayer" anchor resolves through this
+
+-- ── Below-player anchor rows (shared across resource bars / cast bar / Buff+Bar groups) ──────────────
+-- The below-player CDM layout draws TWO icon rows: FRONT (UnbunkUtilityCDMBelowRow) and END
+-- (UnbunkUtilityCDMBelowRowEnd). Anything can ride them via three keys, mirroring the resource-bar targets:
+--   belowFront  -> the front row
+--   belowEnd    -> the end row
+--   belowPlayer -> the MIDDLE of the two (a helper frame spanning front top-left .. end bottom-right, so its
+--                  centre is the row centre; follows both rows live via SetPoint)
+-- When the below-player rows don't exist (that layout isn't populated) we fall back to the PLAYER FRAME, so
+-- "Below player frame" keeps working literally. Returns nil only if even the player frame is unavailable.
+local belowMiddle
+function ns.IsBelowAnchorKey(key)
+    return key == "belowPlayer" or key == "belowFront" or key == "belowEnd"
+end
+function ns.ResolveBelowFrame(key)
+    local front = _G["UnbunkUtilityCDMBelowRow"]
+    local endf  = _G["UnbunkUtilityCDMBelowRowEnd"]
+    if key == "belowFront" and front then return front end
+    if key == "belowEnd"   and endf  then return endf  end
+    if key == "belowPlayer" and front and endf then
+        if not belowMiddle then belowMiddle = CreateFrame("Frame", nil, UIParent) end
+        belowMiddle:ClearAllPoints()
+        belowMiddle:SetPoint("TOPLEFT",     front, "TOPLEFT",     0, 0)
+        belowMiddle:SetPoint("BOTTOMRIGHT", endf,  "BOTTOMRIGHT", 0, 0)
+        return belowMiddle
+    end
+    return ResolvePlayerFrame()   -- rows absent -> the player frame itself
 end
 
 -- Every player-frame frame the BETA fader should fade: any loaded custom unit-frame
@@ -957,6 +1080,7 @@ local RawClearAllPoints = _proxy.ClearAllPoints
 -- without re-triggering our own hooks.
 local RawSetSize        = _proxy.SetSize
 local RawSetScale       = _proxy.SetScale
+local RawSetParent      = _proxy.SetParent   -- raw C reparent for the SetParent-ADOPT path (AdoptNativeTo below)
 
 local containers     = {}     -- dest -> our container frame
 local editModeActive = false
@@ -1539,6 +1663,10 @@ end
 -- Hide the addon-drawn CDM border edges on a native frame (used when it drops out of the
 -- active set so a stale border doesn't linger; ApplyNativeBorder re-shows it if re-pinned).
 local function HideNativeBorder(nf)
+    -- A frame ADOPTED by the standalone engine (nf._uuAdopt) owns its border via the engine's StyleFrame pass;
+    -- BuffGroups' disabled-mode HideAll runs ReleaseNativePin on the SAME frames every ~0.2s tick, so without
+    -- this guard it would strip the engine-drawn border right after each build. Leave adopted frames alone.
+    if nf._uuAdopt then return end
     if nf._uuBorderEdges then
         for _, t in pairs(nf._uuBorderEdges) do t:Hide() end
     end
@@ -1620,6 +1748,85 @@ function ns.CDMAnchor.ReleaseNativePin(nf)
     if nf then nf._uuPin = nil; HideNativeBorder(nf) end
 end
 
+-- ── SetParent-ADOPT hosting (buffs) ───────────────────────────────────────────
+-- Unlike PinNative (which re-anchors a frame WHILE it stays a child of the live viewer, so the viewer must
+-- be kept VISIBLE), AdoptNativeTo REPARENTS the native pool frame onto an engine-owned host frame — so the
+-- native viewer can be alpha-0-masked and the adopted frame still renders (it now inherits the HOST's alpha,
+-- not the masked viewer's). This is the reference engine's buff model (AuraIconRetail.lua:31), confirmed taint-safe on
+-- 12.1.0 by /uucdmspike. Every write is a RAW C method (bypasses taint AND our own hooks); the re-impose
+-- hooks re-force parent+point+size when Blizzard's secure RefreshData re-pools the frame back under the viewer.
+local function AdoptNativeTo(nf, host, x, y, w, h)
+    local a = nf._uuAdopt or {}
+    local unchanged = a.host == host and a.x == x and a.y == y and a.w == w and a.h == h
+    a.host, a.x, a.y, a.w, a.h = host, x, y, w, h
+    nf._uuAdopt = a
+    if not CanWrite(nf) then return end
+    if unchanged and nf._uuAdoptHook and nf:GetParent() == host then return end   -- nothing to re-impose
+    if not nf._uuAdoptHook then
+        nf._uuAdoptHook = true
+        -- Re-impose PARENT: Blizzard re-pools/reparents frames under the viewer on RefreshData; force them
+        -- back to our host so the alpha-0 viewer can never reclaim (and thus hide) an adopted buff. Raw
+        -- setters bypass this same hook (no recursion) and bypass taint from inside the secure refresh.
+        hooksecurefunc(nf, "SetParent", function(self)
+            local ad = self._uuAdopt
+            if not ad or self._uuAdoptApplying or not CanWrite(self) then return end
+            if self:GetParent() ~= ad.host then
+                self._uuAdoptApplying = true
+                RawSetParent(self, ad.host)
+                RawClearAllPoints(self)
+                RawSetPoint(self, "TOPLEFT", ad.host, "TOPLEFT", ad.x, ad.y)
+                if ad.w and ad.h then RawSetSize(self, ad.w, ad.h) end
+                self._uuAdoptApplying = false
+            end
+        end)
+        hooksecurefunc(nf, "SetPoint", function(self)   -- re-impose POINT (relative to host)
+            local ad = self._uuAdopt
+            if not ad or self._uuAdoptApplying or not CanWrite(self) then return end
+            self._uuAdoptApplying = true
+            RawClearAllPoints(self)
+            RawSetPoint(self, "TOPLEFT", ad.host, "TOPLEFT", ad.x, ad.y)
+            self._uuAdoptApplying = false
+        end)
+        local function reSize(self)                      -- re-impose SIZE (mirrors PinNative)
+            local ad = self._uuAdopt
+            if not (ad and ad.w and ad.h) or self._uuAdoptSizing or not CanWrite(self) then return end
+            if self:GetWidth() ~= ad.w or self:GetHeight() ~= ad.h then
+                self._uuAdoptSizing = true; RawSetSize(self, ad.w, ad.h); self._uuAdoptSizing = false
+            end
+        end
+        hooksecurefunc(nf, "SetSize",   reSize)
+        hooksecurefunc(nf, "SetWidth",  reSize)
+        hooksecurefunc(nf, "SetHeight", reSize)
+        hooksecurefunc(nf, "SetScale", function(self, s)
+            if (s or 1) ~= 1 and self._uuAdopt and CanWrite(self) then RawSetScale(self, 1) end
+        end)
+    end
+    nf._uuAdoptApplying = true
+    RawSetParent(nf, host)
+    RawClearAllPoints(nf)
+    RawSetPoint(nf, "TOPLEFT", host, "TOPLEFT", x, y)
+    if w and h then RawSetSize(nf, w, h) end
+    if nf:GetScale() ~= 1 then RawSetScale(nf, 1) end
+    nf._uuAdoptApplying = false
+end
+ns.CDMAnchor.AdoptNativeTo = AdoptNativeTo
+
+-- Hand an adopted native frame BACK to its viewer (switch-to-native / group release). RawSetParent back so
+-- the viewer's own layout re-owns it; clear _uuAdopt so the re-impose hooks go inert. NEVER Hide/Show it
+-- (those are the durable-state taint vectors) — it keeps Blizzard's shown-state; the viewer re-lays-it-out.
+function ns.CDMAnchor.ReleaseNativeAdopt(nf, viewer)
+    if not nf then return end
+    local had = nf._uuAdopt
+    nf._uuAdopt = nil
+    if had and CanWrite(nf) then
+        nf._uuAdoptApplying = true
+        RawSetParent(nf, viewer or _G.BuffIconCooldownViewer or UIParent)
+        RawClearAllPoints(nf)
+        nf._uuAdoptApplying = false
+    end
+    HideNativeBorder(nf)
+end
+
 -- Hand the viewer back to Blizzard/EditMode (icons removed, or entering EditMode).
 local function ReleaseViewer(viewer, container)
     if not viewer._uuGlued or InCombatLockdown() then return end
@@ -1640,10 +1847,10 @@ local function ReleaseAll()
 end
 
 local function LayoutCDMRow(viewer, dest, list)
-    -- OWNERSHIP GUARD (defensive): when the new "Cooldown groups" engine owns this dest it drives the
-    -- viewer's native frames itself — never lay out the old bucket grid here. DoRefresh already keeps
+    -- OWNERSHIP GUARD (defensive): when the "Cooldown groups" engine OR the standalone engine owns this
+    -- dest it drives the frames itself — never lay out the old bucket grid here. DoRefresh already keeps
     -- an owned dest out of `groups`, so this is normally unreached; it protects any direct caller.
-    if ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest) then
+    if (ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest)) or EngineOwnsDest(dest) then
         for _, d in ipairs(list) do if d.apply then pcall(d.apply) end end
         return
     end
@@ -1817,6 +2024,9 @@ end
 -- fn(alpha) on every fade step — so we register our icons there. Essential AND the
 -- below-player row follow the Essential viewer's fade; Utility follows Utility's.
 local function SetDestAlpha(dest, a)
+    -- L2: in engine mode the engine hosts the essential/utility trackers and keeps them fully visible;
+    -- the native fade (viewer masked) must not drive OUR frames' alpha down.
+    if EngineOwnsDest(dest) then return end
     a = a or 1   -- defensive: never pass nil to SetAlpha if an external alpha is missing
     for _, d in ipairs(appliers) do
         if d.frame and d.getCfg and d.getCfg("includeInCdm")
@@ -1946,11 +2156,26 @@ end
 -- (ns.CDMGroups.OwnsDest), it takes over that native viewer (e.g. EssentialCooldownViewer)
 -- and drives its frames into movable group containers. The OLD bucket system here must then
 -- NOT also route icons into that viewer or take it over.
+-- The standalone CDM ENGINE (ns.CDMMode "engine") likewise OWNS essential/utility: it hosts the CDM
+-- trackers in its own group layout, so this old bucket system must not pin/route them into the (masked)
+-- native viewer. Symmetric with CDMGroups.OwnsDest — see EngineOwnsDest near the top of the file.
 local function owned(dest)
-    return ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest) or false
+    return (ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDMGroups.OwnsDest(dest))
+        or EngineOwnsDest(dest) or false
 end
 
 local function DoRefreshBody(force)
+    -- L2 bridge (must run BEFORE the no-change early-out below): in engine mode, poke the engine to
+    -- re-collect its hosted trackers on EVERY refresh. A tracker becoming CDM-eligible/shown AFTER the last
+    -- engine rebuild — e.g. an equipped trinket's on-use spell resolving (cdmEligible flips nil→true), or a
+    -- tracker showing/hiding on its own 0.5s tick — does NOT move CDMAnchor's own native-row signature, so
+    -- it would be missed here until a REBUILD event or a manual mode switch (which is why it only folded in
+    -- "on the 2nd try"). ScheduleRebuild is coalesced and the engine's own ComputeSig gate keeps this cheap
+    -- (a full BuildLayout runs only on a real membership change); the tracker's tick calls RefreshAll ~2Hz.
+    if ns.CDMMode and ns.CDMMode.IsEngine and ns.CDMMode.IsEngine()
+        and ns.CDMEngine and ns.CDMEngine.Layout and ns.CDMEngine.Layout.ScheduleRebuild then
+        ns.CDMEngine.Layout.ScheduleRebuild()
+    end
     if force then
         -- Forced pass re-pins unconditionally; its ComputeSig result is unused, so skip
         -- the cost. Drop the baseline too: the next non-forced pass recomputes from scratch.
@@ -2029,6 +2254,7 @@ local function DoRefreshBody(force)
     -- Keep our icons matching the reference addon's current fade alpha (icons just (re)laid out
     -- would otherwise pop to full opacity mid-fade).
     pcall(ReapplyFade)
+    -- (The L2 engine re-collect bridge runs at the TOP of this function, before the no-change early-out.)
 end
 
 local refreshing = false
@@ -2084,16 +2310,16 @@ end
 -- (e.g. a trinket pinned to the Essential row) was shown.
 local function OnNativeRelayout(viewer)
     -- TAINT + redundancy guard: this hook fires from INSIDE Blizzard's secure CooldownViewer:RefreshData.
-    -- When the new CDMGroups engine OWNS this dest it drives the viewer's frames itself, so the old bucket
-    -- re-pin is redundant — and the NativeSig + RefreshAll(true) below run a LOT of insecure work inside
-    -- Blizzard's secure refresh, tainting its subsequent aura/totem secret reads ("tainted by UnbunkUtility").
-    -- Bail out for an owned dest so none of that heavy work runs in the secure path.
-    if ns.CDMGroups and ns.CDMGroups.OwnsDest and ns.CDM_VIEWER then
+    -- When the CDMGroups engine OR the standalone engine OWNS this dest it drives the viewer's frames itself,
+    -- so the old bucket re-pin is redundant — and the NativeSig + RefreshAll(true) below run a LOT of insecure
+    -- work inside Blizzard's secure refresh, tainting its subsequent aura/totem secret reads ("tainted by
+    -- UnbunkUtility"). Bail out for an owned dest so none of that heavy work runs in the secure path.
+    if ns.CDM_VIEWER then
         local nm = viewer.GetName and viewer:GetName()
         if nm then
             for dest, vname in pairs(ns.CDM_VIEWER) do
                 if vname == nm then
-                    if ns.CDMGroups.OwnsDest(dest) then return end
+                    if owned(dest) then return end   -- CDMGroups OR standalone engine owns it: skip the secure-pass re-pin
                     break
                 end
             end

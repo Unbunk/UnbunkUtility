@@ -1131,24 +1131,30 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
         -- three are per-GROUP (the engine reads them per group in RefreshLayout), so they live here, not in
         -- the per-icon override editor.
         local function CDMSettingsGroup(id)
-            return { type = "group", title = L["CDM settings"], build = function() return {
-                { type = "checkbox", label = L["Show press overlay"],
-                  get = function() return I.GGet(id, "showPressOverlay") == true end,
-                  set = function(v) I.GSet(id, "showPressOverlay", v and true or false); touch() end },
-                { type = "checkbox", label = L["Show Keybinds"],
-                  get = function() return I.GGet(id, "showKeybinds") == true end,
-                  set = function(v) I.GSet(id, "showKeybinds", v and true or false); touch() end },
-                { type = "dropdown", label = L["Grow direction"], width = 180, height = 50,
+            return { type = "group", title = L["CDM settings"], build = function()
+                local e = {
+                    { type = "checkbox", label = L["Show press overlay"],
+                      get = function() return I.GGet(id, "showPressOverlay") == true end,
+                      set = function(v) I.GSet(id, "showPressOverlay", v and true or false); touch() end },
+                    { type = "checkbox", label = L["Show Keybinds"],
+                      get = function() return I.GGet(id, "showKeybinds") == true end,
+                      set = function(v) I.GSet(id, "showKeybinds", v and true or false); touch() end },
+                }
+                -- Engine range check + GCD sweep, right after Show Keybinds (above Grow direction). Shared
+                -- IC helper: global engine toggles (E.Cfg), greyed outside engine mode.
+                IC.AppendEngineDisplayExtras(e)
+                e[#e + 1] = { type = "dropdown", label = L["Grow direction"], width = 180, height = 50,
                   getList = GrowList,
                   getCurrentKey = function() return GrowLabel(I.GGet(id, "growDir")) end,
-                  onSelect = function(label) I.GSet(id, "growDir", GrowFromLabel(label)); touch() end },
-                { type = "checkbox", label = L["Static Display"],
+                  onSelect = function(label) I.GSet(id, "growDir", GrowFromLabel(label)); touch() end }
+                e[#e + 1] = { type = "checkbox", label = L["Static Display"],
                   get = function() return I.GGet(id, "staticDisplay") == true end,
-                  set = function(v) I.GSet(id, "staticDisplay", v and true or false); touch() end },
-                { type = "textinput", label = L["Spacing"], width = 46, numeric = true, min = 0, max = 64, maxLetters = 2,
+                  set = function(v) I.GSet(id, "staticDisplay", v and true or false); touch() end }
+                e[#e + 1] = { type = "textinput", label = L["Spacing"], width = 46, numeric = true, min = 0, max = 64, maxLetters = 2,
                   get = function() return I.GGet(id, "spacing") or 1 end,
-                  set = function(v) if v ~= nil then I.GSet(id, "spacing", v); touch() end end },
-            } end }
+                  set = function(v) if v ~= nil then I.GSet(id, "spacing", v); touch() end end }
+                return e
+            end }
         end
 
         -- The Rows sub-cadre: "Max icon per row" → the group's maxPerRow. Changing it re-chunks the strip
@@ -1157,7 +1163,9 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
             return { type = "group", title = L["Rows"], build = function() return {
                 { type = "textinput", label = L["Max icon per row"], width = 46, numeric = true, min = 1, max = 20, maxLetters = 2,
                   get = function() return I.GGet(id, "maxPerRow") or 6 end,
-                  set = function(v) if v and v >= 1 then I.GSet(id, "maxPerRow", math.floor(v)); touch(); rebuild() end end },
+                  -- RechunkGroup re-wraps the stored rows to the new cap (GroupRows returns them verbatim, so
+                  -- a group frozen at a wider maxPerRow wouldn't otherwise reflow — native + engine alike).
+                  set = function(v) if v and v >= 1 then I.GSet(id, "maxPerRow", math.floor(v)); I.RechunkGroup(id); touch(); rebuild() end end },
             } end }
         end
 
@@ -1243,6 +1251,7 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
             -- Refresh() re-applies on toggle, forcing a CDMAnchor refresh so the OLD bucket system
             -- releases / re-takes the Essential viewer immediately.
             { type = "checkbox", label = enableLabel,
+              shown = function() return not (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- native-only toggle: hidden in engine mode (the engine renders this dest regardless)
               get = function() return I.Enabled() end,
               set = function(v)
                   I.SetEnabled(v)
@@ -1256,7 +1265,7 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                   if menu then menu.Refresh() end
               end },
             { type = "group", title = cadreTitle,
-              enabledBy = function() return I.Enabled() end,
+              enabledBy = function() return I.Enabled() or (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- editable in engine mode too (same config drives the engine)
               build = function()
                 wipe(strips)
                 local entries = {}

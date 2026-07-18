@@ -24,21 +24,44 @@ local GROUP_CAP = BR.GROUP_CAP or 12
 local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
 -- ── anchorTo / growDir / relPos / iconPosition / fillDirection option maps ──────
-local ANCHOR_ORDER = { "essential", "utility", "belowPlayer", "screen" }
-local function AnchorLabel(key)
-    if key == "essential"   then return L["Essential"]    end
-    if key == "screen"      then return L["Screen"]       end
-    if key == "belowPlayer" then return L["Below player"] end
-    return L["Utility"]
+-- The FLAT (non-group) anchor targets. The four CDM group TYPES are offered PER GROUP via GroupTargets()
+-- (shared source in Core/CDMAnchor.lua); "essential"/"utility" no longer live here as singletons.
+local ANCHOR_ORDER = { "belowPlayer", "belowFront", "belowEnd", "screen" }
+-- The current spec's resource bars (+ "Last bar") as extra anchor targets, from the shared source. Anchoring
+-- a group to a "resbar:*" key rides that bar in both modes (native = ContainerAnchor; engine = Layout).
+local function ResBarTargets()
+    return (ns.ResourceBarAnchorTargets and ns.ResourceBarAnchorTargets()) or {}
 end
-local function AnchorList()
+-- One entry per GROUP of every type ("Essential (Group 1)" … "Bars (Group 1)"); excludeKey omits THIS group's
+-- own key so it can't anchor to itself.
+local function GroupTargets(excludeKey)
+    return (ns.CDMGroupAnchorTargets and ns.CDMGroupAnchorTargets(nil, excludeKey)) or {}
+end
+local function AnchorLabel(key)
+    if ns.IsCDMGroupAnchorKey and ns.IsCDMGroupAnchorKey(key) then return ns.CDMGroupAnchorLabel(key) end
+    if key == "screen"      then return L["Screen"]                     end
+    if key == "belowPlayer" then return L["Below player frame"]         end
+    if key == "belowFront"  then return L["Below player frame (front)"] end
+    if key == "belowEnd"    then return L["Below player frame (end)"]   end
+    if type(key) == "string" and key:match("^resbar:") then
+        for _, tgt in ipairs(ResBarTargets()) do if tgt.key == key then return tgt.label end end
+        return L["Last bar"] or key
+    end
+    return tostring(key)
+end
+local function AnchorList(excludeKey)
     local t = {}
+    for _, tgt in ipairs(GroupTargets(excludeKey)) do t[#t + 1] = tgt.label end
     for _, k in ipairs(ANCHOR_ORDER) do t[#t + 1] = AnchorLabel(k) end
+    for _, tgt in ipairs(ResBarTargets()) do t[#t + 1] = tgt.label end
     return t
 end
 local function AnchorFromLabel(label)
+    for _, tgt in ipairs(GroupTargets()) do if tgt.label == label then return tgt.key end end
     for _, k in ipairs(ANCHOR_ORDER) do if AnchorLabel(k) == label then return k end end
-    return "utility"
+    for _, tgt in ipairs(ResBarTargets()) do if tgt.label == label then return tgt.key end end
+    return nil   -- no match: KEEP the current value (a bar / per-group label fails to resolve only when its
+                 -- source list is momentarily empty); the old "utility" fallback silently broke the anchor.
 end
 
 -- Bars stack vertically, so only DOWN / UP are exposed.
@@ -717,10 +740,11 @@ local function CreateBarsPanel(parent)
           -- Changing the anchor toggles whether Placement is shown (Screen is always centred, so it
           -- has no side/corner) — rebuild (deferred so the open dropdown isn't torn down mid-select).
           e[#e + 1] = { type = "dropdown", label = L["Anchor to"], width = 180, height = 50,
-              getList = AnchorList,
+              getList = function() return AnchorList("bar:" .. id) end,   -- exclude this group's own key
               getCurrentKey = function() return AnchorLabel(BR.GGet(id, "anchorTo")) end,
               onSelect = function(label)
-                  BR.GSet(id, "anchorTo", AnchorFromLabel(label)); touch()
+                  local k = AnchorFromLabel(label); if not k then return end
+                  BR.GSet(id, "anchorTo", k); touch()
                   if C_Timer and C_Timer.After then C_Timer.After(0, rebuild) else rebuild() end
               end }
           -- Placement (side/corner of the anchor) is meaningless when anchored to the screen centre.
@@ -815,12 +839,14 @@ local function CreateBarsPanel(parent)
     local options = {
         { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["Bars"] },
         { type = "checkbox", label = L["Enable custom CDM Bars"],
+          shown = function() return not (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- native-only toggle: hidden in engine mode (the engine renders this category regardless)
           get = function() return BR.Enabled() end,
           set = function(v)
               BR.SetEnabled(v)
-              -- Live transition: on enable do a full bring-up (re-hook + re-seed + relayout) since
-              -- login/events skip work while off; on disable RefreshLayout falls through to HideAll.
-              if v then BR.HookNativeViewerPublic(); BR.Rebuild() else BR.ApplyAll() end
+              -- Live transition: on enable do the full login-style bring-up (re-hook + re-seed + relayout
+              -- + 3s seed fallback) since login/events skip work while off; on disable RefreshLayout falls
+              -- through to HideAll.
+              if v then BR.Activate() else BR.ApplyAll() end
               if menu then menu.Refresh() end
               -- The native bar viewer only comes up cleanly through a fresh login/reload, so on ENABLE
               -- offer a reload (the live bring-up above is best-effort only).
@@ -839,7 +865,7 @@ local function CreateBarsPanel(parent)
         { type = "label", font = "UnbunkUtilityBody", height = 30,
           text = L["A custom layout built from the native bar Cooldown Manager. Enable the \"Buff Bar\" viewer in Blizzard's Edit Mode for bars to appear."] },
         { type = "group", title = L["Bar groups"],
-          enabledBy = function() return BR.Enabled() end,
+          enabledBy = function() return BR.Enabled() or (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- editable in engine mode too (same config drives the engine)
           build = function()
             wipe(strips)
             local entries = {}
