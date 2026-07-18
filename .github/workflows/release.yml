@@ -1,47 +1,40 @@
-name: Package release asset
+name: Package and release
 
-# Attaches a clean `UnbunkUtility.zip` to every published release. Its root folder is `UnbunkUtility/`
-# (per .pkgmeta `package-as`), so it drops straight into Interface/AddOns and WoW loads it without any
-# rename — unlike GitHub's auto "Source code" archives, which are named `UnbunkUtility-<version>` and
-# extract to a mismatched folder the game won't load.
+# On every version tag (v*), the BigWigs packager builds the addon from .pkgmeta:
+#   - substitutes @project-version@ (and friends) from the tag,
+#   - creates the GitHub release with an auto-generated changelog,
+#   - attaches a clean `UnbunkUtility.zip` (root folder `UnbunkUtility/`, via -n "{package-name}"),
+#   - uploads to CurseForge / Wago / WoWInterface when the project IDs (.toc `## X-*-ID:`) and the
+#     matching API-token secrets are present (each platform is skipped if its token/ID is missing).
 #
-# The zip is built with `git archive` from the released tag, matching the manual recipe. The pathspec is
-# an allow-list of the shipping paths, so dev files (.git*, .pkgmeta, README.md, .github) are excluded
-# without a strip step. Add a new top-level folder here if the addon ever gains one.
+# Required repo secrets for the addon-site uploads (GitHub upload uses the built-in token):
+#   CF_API_KEY       - CurseForge API token
+#   WAGO_API_TOKEN   - Wago API token
+#   WOWI_API_TOKEN   - WoWInterface API token
 
 on:
-  release:
-    types: [published]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Existing tag to (re)package, e.g. v5.1.1"
-        required: true
+  push:
+    tags:
+      - 'v*'
 
 permissions:
-  contents: write   # upload the asset to the release
+  contents: write   # let the built-in token create the release + upload assets
 
 jobs:
   package:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve tag
-        id: t
-        run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout the released tag
+      - name: Checkout (full history for the changelog)
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.t.outputs.tag }}
-          fetch-depth: 1
+          fetch-depth: 0
 
-      - name: Build UnbunkUtility.zip (root folder = UnbunkUtility/)
-        run: |
-          git archive --format=zip --prefix=UnbunkUtility/ \
-            -o UnbunkUtility.zip HEAD \
-            -- Core Libs Locales Media Modules UI UnbunkUtility.toc
-
-      - name: Attach it to the release
+      - name: Package and release
+        uses: BigWigsMods/packager@v2
+        with:
+          args: -n "{package-name}"
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ steps.t.outputs.tag }}" UnbunkUtility.zip --clobber
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
+          WOWI_API_TOKEN: ${{ secrets.WOWI_API_TOKEN }}
