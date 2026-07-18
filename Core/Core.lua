@@ -932,6 +932,7 @@ local function CreateMainWindow()
 
     local meta    = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
     local version = (meta and meta(ADDON, "Version")) or "?"
+    if version:find("@", 1, true) then version = "dev" end   -- unsubstituted @project-version@ = unpackaged (git) build
     local verFS = window:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH6")
     verFS:SetTextColor(0.6, 0.6, 0.6)   -- small grey descriptive text (H6 convention)
     verFS:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -16, 8)
