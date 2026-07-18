@@ -14,6 +14,7 @@
 local ADDON, ns = ...
 ns.Fader = ns.Fader or {}
 local F = ns.Fader
+local L = ns.L
 
 -- Per-group defaults (see file header). enabled defaults OFF — this is opt-in (Beta).
 -- `hover` is a per-component map: hovering an ENABLED component reveals the whole group.
@@ -25,7 +26,11 @@ local DEFAULTS = {
         fadedAlpha     = 0.3,
         revealCombat   = true,
         revealTarget   = false,
-        hover          = { essentials = true, utility = true, belowPlayer = true, buffs = true, bars = true },
+        hover          = { essentials = true, utility = true, belowPlayer = true, buffs = true, bars = true, resources = true },
+        hoverGroups    = {},   -- [category] = { [groupKey] = false }; a group unset here defaults to ON
+        hoverEnabled   = true, -- master toggle for the whole "Hovering with mouse" cadre (under "Reveal when")
+        fade           = {},   -- [category] = false EXCLUDES that category from the fade (unset = faded)
+        fadeGroups     = {},   -- [category] = { [groupKey] = false }; a group unset here is faded (default ON)
         instanceFilter = { dungeon = true, raid = true, battleground = true, outdoor = true },
     },
     player = {
@@ -41,6 +46,101 @@ local DEFAULTS = {
 local function Cfg() return ns.db and ns.db.profile and ns.db.profile.fader end
 F.Cfg = Cfg                                    -- exposed for the "Link" checkbox in the panel
 function F.GroupCfg(key) local c = Cfg(); return c and c[key] end
+
+-- ── Per-group hover-reveal (CDM group only) ──────────────────────────────────────
+-- Each CDM component (Essential/Utility/Below player/Buffs/Bars/Class resources) reveals per GROUP: hovering
+-- an ENABLED group of an enabled category un-fades the whole CDM. HoverGroups(compKey) lists that component's
+-- groups as { key, label, resolve } — label for the config checkbox, resolve() for the live frame to hit-test.
+-- Frames resolve through the shared anchor resolvers, so hover works in BOTH native and engine mode.
+-- Evaluate calls HoverGroups every driver tick (~10-20 Hz) for each enabled category, so it must NOT allocate
+-- per tick (the driver hoists scratch tables for the same reason). A persistent per-component store reuses its
+-- `out` list + entry tables + resolve closures across calls; only the (rarely-changing) label is refreshed.
+-- The config UI iterates the returned list IMMEDIATELY and copies out key/label into its checkboxes, so a reused
+-- table is safe there too.
+local hgStore = {}
+local function StoreFor(compKey)
+    local s = hgStore[compKey]
+    if not s then s = { out = {}, byKey = {} }; hgStore[compKey] = s end
+    return s
+end
+local function CDMGroupList(inst, dest, compKey)
+    local s = StoreFor(compKey)
+    local out, byKey = s.out, s.byKey
+    wipe(out)
+    local list = inst and inst.GroupList and inst.GroupList()
+    if type(list) ~= "table" then return out end
+    for _, grp in ipairs(list) do
+        local id = grp.id
+        if id and id ~= 0 then
+            local key = tostring(id)
+            local e = byKey[key]
+            if not e then
+                local ck = dest .. ":" .. id
+                e = { key = key, resolve = function() return ns.ResolveCDMGroupFrame and ns.ResolveCDMGroupFrame(ck) end }
+                byKey[key] = e
+            end
+            e.label = grp.name or ("Group " .. id)
+            out[#out + 1] = e
+        end
+    end
+    return out
+end
+function F.HoverGroups(compKey)
+    if compKey == "essentials" then return CDMGroupList(ns.CDMGroups and ns.CDMGroups.essential, "essential", compKey) end
+    if compKey == "utility"    then return CDMGroupList(ns.CDMGroups and ns.CDMGroups.utility,   "utility",   compKey) end
+    if compKey == "buffs"      then return CDMGroupList(ns.BuffGroups, "buff", compKey) end
+    if compKey == "bars"       then return CDMGroupList(ns.BarGroups,  "bar",  compKey) end
+    if compKey == "belowPlayer" then
+        local s = StoreFor(compKey)
+        if not s.built then   -- static two entries: build once, reuse forever
+            s.out[1] = { key = "belowFront", label = L["Below player frame (front)"], resolve = function() return ns.ResolveBelowFrame and ns.ResolveBelowFrame("belowFront") end }
+            s.out[2] = { key = "belowEnd",   label = L["Below player frame (end)"],   resolve = function() return ns.ResolveBelowFrame and ns.ResolveBelowFrame("belowEnd") end }
+            s.built = true
+        end
+        return s.out
+    end
+    if compKey == "resources" then
+        local s = StoreFor(compKey)
+        local out, byKey = s.out, s.byKey
+        wipe(out)
+        for _, t in ipairs((ns.ResourceBarAnchorTargets and ns.ResourceBarAnchorTargets()) or {}) do
+            if t.key ~= "resbar:last" then   -- skip the "Last bar" alias (it duplicates a real bar)
+                local k = t.key
+                local e = byKey[k]
+                if not e then
+                    e = { key = k, resolve = function() return ns.ResolveResourceBarFrame and ns.ResolveResourceBarFrame(k) end }
+                    byKey[k] = e
+                end
+                e.label = t.label
+                out[#out + 1] = e
+            end
+        end
+        return out
+    end
+    return nil   -- "player" (and anything without a group model) -> component-level hover
+end
+-- Generic CDM-group config flags, DEFAULT ON when unset. store = "hover"/"fade" (per-category) or
+-- "hoverGroups"/"fadeGroups" (per-group). Shared by the "Reveal when hovering" + "Fade applies to" cadres.
+function F.GetCatFlag(store, compKey)
+    local c = F.GroupCfg("cdm")
+    return not (c and c[store] and c[store][compKey] == false)
+end
+function F.SetCatFlag(store, compKey, v)
+    local c = F.GroupCfg("cdm"); if not c then return end
+    c[store] = c[store] or {}
+    c[store][compKey] = v and true or false
+end
+function F.GetGroupFlag(store, compKey, groupKey)
+    local c = F.GroupCfg("cdm")
+    local m = c and c[store] and c[store][compKey]
+    return not (m and m[groupKey] == false)
+end
+function F.SetGroupFlag(store, compKey, groupKey, v)
+    local c = F.GroupCfg("cdm"); if not c then return end
+    c[store] = c[store] or {}
+    c[store][compKey] = c[store][compKey] or {}
+    c[store][compKey][groupKey] = v and true or false
+end
 
 local function InitCfg()
     if not ns.db then return end
@@ -59,11 +159,12 @@ ns.RegisterCfgInitHook(InitCfg)
 local GROUPS = {
     cdm = {
         components = {
-            { key = "essentials",  native = "EssentialCooldownViewer", dest = "essential"   },
-            { key = "utility",     native = "UtilityCooldownViewer",   dest = "utility"     },
+            { key = "essentials",  native = "EssentialCooldownViewer", dest = "essential",   engineDest = "essential" },
+            { key = "utility",     native = "UtilityCooldownViewer",   dest = "utility",     engineDest = "utility"   },
             { key = "belowPlayer",                                     dest = "belowPlayer" },
-            { key = "buffs",       native = "BuffIconCooldownViewer"   },
-            { key = "bars",        native = "BuffBarCooldownViewer"    },
+            { key = "buffs",       native = "BuffIconCooldownViewer",  engineDest = "buff" },
+            { key = "bars",        native = "BuffBarCooldownViewer",   engineDest = "bar"  },
+            { key = "resources", resourceFrames = true },   -- faded via R.CollectBars + per-bar hover via F.HoverGroups
         },
     },
     player = {
@@ -73,8 +174,9 @@ local GROUPS = {
     },
 }
 
--- Append a component's live frames to `out`.
-local function ComponentFrames(comp, out)
+-- Append a component's live frames to `out`. fadeFilter (optional) filters the PER-GROUP paths (engine group
+-- frames + resource bars) so a deselected group in "Fade applies to" isn't faded; nil = every frame (restore).
+local function ComponentFrames(comp, out, fadeFilter)
     if comp.playerFrame then
         -- Custom unit-frame addons (ElvUI / Unhalted / …) replace Blizzard's PlayerFrame,
         -- so fade whichever player frame(s) actually exist, not just the Blizzard one.
@@ -87,9 +189,9 @@ local function ComponentFrames(comp, out)
     end
     if comp.native then
         local f = _G[comp.native]
-        -- Level 2: in engine mode the CDM engine hides + owns the alpha of the viewers it covers, so
-        -- don't fade those (we'd fight its SetAlpha(0) re-force hook, and F.Apply's restore would too).
-        -- Viewers it doesn't cover (Bars = BuffBar) keep fading normally.
+        -- Level 2: in engine mode the CDM engine masks ALL FOUR native viewers (SetAlpha(0) + a re-force hook)
+        -- and draws its OWN group frames, so don't fade the native viewer here — we'd fight the hook (and
+        -- F.Apply's restore would too). The engine's own frames are faded instead, below (comp.engineDest).
         if f and not (ns.CDMMode and ns.CDMMode.IsViewerMasked and ns.CDMMode.IsViewerMasked(comp.native)) then
             out[#out + 1] = f
         end
@@ -105,6 +207,18 @@ local function ComponentFrames(comp, out)
             for _, f in ipairs(ns.CDMAnchor.GetIconFrames(comp.dest)) do out[#out + 1] = f end
         end
     end
+    -- Level 2: in ENGINE mode the native viewer above is masked and the standalone engine draws this component
+    -- as its OWN pooled group frames — fade THOSE. Fading a group frame cascades alpha to its icons, hosted
+    -- trackers and adopted native buff/bar frames (multiplicative parent alpha); the engine never re-forces a
+    -- group frame's alpha, so we don't fight it. Native mode has no engine groups, so this is a no-op there.
+    if comp.engineDest and ns.CDMMode and ns.CDMMode.IsEngine and ns.CDMMode.IsEngine()
+       and ns.CDMEngine and ns.CDMEngine.Layout and ns.CDMEngine.Layout.CollectGroupFrames then
+        ns.CDMEngine.Layout.CollectGroupFrames(comp.engineDest, out, fadeFilter)
+    end
+    -- Class resources: fade the live resource bars WITH the CDM (both modes; the widget is the engine's own).
+    if comp.resourceFrames and ns.CDMEngine and ns.CDMEngine.Resource and ns.CDMEngine.Resource.CollectBars then
+        ns.CDMEngine.Resource.CollectBars(out, fadeFilter)
+    end
     return out
 end
 
@@ -113,20 +227,43 @@ end
 -- and whether the fade is active here at all. Fills the caller-owned `all` list with the
 -- union of the group's live frames and returns reveal, active. The final target alpha is
 -- decided by the driver (so the optional link can OR reveals across groups).
-local function Evaluate(g, c, all)
+local function Evaluate(g, c, all, isCDM)
     local active = ns.IsActiveInInstance(c.instanceFilter)
     local reveal = active and (
         (c.revealCombat and InCombatLockdown()) or
         (c.revealTarget and UnitExists("target"))
     ) or false
+    local hoverOn = active and (c.hoverEnabled ~= false)   -- the "Hovering with mouse" master toggle
     for _, comp in ipairs(g.components) do
-        local hoverOn = active and not reveal and c.hover and c.hover[comp.key]
         local n0 = #all
-        ComponentFrames(comp, all)
-        if hoverOn then
-            for i = n0 + 1, #all do
-                local f = all[i]
-                if f:IsShown() and f:IsMouseOver() then reveal = true; break end
+        -- Fade scope (CDM only): a category EXCLUDED from the fade contributes no frames; otherwise fade only its
+        -- ENABLED groups (per-group in engine mode; native / below-player have no per-group frames, so the
+        -- fadeGroups filter never matches them and they fade at category level). Passing the fadeGroups[cat]
+        -- TABLE (not a closure) keeps the driver allocation-free in the default all-faded state.
+        if isCDM then
+            if not (c.fade and c.fade[comp.key] == false) then
+                ComponentFrames(comp, all, c.fadeGroups and c.fadeGroups[comp.key])
+            end
+        else
+            ComponentFrames(comp, all)
+        end
+        if hoverOn and not reveal and (not c.hover or c.hover[comp.key] ~= false) then   -- category default ON (nil -> on)
+            local groups = F.HoverGroups(comp.key)
+            if groups then
+                -- CDM: only an ENABLED group of the enabled category triggers the reveal (per-group frames).
+                local hg = c.hoverGroups and c.hoverGroups[comp.key]
+                for _, grp in ipairs(groups) do
+                    if not (hg and hg[grp.key] == false) then
+                        local f = grp.resolve()
+                        if f and f:IsShown() and f:IsMouseOver() then reveal = true; break end
+                    end
+                end
+            else
+                -- No per-group model (the player frame): hover the component's own frames.
+                for i = n0 + 1, #all do
+                    local f = all[i]
+                    if f:IsShown() and f:IsMouseOver() then reveal = true; break end
+                end
             end
         end
     end
@@ -163,7 +300,7 @@ driver:SetScript("OnUpdate", function(_, dt)
             local frames = frameLists[key] or {}
             frameLists[key] = frames
             wipe(frames)
-            local reveal, active = Evaluate(g, c, frames)
+            local reveal, active = Evaluate(g, c, frames, key == "cdm")
             local rec = records[key] or {}
             records[key] = rec
             rec.c, rec.reveal, rec.active, rec.frames = c, reveal, active, frames
@@ -207,6 +344,14 @@ function F.Apply()
         end
     end
     if anyEnabled then driver:Show() else driver:Hide() end
+end
+
+-- A "Fade applies to" edit (category/group toggled): restore EVERY cdm frame to full, so a just-DESELECTED
+-- category/group stops fading immediately; the driver re-fades only the still-selected frames on its next tick.
+function F.RefreshFadeScope()
+    local frames = {}
+    for _, comp in ipairs(GROUPS.cdm.components) do ComponentFrames(comp, frames) end   -- no filter -> ALL cdm frames
+    for _, f in ipairs(frames) do f:SetAlpha(1) end
 end
 
 ns.RegisterReloadHook(F.Apply)

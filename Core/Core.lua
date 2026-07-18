@@ -131,14 +131,13 @@ local function BuildNavTree()
             { panel = L["Addon settings"] },
             { panel = L["Profiles"] },
             { cat = L["Cooldown Manager"], subs = (function()
-                -- "CDM Settings" is the hub, always at the TOP: it picks which CDM engine is active.
                 -- The per-category tabs (Essential / Utility / Buffs / Bars) now show in BOTH modes: the same
                 -- config drives the native render AND the standalone engine (which reuses the native group
                 -- model as its layout source), so a single set of panels configures either engine. L["Utility"]
                 -- resolves to the NEW CDMGroups Utility panel (its RegisterModule supersedes the old bucket).
-                -- "Class resources" (engine-only widget) sits at the BOTTOM, after Free icons.
+                -- "Class resources" (engine-only widget) sits at the BOTTOM, after Free icons. The engine-mode
+                -- switch ("CDM Settings") lives under Debug Utilities.
                 local subs = {
-                    { panel = L["CDM Settings"] },
                     { panel = L["Essential"] },
                     { panel = L["Utility"] },
                     { panel = L["Buffs"] },
@@ -180,15 +179,19 @@ local function BuildNavTree()
             { panel = L["Boss reset sound"] },
             { panel = L["Reloading announcement"] },
             { panel = L["Show IDs"] },
+            { cat = L["Fading"], subs = {
+                { panel = L["Cooldown Manager"] },
+                { panel = L["Player frame"] },
+            } },
         } },
         { name = L["Debug Utilities"], subs = (function()
             -- The "Debug" sub-tab is always present (it hosts the "I know what I'm
-            -- doing" unlock checkbox). Any further debug sub-tabs are GATED: they only
-            -- appear once unlocked. ns.RefreshNav() rebuilds this when the flag toggles.
-            local subs = { { panel = L["Debug"] } }
+            -- doing" unlock checkbox); "CDM Settings" (the native<->engine switch) follows it, also always
+            -- present. Any further debug sub-tabs are GATED: they only appear once unlocked.
+            -- ns.RefreshNav() rebuilds this when the flag toggles.
+            local subs = { { panel = L["Debug"] }, { panel = L["CDM Settings"] } }
             if ns.IsDebugUnlocked and ns.IsDebugUnlocked() then
                 subs[#subs + 1] = { panel = L["Secret settings"] }
-                subs[#subs + 1] = { panel = L["Beta"] }
                 subs[#subs + 1] = { cat = L["Addon usage"], subs = {
                     { panel = L["List"] },
                     { panel = L["Graph"] },

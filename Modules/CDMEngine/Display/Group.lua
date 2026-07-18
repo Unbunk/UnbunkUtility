@@ -43,6 +43,8 @@ function Group.Setup(g, spec)
     g._relPos = nil   -- row cross-alignment hint; re-set by MaterializeHostGroup (never stale on a pooled group)
     g._spacing = nil  -- per-group spacing override; re-set by MaterializeHostGroup (never stale on a pooled group)
     g.w, g.h = 1, 1
+    g:SetAlpha(1)     -- clear any fade alpha carried over from a pooled/reused frame (the Fader fades group
+                      -- frames; a group released while faded must not come back dim once the fade is off)
     g:Show()
 end
 

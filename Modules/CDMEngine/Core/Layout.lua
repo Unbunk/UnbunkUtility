@@ -917,6 +917,25 @@ function E.Layout.GroupFrame(catKey)
     end
     return nil
 end
+-- Append every live engine group frame belonging to `dest` ("essential"/"utility"/"buff"/"bar") to `out`.
+-- The Fader uses this to fade the engine's OWN CDM frames in engine mode: fading a group frame cascades alpha
+-- to its icons + hosted trackers + adopted native frames (WoW alpha is multiplicative and nothing sets
+-- SetIgnoreParentAlpha), and the engine never re-forces a group frame's alpha, so the Fader wins. Groups are
+-- pooled — always enumerate live (call this every tick), never cache the result.
+function E.Layout.CollectGroupFrames(dest, out, fg)
+    out = out or {}
+    if not dest then return out end
+    local prefix = dest .. ":"
+    local plen = #prefix
+    for _, g in ipairs(groupFrames) do
+        local ck = g.catKey
+        if ck and ck:sub(1, plen) == prefix then
+            -- fg (optional per-group fade-scope table): a group id set to false is EXCLUDED from the fade.
+            if not fg or fg[ck:sub(plen + 1)] ~= false then out[#out + 1] = g end
+        end
+    end
+    return out
+end
 -- Config-panel toggle (mirrors the /uucdmwidgets slash).
 function E.Layout.SetShown(v)
     if v then

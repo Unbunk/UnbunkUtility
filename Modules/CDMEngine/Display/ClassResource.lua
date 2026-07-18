@@ -753,6 +753,7 @@ local function BuildBarFrame()
 end
 local function AcquireBarFrame()
     local bf = table.remove(barPool) or BuildBarFrame()
+    bf:SetAlpha(1)   -- clear any stale fade alpha from a pooled/reused bar (the Fader can fade class resources)
     bf:Show()
     return bf
 end
@@ -773,6 +774,18 @@ end
 local function ReleaseAllBars()
     for _, bf in pairs(bars) do ReleaseBarFrame(bf) end
     wipe(bars)
+end
+
+-- Append every live resource-bar frame to `out`. The Fader uses this to fade the class-resource bars WITH the
+-- CDM (fading a bar frame cascades to its cells + text; nothing re-forces a bar's alpha). Live pool — the Fader
+-- enumerates every tick, so this never caches.
+function R.CollectBars(out, fg)
+    out = out or {}
+    for i, bf in pairs(bars) do
+        -- fg (optional per-bar fade-scope table): a "resbar:i" key set to false is EXCLUDED from the fade.
+        if not fg or fg["resbar:" .. i] ~= false then out[#out + 1] = bf end
+    end
+    return out
 end
 
 -- ── DATA event frame (own frame; IconExtras taint pattern) ───────────────────────────────────────
