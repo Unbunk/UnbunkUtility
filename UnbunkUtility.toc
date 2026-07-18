@@ -2,7 +2,7 @@
 ## Title: Unbunk Utility
 ## Notes: Utility addon
 ## Author: Unbunk
-## Version: 5.0.7
+## Version: 5.1.0
 ## SavedVariables: HealerRangeDB, DeathAlertDB, BLTrackerDB, PotionTrackerDB, TrinketTrackerDB, UnbunkUtilityDB, PITrackerDB, PlayerDeathDB, BResTrackerDB, HealthstoneTrackerDB, UnbunkUtilityAceDB
 ## IconTexture: Interface\AddOns\UnbunkUtility\Media\Icons\UnbunkUtility.tga
 
@@ -30,6 +30,7 @@ UI/Shared/TextInput.lua
 UI/Shared/ColorPicker.lua
 UI/Shared/Prompt.lua
 UI/Shared/Checkbox.lua
+UI/Shared/Slider.lua
 UI/Shared/Dropdown.lua
 UI/Shared/CollapsibleSection.lua
 UI/Shared/TextEditor.lua
@@ -127,3 +128,15 @@ Modules/ReloadAnnounce/Core/ReloadAnnounce.lua
 Modules/ReloadAnnounce/UI/ConfigWindow.lua
 Modules/ShowIDs/Core/ShowIDs.lua
 Modules/ShowIDs/UI/ConfigWindow.lua
+
+# CDMEngine — standalone "Coolinator-like" engine (default display mode). Own-draw cooldowns + adopted native buffs/bars + class resources; tab-driven per-group positions.
+Modules/CDMEngine/Core/Blob.lua
+Modules/CDMEngine/Core/Config.lua
+Modules/CDMEngine/Display/Icon.lua
+Modules/CDMEngine/Display/IconExtras.lua
+Modules/CDMEngine/Display/Group.lua
+Modules/CDMEngine/Core/Resources.lua
+Modules/CDMEngine/Display/ClassResource.lua
+Modules/CDMEngine/Core/Layout.lua
+Modules/CDMEngine/Core/Mode.lua
+Modules/CDMEngine/UI/ConfigWindow.lua

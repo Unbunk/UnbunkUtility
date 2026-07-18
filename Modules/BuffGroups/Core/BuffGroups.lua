@@ -169,6 +169,9 @@ local function FrameSpellId(nf)
     end
     return nil
 end
+-- Exposed so the CDM engine keys its hosted-frame map with the SAME resolver used to classify members,
+-- so a member frozen in the config resolves the same way (incl. the combat-secret / transform fallbacks).
+BG.FrameSpellId = FrameSpellId
 
 -- Split the tracked buffs into DISPLAYED (the EditMode "Tracked Buffs" section the user actually
 -- shows) and NOT-displayed, both in the category's canonical order. The displayed set is the
@@ -611,8 +614,28 @@ local function ContainerAnchor(g)
         -- relative SetPoint to its TOP/BOTTOM edge then auto-follows it. Fall back to the native viewer.
         rel = (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(anchorTo))
             or (ns.GetCDMViewer and ns.GetCDMViewer(anchorTo))
-    elseif anchorTo == "belowPlayer" then
-        rel = ResolvePlayerFrame()
+    elseif ns.IsCDMGroupAnchorKey and ns.IsCDMGroupAnchorKey(anchorTo) then
+        -- Per-group CDM target ("essential:1"/"utility:2"/"buff:1"/"bar:1"). The reworked anchor dropdown
+        -- writes these "dest:id" keys (even for Group 1); resolve to that group's real container (native
+        -- per-group frame / engine group frame), falling back to the dest's Group-1 anchor / native viewer
+        -- while it isn't laid out yet. Mirrors CastBar.GroupOneBox — without this the key matched no branch
+        -- and the group anchored to UIParent (screen corner).
+        local dest = ns.ParseCDMGroupKey(anchorTo)
+        local box  = ns.ResolveCDMGroupFrame and ns.ResolveCDMGroupFrame(anchorTo)
+        if box and box:IsShown() and box:GetLeft() then
+            rel = box
+        else
+            rel = (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(dest))
+                or (ns.GetCDMViewer and ns.GetCDMViewer(dest))
+        end
+    elseif ns.IsBelowAnchorKey and ns.IsBelowAnchorKey(anchorTo) then
+        rel = ns.ResolveBelowFrame and ns.ResolveBelowFrame(anchorTo)   -- belowPlayer (middle) / belowFront / belowEnd
+    elseif ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(anchorTo) then
+        -- Ride a class-resource bar (e.g. Buffs under the last bar). nil while that bar is absent (spec has
+        -- none / disabled) -> fall back to Essential so the group stays visible near the CDM, not at 0,0.
+        rel = ns.ResolveResourceBarFrame(anchorTo)
+            or (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame("essential"))
+            or (ns.GetCDMViewer and ns.GetCDMViewer("essential"))
     end
     return pts[1], rel or UIParent, pts[2]
 end
@@ -658,9 +681,14 @@ end
 -- recursing into itself.
 local function ReanchorStack(appl)
     local nf, sid = appl._uuStackNF, appl._uuStackSid
-    if not (nf and sid and ns.AnchorFS) then return end
+    if not (nf and sid and ns.AnchorFSRaw) then return end
+    -- RAW anchor: this fires from the Applications-FontString SetPoint hook, which Blizzard invokes
+    -- SYNCHRONOUSLY inside its secure RefreshData (aura stack/charge update). A non-raw SetPoint here taints
+    -- that execution and blows up Blizzard's later secret aura/charge comparisons (the documented residual CDM
+    -- taint). ns.AnchorFSRaw re-anchors via raw C setters (bypass taint AND our own SetPoint hook, so the
+    -- _uuReanchoring guard below is now belt-and-braces).
     appl._uuReanchoring = true
-    pcall(ns.AnchorFS, appl, nf, BG.IconGet(sid, "stackPos") or "BOTTOMRIGHT",
+    pcall(ns.AnchorFSRaw, appl, nf, BG.IconGet(sid, "stackPos") or "BOTTOMRIGHT",
         BG.IconGet(sid, "stackOffX"), BG.IconGet(sid, "stackOffY"))
     appl._uuReanchoring = false
 end
@@ -688,12 +716,72 @@ local function FrameTitle(nf)
     return fs
 end
 
--- Apply OUR border edges via the shared CDMAnchor helper (raw hooks, scale lock, combat-safe).
+-- Dispel-type colour curve (mirrors MasqueBlizzBars' DispelCurve) so OUR inset border can carry the debuff's
+-- dispel colour instead of Masque's OUTSETTING DebuffBorderMBB (which overflowed onto the bar below the row).
+-- Built lazily once; `false` marks the API unavailable so we stop retrying.
+local dispelCurve
+local function DispelColorCurve()
+    if dispelCurve == nil then
+        dispelCurve = false
+        if C_CurveUtil and C_CurveUtil.CreateColorCurve and Enum and Enum.LuaCurveType and CreateColor then
+            local c = C_CurveUtil.CreateColorCurve()
+            c:SetType(Enum.LuaCurveType.Step)
+            c:AddPoint(0, CreateColor(0.800, 0.000, 0.000, 1)) -- None
+            c:AddPoint(1, CreateColor(0.000, 0.505, 1.000, 1)) -- Magic
+            c:AddPoint(2, CreateColor(0.624, 0.023, 0.894, 1)) -- Curse
+            c:AddPoint(3, CreateColor(0.945, 0.416, 0.035, 1)) -- Disease
+            c:AddPoint(4, CreateColor(0.482, 0.780, 0.000, 1)) -- Poison
+            c:AddPoint(5, CreateColor(0.721, 0.000, 0.059, 1)) -- Bleed
+            dispelCurve = c
+        end
+    end
+    return dispelCurve or nil
+end
+
+-- The dispel-type border colour {r,g,b,a} for a hosted TARGET-debuff frame, or nil (player buffs / no data /
+-- no Masque). auraDataUnit + auraInstanceID are structural (readable in combat, unlike auraSpellID); pcalled
+-- so any secret/API change degrades to the configured colour instead of erroring.
+local function DispelBorderColor(nf)
+    if not (nf and nf.auraDataUnit == "target" and nf.auraInstanceID) then return nil end
+    if not (C_UnitAuras and C_UnitAuras.GetAuraDispelTypeColor) then return nil end
+    local curve = DispelColorCurve()
+    if not curve then return nil end
+    local ok, color = pcall(C_UnitAuras.GetAuraDispelTypeColor, nf.auraDataUnit, nf.auraInstanceID, curve)
+    if ok and type(color) == "table" and color.r then
+        return { r = color.r, g = color.g, b = color.b, a = color.a or 1 }
+    end
+    return nil
+end
+
+-- Apply OUR border edges via the shared CDMAnchor helper (raw hooks, scale lock, combat-safe). A TARGET debuff
+-- overrides the configured colour with its dispel-type colour (the red/blue/… indicator we took off Masque) and
+-- FORCES the border on even if disabled, so the dispel indicator survives regardless of the border setting.
 local function ApplyBorder(nf, spellId)
     if not ns.CDMAnchor or not ns.CDMAnchor.ApplyFrameBorder then return end
-    local enabled = BG.IconGet(spellId, "borderEnabled") ~= false
-    ns.CDMAnchor.ApplyFrameBorder(nf, enabled,
-        BG.IconGet(spellId, "borderColor"), BG.IconGet(spellId, "borderSize") or 1, true)
+    -- "Native border": the debuff dispel-type colour, gated by showNativeBorder (per-group, default on) and
+    -- drawn at its OWN thickness (nativeBorderSize, default 2). When active it overrides the configured colour
+    -- + size and forces the border on so the indicator survives even if the regular border is disabled.
+    local dispel  = (BG.IconGet(spellId, "showNativeBorder") ~= false) and DispelBorderColor(nf) or nil
+    local enabled = dispel ~= nil or (BG.IconGet(spellId, "borderEnabled") ~= false)
+    local color   = dispel or BG.IconGet(spellId, "borderColor")
+    local size    = dispel and (BG.IconGet(spellId, "nativeBorderSize") or 3) or (BG.IconGet(spellId, "borderSize") or 1)
+    -- OUTSET like the regular border so the ICON stays full-size (an inset border overlaid the edges and made
+    -- native-border buffs look smaller than the rest). Much thinner than Masque's original DebuffBorderMBB.
+    ns.CDMAnchor.ApplyFrameBorder(nf, enabled, color, size, true)
+end
+
+-- Effective OUTSET (px) a frame's border extends beyond the frame edge — mirrors ApplyBorder's size/enabled
+-- resolution. The row packer uses it to line up the OUTER border edges (so a thicker native/dispel border on a
+-- debuff icon doesn't stick out past its neighbours). 0 when no border draws.
+function BG.BorderOutset(nf, sid)
+    if not sid then return 0 end
+    if (BG.IconGet(sid, "showNativeBorder") ~= false) and DispelBorderColor(nf) then
+        return BG.IconGet(sid, "nativeBorderSize") or 3
+    end
+    if BG.IconGet(sid, "borderEnabled") ~= false then
+        return BG.IconGet(sid, "borderSize") or 1
+    end
+    return 0
 end
 
 -- ── Glow: a marching-dots overlay (LibCustomGlow not bundled — a self-drawn dot style)
@@ -762,15 +850,27 @@ local function ApplyGlow(nf, spellId)
     glow:Show()
 end
 
--- Hide Blizzard's native debuff border on a buff frame so only OUR border shows.
+-- Hide Blizzard's native debuff border on a buff frame so only OUR border shows. Also hide MasqueBlizzBars'
+-- DebuffBorderMBB: an OUTSETTING dispel-coloured texture that overflowed onto the bar below a hosted buff row.
+-- Its dispel colour is instead carried by OUR inset border (ApplyBorder/DispelBorderColor). Masque only ever
+-- SetVertexColors it (never Show), but ReSkin can re-show it, so hook Show -> Hide to keep it suppressed.
 local function HideDebuffBorder(nf)
     local db = nf.DebuffBorder
-    if not db then return end
-    if not nf._uuDebuffBorderHooked then
-        nf._uuDebuffBorderHooked = true
-        hooksecurefunc(db, "Show", function(self) self:Hide() end)
+    if db then
+        if not nf._uuDebuffBorderHooked then
+            nf._uuDebuffBorderHooked = true
+            hooksecurefunc(db, "Show", function(self) self:Hide() end)
+        end
+        db:Hide()
     end
-    db:Hide()
+    local mbb = nf.DebuffBorderMBB
+    if mbb then
+        if not nf._uuMBBHooked and mbb.Show then
+            nf._uuMBBHooked = true
+            hooksecurefunc(mbb, "Show", function(self) self:Hide() end)
+        end
+        if mbb.Hide then mbb:Hide() end
+    end
 end
 
 -- ── Gated-restyle helpers (the CPU fix) ────────────────────────────────────────
@@ -1117,6 +1217,10 @@ local function UpdateSounds(frameOf)
     soundSeeded = true
 end
 
+-- Exposed so the standalone CDM engine can restyle the buff frames it HOSTS (adopts) with the same recipe,
+-- from its deferred layout pass (taint-safe). Pure styling on a passed (nf, spellId) — no pin embedded.
+BG.StyleFrame = StyleFrame
+
 function BG.RefreshLayout()
     if not BG.Enabled() then
         HideAll()
@@ -1147,6 +1251,11 @@ function BG.RefreshLayout()
     for sid, nf in pairs(frameOf) do
         sp[#sp + 1] = sid .. (FrameShown(nf) and "+" or "-")
     end
+    -- Fold ns.StyleEpoch (mirrors CDMGroups): a mode switch (native<->engine) bumps it, so leaving engine
+    -- mode busts this early-out and forces ONE full re-pin of the native buff frames BuffGroups released
+    -- while it was ceded — otherwise an unchanged buff set would early-out and the frames would stay in
+    -- Blizzard's default layout instead of the user's groups. Bumped only on user actions, never per-frame.
+    sp[#sp + 1] = "E" .. (ns.StyleEpoch or 0)
     table.sort(sp)
     local sig = table.concat(sp, ",")
     if not layoutDirty and sig == lastLayoutSig then
@@ -1471,7 +1580,7 @@ local function HookNativeViewer()
     if v.SetScale and not v._uuScaleHooked then
         v._uuScaleHooked = true
         hooksecurefunc(v, "SetScale", function(self, s)
-            if (s or 1) ~= 1 and BG.Enabled() then self:SetScale(1) end
+            if (s or 1) ~= 1 and BG.Enabled() then ns.RawSetScale(self, 1) end   -- raw: this hook can co-fire in the secure refresh
         end)
     end
 end
@@ -1494,6 +1603,10 @@ ev:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_ENABLED" then
         if BG.Enabled() then HookNativeViewer(); BG.RefreshLayout() end
     else
+        -- Engine mode cedes fully (the engine hosts the buff frames and drives its own RefreshDisplayedCache
+        -- + GetGroupBuffs): skip the native re-seed/relayout entirely, mirroring BarGroups' OnEvent. The 0.2s
+        -- ticker still keeps the displayed cache fresh for an OPEN config strip.
+        if not BG.Enabled() then return end
         HookNativeViewer()
         if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "TRAIT_CONFIG_UPDATED" then
             DeferSeedUntilViewerReady()   -- the pool is stale for the new spec; re-seed once it rebuilds

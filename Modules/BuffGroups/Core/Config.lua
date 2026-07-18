@@ -35,10 +35,10 @@ BG.GROUP_CAP = 12
 -- key a saved group predates (so adding a key here needs no data migration).
 local GROUP_TEMPLATE = {
     -- placement
-    anchorTo = "essential",    -- "essential" | "utility" | "belowPlayer" | "screen"
+    anchorTo = "resbar:last",  -- "essential" | "utility" | "belowPlayer" | "screen" | "resbar:<i>" | "resbar:last"
     relPos   = "above",        -- side/corner of the anchor: above|below|left|right|topleft|topright|bottomleft|bottomright
     growDir  = "CENTER_H",     -- "RIGHT" | "LEFT" | "UP" | "DOWN" | "CENTER_H" | "CENTER_V"
-    spacing  = 1,
+    spacing  = 0,
     staticDisplay = false,     -- false: only currently-active buffs take a slot (reflow); true: every member keeps its slot
     -- geometry
     iconW = 36, iconH = 36,
@@ -51,6 +51,10 @@ local GROUP_TEMPLATE = {
     borderEnabled = true,
     borderColor   = { r = 0, g = 0, b = 0, a = 1 },
     borderSize    = 1,
+    -- "native border": the debuff dispel-type colour carried on OUR inset border (replaces Masque's
+    -- outsetting DebuffBorderMBB). Its own toggle + thickness, independent of the regular border above.
+    showNativeBorder = true,
+    nativeBorderSize = 3,
     -- glow (LibCustomGlow-style highlight around an active icon); colour defaults to F5FF00 even off
     glowEnabled = false,
     glowColor   = { r = 0.96, g = 1, b = 0, a = 1 },   -- F5FF00
@@ -74,7 +78,7 @@ local GROUP_TEMPLATE = {
     showStack     = true, showAtZero = false,
     stackFontKey  = "Fira Mono", stackFontPath = nil, stackFontSize = 8, stackOutline = "OUTLINE",
     stackColor    = { r = 1, g = 1, b = 1, a = 1 },
-    stackPos      = "BOTTOMRIGHT", stackOffX = 2, stackOffY = -2,
+    stackPos      = "BOTTOMRIGHT", stackOffX = 0, stackOffY = 0,
     -- sound alert (PER-ICON only — the pencil editor writes these via IconSet; no group
     -- panel exposes them, it's not a group-inherited visual). Both off by default so the
     -- new keys backfill harmlessly via MergeDefaults (no migration). The sound keys are
@@ -103,7 +107,7 @@ local DEFAULT_GROUP1 = ns.DeepCopy(GROUP_TEMPLATE)
 DEFAULT_GROUP1.id   = 1
 DEFAULT_GROUP1.name = "Group 1"
 DEFAULT_GROUP1.posX = 0
-DEFAULT_GROUP1.posY = 2   -- small upward nudge above the Essential block (the default anchor)
+DEFAULT_GROUP1.posY = 0   -- flush at the anchor (default anchor = last bar)
 
 local DEFAULTS = {
     enabled = true,
@@ -180,6 +184,12 @@ function BG.CfgInit()
             g.posY = 0
         end
     end
+    -- One-time: the default group spacing is now 0 (icons flush). Apply to EXISTING groups once (the V6
+    -- reset above set the old spacing=1; MergeDefaults won't change a saved value). A later manual change sticks.
+    if not s.spacingZeroV1 then
+        s.spacingZeroV1 = true
+        for _, g in pairs(s.groups) do g.spacing = 0 end
+    end
     -- One-shot: smaller default timer (12) / stacks (8) fonts and the stacks offset (2,-2), applied
     -- to existing groups (changed defaults don't retro-fill). Timer thresholds are NEW keys, so they
     -- backfill onto existing groups via MergeDefaults above — no migration needed for those.
@@ -191,6 +201,12 @@ function BG.CfgInit()
             g.stackOffX = 2
             g.stackOffY = -2
         end
+    end
+    -- One-time: stack/charge count offsets default to 0 (centred on stackPos). Apply to EXISTING groups
+    -- once (the V7 reset above set 2/-2); a later manual change sticks.
+    if not s.stackOffsetZeroV1 then
+        s.stackOffsetZeroV1 = true
+        for _, g in pairs(s.groups) do g.stackOffX = 0; g.stackOffY = 0 end
     end
     -- One-shot: time thresholds now default OFF. The scalar backfilled onto existing groups as
     -- TRUE (via MergeDefaults, when its default was true) and a changed default won't retro-apply,
@@ -236,11 +252,11 @@ function BG.CfgInit()
             g.glowEnabled = false
         end
     end
-    -- One-shot: Group 1's default Y becomes 2 (a small upward nudge above the Essential block, the
-    -- default anchor). Applied once to a profile whose Group 1 predates this default (it was 0).
-    if not s.g1DefaultYV1 then
-        s.g1DefaultYV1 = true
-        if s.groups[1] then s.groups[1].posY = 2 end
+    -- One-shot: Group 1's default Y is now 0 (flush at the anchor). A NEW flag (V2) re-runs this on profiles
+    -- that took the earlier posY=2 default (g1DefaultYV1), so Group 1 sits at the anchor by default again.
+    if not s.g1DefaultYV2 then
+        s.g1DefaultYV2 = true
+        if s.groups[1] then s.groups[1].posY = 0 end
     end
     -- One-shot: re-sort every EXISTING group's saved order so its NATIVE buffs follow the native
     -- on-screen order (the EditMode "Tracked Buffs" arrangement, read via BG.NativeOrder), with the
@@ -269,11 +285,29 @@ function BG.CfgInit()
         end
         if s.order then s.order[0] = nil end
     end
+    -- One-shot: "Buffs" now default-anchor to the LAST class-resource bar (buff group sits under the resource
+    -- bars). Flip groups still on the OLD default ("essential", set by the V6 reset) to "resbar:last"; groups
+    -- the user set to anything else (utility / belowPlayer / screen) are preserved. A spec with no resource
+    -- bars resolves the anchor to Essential as a graceful fallback (see ContainerAnchor / Layout).
+    if not s.buffAnchorLastBarV1 then
+        s.buffAnchorLastBarV1 = true
+        for _, g in pairs(s.groups) do
+            if (g.anchorTo or "essential") == "essential" then g.anchorTo = "resbar:last" end
+        end
+    end
 end
 ns.RegisterCfgInitHook(BG.CfgInit)
 
 -- ── Enable ─────────────────────────────────────────────────────────────────────
-function BG.Enabled() local s = Store(); return not s or s.enabled ~= false end
+-- Level 2: the standalone CDM engine (ns.CDMMode "engine") masks BuffIconCooldownViewer and draws its own
+-- TrackedBuff group, so report DISABLED in engine mode — every driver here (the 0.2s RefreshLayout ticker,
+-- UNIT_AURA, the native-viewer relayout hook) gates on Enabled(), so this stops BuffGroups re-styling the
+-- (masked) native buff frames and fighting the engine. Flips back the instant the user returns to native
+-- (the always-running ticker re-pins within a pass; the mode-switch StyleEpoch bump busts its early-out).
+function BG.Enabled()
+    if ns.CDMMode and ns.CDMMode.IsEngine and ns.CDMMode.IsEngine() then return false end
+    local s = Store(); return not s or s.enabled ~= false
+end
 function BG.SetEnabled(v) local s = Store(); if s then s.enabled = v and true or false end end
 
 -- ── Group accessors ─────────────────────────────────────────────────────────────

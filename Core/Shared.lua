@@ -200,6 +200,29 @@ function ns.AnchorFS(fs, frame, mode, ox, oy)
     fs:ClearAllPoints()
     fs:SetPoint(a[1], frame, a[2], a[3] + (ox or 0), a[4] + (oy or 0))
 end
+
+-- ── Raw (taint-safe) setters for re-imposing geometry from inside Blizzard's secure CDM refresh ────
+-- WoW widget setters are type-bound C closures. When one runs from a hooksecurefunc that re-imposes OUR
+-- geometry on a NATIVE frame/region while Blizzard is mid-secure-refresh, a NORMAL SetPoint/SetScale taints
+-- that execution and blows up Blizzard's later secret aura/totem/charge comparisons (cf. the CDM taint notes;
+-- CDMAnchor's PinNative already uses this trick). A raw C method captured off a throwaway proxy bypasses BOTH
+-- the taint AND our own hooks. A FontString needs its OWN proxy (its SetPoint is a different C closure than a
+-- Frame's), so CDMAnchor's Frame-proxy setters can't be reused for a FontString.
+local _fsProxy            = UIParent:CreateFontString(nil, "ARTWORK")
+local RawFSSetPoint       = _fsProxy.SetPoint
+local RawFSClearAllPoints = _fsProxy.ClearAllPoints
+-- Raw twin of ns.AnchorFS for the ONE tainted caller (BuffGroups ReanchorStack, which re-anchors the native
+-- stack-count FontString from inside Blizzard's secure RefreshData). ns.AnchorFS itself STAYS non-raw — it is
+-- shared with many safe deferred/config callers and must not change.
+function ns.AnchorFSRaw(fs, frame, mode, ox, oy)
+    local a = ns.ANCHOR_POINTS[mode] or ns.ANCHOR_POINTS.CENTER
+    RawFSClearAllPoints(fs)
+    RawFSSetPoint(fs, a[1], frame, a[2], a[3] + (ox or 0), a[4] + (oy or 0))
+end
+-- Raw SetScale for re-imposing scale=1 on a native VIEWER frame from its SetScale hook (BuffGroups /
+-- BarGroups / CDMGroups all lock the viewer scale). Frame-typed, so a Frame proxy is correct.
+ns.RawSetScale = CreateFrame("Frame").SetScale
+
 -- Localised dropdown label for an anchor mode (ns.L looked up lazily — the locale
 -- engine loads after this file, but these run only when a menu is built).
 function ns.AnchorLabel(mode)
@@ -469,6 +492,33 @@ function ns.SpellRealCooldownSwipe(spellId)
     -- Non-charge (or fully-charged): real cooldown only, GCD-only suppressed.
     if cd.isOnGCD == true then return nil end
     return C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(spellId, true)
+end
+
+-- Charge RECHARGE swipe: the recharging-charge arc for a MULTI-charge spell EVEN while a charge is still
+-- usable. GetSpellCooldown().isActive is FALSE whenever any charge remains (verified via runtime dump: a
+-- Shimmer at 1/2 reports isActive=false), so SpellRealCooldownSwipe draws nothing and the engine's own-draw
+-- icon shows no recharge — unlike Blizzard's native CooldownViewer, which always draws it. Returns the charge
+-- DURATION OBJECT (secret-safe; consumed C-side by Cooldown:SetCooldownFromDurationObject). At FULL charges the
+-- object is already elapsed, so the widget draws nothing. Powers the "Show cd with 1 stacks or more" option.
+-- maxCharges is a STRUCTURAL field (readable in combat); currentCharges is never read here (it is secret).
+function ns.SpellChargeRechargeSwipe(spellId)
+    if not (spellId and spellId ~= 0 and C_Spell and C_Spell.GetSpellCharges) then return nil end
+    local ci = C_Spell.GetSpellCharges(spellId)
+    local maxc = ci and ci.maxCharges
+    if not (maxc and not (issecretvalue and issecretvalue(maxc)) and maxc > 1) then return nil end
+    return (C_Spell.GetSpellChargeDuration and C_Spell.GetSpellChargeDuration(spellId)) or nil
+end
+
+-- OPTIONAL global-cooldown SWIPE (opt-in; SpellRealCooldownSwipe deliberately suppresses it so an idle spell
+-- looks ready). Returns the GCD's duration object ONLY when the spell's ACTIVE cooldown IS the GCD (a spell
+-- with no real cooldown, on the global). Lets the standalone engine draw a Coolinator-style GCD spin (no
+-- number). Secret-safe: isActive/isOnGCD are STRUCTURAL; GetSpellCooldownDuration(id, false) INCLUDES the GCD
+-- and returns a duration OBJECT (never the secret raw start/duration).
+function ns.SpellGcdSwipe(spellId)
+    if not (spellId and spellId ~= 0 and C_Spell and C_Spell.GetSpellCooldown) then return nil end
+    local cd = C_Spell.GetSpellCooldown(spellId)
+    if not (cd and cd.isActive and cd.isOnGCD == true) then return nil end
+    return C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(spellId, false)
 end
 
 -- Size of one physical screen pixel in UIParent-local units, for crisp 1px borders on fractional UI scale
@@ -1045,7 +1095,17 @@ ns.RegisterCfgInitHook(ns.ApplyBrandColor)
 -- is the fix for "the CDM tabs cost far more CPU than every other addon": we were paying
 -- a full restyle of every icon 5-20x/second when nothing about the styling had changed.
 ns.StyleEpoch = ns.StyleEpoch or 1
-function ns.BumpStyleEpoch() ns.StyleEpoch = (ns.StyleEpoch or 0) + 1 end
+function ns.BumpStyleEpoch()
+    ns.StyleEpoch = (ns.StyleEpoch or 0) + 1
+    -- LIVE-REFRESH the standalone CDM engine on any config edit. The native CDM modules bump this shared
+    -- epoch from their ApplyAll (which every config touch() routes through) + on a mode switch, and NEVER
+    -- per-frame. In engine mode the same native config drives the engine's render, so re-derive its layout.
+    -- Coalesced via ScheduleRebuild; the engine's own rebuild never bumps the epoch, so no loop.
+    if ns.CDMMode and ns.CDMMode.IsEngine and ns.CDMMode.IsEngine()
+       and ns.CDMEngine and ns.CDMEngine.Layout and ns.CDMEngine.Layout.ScheduleRebuild then
+        ns.CDMEngine.Layout.ScheduleRebuild()
+    end
+end
 -- A live brand-colour change can alter brand-derived icon defaults → invalidate the cache.
 ns.RegisterBrandColorHook(ns.BumpStyleEpoch)
 -- A native (Blizzard keybinding UI) rebind fires UPDATE_BINDINGS but never passes through a

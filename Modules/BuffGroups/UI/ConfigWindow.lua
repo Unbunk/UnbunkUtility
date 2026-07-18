@@ -32,23 +32,49 @@ local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 -- ── anchorTo / growDir option maps (label <-> stored key) ──────────────────────
 -- A group's anchor target and grow direction are plain group keys; the dropdowns map a
 -- localised label to/from the stored key (ns.AnchorList-style, but a fixed local set).
-local ANCHOR_ORDER = { "essential", "utility", "belowPlayer", "screen" }
-local function AnchorLabel(key)
-    if key == "essential"   then return L["Essential"]    end
-    if key == "screen"      then return L["Screen"]       end
-    if key == "belowPlayer" then return L["Below player"] end
-    return L["Utility"]
+-- The FLAT (non-group) anchor targets. The four CDM group TYPES are offered PER GROUP via GroupTargets()
+-- (shared source in Core/CDMAnchor.lua), so "essential"/"utility" no longer live here as singletons.
+local ANCHOR_ORDER = { "belowPlayer", "belowFront", "belowEnd", "screen" }
+-- The current spec's resource bars (+ "Last bar") as extra anchor targets, from the shared source. Anchoring
+-- a group to a "resbar:*" key rides that resource bar in BOTH modes (native = ContainerAnchor; engine =
+-- Layout.ApplyFreePositions). Empty when the spec has no resources.
+local function ResBarTargets()
+    return (ns.ResourceBarAnchorTargets and ns.ResourceBarAnchorTargets()) or {}
 end
-local function AnchorList()
+-- One entry per GROUP of every type: "Essential (Group 1)", "Utility (Group 2)", "Buffs (Group 1)", "Bars
+-- (Group 1)"… excludeKey omits THIS group's own key so it can never anchor to itself.
+local function GroupTargets(excludeKey)
+    return (ns.CDMGroupAnchorTargets and ns.CDMGroupAnchorTargets(nil, excludeKey)) or {}
+end
+local function AnchorLabel(key)
+    if ns.IsCDMGroupAnchorKey and ns.IsCDMGroupAnchorKey(key) then return ns.CDMGroupAnchorLabel(key) end
+    if key == "screen"      then return L["Screen"]                     end
+    if key == "belowPlayer" then return L["Below player frame"]         end
+    if key == "belowFront"  then return L["Below player frame (front)"] end
+    if key == "belowEnd"    then return L["Below player frame (end)"]   end
+    if type(key) == "string" and key:match("^resbar:") then
+        for _, tgt in ipairs(ResBarTargets()) do if tgt.key == key then return tgt.label end end
+        return L["Last bar"] or key   -- stored resbar key whose bar isn't in the current spec
+    end
+    return tostring(key)
+end
+local function AnchorList(excludeKey)
     local t = {}
+    for _, tgt in ipairs(GroupTargets(excludeKey)) do t[#t + 1] = tgt.label end
     for _, k in ipairs(ANCHOR_ORDER) do t[#t + 1] = AnchorLabel(k) end
+    for _, tgt in ipairs(ResBarTargets()) do t[#t + 1] = tgt.label end
     return t
 end
 local function AnchorFromLabel(label)
+    for _, tgt in ipairs(GroupTargets()) do if tgt.label == label then return tgt.key end end
     for _, k in ipairs(ANCHOR_ORDER) do
         if AnchorLabel(k) == label then return k end
     end
-    return "utility"
+    for _, tgt in ipairs(ResBarTargets()) do if tgt.label == label then return tgt.key end end
+    -- No match. Return nil so the caller KEEPS the current value instead of clobbering it: a resource-bar /
+    -- per-group label fails to resolve here only when its source list is momentarily empty (Detect() / the
+    -- group set has no entry yet, e.g. right after login). See the /uubaranchor investigation.
+    return nil
 end
 
 local GROW_ORDER = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER_H", "CENTER_V" }
@@ -686,9 +712,9 @@ local function CreateBuffsPanel(parent)
     local function PositionGroup(id)
         return { type = "group", title = L["Position"], build = function() return {
             { type = "dropdown", label = L["Anchor to"], width = 180, height = 50,
-              getList = AnchorList,
+              getList = function() return AnchorList("buff:" .. id) end,   -- exclude this group's own key
               getCurrentKey = function() return AnchorLabel(BG.GGet(id, "anchorTo")) end,
-              onSelect = function(label) BG.GSet(id, "anchorTo", AnchorFromLabel(label)); touch() end },
+              onSelect = function(label) local k = AnchorFromLabel(label); if k then BG.GSet(id, "anchorTo", k); touch() end end },
             { type = "dropdown", label = L["Placement"], width = 180, height = 50,
               getList = RelPosList,
               getCurrentKey = function() return RelPosLabel(BG.GGet(id, "relPos")) end,
@@ -721,7 +747,7 @@ local function CreateBuffsPanel(parent)
 
     -- Group Border / Glow — shared IC builders fed a plain group bundle. Border default ON
     -- (~= false); Glow = buff variant ("Show glow" + colour, no glow-type dropdown).
-    local function BorderGroup(id) return IC.Border(GroupBundle(id), { defaultOn = true, ctx = groupCtx }) end
+    local function BorderGroup(id) return IC.Border(GroupBundle(id), { defaultOn = true, ctx = groupCtx, nativeBorder = true }) end
     local function GlowGroup(id)   return IC.Glow(GroupBundle(id), { variant = "buff", ctx = groupCtx }) end
 
     local function IconsGroup(id)
@@ -801,12 +827,13 @@ local function CreateBuffsPanel(parent)
         -- The module's global enable, OUTSIDE the cadre (just under the title). It greys the whole
         -- cadre below (enabledBy) when off; Refresh() re-applies that on toggle.
         { type = "checkbox", label = L["Enable custom CDM buffs"],
+          shown = function() return not (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- native-only toggle: hidden in engine mode (the engine renders this category regardless)
           get = function() return BG.Enabled() end,
           set = function(v) BG.SetEnabled(v); touch(); if menu then menu.Refresh() end end },
         -- The module's global cadre: every group cadre + Create group + Unused live inside it. It
         -- greys/blocks as a whole when the module is disabled.
         { type = "group", title = L["Buff groups"],
-          enabledBy = function() return BG.Enabled() end,
+          enabledBy = function() return BG.Enabled() or (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- editable in engine mode too (same config drives the engine)
           build = function()
             wipe(strips)
             local entries = {}

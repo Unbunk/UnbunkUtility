@@ -55,7 +55,7 @@ local GROUP_TEMPLATE = {
     anchorTo = "essential",    -- "essential" | "utility" | "belowPlayer" | "screen"
     relPos   = "above",        -- side/corner of the anchor: above|below|left|right|topleft|topright|bottomleft|bottomright
     growDir  = "CENTER_H",     -- "RIGHT" | "LEFT" | "UP" | "DOWN" | "CENTER_H" | "CENTER_V"
-    spacing  = 1,
+    spacing  = 0,
     -- multi-row layout: a group's icons are laid out in EXPLICIT ROWS (see order[groupId]); a new
     -- row auto-starts after maxPerRow icons, and the config strip wraps here. The in-game layout
     -- stacks successive rows along the cross axis.
@@ -98,9 +98,11 @@ local GROUP_TEMPLATE = {
     titlePos      = "TOP", titleOffX = 0, titleOffY = 0,
     -- stack / charge count text (native Applications restyle)
     showStack     = true, showAtZero = false,
+    darkenOnCdWithStacks = true,   -- default: grey the icon while on cooldown even if it still has charges/stacks
+    showCdWithStacks     = true,   -- default ON: draw the recharge arc even with a usable charge (native-parity)
     stackFontKey  = "Fira Mono", stackFontPath = nil, stackFontSize = 10, stackOutline = "OUTLINE",
     stackColor    = { r = 1, g = 1, b = 1, a = 1 },
-    stackPos      = "BOTTOMRIGHT", stackOffX = 2, stackOffY = -2,
+    stackPos      = "BOTTOMRIGHT", stackOffX = 0, stackOffY = 0,
     -- sound alert (PER-ICON only; the pencil writes these). Both off by default.
     soundStartEnabled = false, soundStartSound = nil, soundStartPath = nil,
     soundStopEnabled  = false, soundStopSound  = nil, soundStopPath  = nil,
@@ -141,7 +143,9 @@ local function MakeGroup1(dest)
         g.anchorTo = "essential"
         g.relPos   = "below"
         g.posX     = 0
-        g.posY     = -2   -- small downward nudge below the Essential block
+        g.posY     = -285   -- default: below screen center
+        g.iconW    = 38
+        g.iconH    = 38
     else
         g.posX = 0
         g.posY = -220   -- sits below screen center (where the Essential CDM normally lives); other groups default to 0
@@ -228,12 +232,34 @@ function CDG.Make(dest)
             s.g1DefaultYApplied = true
             if s.groups[1] then s.groups[1].posY = -222 end
         end
-        -- One-time: the UTILITY Group 1's default Y becomes -2 (a small downward nudge below the
-        -- Essential block). Applied once to a profile whose Group 1 predates this default (it was 0).
-        -- UTILITY-ONLY (essential's Group 1 uses the -222 screen-center offset above).
-        if dest == "utility" and not s.utilityG1YV1 then
-            s.utilityG1YV1 = true
-            if s.groups[1] then s.groups[1].posY = -2 end
+        -- One-time: the UTILITY Group 1's default geometry becomes 38x38 icons at posY -300. Applied once
+        -- to a profile whose Group 1 predates these defaults; MergeDefaults left the old values. A later
+        -- manual change sticks. UTILITY-ONLY (essential's Group 1 uses the -222 screen-center offset above).
+        if dest == "utility" and not s.utilityDefaultsV2 then
+            s.utilityDefaultsV2 = true
+            if s.groups[1] then
+                s.groups[1].iconW = 38
+                s.groups[1].iconH = 38
+                s.groups[1].posY  = -300
+            end
+        end
+        -- One-time: UTILITY Group 1's default Y is now -285 (a small upward nudge from the prior -300 that V2
+        -- set). Apply once to a profile whose Y still sits at that -300 default; a later manual change sticks.
+        if dest == "utility" and not s.utilityDefaultsV3 then
+            s.utilityDefaultsV3 = true
+            if s.groups[1] and s.groups[1].posY == -300 then s.groups[1].posY = -285 end
+        end
+        -- One-time: the default group spacing is now 0 (icons flush). Apply to EXISTING groups (both dests)
+        -- once; MergeDefaults left their saved spacing at the old default. A later manual change sticks.
+        if not s.spacingZeroV1 then
+            s.spacingZeroV1 = true
+            for _, g in pairs(s.groups) do g.spacing = 0 end
+        end
+        -- One-time: stack/charge count offsets default to 0 (centred on stackPos). Apply to EXISTING groups
+        -- once; MergeDefaults left their saved offsets at the old 2/-2. A later manual change sticks.
+        if not s.stackOffsetZeroV1 then
+            s.stackOffsetZeroV1 = true
+            for _, g in pairs(s.groups) do g.stackOffX = 0; g.stackOffY = 0 end
         end
         -- One-time: the engine is now ON by default (it replaces the old bucket placement). Flip a
         -- profile that predates this default ON once; the user can still toggle it off afterward. Each
@@ -274,7 +300,16 @@ function CDG.Make(dest)
 
     -- ── Enable ─────────────────────────────────────────────────────────────────
     -- Default OFF (the OLD bucket system keeps driving the viewer until the user opts in).
-    function I.Enabled() local s = Store(dest); return s and s.enabled == true or false end
+    -- Level 2: the standalone CDM engine (ns.CDMMode "engine") REPLACES this native-reuse engine for
+    -- essential/utility — it masks the viewer and hosts the trackers in its own layout. Report DISABLED in
+    -- engine mode so every driver here (the 0.2s RefreshLayout ticker, UNIT_AURA, the native-viewer relayout
+    -- hook — they ALL gate on Enabled()) stops re-pinning the trackers/viewer and no longer fights the engine
+    -- (which is why the trackers were stuck at UnbunkUtilityCDG_*_Group1, the native spot). Flips back the
+    -- instant the user returns to native mode; the always-running ticker re-folds within one 0.2s pass.
+    function I.Enabled()
+        if ns.CDMMode and ns.CDMMode.IsEngine and ns.CDMMode.IsEngine() then return false end
+        local s = Store(dest); return s and s.enabled == true or false
+    end
     function I.SetEnabled(v) local s = Store(dest); if s then s.enabled = v and true or false end end
 
     -- ── Group accessors ─────────────────────────────────────────────────────────
@@ -507,6 +542,27 @@ function CDG.Make(dest)
         local rows = I.RawOrder(groupId)
         rows[#rows + 1] = {}
         return #rows
+    end
+
+    -- Re-wrap a group's saved rows into rows of its CURRENT maxPerRow, PRESERVING the linear member order
+    -- (unlike SortGroupNativeOrder, which first re-sorts by native rank). Called when maxPerRow changes so a
+    -- group whose explicit rows were FROZEN at a different width reflows to the new cap — GroupRows returns
+    -- the stored rows verbatim, so lowering maxPerRow alone never re-chunked them (the reported bug: rows of
+    -- 6 stayed 6 after setting maxPerRow=4). Fixes BOTH the native layout and the standalone engine (both
+    -- read GroupRows). Writes the explicit-row store.
+    function I.RechunkGroup(groupId)
+        if groupId == 0 then return end   -- Unused (Group 0): order is irrelevant and never persisted
+        local members = I.GetGroupBuffs(groupId)   -- flat, in stored order (GroupRows-derived)
+        local per = I.MaxPerRow(groupId)
+        local rows, row = {}, {}
+        for _, sid in ipairs(members) do
+            if #row >= per then rows[#rows + 1] = row; row = {} end
+            row[#row + 1] = sid
+        end
+        if #row > 0 then rows[#rows + 1] = row end
+        if #rows == 0 then rows[1] = {} end   -- keep row 1 so an empty group still has a landing row
+        local s = Store(dest)
+        if s then s.order = s.order or {}; s.order[groupId] = rows end
     end
 
     -- Strip spellId out of every row of a group's stored order (in place); drop rows left empty,
