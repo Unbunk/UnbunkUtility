@@ -79,7 +79,7 @@ local function CollectShownBuffFrames(out)
     wipe(out)
     -- Only HOST native frames when the viewer is actually alpha-masked (engine mode). In native mode
     -- BuffGroups still owns/pins these pool frames, so adopting them too would double-own (SetPoint/SetParent
-    -- ping-pong) if the widgets are shown via /uucdmwidgets or the designer. Mirrors the trackerDest gate.
+    -- ping-pong) if the widgets are shown via /uucdmwidgets. Mirrors the trackerDest gate.
     if not (ns.CDMMode and ns.CDMMode.IsEngine()) then return out end
     if InEditMode() then return out end   -- don't host Blizzard EditMode preview sample frames (shown, no live aura)
     local A = ns.CDMAnchor
@@ -411,7 +411,7 @@ local function ApplyFreePositions()
 end
 
 -- Stack the AUTO groups in the container, reading each group's cached size (measured above). Free
--- (designer-placed) groups are skipped here and pinned to UIParent by ApplyFreePositions instead.
+-- (tab-positioned) groups are skipped here and pinned to UIParent by ApplyFreePositions instead.
 local function ArrangeContainer()
     local vertical = (SPEC.container.direction ~= "row")
     local main, cross, placed = 0, 0, 0
@@ -505,7 +505,7 @@ end
 -- Grow-direction GRID packer for an own-icon group, mirroring the native CDMGroups layout (Engine.lua:1698):
 -- per-group growDir/spacing, multi-ROW via I.GroupRows; LEFT/UP reverse the pack axis; horizontal grows stack
 -- rows DOWN, vertical grows stack RIGHT; relPos drives the per-row cross alignment. Positions each member
--- relative to g's TOPLEFT and sizes g to the whole block (the container / designer then places g).
+-- relative to g's TOPLEFT and sizes g to the whole block (the container then places g).
 local HORIZONTAL_GROW = { RIGHT = true, LEFT = true, CENTER_H = true }
 local function ArrangeIconGroup(g)
     local I, groupId = g._I, g._groupId
@@ -567,7 +567,7 @@ end
 local function MaterializeIconGroup(gs, dest, I, groupId, sidMap, trackerMap)
     local g = E.Group.Acquire()
     E.Group.Setup(g, gs)
-    g.catKey = dest .. ":" .. groupId   -- per-group key (Phase 3 designer positions migrate to this)
+    g.catKey = dest .. ":" .. groupId   -- per-group key (tab-driven posX/posY are keyed by this)
     g._groupId, g._I = groupId, I        -- so ArrangeIconGroup reads this group's growDir/spacing/relPos
     g:SetParent(container)
     local iconW = I.GGet(groupId, "iconW") or 44
@@ -876,7 +876,7 @@ if ns.AuraDispatch and ns.AuraDispatch.Register then
     ns.AuraDispatch.Register("player", function() if shown then ScheduleRebuild() end end)
 end
 
--- ── Show / hide (shared by the slash and by the designer's auto-show) ────────────────────────────
+-- ── Show / hide (shared by the /uucdmwidgets slash and the engine's mode-driven auto-show) ───────
 local function EnsureShown()
     if shown then return end
     shown = true

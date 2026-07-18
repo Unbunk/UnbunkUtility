@@ -614,6 +614,20 @@ local function ContainerAnchor(g)
         -- relative SetPoint to its TOP/BOTTOM edge then auto-follows it. Fall back to the native viewer.
         rel = (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(anchorTo))
             or (ns.GetCDMViewer and ns.GetCDMViewer(anchorTo))
+    elseif ns.IsCDMGroupAnchorKey and ns.IsCDMGroupAnchorKey(anchorTo) then
+        -- Per-group CDM target ("essential:1"/"utility:2"/"buff:1"/"bar:1"). The reworked anchor dropdown
+        -- writes these "dest:id" keys (even for Group 1); resolve to that group's real container (native
+        -- per-group frame / engine group frame), falling back to the dest's Group-1 anchor / native viewer
+        -- while it isn't laid out yet. Mirrors CastBar.GroupOneBox — without this the key matched no branch
+        -- and the group anchored to UIParent (screen corner).
+        local dest = ns.ParseCDMGroupKey(anchorTo)
+        local box  = ns.ResolveCDMGroupFrame and ns.ResolveCDMGroupFrame(anchorTo)
+        if box and box:IsShown() and box:GetLeft() then
+            rel = box
+        else
+            rel = (ns.CDMGroups and ns.CDMGroups.AnchorFrame and ns.CDMGroups.AnchorFrame(dest))
+                or (ns.GetCDMViewer and ns.GetCDMViewer(dest))
+        end
     elseif ns.IsBelowAnchorKey and ns.IsBelowAnchorKey(anchorTo) then
         rel = ns.ResolveBelowFrame and ns.ResolveBelowFrame(anchorTo)   -- belowPlayer (middle) / belowFront / belowEnd
     elseif ns.IsResourceBarAnchorKey and ns.IsResourceBarAnchorKey(anchorTo) then
@@ -1589,6 +1603,10 @@ ev:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_ENABLED" then
         if BG.Enabled() then HookNativeViewer(); BG.RefreshLayout() end
     else
+        -- Engine mode cedes fully (the engine hosts the buff frames and drives its own RefreshDisplayedCache
+        -- + GetGroupBuffs): skip the native re-seed/relayout entirely, mirroring BarGroups' OnEvent. The 0.2s
+        -- ticker still keeps the displayed cache fresh for an OPEN config strip.
+        if not BG.Enabled() then return end
         HookNativeViewer()
         if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "TRAIT_CONFIG_UPDATED" then
             DeferSeedUntilViewerReady()   -- the pool is stale for the new spec; re-seed once it rebuilds

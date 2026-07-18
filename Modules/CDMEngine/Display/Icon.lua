@@ -294,6 +294,12 @@ end
 -- SECRET -> render it C-side via TruncateWhenZero without ever reading it in Lua.
 local function UpdateCharges(f)
     local count = f.Count
+    -- "Show stacks" (BASE-keyed config, like StyleFrame): when unchecked, hide the count entirely — matching
+    -- the native TimerIcon path (UpdateStackCount early-outs when stackDraw is false). StyleFrame only styles
+    -- the Count when showStack ~= false and never hides it, so the gate has to live here (runs every refresh).
+    local I      = DestI(f)
+    local cfgSid = f.baseSpellID or f._lastGoodSid or f.spellID
+    if I and I.IconGet and cfgSid and I.IconGet(cfgSid, "showStack") == false then count:Hide(); return end
     local sid = f.spellID or f._lastGoodSid
     local ci = sid and C_Spell and C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
     if not ci then count:Hide(); return end
@@ -304,7 +310,11 @@ local function UpdateCharges(f)
     if cur ~= nil and issecretvalue(cur) then
         if TruncateWhenZero and pcall(count.SetText, count, TruncateWhenZero(cur)) then count:Show() else count:Hide() end
     elseif type(cur) == "number" then
-        count:SetText(cur); count:Show()   -- multi-charge: show the count at all levels (native behaviour)
+        if cur == 0 and I and I.IconGet and cfgSid and I.IconGet(cfgSid, "stackShowZero") == false then
+            count:Hide()   -- "Show 0 stacks" off: hide the count at zero (native stackShowZero gate)
+        else
+            count:SetText(cur); count:Show()   -- multi-charge: show the count (native behaviour; "0" by default)
+        end
     else
         count:Hide()
     end

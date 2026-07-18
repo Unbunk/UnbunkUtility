@@ -92,11 +92,12 @@ local function ReleaseCell(c)
 end
 
 -- ── Value / percent text (continuous "bar" resources, e.g. mana) ─────────────────────────────────
--- CURRENT power (UnitPower) is a SECRET value in our tainted context (this display co-fires with the CDM
--- secure refresh, 12.x): ANY Lua arithmetic / compare / concat on it is FORBIDDEN and throws. So — exactly
--- like Ayije_CDM's Tags.lua — we never touch the value in Lua; we hand it straight to C-side formatters that
--- consume secrets safely: AbbreviateNumbers(v) -> "250K" ; FontString:SetFormattedText(fmt, v) consumes v ;
--- UnitPowerPercent(...) returns the % (so we never divide cur/max ourselves).
+-- We render the continuous VALUE text DEFENSIVELY C-side (never touching the number in Lua) — exactly like
+-- Ayije_CDM's Tags.lua: AbbreviateNumbers(v) -> "250K" ; FontString:SetFormattedText(fmt, v) consumes v ;
+-- UnitPowerPercent(...) returns the % (we never divide cur/max ourselves). NOTE: plain UnitPower(...) COUNTS
+-- (combo points, holy power, soul shards, essence, runes) are NOT secret here — this widget runs on its OWN
+-- event frame (UNIT_POWER_*), not inside the CDM secure refresh — so the pip / essence families below do read
+-- them in Lua. STAGGER is the one genuinely secret resource and is issecretvalue-guarded in its own family.
 local AbbreviateNumbers = AbbreviateNumbers
 local UnitPowerPercent  = UnitPowerPercent
 local SCALE_TO_100      = CurveConstants and CurveConstants.ScaleTo100
@@ -278,6 +279,15 @@ Families.pips = {
     end,
 }
 
+-- Hoisted so a filling-essence pip doesn't allocate a fresh OnUpdate closure on every UNIT_POWER_UPDATE;
+-- the cell stores its power token on itself and this shared handler reads it.
+local function EssencePipOnUpdate(self)
+    local pp = UnitPartialPower("player", self._essPower)
+    local v  = self.sb:GetValue()
+    if pp < v then self.sb:SetValue(1000); self:SetScript("OnUpdate", nil)
+    elseif pp ~= v then self.sb:SetValue(pp) end
+end
+
 Families.essence = {
     setup = function(row, desc, cfg)
         row.power = desc.power
@@ -309,13 +319,8 @@ Families.essence = {
                 local p = UnitPartialPower and UnitPartialPower("player", row.power) or 0
                 c.sb:SetValue(p)
                 if UnitPartialPower then
-                    local power = row.power
-                    c:SetScript("OnUpdate", function(self)
-                        local pp = UnitPartialPower("player", power)
-                        local v = self.sb:GetValue()
-                        if pp < v then self.sb:SetValue(1000); self:SetScript("OnUpdate", nil)
-                        elseif pp ~= v then self.sb:SetValue(pp) end
-                    end)
+                    c._essPower = row.power
+                    c:SetScript("OnUpdate", EssencePipOnUpdate)   -- hoisted: no per-event closure alloc
                 end
             end
         end
@@ -324,6 +329,12 @@ Families.essence = {
         for _, c in ipairs(row.cells) do c:SetScript("OnUpdate", nil) end
     end,
 }
+
+-- Hoisted scratch (6 preallocated slots) + comparator so runes.update sorts by cooldown each
+-- RUNE_POWER_UPDATE without allocating a fresh table + 6 sub-tables + a closure per event. The slot
+-- sub-tables never escape the function; each call overwrites all six in place before sorting.
+local runeTimes = { {}, {}, {}, {}, {}, {} }
+local function RuneTimeLess(a, b) return (a[1] or 0) < (b[1] or 0) end
 
 Families.runes = {
     setup = function(row, desc, cfg)
@@ -339,11 +350,13 @@ Families.runes = {
     end,
     update = function(row)
         if not GetRuneCooldown then return end
-        local times = {}
-        for i = 1, 6 do times[i] = { GetRuneCooldown(i) } end
-        table.sort(times, function(a, b) return (a[1] or 0) < (b[1] or 0) end)
+        for i = 1, 6 do
+            local t = runeTimes[i]
+            t[1], t[2], t[3] = GetRuneCooldown(i)
+        end
+        table.sort(runeTimes, RuneTimeLess)
         for i, c in ipairs(row.cells) do
-            local t = times[i]
+            local t = runeTimes[i]
             if not t then
                 c:Hide()
             else
