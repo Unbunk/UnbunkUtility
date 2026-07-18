@@ -17,9 +17,11 @@ local function CreateCDMEnginePanel(parent)
     local menu   -- forward-declared so the mode button can call menu.Rebuild()
     local options = {
         { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["CDM Settings"] },
-        { type = "label", height = 18, text = L["Choose which Cooldown Manager engine is active."] },
-        { type = "label", height = 18, text = L["Native = full-featured (its Essential/Utility/Buffs tabs appear below)."] },
-        { type = "label", height = 18, text = L["Standalone = the beta engine, configured here."] },
+
+        { type = "label", font = "UnbunkUtilityH6", height = 18, color = { 1, 0.27, 0.27 },
+          text = L["Warning: the standalone engine is recommended over the redesigned native CDM engine."] },
+        { type = "label", font = "UnbunkUtilityH6", height = 22, color = { 1, 0.27, 0.27 },
+          text = L["The redesigned native CDM engine can cause problems."] },
 
         {
             type = "group", title = L["Engine"],
@@ -28,19 +30,15 @@ local function CreateCDMEnginePanel(parent)
                 return {
                 {
                     type = "label", height = 20,
-                    text = engine and L["Active: standalone engine (beta)"] or L["Active: native Cooldown Manager"],
+                    text = engine and L["Active: standalone engine"] or L["Active: redesigned native CDM engine"],
                 },
                 {
                     type = "button", width = 260,
-                    label = engine and L["Use native CDM engine"] or L["Use the standalone engine (beta)"],
+                    label = engine and L["Use the redesigned native CDM engine"] or L["Use the standalone engine"],
                     onClick = function()
                         if ns.CDMMode then ns.CDMMode.Set(engine and "native" or "engine") end   -- Set() also RefreshNav()
                         if menu then menu.Rebuild() end
                     end,
-                },
-                {
-                    type = "label", height = 30,
-                    text = L["Position each group from its own tab: Essential / Utility / Buffs / Bars → Position (X/Y)."],
                 },
             } end,
         },
