@@ -1,11 +1,11 @@
 name: Package and release
 
-# On every version tag (v*), the BigWigs packager builds the addon from .pkgmeta:
-#   - substitutes @project-version@ (and friends) from the tag,
-#   - creates the GitHub release with an auto-generated changelog,
-#   - attaches a clean `UnbunkUtility.zip` (root folder `UnbunkUtility/`, via -n "{package-name}"),
-#   - uploads to CurseForge / Wago / WoWInterface when the project IDs (.toc `## X-*-ID:`) and the
-#     matching API-token secrets are present (each platform is skipped if its token/ID is missing).
+# On every version tag (v*):
+#   1. BigWigsMods/packager builds the addon from .pkgmeta (substitutes @project-version@, makes a clean
+#      `UnbunkUtility.zip` via -n "{package-name}") and uploads it to CurseForge / Wago / WoWInterface
+#      (each skipped if its .toc `## X-*-ID:` or API-token secret is missing).
+#   2. A separate step creates the GitHub release with auto-generated notes and attaches the same zip —
+#      the packager does NOT touch GitHub releases itself, so this step is what puts the build on GitHub.
 #
 # Required repo secrets for the addon-site uploads (GitHub upload uses the built-in token):
 #   CF_API_KEY       - CurseForge API token
@@ -18,7 +18,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write   # let the built-in token create the release + upload assets
+  contents: write   # create the GitHub release + upload assets
 
 jobs:
   package:
@@ -29,7 +29,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Package and release
+      - name: Package + upload to CurseForge / Wago / WoWInterface
         uses: BigWigsMods/packager@v2
         with:
           args: -n "{package-name}"
@@ -38,3 +38,14 @@ jobs:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
           WOWI_API_TOKEN: ${{ secrets.WOWI_API_TOKEN }}
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          title="${GITHUB_REF_NAME#v}"                       # release title without the leading v
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac   # v1.2.3-alpha1 -> prerelease
+          gh release create "$GITHUB_REF_NAME" .release/UnbunkUtility.zip \
+            --title "$title" \
+            --generate-notes $prerelease
