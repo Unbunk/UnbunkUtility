@@ -1,10 +1,10 @@
 -- Modules/DetailsProfile/UI/ConfigWindow.lua
 -- The owner-only "Personal utilities" sub-category (gated in Core.lua by debug-unlock
 -- AND IsAccountOwner). It holds two tabs:
---   * "Restore my profile"        — a one-click import of the baked-in UnbunkUtility
+--   * "Import profiles"        — a one-click import of the baked-in UnbunkUtility
 --                                    profile (blob + logic in Modules/Profiles/Core/
 --                                    OwnerProfile.lua, ns.RestoreOwnerProfile).
---   * "Details! special settings" — the Details! profile auto-switch (ns.DetailsProfile):
+--   * "Details! settings" — the Details! profile auto-switch (ns.DetailsProfile):
 --                                    a dynamic list of profile cadres, each with a
 --                                    group-based and an instance-based criterion.
 
@@ -30,7 +30,7 @@ local function GreyDescription(text)
     end }
 end
 
--- ── "Details! special settings" tab ────────────────────────────────────────────
+-- ── "Details! settings" tab ────────────────────────────────────────────
 local function CreateDetailsPanel(parent)
     local menu                                   -- forward ref so closures can rebuild
     local function rebuild() if menu then menu.Rebuild() end end
@@ -432,7 +432,7 @@ local function CreateDetailsPanel(parent)
     end
 
     local options = {
-        { type = "label", font = "UnbunkUtilityH2", height = 28, text = L["Details! special settings"] },
+        { type = "label", font = "UnbunkUtilityH2", height = 28, text = L["Details! settings"] },
         { type = "group", title = L["Windows settings"],  build = BuildWindowsBody },
         { type = "group", title = L["Profiles settings"], build = BuildBody },
     }
@@ -488,7 +488,7 @@ local function CreateDetailsPanel(parent)
     return menu
 end
 
--- ── "Restore my profile" tab ───────────────────────────────────────────────────
+-- ── "Import profiles" tab ───────────────────────────────────────────────────
 local function CreateRestorePanel(parent)
     -- An orange "not available" note line (addon absent / no import path).
     local function WarnLine(text)
@@ -545,15 +545,30 @@ local function CreateRestorePanel(parent)
         end }
     end
 
-    -- Dominos can't export a profile string, so capture the LIVE Dominos profile into a copyable box
-    -- (read-only: snaps back on edit) — the user copies it into AddonProfiles.lua's `dominos` blob.
-    local function DominosExportRow()
+    -- Addons with no in-game export button (or whose export string is too big to copy from chat):
+    -- capture the CURRENT profile into a copyable box (read-only: snaps back on edit) so the user can
+    -- paste it into that addon's AddonProfiles.lua blob. One config entry per exportHelper.
+    local EXPORT_HELPERS = {
+        dominos = {
+            hint   = L["Dominos can't export — capture your CURRENT Dominos profile here, copy it, and paste it into AddonProfiles.lua's dominos blob."],
+            button = L["Capture current Dominos profile"],
+            export = function() return ns.AddonProfiles and ns.AddonProfiles.ExportDominos and ns.AddonProfiles.ExportDominos() end,
+            empty  = L["Dominos not loaded (or serializer missing)."],
+        },
+        prat = {
+            hint   = L["Prat has no export button — capture your CURRENT Prat profile here, copy it, and paste it into AddonProfiles.lua's prat blob."],
+            button = L["Capture current Prat profile"],
+            export = function() return ns.AddonProfiles and ns.AddonProfiles.ExportPrat and ns.AddonProfiles.ExportPrat() end,
+            empty  = L["Prat not loaded (or no active profile)."],
+        },
+    }
+    local function ExportRow(cfg)
         return { type = "custom", height = 82, build = function(host)
             local hint = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
             hint:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
             hint:SetPoint("TOPRIGHT", host, "TOPRIGHT", 0, 0)
             hint:SetJustifyH("LEFT"); hint:SetWordWrap(true); hint:SetTextColor(0.6, 0.6, 0.6)
-            hint:SetText(L["Dominos can't export — capture your CURRENT Dominos profile here, copy it, and paste it into AddonProfiles.lua's dominos blob."])
+            hint:SetText(cfg.hint)
 
             local input = ns.ui.CreateTextInput({ parent = host, width = 380, height = 22, maxLetters = 0 })
             input.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -30)
@@ -563,10 +578,10 @@ local function CreateRestorePanel(parent)
             end)
 
             local btn = ns.ui.CreateButton({
-                parent = host, label = L["Capture current Dominos profile"], width = 240, height = 22,
+                parent = host, label = cfg.button, width = 240, height = 22,
                 onClick = function()
-                    val = (ns.AddonProfiles and ns.AddonProfiles.ExportDominos and ns.AddonProfiles.ExportDominos()) or ""
-                    if val == "" then ns.Print(L["Dominos not loaded (or serializer missing)."]); return end
+                    val = cfg.export() or ""
+                    if val == "" then ns.Print(cfg.empty); return end
                     box:SetText(val); box:SetFocus(); box:HighlightText()   -- select-all for Ctrl+C
                 end,
             })
@@ -590,15 +605,15 @@ local function CreateRestorePanel(parent)
             for _, b in ipairs(entry.buttons or {}) do
                 items[#items + 1] = ImportButtonRow(entry, b)
             end
-            if entry.exportHelper == "dominos" then
-                items[#items + 1] = DominosExportRow()
+            if entry.exportHelper and EXPORT_HELPERS[entry.exportHelper] then
+                items[#items + 1] = ExportRow(EXPORT_HELPERS[entry.exportHelper])
             end
             return items
         end }
     end
 
     local options = {
-        { type = "label", font = "UnbunkUtilityH2", height = 28, text = L["Restore my profile"] },
+        { type = "label", font = "UnbunkUtilityH2", height = 28, text = L["Import profiles"] },
         -- UnbunkUtility's own baked-in profile (the original one-click restore).
         { type = "group", title = "UnbunkUtility", build = function()
             return {
@@ -619,6 +634,6 @@ local function CreateRestorePanel(parent)
 end
 
 UnbunkUtility.OnAddonLoaded(function()
-    UnbunkUtility.RegisterModule(L["Restore my profile"],        nil, CreateRestorePanel)
-    UnbunkUtility.RegisterModule(L["Details! special settings"], nil, CreateDetailsPanel)
+    UnbunkUtility.RegisterModule(L["Import profiles"],        nil, CreateRestorePanel)
+    UnbunkUtility.RegisterModule(L["Details! settings"], nil, CreateDetailsPanel)
 end)
