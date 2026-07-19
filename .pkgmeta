@@ -4,4 +4,6 @@ ignore:
   - .git
   - .gitignore
   - .pkgmeta
+  - .github
   - README.md
+  - CONTRIBUTING.md
