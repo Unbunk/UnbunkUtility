@@ -1062,13 +1062,3 @@ function R.SetBarUnlocked(i, on)
     if bf then ApplyBarInteractivity(bf, R.GetSpecKey(), i) end
 end
 function R.IsBarUnlocked(i) return unlocked[i] == true end
-
--- ── Slash: /uucdmresources (toggle the master enable flag) ──────────────────────────────────────────
-SLASH_UUCDMRESOURCES1 = "/uucdmresources"
-SlashCmdList["UUCDMRESOURCES"] = function()
-    if not E.Cfg then return end
-    local on = not (E.Cfg.GetResource("enable") == true)
-    E.Cfg.SetResource("enable", on)
-    if shown then Rebuild() end
-    Say("CDM resources: " .. (on and "ON" or "OFF") .. (shown and "" or "  (enable widgets with /uucdmwidgets)"))
-end
