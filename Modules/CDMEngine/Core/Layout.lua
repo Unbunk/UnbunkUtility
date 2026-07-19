@@ -79,7 +79,7 @@ local function CollectShownBuffFrames(out)
     wipe(out)
     -- Only HOST native frames when the viewer is actually alpha-masked (engine mode). In native mode
     -- BuffGroups still owns/pins these pool frames, so adopting them too would double-own (SetPoint/SetParent
-    -- ping-pong) if the widgets are shown via /uucdmwidgets. Mirrors the trackerDest gate.
+    -- ping-pong) if the engine widgets are shown in native mode. Mirrors the trackerDest gate.
     if not (ns.CDMMode and ns.CDMMode.IsEngine()) then return out end
     if InEditMode() then return out end   -- don't host Blizzard EditMode preview sample frames (shown, no live aura)
     local A = ns.CDMAnchor
@@ -876,7 +876,7 @@ if ns.AuraDispatch and ns.AuraDispatch.Register then
     ns.AuraDispatch.Register("player", function() if shown then ScheduleRebuild() end end)
 end
 
--- ── Show / hide (shared by the /uucdmwidgets slash and the engine's mode-driven auto-show) ───────
+-- ── Show / hide (driven by the engine's mode-driven auto-show) ───────────────────────────────────
 local function EnsureShown()
     if shown then return end
     shown = true
@@ -899,7 +899,7 @@ local function HideWidgets()
     if E.Resource and E.Resource.HideWidgets then E.Resource.HideWidgets() end   -- P4c class resources
 end
 
--- ── Public surface (Core/Mode.lua drives Show/Hide; the /uucdmwidgets slash toggles) ─────────────
+-- ── Public surface (Core/Mode.lua drives Show/Hide) ──────────────────────────────────────────────
 E.Layout = E.Layout or {}
 function E.Layout.IsShown()         return shown end
 function E.Layout.GetSpec()         return SPEC end
@@ -936,25 +936,12 @@ function E.Layout.CollectGroupFrames(dest, out, fg)
     end
     return out
 end
--- Config-panel toggle (mirrors the /uucdmwidgets slash).
+-- Show/hide entry point for the engine widgets (driven by Core/Mode.lua on the mode switch).
 function E.Layout.SetShown(v)
     if v then
         EnsureShown()
     else
         HideWidgets()
-    end
-end
-
--- ── Toggle ──────────────────────────────────────────────────────────────────────────────────────
-SLASH_UUCDMWIDGETS1 = "/uucdmwidgets"
-SlashCmdList["UUCDMWIDGETS"] = function()
-    if not (E.Blob and E.Icon and E.Group) then Say("CDMEngine not ready."); return end
-    if shown then
-        HideWidgets()
-        Say("CDM widgets: OFF")
-    else
-        EnsureShown()
-        Say("CDM widgets: ON")
     end
 end
 
