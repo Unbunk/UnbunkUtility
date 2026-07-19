@@ -1753,7 +1753,7 @@ end
 -- be kept VISIBLE), AdoptNativeTo REPARENTS the native pool frame onto an engine-owned host frame — so the
 -- native viewer can be alpha-0-masked and the adopted frame still renders (it now inherits the HOST's alpha,
 -- not the masked viewer's). This is the reference engine's buff model (AuraIconRetail.lua:31), confirmed taint-safe on
--- 12.1.0 by /uucdmspike. Every write is a RAW C method (bypasses taint AND our own hooks); the re-impose
+-- 12.1.0. Every write is a RAW C method (bypasses taint AND our own hooks); the re-impose
 -- hooks re-force parent+point+size when Blizzard's secure RefreshData re-pools the frame back under the viewer.
 local function AdoptNativeTo(nf, host, x, y, w, h)
     local a = nf._uuAdopt or {}
