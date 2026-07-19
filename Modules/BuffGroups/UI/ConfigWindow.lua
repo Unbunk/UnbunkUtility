@@ -73,7 +73,7 @@ local function AnchorFromLabel(label)
     for _, tgt in ipairs(ResBarTargets()) do if tgt.label == label then return tgt.key end end
     -- No match. Return nil so the caller KEEPS the current value instead of clobbering it: a resource-bar /
     -- per-group label fails to resolve here only when its source list is momentarily empty (Detect() / the
-    -- group set has no entry yet, e.g. right after login). See the /uubaranchor investigation.
+    -- group set has no entry yet, e.g. right after login).
     return nil
 end
 
