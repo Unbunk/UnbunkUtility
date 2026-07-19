@@ -133,9 +133,6 @@ engine's own frames and the native viewers.
 | `/ubu help` | Show the command list |
 | `/uucdmmode [native\|engine]` | Switch the Cooldown Manager rendering mode (also under **CDM Settings**) |
 
-Advanced/diagnostic: `/uucdmwidgets` (toggle the engine widgets), `/uucdmresources`
-(toggle class-resource bars), `/uucdmblob` (print a Cooldown Manager layout summary).
-
 ## Configuration & profiles
 
 All settings live in the in-game panel (`/ubu`). Profiles are backed by AceDB and
