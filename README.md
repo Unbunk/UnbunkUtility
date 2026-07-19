@@ -131,7 +131,6 @@ engine's own frames and the native viewers.
 | --- | --- |
 | `/ubu` (or `/ubu config` / `settings` / `options`) | Open the settings window |
 | `/ubu help` | Show the command list |
-| `/uucdmmode [native\|engine]` | Switch the Cooldown Manager rendering mode (also under **CDM Settings**) |
 
 ## Configuration & profiles
 
