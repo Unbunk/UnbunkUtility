@@ -174,12 +174,3 @@ ns.RegisterReloadHook(function()   -- profile change / import: the new profile's
     M.Apply()
     if ns.RefreshNav then ns.RefreshNav() end
 end)
-
--- ── Slash: /uucdmmode [native|engine] (toggle if no arg) ──────────────────────────────────────────
-SLASH_UUCDMMODE1 = "/uucdmmode"
-SlashCmdList["UUCDMMODE"] = function(msg)
-    msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
-    if msg == "engine" or msg == "native" then M.Set(msg) else M.Toggle() end
-    local m = "CDM mode: " .. M.Get()
-    if ns.Print then ns.Print(m) else print("|cff338cff[UnbunkUtility]|r " .. m) end
-end
