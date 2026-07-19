@@ -1,5 +1,5 @@
 -- Modules/DecursiveMove/UI/ConfigWindow.lua
--- The owner-only "Decursive special settings" tab (under "Personal utilities", gated in
+-- The owner-only "Decursive settings" tab (under "Personal utilities", gated in
 -- Core.lua by debug-unlock AND IsAccountOwner). Unlock to drag Decursive's Micro-Unit-Frame
 -- container, lock when done, or reset it to the default corner — see ns.DecursiveMove.
 
@@ -29,7 +29,7 @@ local function CreateDecursivePanel(parent)
     parent:HookScript("OnHide", function() if DM and DM.SetUnlocked then DM.SetUnlocked(false) end end)
 
     local options = {
-        { type = "label", font = "UnbunkUtilityH2", height = 28, text = L["Decursive special settings"] },
+        { type = "label", font = "UnbunkUtilityH2", height = 28, text = L["Decursive settings"] },
         { type = "group", title = L["Move Micro Unit Frame"], build = function()
             if not (DM and DM.IsAvailable()) then
                 return {
@@ -66,5 +66,5 @@ local function CreateDecursivePanel(parent)
 end
 
 UnbunkUtility.OnAddonLoaded(function()
-    UnbunkUtility.RegisterModule(L["Decursive special settings"], nil, CreateDecursivePanel)
+    UnbunkUtility.RegisterModule(L["Decursive settings"], nil, CreateDecursivePanel)
 end)

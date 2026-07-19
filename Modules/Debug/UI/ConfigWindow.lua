@@ -965,8 +965,8 @@ UnbunkUtility.OnAddonLoaded(function()
     -- is gated in Core.lua BuildNavTree (unlock for the secret settings + Addon usage,
     -- owner account for Unbunk).
     UnbunkUtility.RegisterModule(L["Secret settings"], nil, CreateSecretPanel)
-    -- "Beta" (Modules/Fader/UI), the "Personal utilities" tabs "Restore my profile" /
-    -- "Details! special settings" (Modules/DetailsProfile/UI), and "List" / "Print" /
+    -- "Beta" (Modules/Fader/UI), the "Personal utilities" tabs "Import profiles" /
+    -- "Details! settings" (Modules/DetailsProfile/UI), and "List" / "Print" /
     -- "Graph" (their own files) are real panels registered elsewhere.
 
     -- Apply saved console options at login (ns.db ready via Core/DB.lua's earlier
