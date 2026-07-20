@@ -43,8 +43,11 @@ function Group.Setup(g, spec)
     g._relPos = nil   -- row cross-alignment hint; re-set by MaterializeHostGroup (never stale on a pooled group)
     g._spacing = nil  -- per-group spacing override; re-set by MaterializeHostGroup (never stale on a pooled group)
     g.w, g.h = 1, 1
-    g:SetAlpha(1)     -- clear any fade alpha carried over from a pooled/reused frame (the Fader fades group
-                      -- frames; a group released while faded must not come back dim once the fade is off)
+    -- Snap a pooled/reused group STRAIGHT to the live fade alpha. Blindly resetting to 1 (the old behaviour)
+    -- made every rebuild flash the group to full for a Fader tick before it re-faded — and rebuilds fire on
+    -- each cast, so a faded CDM flashed on every spell. F.CDMGroupAlpha returns 1 when the fade is off / this
+    -- group is fade-excluded, so a group released while faded still comes back clean once the fade is disabled.
+    g:SetAlpha((ns.Fader and ns.Fader.CDMGroupAlpha and ns.Fader.CDMGroupAlpha(g)) or 1)
     g:Show()
 end
 

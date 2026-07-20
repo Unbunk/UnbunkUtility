@@ -521,6 +521,19 @@ function ns.SpellGcdSwipe(spellId)
     return C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(spellId, false)
 end
 
+-- The CURRENT global cooldown as a duration OBJECT (secret-safe), for a the reference engine-style GCD spin on EVERY
+-- idle icon when you cast — including OFF-GCD spells (Counterspell / Alter Time / Mirror Image) and charge
+-- spells, which a per-spell GetSpellCooldown never reports "on GCD" (off-GCD spells answer isOnGCD~=true; a
+-- charge spell answers isActive=false while a charge remains). Spell 61304 is Blizzard's hidden "Global
+-- Cooldown" whose cooldown IS the live GCD. Returns nil when no GCD is running (idle) → the spin clears.
+local GCD_SPELL = 61304
+function ns.GlobalGcdSwipe()
+    if not (C_Spell and C_Spell.GetSpellCooldown) then return nil end
+    local cd = C_Spell.GetSpellCooldown(GCD_SPELL)
+    if not (cd and cd.isActive) then return nil end
+    return C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(GCD_SPELL, false)
+end
+
 -- Size of one physical screen pixel in UIParent-local units, for crisp 1px borders on fractional UI scale
 -- (768 = UIParent's reference height; divided by the effective scale). Returns nil if the values aren't
 -- ready yet, so callers fall back to the raw size. Mirrors the reference CDM addon's Pixel.GetSize formula. NOTE: a UI

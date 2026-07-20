@@ -936,6 +936,7 @@ function E.Layout.CollectGroupFrames(dest, out, fg)
     end
     return out
 end
+
 -- Show/hide entry point for the engine widgets (driven by Core/Mode.lua on the mode switch).
 function E.Layout.SetShown(v)
     if v then

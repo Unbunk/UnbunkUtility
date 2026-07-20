@@ -206,7 +206,7 @@ local function BuildNavTree()
                             { panel = L["Import keybinds"] },
                             { panel = L["Details! settings"] },
                             { panel = L["Disable keybinds"] },
-                            { panel = L["Focus buffs"] },
+                            { panel = L["Focus Freezing"] },
                             { panel = L["Decursive settings"] },
                         } },
                     } }
