@@ -108,7 +108,7 @@ engine's own frames and the native viewers.
 
 - **Show IDs** — append spell / item / icon / quest / NPC IDs to tooltips.
 - **Disable keybinds** — turn keybinds off by context (combat-safe).
-- **Focus buffs** — hide Blizzard's Focus frame debuffs, keep the stack count.
+- **Focus Freezing** — show a focus debuff's stack count (e.g. Frost Mage Freezing) as a big number above your CDM buff icon.
 - **Decursive helper** — move/place the Decursive MUF container (taint-safe).
 - **Reloading announcement** — optional group announcement before a reload.
 - **Details! profile** — per-profile opacity with mouse-over reveal.

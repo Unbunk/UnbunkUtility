@@ -81,6 +81,13 @@ local function CreateImportKeybindsPanel(parent)
         else ns.Print(L["Import failed."]) end
     end
 
+    local function doClearAll()
+        local ok, a = IK().ClearAll()
+        if ok then ns.Print(string.format(L["Cleared %d action-bar slots."], a or 0))
+        elseif a == "combat" then ns.Print(L["Can't do that in combat."])
+        else ns.Print(L["Clear failed."]) end
+    end
+
     -- One slot row: [checkbox] [icon] [name] [bar v] [slot v]. A real Texture renders the icon
     -- reliably (an inline |T fileID |t escape in a checkbox label did not show). Checked = include on
     -- import; the two dropdowns REMAP the destination (which bar / which position) by mutating e.slot.
@@ -262,6 +269,15 @@ local function CreateImportKeybindsPanel(parent)
                                   title    = L["Import keybinds"],
                                   text     = L["Place the saved bar template onto this character now?"],
                                   onAccept = doImport,
+                              })
+                          end },
+                        { type = "button", label = L["Clear all action bar slots"], width = 200, hostHeight = 30,
+                          onClick = function()
+                              if not (IK() and IK().ClearAll) then return end
+                              ns.ui.ShowConfirm({
+                                  title    = L["Clear all action bar slots"],
+                                  text     = L["Empty EVERY slot on ALL your action bars (the same bars a capture reads)? This can't be undone."],
+                                  onAccept = doClearAll,
                               })
                           end },
                     }

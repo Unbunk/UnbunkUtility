@@ -254,6 +254,26 @@ function IK.Import()
     return true, placed, skipped
 end
 
+-- ── Clear: empty every captured action slot on THIS character ──────────────────
+-- Wipes the SAME 1-180 range Capture reads (all classic pages + bonus/mounted bar + MultiActionBars),
+-- so it clears exactly the bars a capture would snapshot. PickupAction lifts a slot's action onto the
+-- cursor; ClearCursor discards it, leaving the slot empty. Out-of-combat only, like Capture / Import.
+function IK.ClearAll()
+    if InCombatLockdown() then return false, "combat" end
+    if not (PickupAction and ClearCursor and HasAction) then return false, "noapi" end
+    local cleared = 0
+    for _, slot in ipairs(BAR_SLOTS) do
+        if HasAction(slot) then
+            ClearCursor()
+            PickupAction(slot)
+            ClearCursor()
+            cleared = cleared + 1
+        end
+    end
+    ClearCursor()
+    return true, cleared
+end
+
 -- ── Key bindings (separate from bar contents) ─────────────────────────────────
 -- Capture every bound command's key(s) into the account-wide store, then re-apply them with
 -- SetBinding + SaveBindings (the Dominos pattern). Guarded to out-of-combat.

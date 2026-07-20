@@ -328,6 +328,34 @@ driver:SetScript("OnUpdate", function(_, dt)
     if not anyEnabled then driver:Hide() end
 end)
 
+-- The alpha an engine CDM group frame should carry RIGHT NOW. The engine's group frames are pooled and
+-- Group.Setup re-inits one on every rebuild (rebuilds fire on each cast); it uses this to snap the fresh
+-- group straight to the live fade instead of resetting to 1 and flashing for a Fader tick. Returns 1 when
+-- the cdm fade is disabled / inactive here / this group is excluded from the fade (per category or group);
+-- else the current (lerped, reveal-aware) cdm alpha. `g.catKey` is "<dest>:<id>" (e.g. "essential:1").
+local DEST_TO_COMP = { essential = "essentials", utility = "utility", buff = "buffs", bar = "bars" }
+function F.CDMGroupAlpha(g)
+    local c = F.GroupCfg("cdm")
+    if not (c and c.enabled) then return 1 end
+    local activeFn = ns.IsActiveInInstance
+    if activeFn and not activeFn(c.instanceFilter) then return 1 end
+    -- g.catKey is "essential:1" once a group is materialized, but the SPEC key ("Essential", no id) at the
+    -- Group.Setup snap — tolerate BOTH (lower-cased dest) so a category EXCLUDED from the fade is honoured even
+    -- on that snap; the per-group id check just no-ops until the full key is set (the driver corrects next tick).
+    local catKey = g and g.catKey
+    if catKey then
+        local dest, id = catKey:match("^(%a+):(%d+)$")
+        if not dest then dest = catKey:match("^(%a+)") end
+        local compKey = dest and DEST_TO_COMP[dest:lower()]
+        if compKey then
+            if c.fade and c.fade[compKey] == false then return 1 end        -- category excluded from the fade
+            local fg = c.fadeGroups and c.fadeGroups[compKey]
+            if fg and id and fg[id] == false then return 1 end              -- this specific group excluded
+        end
+    end
+    return cur.cdm or 1
+end
+
 -- (Re)evaluate which groups are enabled: start the driver for enabled ones, restore full
 -- opacity for disabled ones. Called on config change, reload-hook (profile switch) + login.
 function F.Apply()
