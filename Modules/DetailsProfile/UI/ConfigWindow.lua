@@ -1,9 +1,9 @@
 -- Modules/DetailsProfile/UI/ConfigWindow.lua
 -- The owner-only "Personal utilities" sub-category (gated in Core.lua by debug-unlock
 -- AND IsAccountOwner). It holds two tabs:
---   * "Import profiles"        — a one-click import of the baked-in UnbunkUtility
---                                    profile (blob + logic in Modules/Profiles/Core/
---                                    OwnerProfile.lua, ns.RestoreOwnerProfile).
+--   * "Import profiles"        — one-click import/refresh of each addon's profile capture
+--                                    (incl. UnbunkUtility's own) + the "global addon profile"
+--                                    bundle export (ns.AddonProfiles; Modules/Profiles/Core/).
 --   * "Details! settings" — the Details! profile auto-switch (ns.DetailsProfile):
 --                                    a dynamic list of profile cadres, each with a
 --                                    group-based and an instance-based criterion.
@@ -490,6 +490,9 @@ end
 
 -- ── "Import profiles" tab ───────────────────────────────────────────────────
 local function CreateRestorePanel(parent)
+    local menu                                   -- forward ref so Refresh can rebuild the status hints
+    local function rebuild() if menu then menu.Rebuild() end end
+
     -- An orange "not available" note line (addon absent / no import path).
     local function WarnLine(text)
         return { type = "custom", height = 18, build = function(host)
@@ -501,21 +504,30 @@ local function CreateRestorePanel(parent)
         end }
     end
 
-    -- Run one addon's import, then report / prompt reload in chat.
-    local function RunImport(entry, b)
-        if InCombatLockdown() then ns.Print(L["Can't import a profile in combat."]); return end
-        local ok, detail = b.run()
+    -- Do the import (AP.SmartImport: override if the name exists, else import), then report / prompt reload.
+    local function reallyImport(entry, b)
+        local AP = ns.AddonProfiles
+        -- NB: keep the call OUT of an and/or chain — that would truncate its (ok, existed, detail) returns.
+        local ok, existed, detail
+        if AP and AP.SmartImport then ok, existed, detail = AP.SmartImport(entry, b) else ok, detail = b.run() end
         if ok then
-            if detail == "reload" then
-                ns.ui.ShowConfirm({
-                    title    = L["Reload UI?"],
-                    text     = string.format(L["%s imported. A UI reload is needed to fully apply it. Reload now?"], entry.label),
-                    onAccept = function() ReloadUI() end,
-                })
-            elseif detail == "confirm" then
+            if detail == "confirm" then
+                -- BigWigs applies through its own confirm dialog — can't be silent, so no override/import line.
                 ns.Print(string.format(L["%s: confirm the import in the addon's own dialog."], entry.label))
             else
-                ns.Print(string.format(L["%s profile imported."], entry.label))
+                -- Two outcomes: the name existed (overridden) or it didn't (freshly imported).
+                if existed then
+                    ns.Print(string.format(L["%s: profile overridden (existing profile replaced)."], entry.label))
+                else
+                    ns.Print(string.format(L["%s profile imported."], entry.label))
+                end
+                if detail == "reload" then
+                    ns.ui.ShowConfirm({
+                        title    = L["Reload UI?"],
+                        text     = string.format(L["%s: a UI reload is needed to fully apply it. Reload now?"], entry.label),
+                        onAccept = function() ReloadUI() end,
+                    })
+                end
             end
         else
             local msg
@@ -527,66 +539,90 @@ local function CreateRestorePanel(parent)
         end
     end
 
-    -- One import button + a grey "(no string saved yet)" hint when its blob is still empty.
+    -- Import behind a Yes/No confirm. The logic (exists-check, compare the named profile, switch-only /
+    -- delete+reimport / import) lives in AP.SmartImport (Core); this just gates it with the dialog.
+    local function RunImport(entry, b)
+        if InCombatLockdown() then ns.Print(L["Can't import a profile in combat."]); return end
+        ns.ui.ShowConfirm({
+            title    = L["Import profiles"],
+            text     = string.format(L["Import %s's saved profile onto this character? (creates / overwrites and switches to it)"], entry.label),
+            onAccept = function() reallyImport(entry, b) end,
+        })
+    end
+
+    -- Capture one addon's CURRENT profile (+ its name) into SavedVariables so Import uses the fresh
+    -- version — no source edit. Reports (with the profile name) and rebuilds so the status updates.
+    -- Supports both a synchronous b.export() -> (str, name) and an async b.exportAsync(onDone) (BigWigs boss
+    -- options must load their zone modules first), routing both through the same `done` handler.
+    local function captureNow(entry, b)
+        local AP = ns.AddonProfiles
+        local function done(str, name)
+            if type(str) == "string" and str ~= "" and AP.SetBlob(b.blob, str, name) then
+                if name and name ~= "" then
+                    ns.Print(string.format(L["%s: captured the profile « %s » (%d chars). Import now uses it."], entry.label, name, #str))
+                else
+                    ns.Print(string.format(L["%s: current profile captured (%d chars). Import now uses it."], entry.label, #str))
+                end
+                rebuild()
+            else
+                ns.Print(string.format(L["%s: couldn't capture the current profile (addon not loaded, or no active profile)."], entry.label))
+            end
+        end
+        if b.exportAsync then
+            ns.Print(string.format(L["%s: capturing… (this can take a few seconds)."], entry.label))
+            b.exportAsync(done)
+        else
+            done(b.export())
+        end
+    end
+
+    -- Refresh = a Yes/No confirm, then capture.
+    local function doRefresh(entry, b)
+        if not (ns.AddonProfiles and (b.export or b.exportAsync)) then return end
+        ns.ui.ShowConfirm({
+            title    = L["Refresh"],
+            text     = string.format(L["Capture %s's CURRENT profile and use it for Import? (replaces the saved capture)"], entry.label),
+            onAccept = function() captureNow(entry, b) end,
+        })
+    end
+
+    -- One import button, an optional "Refresh" (capture the live profile), and a status hint
+    -- (captured / baked-in / empty).
     local function ImportButtonRow(entry, b)
-        return { type = "custom", height = 30, build = function(host)
+        return { type = "custom", height = 46, build = function(host)
+            local AP = ns.AddonProfiles
             local btn = ns.ui.CreateButton({
                 parent = host, label = L[b.labelKey], width = 200, height = 22,
                 onClick = function() RunImport(entry, b) end,
             })
             btn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -4)
-            if ns.AddonProfiles and ns.AddonProfiles.BlobEmpty(b.blob) then
-                local hint = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
-                hint:SetPoint("LEFT", btn.frame, "RIGHT", 10, 0)
-                hint:SetTextColor(0.6, 0.6, 0.6)
-                hint:SetText(L["(no string saved yet)"])
+
+            if b.export or b.exportAsync then
+                local ref = ns.ui.CreateButton({
+                    parent = host, label = L["Refresh"], width = 120, height = 22,
+                    onClick = function() doRefresh(entry, b) end,
+                })
+                ref.frame:SetPoint("LEFT", btn.frame, "RIGHT", 8, 0)
             end
-            return { frame = host, height = 30 }
-        end }
-    end
 
-    -- Addons with no in-game export button (or whose export string is too big to copy from chat):
-    -- capture the CURRENT profile into a copyable box (read-only: snaps back on edit) so the user can
-    -- paste it into that addon's AddonProfiles.lua blob. One config entry per exportHelper.
-    local EXPORT_HELPERS = {
-        dominos = {
-            hint   = L["Dominos can't export — capture your CURRENT Dominos profile here, copy it, and paste it into AddonProfiles.lua's dominos blob."],
-            button = L["Capture current Dominos profile"],
-            export = function() return ns.AddonProfiles and ns.AddonProfiles.ExportDominos and ns.AddonProfiles.ExportDominos() end,
-            empty  = L["Dominos not loaded (or serializer missing)."],
-        },
-        prat = {
-            hint   = L["Prat has no export button — capture your CURRENT Prat profile here, copy it, and paste it into AddonProfiles.lua's prat blob."],
-            button = L["Capture current Prat profile"],
-            export = function() return ns.AddonProfiles and ns.AddonProfiles.ExportPrat and ns.AddonProfiles.ExportPrat() end,
-            empty  = L["Prat not loaded (or no active profile)."],
-        },
-    }
-    local function ExportRow(cfg)
-        return { type = "custom", height = 82, build = function(host)
             local hint = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
-            hint:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
-            hint:SetPoint("TOPRIGHT", host, "TOPRIGHT", 0, 0)
-            hint:SetJustifyH("LEFT"); hint:SetWordWrap(true); hint:SetTextColor(0.6, 0.6, 0.6)
-            hint:SetText(cfg.hint)
-
-            local input = ns.ui.CreateTextInput({ parent = host, width = 380, height = 22, maxLetters = 0 })
-            input.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -30)
-            local box, val = input.editBox, ""
-            box:SetScript("OnTextChanged", function(self)
-                if self:GetText() ~= val then self:SetText(val); self:HighlightText() end
-            end)
-
-            local btn = ns.ui.CreateButton({
-                parent = host, label = cfg.button, width = 240, height = 22,
-                onClick = function()
-                    val = cfg.export() or ""
-                    if val == "" then ns.Print(cfg.empty); return end
-                    box:SetText(val); box:SetFocus(); box:HighlightText()   -- select-all for Ctrl+C
-                end,
-            })
-            btn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -56)
-            return { frame = host, height = 82 }
+            hint:SetPoint("TOPLEFT", btn.frame, "BOTTOMLEFT", 0, -4)
+            if AP and AP.HasCaptured(b.blob) then
+                hint:SetTextColor(0.4, 0.8, 0.4)
+                local nm = AP.GetBlobName and AP.GetBlobName(b.blob)
+                if nm and nm ~= "" then
+                    hint:SetText(string.format(L["(captured: %s — used by Import)"], nm))
+                else
+                    hint:SetText(L["(captured — Import uses your latest capture)"])
+                end
+            elseif AP and AP.BlobEmpty(b.blob) then
+                hint:SetTextColor(1, 0.5, 0.2)
+                hint:SetText(L["(no string saved yet)"])
+            else
+                hint:SetTextColor(0.6, 0.6, 0.6)
+                hint:SetText(L["(using the baked-in profile)"])
+            end
+            return { frame = host, height = 46 }
         end }
     end
 
@@ -605,22 +641,160 @@ local function CreateRestorePanel(parent)
             for _, b in ipairs(entry.buttons or {}) do
                 items[#items + 1] = ImportButtonRow(entry, b)
             end
-            if entry.exportHelper and EXPORT_HELPERS[entry.exportHelper] then
-                items[#items + 1] = ExportRow(EXPORT_HELPERS[entry.exportHelper])
-            end
             return items
+        end }
+    end
+
+    -- ── Bulk actions over every detected addon (the "All addons" cadre) ────────
+    -- Import every detected addon's saved profile at once (no per-addon popups): tally the outcomes and
+    -- prompt a single reload at the end if any addon needed one.
+    local function doImportAll()
+        local AP = ns.AddonProfiles
+        if not (AP and AP.ENTRIES) then return end
+        local imported, overridden, failed, needReload = 0, 0, 0, false
+        for _, entry in ipairs(AP.ENTRIES) do
+            if not entry.unsupported and AP.Loaded(entry.addon) then
+                for _, b in ipairs(entry.buttons or {}) do
+                    if not AP.BlobEmpty(b.blob) then          -- skip addons with nothing saved
+                        local ok, existed, detail
+                        if AP.SmartImport then ok, existed, detail = AP.SmartImport(entry, b) else ok, detail = b.run() end
+                        if ok then
+                            if existed then overridden = overridden + 1 else imported = imported + 1 end
+                            if detail == "reload" then needReload = true end
+                        else
+                            failed = failed + 1
+                        end
+                    end
+                end
+            end
+        end
+        ns.Print(string.format(L["Import all: %d imported, %d overridden, %d failed."], imported, overridden, failed))
+        rebuild()
+        if needReload then
+            ns.ui.ShowConfirm({
+                title    = L["Reload UI?"],
+                text     = L["Some imported profiles need a UI reload to fully apply. Reload now?"],
+                onAccept = function() ReloadUI() end,
+            })
+        end
+    end
+
+    -- Capture the current profile of every detected addon that exposes an export. Sync exports run inline;
+    -- async ones (BigWigs boss — loads zone modules) run via a callback, so we track a pending counter and
+    -- only print the final tally + rebuild once every async capture has come back.
+    local function doRefreshAll()
+        local AP = ns.AddonProfiles
+        if not (AP and AP.ENTRIES) then return end
+        local captured, skipped, pending, sealed = 0, 0, 0, false
+        local function finishIfDone()
+            if sealed and pending == 0 then
+                ns.Print(string.format(L["Refresh all: %d profiles captured, %d skipped."], captured, skipped))
+                rebuild()
+            end
+        end
+        local function tally(str, name, blob)
+            if type(str) == "string" and str ~= "" and AP.SetBlob(blob, str, name) then
+                captured = captured + 1
+            else
+                skipped = skipped + 1
+            end
+        end
+        for _, entry in ipairs(AP.ENTRIES) do
+            if not entry.unsupported and AP.Loaded(entry.addon) then
+                for _, b in ipairs(entry.buttons or {}) do
+                    if b.exportAsync then
+                        pending = pending + 1
+                        b.exportAsync(function(str, name)
+                            tally(str, name, b.blob)
+                            pending = pending - 1
+                            finishIfDone()
+                        end)
+                    elseif b.export then
+                        local str, name = b.export()   -- capture BOTH: a call as a non-final arg truncates to 1
+                        tally(str, name, b.blob)
+                    end
+                end
+            end
+        end
+        sealed = true
+        finishIfDone()   -- prints now if nothing async is pending; otherwise the last callback prints
+    end
+
+    -- The "All addons" cadre: Import all + Refresh all on one row, each behind a Yes/No confirm.
+    local function AllAddonsCadre()
+        return { type = "group", title = L["All addons"], build = function()
+            return {
+                { type = "custom", height = 34, build = function(host)
+                    local imp = ns.ui.CreateButton({
+                        parent = host, label = L["Import all"], width = 150, height = 22,
+                        onClick = function()
+                            if InCombatLockdown() then ns.Print(L["Can't import a profile in combat."]); return end
+                            ns.ui.ShowConfirm({
+                                title    = L["Import all"],
+                                text     = L["Import EVERY detected addon's saved profile onto this character?"],
+                                onAccept = doImportAll,
+                            })
+                        end,
+                    })
+                    imp.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -4)
+                    local ref = ns.ui.CreateButton({
+                        parent = host, label = L["Refresh all"], width = 150, height = 22,
+                        onClick = function()
+                            ns.ui.ShowConfirm({
+                                title    = L["Refresh all"],
+                                text     = L["Capture the CURRENT profile of every detected addon that supports it? (replaces the saved captures)"],
+                                onAccept = doRefreshAll,
+                            })
+                        end,
+                    })
+                    ref.frame:SetPoint("LEFT", imp.frame, "RIGHT", 10, 0)
+                    return { frame = host, height = 34 }
+                end },
+            }
+        end }
+    end
+
+    -- The "Global addon profile" cadre: export the WHOLE capture store (every addon + UnbunkUtility) as one
+    -- "!UUALL1!" string to bake into GlobalCaptures.lua by hand. Read-only box (display only, Ctrl+C to copy).
+    local function GlobalExportCadre()
+        return { type = "group", title = L["Global addon profile"], build = function()
+            return {
+                { type = "custom", height = 96, build = function(host)
+                    local lbl = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
+                    lbl:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                    lbl:SetWidth(500)
+                    lbl:SetJustifyH("LEFT")
+                    lbl:SetText(L["Export every captured profile (incl. UnbunkUtility) as ONE string to bake in the code."])
+
+                    local input = ns.ui.CreateTextInput({ parent = host, width = 400, height = 22, maxLetters = 0 })
+                    input.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -36)
+                    local box = input.editBox
+                    local value = ""
+                    box:SetScript("OnTextChanged", function(self)
+                        if self:GetText() ~= value then self:SetText(value); self:HighlightText() end
+                    end)
+
+                    local btn = ns.ui.CreateButton({
+                        parent = host, label = L["Export"], width = 90, height = 22,
+                        onClick = function()
+                            local AP = ns.AddonProfiles
+                            value = (AP and AP.ExportAllCaptures and AP.ExportAllCaptures()) or ""
+                            box:SetText(value)
+                            box:SetFocus()
+                            box:HighlightText()   -- select all; copy with Ctrl+C
+                        end,
+                    })
+                    btn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -64)
+                    return { frame = host, height = 96 }
+                end },
+            }
         end }
     end
 
     local options = {
         { type = "label", font = "UnbunkUtilityH2", height = 28, text = L["Import profiles"] },
-        -- UnbunkUtility's own baked-in profile (the original one-click restore).
-        { type = "group", title = "UnbunkUtility", build = function()
-            return {
-                { type = "button", label = L["Import my profile"], width = 180, hostHeight = 28,
-                  onClick = function() if ns.RestoreOwnerProfile then ns.RestoreOwnerProfile() end end },
-            }
-        end },
+        GlobalExportCadre(),
+        AllAddonsCadre(),
     }
 
     -- One cadre per other addon, driven by ns.AddonProfiles.ENTRIES.
@@ -630,7 +804,8 @@ local function CreateRestorePanel(parent)
         end
     end
 
-    return ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
+    menu = ns.ui.BuildMenu(parent, options, { gap = 12, width = 518 })
+    return menu
 end
 
 UnbunkUtility.OnAddonLoaded(function()

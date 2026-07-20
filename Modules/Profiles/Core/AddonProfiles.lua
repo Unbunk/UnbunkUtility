@@ -46,8 +46,85 @@ local function Loaded(addonName)
 end
 AP.Loaded = Loaded
 
+-- ── Captured (SavedVariables) overrides for the baked-in blobs ────────────────
+-- A "Refresh" button stores the addon's CURRENT profile string in ns.db.global.addonProfiles,
+-- which takes precedence over the baked BLOB so Import uses the freshly captured version — no
+-- source edit needed. AP.GetBlob resolves capture-first; AP.SetBlob/ClearBlob manage it. The
+-- captured string lives in SavedVariables (local); the baked BLOB stays the distributed default.
+local function CapturedStore()
+    if not ns.db then return nil end
+    ns.db.global.addonProfiles = ns.db.global.addonProfiles or {}
+    return ns.db.global.addonProfiles
+end
+local function NameStore()
+    if not ns.db then return nil end
+    ns.db.global.addonProfileNames = ns.db.global.addonProfileNames or {}
+    return ns.db.global.addonProfileNames
+end
+
+-- Lazily decode the baked "global addon profile" (ns.AP_GLOBAL_CAPTURES, set in GlobalCaptures.lua) once
+-- into { blobs = {key=str}, names = {key=name} }. It is the code-side fallback that SUPERSEDES the per-addon
+-- BLOBS table: one hand-baked string carrying every capture (incl. "unbunkutility"). Nothing baked -> nil.
+local bakedBundle, bakedBundleDone
+local function BakedBundle()
+    if bakedBundleDone then return bakedBundle end
+    local s = ns.AP_GLOBAL_CAPTURES
+    if type(s) ~= "string" or s == "" then bakedBundleDone = true; return nil end
+    if not AP.DecodeAllCaptures then return nil end   -- decoder not defined yet (early call) — retry, don't cache
+    bakedBundleDone = true
+    bakedBundle = AP.DecodeAllCaptures(s)
+    return bakedBundle
+end
+
+-- Blob resolution order: 1) live capture (SavedVariables) · 2) baked global bundle · 3) legacy per-addon BLOB.
+function AP.GetBlob(key)
+    local c = ns.db and ns.db.global and ns.db.global.addonProfiles
+    local s = c and c[key]
+    if type(s) == "string" and s ~= "" then return s end
+    local b = BakedBundle()
+    if b and type(b.blobs) == "table" and type(b.blobs[key]) == "string" and b.blobs[key] ~= "" then return b.blobs[key] end
+    return BLOBS[key]
+end
+
+-- Name captured alongside the string (nil for a baked blob without one). Same 3-tier resolution.
+function AP.GetBlobName(key)
+    local n = ns.db and ns.db.global and ns.db.global.addonProfileNames
+    n = n and n[key]
+    if type(n) == "string" and n ~= "" then return n end
+    local b = BakedBundle()
+    if b and type(b.names) == "table" and type(b.names[key]) == "string" and b.names[key] ~= "" then return b.names[key] end
+    return nil
+end
+
+-- Import target name: the captured profile name when present, else the caller's default.
+function AP.ProfileName(key, default)
+    return AP.GetBlobName(key) or default
+end
+
+function AP.SetBlob(key, str, name)
+    if type(str) ~= "string" or str == "" then return false end
+    local c = CapturedStore(); if not c then return false end
+    c[key] = str
+    local n = NameStore()
+    if n then n[key] = (type(name) == "string" and name ~= "" and name) or nil end
+    return true
+end
+
+function AP.HasCaptured(key)
+    local c = ns.db and ns.db.global and ns.db.global.addonProfiles
+    local s = c and c[key]
+    return type(s) == "string" and s ~= ""
+end
+
+function AP.ClearBlob(key)
+    local c = ns.db and ns.db.global and ns.db.global.addonProfiles
+    if c then c[key] = nil end
+    local n = ns.db and ns.db.global and ns.db.global.addonProfileNames
+    if n then n[key] = nil end
+end
+
 function AP.BlobEmpty(key)
-    local s = BLOBS[key]
+    local s = AP.GetBlob(key)
     return (not s) or s == ""
 end
 
@@ -61,18 +138,24 @@ end
 function AP.ImportDetails(blobKey, profileName)
     if AP.BlobEmpty(blobKey) then return false, "empty" end
     if not (Details and Details.ImportProfile) then return false, "notloaded" end
-    local ok, ret = pcall(Details.ImportProfile, Details, BLOBS[blobKey], profileName, false, false, true)
+    local ok, ret = pcall(Details.ImportProfile, Details, AP.GetBlob(blobKey), profileName, false, false, true)
     if not ok then return false, tostring(ret) end
     if ret == false then return false, "decode" end
     return true
 end
 
--- Plater  — PlaterAPI:ImportProfile(str, key): creates/overwrites+switches. Assert-based (pcall).
--- The API deliberately skips ReloadUI, so recommend one.
+-- Plater  — creates/overwrites + switches. We call the low-level Plater.ImportAndSwitchProfile DIRECTLY
+-- rather than PlaterAPI:ImportProfile, because the public API hardcodes keepScaleTune=false: with a
+-- "parent to UIParent" profile (use_ui_parent=true) that makes Plater RECOMPUTE ui_parent_scale_tune =
+-- 1/UIParent:GetEffectiveScale() from the LIVE scale (Plater_OptionsPanel.lua:197-203), discarding the
+-- value baked in the blob and rendering the nameplates SMALLER (persists across /reload). Passing
+-- keepScaleTune=true preserves the blob's own scale. Args: name, str, bIsUpdate=false,
+-- bKeepModsNotInUpdate=false, doNotReload=true, keepScaleTune=true. Import is assert-based (pcall); it
+-- skips ReloadUI, so we still recommend one (the imported table is copied in after the only live refresh).
 function AP.ImportPlater(profileName)
     if AP.BlobEmpty("plater") then return false, "empty" end
-    if not (PlaterAPI and PlaterAPI.ImportProfile) then return false, "notloaded" end
-    local ok, err = pcall(PlaterAPI.ImportProfile, PlaterAPI, BLOBS.plater, profileName)
+    if not (Plater and Plater.ImportAndSwitchProfile) then return false, "notloaded" end
+    local ok, err = pcall(Plater.ImportAndSwitchProfile, profileName, AP.GetBlob("plater"), false, false, true, true)
     if not ok then return false, tostring(err) end
     return true, "reload"
 end
@@ -81,7 +164,7 @@ end
 function AP.ImportBuffReminders(profileName)
     if AP.BlobEmpty("buffReminders") then return false, "empty" end
     if not (BuffReminders and BuffReminders.Import) then return false, "notloaded" end
-    local ok, err = BuffReminders:Import(BLOBS.buffReminders, profileName)
+    local ok, err = BuffReminders:Import(AP.GetBlob("buffReminders"), profileName)
     if not ok then return false, tostring(err) end
     return true
 end
@@ -92,7 +175,7 @@ function AP.ImportBliZzi(profileName)
     if AP.BlobEmpty("blizzi") then return false, "empty" end
     local BIT = _G.BIT
     if not (BIT and BIT.Profiles and BIT.Profiles.Import) then return false, "notloaded" end
-    local ok, msg = BIT.Profiles:Import(profileName, BLOBS.blizzi)
+    local ok, msg = BIT.Profiles:Import(profileName, AP.GetBlob("blizzi"))
     if not ok then return false, tostring(msg) end
     return true
 end
@@ -101,7 +184,7 @@ end
 function AP.ImportDanders(profileName)
     if AP.BlobEmpty("dandersFrames") then return false, "empty" end
     if not _G.DandersFrames_Import then return false, "notloaded" end
-    local ok, nameOrErr = _G.DandersFrames_Import(BLOBS.dandersFrames, profileName)
+    local ok, nameOrErr = _G.DandersFrames_Import(AP.GetBlob("dandersFrames"), profileName)
     if not ok then return false, tostring(nameOrErr) end
     return true
 end
@@ -112,7 +195,7 @@ end
 function AP.ImportBigWigs(profileName)
     if AP.BlobEmpty("bigwigsCore") then return false, "empty" end
     if not (BigWigsAPI and BigWigsAPI.RegisterProfile) then return false, "notloaded" end
-    local ok, err = pcall(BigWigsAPI.RegisterProfile, "UnbunkUtility", BLOBS.bigwigsCore, profileName)
+    local ok, err = pcall(BigWigsAPI.RegisterProfile, "UnbunkUtility", AP.GetBlob("bigwigsCore"), profileName)
     if not ok then return false, tostring(err) end
     return true, "confirm"
 end
@@ -123,7 +206,7 @@ end
 function AP.ImportBigWigsBoss()
     if AP.BlobEmpty("bigwigsBoss") then return false, "empty" end
     if not (BigWigsAPI and BigWigsAPI.ImportBossOptions) then return false, "notloaded" end
-    local ok, err = pcall(BigWigsAPI.ImportBossOptions, "UnbunkUtility", BLOBS.bigwigsBoss)
+    local ok, err = pcall(BigWigsAPI.ImportBossOptions, "UnbunkUtility", AP.GetBlob("bigwigsBoss"))
     if not ok then return false, tostring(err) end
     return true, "confirm"
 end
@@ -134,7 +217,7 @@ end
 function AP.ImportMRT(profileName)
     if AP.BlobEmpty("mrt") then return false, "empty" end
     if not (MRT_API and MRT_API.ImportProfile) then return false, "notloaded" end
-    local ok = MRT_API:ImportProfile(BLOBS.mrt, profileName)
+    local ok = MRT_API:ImportProfile(AP.GetBlob("mrt"), profileName)
     if not ok then return false, "decode" end
     return true
 end
@@ -149,7 +232,7 @@ function AP.ImportUnhaltedUUF(profileKey)
     if not AP.Loaded("UnhaltedUnitFrames") then return false, "notloaded" end
     local G = _G.UUFG
     if not (G and G.ImportUUF) then return false, "notloaded" end
-    local ok, err = pcall(G.ImportUUF, G, BLOBS.unhaltedUUF, profileKey)
+    local ok, err = pcall(G.ImportUUF, G, AP.GetBlob("unhaltedUUF"), profileKey)
     if not ok then return false, tostring(err) end
     return true, "reload"
 end
@@ -161,7 +244,7 @@ end
 function AP.ImportPrat(profileName)
     if AP.BlobEmpty("prat") then return false, "empty" end
     if not (Prat and Prat.ImportProfile) then return false, "notloaded" end
-    local ok, ret = pcall(Prat.ImportProfile, Prat, BLOBS.prat, profileName)
+    local ok, ret = pcall(Prat.ImportProfile, Prat, AP.GetBlob("prat"), profileName)
     if not ok then return false, tostring(ret) end
     if ret == false then return false, "decode" end
     return true, "reload"
@@ -176,7 +259,7 @@ function AP.ExportPrat()
     if not key then return nil end
     local ok, str = pcall(Prat.ExportProfile, Prat, key)
     if not ok or type(str) ~= "string" or str == "" then return nil end
-    return str
+    return str, key
 end
 
 -- Baganator — Baganator.API.ImportString(str, resultName) is a plain function (no self) that RAISES
@@ -187,7 +270,7 @@ function AP.ImportBaganator(profileName)
     if AP.BlobEmpty("baganator") then return false, "empty" end
     if not AP.Loaded("Baganator") then return false, "notloaded" end
     if not (Baganator and Baganator.API and Baganator.API.ImportString) then return false, "notloaded" end
-    local ok, err = pcall(Baganator.API.ImportString, BLOBS.baganator, profileName)
+    local ok, err = pcall(Baganator.API.ImportString, AP.GetBlob("baganator"), profileName)
     if not ok then return false, tostring(err) end
     return true
 end
@@ -200,7 +283,7 @@ function AP.ImportEnhanceQoL(profileName)
     if AP.BlobEmpty("enhanceQoL") then return false, "empty" end
     local EQOL = _G.EnhanceQoL
     if not (EQOL and EQOL.importProfile) then return false, "notloaded" end
-    local ok, ret = pcall(EQOL.importProfile, BLOBS.enhanceQoL)
+    local ok, ret = pcall(EQOL.importProfile, AP.GetBlob("enhanceQoL"))
     if not ok then return false, tostring(ret) end
     if ret == false then return false, "decode" end
     return true, "reload"
@@ -239,10 +322,66 @@ local function DominosDecode(str)
     return res
 end
 
+-- ── Global addon-profile bundle (the whole capture store as one baked string) ─
+-- Serialize EVERY live capture (ns.db.global.addonProfiles + addonProfileNames, incl. "unbunkutility")
+-- into one paste-safe "!UUALL1!" string (CBOR -> DEFLATE -> Base64) for the "Global addon profile" Export
+-- button — the user bakes this ONE string into GlobalCaptures.lua by hand instead of many per-addon BLOBS.
+local ALL_SENTINEL = "!UUALL1!"
+function AP.ExportAllCaptures()
+    if not (C_EncodingUtil and DEFLATE) then return nil end
+    local g = (ns.db and ns.db.global) or {}
+    local payload = {
+        v     = 1,
+        blobs = ns.DeepCopy(g.addonProfiles or {}),
+        names = ns.DeepCopy(g.addonProfileNames or {}),
+    }
+    local ok, out = pcall(function()
+        return C_EncodingUtil.EncodeBase64(C_EncodingUtil.CompressString(C_EncodingUtil.SerializeCBOR(payload), DEFLATE))
+    end)
+    if ok and type(out) == "string" and out ~= "" then return ALL_SENTINEL .. out end
+    return nil
+end
+
+-- Decode a "!UUALL1!" bundle back into { blobs = {key=str}, names = {key=name} }, or nil. Used both by the
+-- baked-bundle fallback (BakedBundle above) and available for any future paste-import of a bundle.
+function AP.DecodeAllCaptures(str)
+    if type(str) ~= "string" or str:sub(1, #ALL_SENTINEL) ~= ALL_SENTINEL then return nil end
+    if not (C_EncodingUtil and DEFLATE) then return nil end
+    local body = (str:sub(#ALL_SENTINEL + 1)):gsub("%s", "")
+    local ok1, dec = pcall(C_EncodingUtil.DecodeBase64, body); if not ok1 or type(dec) ~= "string" then return nil end
+    local ok2, ser = pcall(C_EncodingUtil.DecompressString, dec, DEFLATE); if not ok2 or type(ser) ~= "string" then return nil end
+    local ok3, res = pcall(C_EncodingUtil.DeserializeCBOR, ser); if not ok3 or type(res) ~= "table" then return nil end
+    return {
+        blobs = type(res.blobs) == "table" and res.blobs or {},
+        names = type(res.names) == "table" and res.names or {},
+    }
+end
+
+-- UnbunkUtility's OWN profile, exposed as a capturable/importable entry so it rides along in the global
+-- bundle like any addon. Refresh captures the active profile's export string (ns.profiles.Export, a "!UU2!"
+-- blob); Import applies it in place over the current profile (ns.profiles.Import) — live, no /reload.
+function AP.ExportUBU()
+    if not (ns.profiles and ns.profiles.Export) then return nil end
+    local str = ns.profiles.Export()
+    if type(str) ~= "string" or str == "" then return nil end
+    local name = (ns.profiles.GetCurrent and ns.profiles.GetCurrent()) or nil
+    return str, name
+end
+function AP.ImportUBU()
+    if AP.BlobEmpty("unbunkutility") then return false, "empty" end
+    if not (ns.profiles and ns.profiles.Import) then return false, "notloaded" end
+    local ok, err = ns.profiles.Import(AP.GetBlob("unbunkutility"))
+    if not ok then return false, err or "decode" end
+    return true
+end
+
 -- Capture the CURRENT active Dominos profile into a paste-able string (for the `dominos` blob above).
 function AP.ExportDominos()
     if not (Dominos and Dominos.db and Dominos.db.profile) then return nil end
-    return DominosEncode(ns.DeepCopy(Dominos.db.profile))
+    local str = DominosEncode(ns.DeepCopy(Dominos.db.profile))
+    if type(str) ~= "string" or str == "" then return nil end
+    local name = Dominos.db.GetCurrentProfile and Dominos.db:GetCurrentProfile()
+    return str, name
 end
 
 -- Import the blob into a named Dominos profile (create/switch), overwriting its table in place.
@@ -250,7 +389,7 @@ end
 function AP.ImportDominos(profileName)
     if AP.BlobEmpty("dominos") then return false, "empty" end
     if not (Dominos and Dominos.db and Dominos.db.SetProfile) then return false, "notloaded" end
-    local snapshot = DominosDecode(BLOBS.dominos)
+    local snapshot = DominosDecode(AP.GetBlob("dominos"))
     if not snapshot then return false, "decode" end
     Dominos.db:SetProfile(profileName)     -- create + switch to "Principal"
     local p = Dominos.db.profile
@@ -261,49 +400,392 @@ function AP.ImportDominos(profileName)
     return true, "reload"
 end
 
--- ── Declarative cadre list (drives the Restore panel UI) ──────────────────────
+-- ── Export helpers (capture the addon's CURRENT profile as an import-string) ───
+-- Each returns a string our matching AP.Import* consumes, or nil. The per-cadre "Refresh" button
+-- calls one and stores the result via AP.SetBlob so Import uses the fresh capture — no source edit.
+-- (AP.ExportPrat / AP.ExportDominos are defined above.)
+
+-- Details! — Details:ExportCurrentProfile(name) SaveProfile()s the live settings then serializes THE NAMED
+-- profile (not necessarily the active one) into a "D!ProfileV2-" Base64/CBOR string (bUseBlizzardEncoding
+-- early-return); our import decodes it by prefix. `profileName` targets a specific profile BY NAME so the
+-- two Details buttons can refresh "Main (dj)" / "Main (raid)" even when neither is active; nil falls back
+-- to the current profile. Returns nil if the named profile doesn't exist (Refresh then reports it).
+function AP.ExportDetails(profileName)
+    if not (Details and Details.ExportCurrentProfile) then return nil end
+    local name = profileName
+    if not name or name == "" then
+        name = Details.GetCurrentProfileName and Details:GetCurrentProfileName()
+    end
+    if not name or name == "" then return nil end
+    if Details.GetProfile and Details:GetProfile(name, false) == false then return nil end   -- no such profile
+    local ok, str = pcall(Details.ExportCurrentProfile, Details, name)
+    if not ok or type(str) ~= "string" or str == "" then return nil end
+    return str, name
+end
+
+-- Plater — PlaterAPI:ExportProfile(key) returns the "!PLATER:2!" CBOR/Base64 string our import consumes.
+-- Shared clean Plater export (mirrors the UI export cleanup, Plater_OptionsPanel.lua:855-908): the raw
+-- PlaterAPI:ExportProfile ships npc_cache / *_trash / HooksTemp / plugins_data and imports "dirty", so
+-- deep-copy the profile table, strip those, wipe each mod's HooksTemp, stamp name/toc, then compress via
+-- the same Plater.CompressData(...,"print") codec our import consumes. Reused for current + by-name.
+local function PlaterCleanExport(raw, name)
+    if type(raw) ~= "table" or not (Plater and Plater.CompressData) then return nil end
+    local profile = ns.DeepCopy(raw)
+    profile.npc_cache = {}
+    profile.saved_cvars_last_change = {}
+    profile.script_data_trash = {}
+    profile.hook_data_trash = {}
+    profile.plugins_data = {}
+    local origCache = raw.npc_cache
+    if type(origCache) == "table" then
+        if type(profile.npc_colors) == "table" then
+            for npcID in pairs(profile.npc_colors) do profile.npc_cache[npcID] = origCache[npcID] end
+        end
+        if type(profile.npcs_renamed) == "table" then
+            for npcID in pairs(profile.npcs_renamed) do profile.npc_cache[npcID] = origCache[npcID] end
+        end
+    end
+    -- Retain captured spell/cast metadata (name, npcID, isChanneled) for cast_colors & cast_audiocues, plus
+    -- their npc_cache rows — Plater's own export rebuilds these from the account-wide PlaterDB.captured_*
+    -- (Plater_OptionsPanel.lua:853-895 / Plater.lua:1845-1846). Without them imported cast-bar colors/audio
+    -- lose their spell labels. Cosmetic (not size), but needed for full parity with the UI export.
+    local capSpells = _G.PlaterDB and _G.PlaterDB.captured_spells
+    local capCasts  = _G.PlaterDB and _G.PlaterDB.captured_casts
+    profile.captured_spells = {}
+    profile.captured_casts  = {}
+    if type(capSpells) == "table" or type(capCasts) == "table" then
+        local function retainCaptured(map)
+            if type(map) ~= "table" then return end
+            for spellId in pairs(map) do
+                local cs = capSpells and capSpells[spellId]
+                local cc = capCasts  and capCasts[spellId]
+                profile.captured_spells[spellId] = cs
+                profile.captured_casts[spellId]  = cc
+                local capd = cs or cc
+                if capd and capd.npcID and type(origCache) == "table" then
+                    profile.npc_cache[capd.npcID] = origCache[capd.npcID]
+                end
+            end
+        end
+        retainCaptured(profile.cast_colors)
+        retainCaptured(profile.cast_audiocues)
+    end
+    if type(profile.hook_data) == "table" then
+        for i = 1, #profile.hook_data do
+            local s = profile.hook_data[i]
+            if type(s) == "table" then s.HooksTemp = {} end
+        end
+    end
+    profile.profile_name = name
+    profile.tocversion = select(4, GetBuildInfo())
+    local ok, str = pcall(Plater.CompressData, profile, "print")
+    if not ok or type(str) ~= "string" or str == "" then return nil end
+    return str
+end
+
+function AP.ExportPlater()
+    if not (Plater and Plater.db and Plater.db.GetCurrentProfile) then return nil end
+    local key = Plater.db:GetCurrentProfile()
+    local str = PlaterCleanExport(Plater.db.profile, key)
+    if not str then return nil end
+    return str, key
+end
+
+-- BuffReminders — BuffReminders:Export() (no arg = active profile) returns a "!BR_C_" string.
+function AP.ExportBuffReminders()
+    if not (BuffReminders and BuffReminders.Export) then return nil end
+    local ok, str = pcall(BuffReminders.Export, BuffReminders)
+    if not ok or type(str) ~= "string" or str == "" then return nil end
+    -- The AceDB is BR.aceDB (private); the public accessor is BuffReminders:GetCurrentProfileKey().
+    local name = BuffReminders.GetCurrentProfileKey and BuffReminders:GetCurrentProfileKey()
+    return str, name
+end
+
+-- BliZzi_Interrupts — capture the ACTIVE profile as a single-profile "!BIT!" bundle. Build the
+-- {[name]=true} set directly (not via the Wago API) to avoid the "wagoBundleName" shadow that would
+-- export ALL profiles. categories/includePos=false — the profile table already carries positions.
+function AP.ExportBliZzi()
+    local BIT = _G.BIT
+    if not (BIT and BIT.ExportProfile and BIT.Profiles and BIT.Profiles.GetActiveName) then return nil end
+    local name = BIT.Profiles:GetActiveName()
+    if type(name) ~= "string" or name == "" then return nil end
+    local ok, str = pcall(BIT.ExportProfile, false, false, { [name] = true })
+    if not ok or type(str) ~= "string" or str == "" then return nil end
+    return str, name
+end
+
+-- DandersFrames — global DandersFrames_Export() (nil key = current profile) returns a "!DFP1!" string.
+function AP.ExportDanders()
+    if type(DandersFrames_Export) ~= "function" then return nil end
+    local ok, str = pcall(DandersFrames_Export)   -- nil key = current profile
+    if not ok or type(str) ~= "string" or str == "" then return nil end
+    local name = (type(DandersFrames_GetCurrentProfile) == "function" and DandersFrames_GetCurrentProfile())
+              or (_G.DandersFramesDB_v2 and _G.DandersFramesDB_v2.currentProfile)
+    return str, name
+end
+
+-- Method Raid Tools — MRT_API:ExportProfile(key) returns the "MRTP…" string; feed the current key.
+function AP.ExportMRT()
+    if not (MRT_API and MRT_API.ExportProfile and MRT_API.GetCurrentProfileKey) then return nil end
+    local key = MRT_API:GetCurrentProfileKey()
+    if not key then return nil end
+    local ok, str = pcall(MRT_API.ExportProfile, MRT_API, key)
+    if not ok or type(str) ~= "string" or str == "" then return nil end
+    return str, key
+end
+
+-- BigWigs (core only) — BigWigsAPI.RequestProfile is async in general, BUT for the CURRENT profile with no
+-- include flags the callback fires SYNCHRONOUSLY, so we capture the "BW2:" core string from it and return
+-- it. The per-boss options are captured separately, asynchronously, by AP.ExportBigWigsBoss below.
+function AP.ExportBigWigs()
+    if not (BigWigsAPI and BigWigsAPI.RequestProfile and BigWigsAPI.GetProfileName) then return nil end
+    local key = BigWigsAPI.GetProfileName()
+    if type(key) ~= "string" or key == "" then return nil end
+    local captured
+    local ok = pcall(BigWigsAPI.RequestProfile, "UnbunkUtility", key, function(profileString)
+        if type(profileString) == "string" and profileString ~= "" then captured = profileString end
+    end)
+    if not ok then return nil end
+    return captured, key
+end
+
+-- BigWigs PER-BOSS options — captured ASYNCHRONOUSLY: BigWigsAPI.RequestProfile with the include flags set
+-- loads every raid/seasonal/expansion-dungeon zone one-per-tick (BigWigs_Options Sharing.lua
+-- RequestEncounterExportString -> CTimerNewTicker), then fires the callback with (profileString,
+-- bossString). We keep only the bossString (a bossExport string that AP.ImportBigWigsBoss ->
+-- BigWigsAPI.ImportBossOptions consumes); the core profile is captured separately by AP.ExportBigWigs.
+-- Because it's async, this takes an onDone(str, name) callback instead of returning — onDone(nil) on failure.
+function AP.ExportBigWigsBoss(onDone)
+    if type(onDone) ~= "function" then return end
+    if not (BigWigsAPI and BigWigsAPI.RequestProfile and BigWigsAPI.GetProfileName) then return onDone(nil) end
+    local name = BigWigsAPI.GetProfileName()
+    if type(name) ~= "string" or name == "" then return onDone(nil) end
+    local fired = false
+    local ok = pcall(BigWigsAPI.RequestProfile, "UnbunkUtility", name, function(_, bossString)
+        if fired then return end
+        fired = true
+        if type(bossString) == "string" and bossString ~= "" then
+            onDone(bossString, name)
+        else
+            onDone(nil)
+        end
+    end, true, true, true)   -- includeRaids + includeSeasonalDungeons + includeExpansionDungeons
+    if not ok and not fired then fired = true; onDone(nil) end
+end
+
+-- EnhanceQoL — EnhanceQoL.exportProfile() (dot field, active profile) returns an "EQOL_PROFILE" string.
+function AP.ExportEnhanceQoL()
+    local EQOL = _G.EnhanceQoL
+    if not (EQOL and EQOL.exportProfile) then return nil end
+    local ok, str = pcall(EQOL.exportProfile)
+    if not ok or type(str) ~= "string" or str == "" then return nil end
+    local db, name = _G.EnhanceQoLDB
+    if type(db) == "table" then
+        local guid = UnitGUID("player")
+        name = (guid and db.profileKeys and db.profileKeys[guid]) or db.profileGlobal
+    end
+    return str, name
+end
+
+-- UnhaltedUnitFrames — global UUFG:ExportUUF(key) returns the "!UUF_" string. UUF.db (the current
+-- profile) is private/unreachable, so recover the current key from the UUFDB SavedVariable the same
+-- way AceDB keys it, honouring the global-profile override (UUF Core.lua:10-13).
+function AP.ExportUnhaltedUUF()
+    if type(UUFG) ~= "table" or type(UUFG.ExportUUF) ~= "function" then return nil end
+    local db = _G.UUFDB
+    if type(db) ~= "table" then return nil end
+    local key
+    local g = db.global
+    if g and g.UseGlobalProfile then
+        key = g.GlobalProfile or g.GlobalProfileName or "Default"
+    end
+    key = key or (db.profileKeys and db.profileKeys[UnitName("player") .. " - " .. GetRealmName()]) or "Default"
+    local ok, str = pcall(UUFG.ExportUUF, UUFG, key)
+    if not ok or type(str) ~= "string" or str == "" then return nil end
+    return str, key
+end
+
+-- Baganator — no public export API; reimplement the Customise-dialog Export (CustomiseDialog/Main.lua)
+-- with globals: dump BAGANATOR_CONFIG.Profiles[current], stamp addon/version/kind, stringify the numeric
+-- sub-keys of "hide_special_container" (the importer maps them back via tonumber), then "BGR!1!" + CBOR/
+-- Base64. Round-trips through AP.ImportBaganator. Current name = BAGANATOR_CURRENT_PROFILE.
+local function BaganatorExportProfile(name)
+    if type(BAGANATOR_CONFIG) ~= "table" or type(BAGANATOR_CONFIG.Profiles) ~= "table" then return nil end
+    local profile = name and BAGANATOR_CONFIG.Profiles[name]
+    if type(profile) ~= "table" then return nil end
+    if not (C_EncodingUtil and C_EncodingUtil.SerializeCBOR and C_EncodingUtil.CompressString and C_EncodingUtil.EncodeBase64) then return nil end
+    local tmp = ns.DeepCopy(profile)
+    tmp.addon, tmp.version, tmp.kind = "Baganator", 3, "profile"
+    local sub = tmp.hide_special_container
+    if type(sub) == "table" then
+        local mapped = {}
+        for k, v in pairs(sub) do mapped[tostring(k)] = v end
+        tmp.hide_special_container = mapped
+    end
+    local ok, str = pcall(function()
+        return "BGR!1!" .. C_EncodingUtil.EncodeBase64(C_EncodingUtil.CompressString(C_EncodingUtil.SerializeCBOR(tmp)))
+    end)
+    if not ok or type(str) ~= "string" or str == "" then return nil end
+    return str
+end
+
+function AP.ExportBaganator()
+    local name = BAGANATOR_CURRENT_PROFILE
+    local str = BaganatorExportProfile(name)
+    if not str then return nil end
+    return str, name
+end
+
+-- ── Profile-management ops (drive AP.SmartImport) ─────────────────────────────
+-- Per addon, using each addon's real API (verified vs source). Ops used by the "override or import"
+-- policy: exists(name)->bool (is a profile of that NAME already present?) · current()->name · delete(name)
+-- (wipe an existing same-named profile before re-import, but NEVER the active one — see SmartImport) ·
+-- switch(name) (a live SetProfile-style call so SmartImport can GUARANTEE we end up ON the imported
+-- profile even when the importer doesn't switch by itself). Addons whose importer already overwrites in
+-- place need no delete; those without a live switch API (import decides, or needs /reload) omit switch;
+-- BigWigs (shows its own confirm dialog) gets no ops at all.
+AP.OPS = {
+    details = {
+        exists  = function(n) return Details and Details.GetProfile and Details:GetProfile(n, false) ~= false or false end,
+        current = function() return (Details and Details.GetCurrentProfileName and Details:GetCurrentProfileName()) or nil end,
+        switch  = function(n) if Details and Details.ApplyProfile and Details.GetProfile and Details:GetProfile(n, false) ~= false then Details:ApplyProfile(n) end end,
+        delete  = function(n) if Details and Details.EraseProfile then Details:EraseProfile(n) end end,
+    },
+    plater = {
+        exists  = function(n) return (Plater and Plater.db and Plater.db.profiles and Plater.db.profiles[n]) ~= nil end,
+        current = function() return (Plater and Plater.db and Plater.db.GetCurrentProfile and Plater.db:GetCurrentProfile()) or nil end,
+        switch  = function(n) local db = Plater and Plater.db; if db and db.profiles and db.profiles[n] and db:GetCurrentProfile() ~= n then db:SetProfile(n) end end,
+        delete  = function(n) local db = Plater and Plater.db; if db and db.profiles and db.profiles[n] and db:GetCurrentProfile() ~= n then db:DeleteProfile(n, true) end end,
+    },
+    dominos = {
+        exists  = function(n) local db = Dominos and Dominos.db; return db ~= nil and rawget(db.profiles, n) ~= nil end,
+        current = function() return (Dominos and Dominos.db and Dominos.db:GetCurrentProfile()) or nil end,
+        switch  = function(n) local db = Dominos and Dominos.db; if db and rawget(db.profiles, n) ~= nil and db:GetCurrentProfile() ~= n then db:SetProfile(n) end end,
+        delete  = function(n) local db = Dominos and Dominos.db; if db and rawget(db.profiles, n) ~= nil and db:GetCurrentProfile() ~= n then db:DeleteProfile(n, true) end end,
+    },
+    buffreminders = {
+        exists  = function(n) return BuffReminders and BuffReminders.GetProfileKeys and BuffReminders:GetProfileKeys()[n] == true or false end,
+        current = function() return (BuffReminders and BuffReminders.GetCurrentProfileKey and BuffReminders:GetCurrentProfileKey()) or nil end,
+        switch  = function(n) if BuffReminders and BuffReminders.SetProfile then BuffReminders:SetProfile(n) end end,
+    },
+    blizzi = {
+        exists  = function(n) local BIT = _G.BIT; return BIT and BIT.Profiles and BIT.Profiles.Exists and BIT.Profiles:Exists(n) or false end,
+        current = function() local BIT = _G.BIT; return (BIT and BIT.Profiles and BIT.Profiles.GetActiveName and BIT.Profiles:GetActiveName()) or nil end,
+        switch  = function(n) local BIT = _G.BIT; if BIT and BIT.Profiles and BIT.Profiles.Switch then BIT.Profiles:Switch(n) end end,
+        delete  = function(n) local BIT = _G.BIT; if BIT and BIT.Profiles and BIT.Profiles.Delete then BIT.Profiles:Delete(n) end end,
+    },
+    mrt = {
+        exists  = function(n) if not (MRT_API and MRT_API.GetProfileKeys) then return false end local k = MRT_API:GetProfileKeys(); return k and k[n] == true or false end,
+        current = function() return (MRT_API and MRT_API.GetCurrentProfileKey and MRT_API:GetCurrentProfileKey()) or nil end,
+        switch  = function(n) if MRT_API and MRT_API.SetProfile then MRT_API:SetProfile(n) end end,
+    },
+    prat = {
+        exists  = function(n) local p = Prat and Prat.db and Prat.db.profiles; return p ~= nil and rawget(p, n) ~= nil end,
+        current = function() return (Prat and Prat.db and Prat.db:GetCurrentProfile()) or nil end,
+        switch  = function(n) if Prat and Prat.db and rawget(Prat.db.profiles, n) ~= nil then Prat.db:SetProfile(n) end end,
+        delete  = function(n)
+            if not (Prat and Prat.db) then return end
+            if Prat.db:GetCurrentProfile() == n or not rawget(Prat.db.profiles, n) then return end
+            Prat.db:DeleteProfile(n)
+        end,
+    },
+    danders = {
+        exists  = function(n) return (_G.DandersFramesDB_v2 and _G.DandersFramesDB_v2.profiles and _G.DandersFramesDB_v2.profiles[n]) ~= nil end,
+        current = function() return (type(DandersFrames_GetCurrentProfile) == "function" and DandersFrames_GetCurrentProfile()) or (_G.DandersFramesDB_v2 and _G.DandersFramesDB_v2.currentProfile) or nil end,
+    },
+    baganator = {
+        exists  = function(n) return (BAGANATOR_CONFIG and BAGANATOR_CONFIG.Profiles and BAGANATOR_CONFIG.Profiles[n]) ~= nil end,
+        current = function() return BAGANATOR_CURRENT_PROFILE end,
+    },
+    enhanceqol = {
+        exists  = function(n) return type(EnhanceQoLDB) == "table" and type(EnhanceQoLDB.profiles) == "table" and type(EnhanceQoLDB.profiles[n]) == "table" end,
+    },
+    unhaltedUUF = {
+        exists  = function(n) return type(_G.UUFDB) == "table" and type(_G.UUFDB.profiles) == "table" and _G.UUFDB.profiles[n] ~= nil end,
+    },
+}
+
+-- Import a saved profile with a uniform "override or import" policy. When a profile with the captured
+-- NAME already exists (active or not) it is an OVERRIDE: wipe the old same-named profile first for a
+-- clean slate, then import (every importer here overwrites + switches to that name). The ONE exception
+-- is the currently ACTIVE profile — Details:EraseProfile fabricates a "<Char>-<Realm>" fallback profile
+-- when you erase the active one, so we skip the delete and let the import overwrite it in place. Absent
+-- name => a fresh import. Returns (ok, existed, detail): `existed` selects the "overrode" vs "imported"
+-- message; `detail` is the importer's own hint ("reload" -> needs /reload, "confirm" -> addon shows its
+-- own dialog) or, on failure, the reason.
+function AP.SmartImport(entry, b)
+    local ops = entry and entry.key and AP.OPS and AP.OPS[entry.key]
+    local targetName = AP.ProfileName(b.blob, b.default)   -- exactly the name b.run() imports to
+    local named   = type(targetName) == "string" and targetName ~= ""
+    local existed  = named and ops and ops.exists and ops.exists(targetName) and true or false
+    -- Was the target ALREADY the active profile? Captured BEFORE the delete so we never wipe the active
+    -- profile (Details:EraseProfile would fabricate a "<Char>-<Realm>" fallback) — the import overwrites it
+    -- in place instead.
+    local wasActive = named and ops and ops.current and ops.current() == targetName or false
+    if existed and ops.delete and not wasActive then
+        pcall(ops.delete, targetName)                      -- wipe the old same-named profile (never the active one)
+    end
+    local ok, detail = b.run()                             -- import: overwrites the named profile
+    -- Guarantee we end up ON the imported profile. Some importers don't switch when the profile pre-existed
+    -- or was just recreated after the delete, so if we're still NOT on the target, switch to it explicitly
+    -- (fires only when the import didn't switch — no redundant re-apply). Addons without a live `switch` op
+    -- rely on their own import or a /reload (surfaced by the "reload" detail).
+    if ok and ops and ops.switch and ops.current and ops.current() ~= targetName then
+        pcall(ops.switch, targetName)
+    end
+    return ok, existed, detail
+end
+
+-- ── Declarative cadre list (drives the Import profiles panel) ─────────────────
 -- addon      = the LoadOnDemand/real addon folder name (for the "loaded?" check).
 -- buttons    = { { label, blob, run = fn -> (ok, detail) }, … }.
 -- unsupported= a reason string when there is NO import path at all (button suppressed):
 --   "notinstalled" (addon absent) | "nostring" (addon has no profile-string import).
 AP.ENTRIES = {
+-- `export` (optional) = fn returning the addon's CURRENT profile as an import-string; drives the
+-- per-button "Refresh" (capture -> AP.SetBlob). Buttons without it (bigwigsBoss/UUF/Baganator) stay
+-- import-only. `run` = fn -> (ok, detail). `default` = the profile NAME the import targets when nothing
+-- has been captured (baked blob); AP.SmartImport uses AP.ProfileName(blob, default) so its exists-check
+-- matches the name b.run() actually imports to.
+    { key = "unbunkutility", label = "UnbunkUtility", addon = "UnbunkUtility", buttons = {
+        { labelKey = "Import UnbunkUtility profile", blob = "unbunkutility", export = AP.ExportUBU, run = function() return AP.ImportUBU() end },
+    } },
     { key = "details", label = "Details! profiles", addon = "Details", buttons = {
-        { labelKey = "Import Principal (dj)",   blob = "detailsDj",   run = function() return AP.ImportDetails("detailsDj",   "Principal (dj)")   end },
-        { labelKey = "Import Principal (raid)", blob = "detailsRaid", run = function() return AP.ImportDetails("detailsRaid", "Principal (raid)") end },
+        { labelKey = "Import Main (dj)",   blob = "detailsDj",   default = "Main (dj)",   export = function() return AP.ExportDetails(AP.ProfileName("detailsDj",   "Main (dj)"))   end, run = function() return AP.ImportDetails("detailsDj",   AP.ProfileName("detailsDj",   "Main (dj)"))   end },
+        { labelKey = "Import Main (raid)", blob = "detailsRaid", default = "Main (raid)", export = function() return AP.ExportDetails(AP.ProfileName("detailsRaid", "Main (raid)")) end, run = function() return AP.ImportDetails("detailsRaid", AP.ProfileName("detailsRaid", "Main (raid)")) end },
     } },
     { key = "plater", label = "Plater", addon = "Plater", buttons = {
-        { labelKey = "Import Principal", blob = "plater", run = function() return AP.ImportPlater("Principal") end },
+        { labelKey = "Import Main", blob = "plater", default = "Main", export = AP.ExportPlater, run = function() return AP.ImportPlater(AP.ProfileName("plater", "Main")) end },
     } },
-    -- Dominos has no native export/import — UnbunkUtility rolls its own capture+inject (AP.*Dominos).
-    { key = "dominos", label = "Dominos", addon = "Dominos", exportHelper = "dominos", buttons = {
-        { labelKey = "Import Principal", blob = "dominos", run = function() return AP.ImportDominos("Principal") end },
+    { key = "dominos", label = "Dominos", addon = "Dominos", buttons = {
+        { labelKey = "Import Main", blob = "dominos", default = "Main", export = AP.ExportDominos, run = function() return AP.ImportDominos(AP.ProfileName("dominos", "Main")) end },
     } },
     { key = "buffreminders", label = "BuffReminders", addon = "BuffReminders", buttons = {
-        { labelKey = "Import Principal", blob = "buffReminders", run = function() return AP.ImportBuffReminders("Principal") end },
+        { labelKey = "Import Main", blob = "buffReminders", default = "Main", export = AP.ExportBuffReminders, run = function() return AP.ImportBuffReminders(AP.ProfileName("buffReminders", "Main")) end },
     } },
     { key = "blizzi", label = "BliZzi", addon = "BliZzi_Interrupts", buttons = {
-        { labelKey = "Import Principal", blob = "blizzi", run = function() return AP.ImportBliZzi("Principal") end },
+        { labelKey = "Import Main", blob = "blizzi", default = "Main", export = AP.ExportBliZzi, run = function() return AP.ImportBliZzi(AP.ProfileName("blizzi", "Main")) end },
     } },
     { key = "danders", label = "DandersFrames", addon = "DandersFrames", buttons = {
-        { labelKey = "Import Principal", blob = "dandersFrames", run = function() return AP.ImportDanders("Principal") end },
+        { labelKey = "Import Main", blob = "dandersFrames", default = "Main", export = AP.ExportDanders, run = function() return AP.ImportDanders(AP.ProfileName("dandersFrames", "Main")) end },
     } },
     { key = "mrt", label = "Method Raid Tools", addon = "MRT", buttons = {
-        { labelKey = "Import Principal", blob = "mrt", run = function() return AP.ImportMRT("Principal") end },
+        { labelKey = "Import Main", blob = "mrt", default = "Main", export = AP.ExportMRT, run = function() return AP.ImportMRT(AP.ProfileName("mrt", "Main")) end },
     } },
     { key = "bigwigs", label = "BigWigs", addon = "BigWigs", buttons = {
-        { labelKey = "Import Principal (core)", blob = "bigwigsCore", run = function() return AP.ImportBigWigs("Principal") end },
-        { labelKey = "Import Principal (boss)", blob = "bigwigsBoss", run = function() return AP.ImportBigWigsBoss() end },
+        { labelKey = "Import Main (core)", blob = "bigwigsCore", default = "Main", export = AP.ExportBigWigs, run = function() return AP.ImportBigWigs(AP.ProfileName("bigwigsCore", "Main")) end },
+        { labelKey = "Import Main (boss)", blob = "bigwigsBoss", exportAsync = AP.ExportBigWigsBoss, run = function() return AP.ImportBigWigsBoss() end },
     } },
     { key = "unhaltedUUF", label = "UnhaltedUnitFrames", addon = "UnhaltedUnitFrames", buttons = {
-        { labelKey = "Import Principal", blob = "unhaltedUUF", run = function() return AP.ImportUnhaltedUUF("Principal") end },
+        { labelKey = "Import Main", blob = "unhaltedUUF", default = "Main", export = AP.ExportUnhaltedUUF, run = function() return AP.ImportUnhaltedUUF(AP.ProfileName("unhaltedUUF", "Main")) end },
     } },
-    { key = "prat", label = "Prat", addon = "Prat-3.0", exportHelper = "prat", buttons = {
-        { labelKey = "Import Principal", blob = "prat", run = function() return AP.ImportPrat("Principal") end },
+    { key = "prat", label = "Prat", addon = "Prat-3.0", buttons = {
+        { labelKey = "Import Main", blob = "prat", default = "Main", export = AP.ExportPrat, run = function() return AP.ImportPrat(AP.ProfileName("prat", "Main")) end },
     } },
     { key = "baganator", label = "Baganator", addon = "Baganator", buttons = {
-        { labelKey = "Import Principal", blob = "baganator", run = function() return AP.ImportBaganator("Principal") end },
+        { labelKey = "Import Main", blob = "baganator", default = "Main", export = AP.ExportBaganator, run = function() return AP.ImportBaganator(AP.ProfileName("baganator", "Main")) end },
     } },
     { key = "enhanceqol", label = "EnhanceQoL", addon = "EnhanceQoL", buttons = {
-        { labelKey = "Import Principal", blob = "enhanceQoL", run = function() return AP.ImportEnhanceQoL("Principal") end },
+        { labelKey = "Import Main", blob = "enhanceQoL", default = "Main", export = AP.ExportEnhanceQoL, run = function() return AP.ImportEnhanceQoL(AP.ProfileName("enhanceQoL", "Main")) end },
     } },
 }
