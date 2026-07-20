@@ -185,6 +185,27 @@ local function ProcSpellMatches(arg1, sid)
     return false
 end
 
+-- Shared GCD-spin driver: on a cast, every IDLE CDM-hosted tracker icon echoes the same Coolinator-style GCD
+-- spin the engine's own-draw icons draw. ONE coalesced pass over all TimerIcons per SPELL_UPDATE_COOLDOWN
+-- burst (weak registry so dropped icons don't pin frames); each icon decides for itself (RefreshGcdSpin).
+local gcdInstances = setmetatable({}, { __mode = "k" })
+do
+    local queued = false
+    local function pass()
+        queued = false
+        for inst in pairs(gcdInstances) do
+            if inst.RefreshGcdSpin then pcall(inst.RefreshGcdSpin) end
+        end
+    end
+    local drv = CreateFrame("Frame")
+    drv:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+    drv:SetScript("OnEvent", function()
+        if queued then return end
+        queued = true
+        if C_Timer and C_Timer.After then C_Timer.After(0, pass) else pass() end
+    end)
+end
+
 function ns.ui.CreateTimerIcon(config)
     local name      = config.name
     local getCfg    = config.getCfg
@@ -268,6 +289,7 @@ function ns.ui.CreateTimerIcon(config)
     cooldown:SetAllPoints(frame)
     cooldown:SetHideCountdownNumbers(true)
     cooldown:SetDrawEdge(false)
+    cooldown:SetDrawBling(false)   -- no finish "bling" flash (it ignores frame alpha → punches through the Fader)
 
     -- ── Border (configurable) ───────────────────────────────────────────────────
     -- Independent of the frame backdrop (which SetUnlocked uses for the yellow drag
@@ -345,6 +367,24 @@ function ns.ui.CreateTimerIcon(config)
         local v = ns.GetCDMViewer and ns.GetCDMViewer(dest)
         return v ~= nil and v:IsShown()
     end
+
+    -- Coolinator-style GCD spin on an IDLE, CDM-hosted tracker so it matches the engine's own-draw icons when
+    -- you cast. An active timer/cooldown owns the swipe (skip); a stale PAST expiry counts as idle. Gated by the
+    -- engine's showGcdSwipe toggle (+ CDMActive, so free / non-CDM icons never spin). Driven by the shared
+    -- SPELL_UPDATE_COOLDOWN pass above and re-checked from ClearTimer when a real cooldown ends.
+    local _gcdSpinning = false
+    function result.RefreshGcdSpin()
+        if expirationTime and expirationTime > GetTime() then _gcdSpinning = false; return end
+        local E   = ns.CDMEngine
+        local on  = E and E.Cfg and E.Cfg.Get and E.Cfg.Get("showGcdSwipe")
+        local gcd = on and CDMActive() and frame:IsShown() and ns.GlobalGcdSwipe and ns.GlobalGcdSwipe()
+        if gcd and cooldown.SetCooldownFromDurationObject then
+            cooldown:SetCooldownFromDurationObject(gcd); _gcdSpinning = true
+        elseif _gcdSpinning then
+            cooldown:Clear(); _gcdSpinning = false
+        end
+    end
+    gcdInstances[result] = true
     result.CDMActive = CDMActive
 
     -- True when this icon's PLACEMENT CONTEXT is master-disabled, so it must NOT render at all (you
@@ -702,6 +742,7 @@ function ns.ui.CreateTimerIcon(config)
         iconTex:SetDesaturated(false)  -- restore full colour once the CD/timer ends
         result._timerColor = nil
         if result.ApplyDestGlow then result.ApplyDestGlow() end
+        if result.RefreshGcdSpin then result.RefreshGcdSpin() end   -- idle now → re-echo the GCD spin if one is running
         -- The check is now driven separately (Show / Hide / Blink) by
         -- consumers, so they can flash it on CD-completion instead of
         -- leaving it permanently visible.

@@ -27,6 +27,8 @@ function ns.ui.CreateTextInput(config)
     -- Only meaningful with numeric=true: permits a single leading minus sign (used by
     -- the x/y offset fields). Every other numeric field stays digits-only.
     local allowNegative = config.allowNegative or false
+    -- Only meaningful with numeric=true: permits a single decimal point (used by fractional sliders).
+    local decimal    = config.decimal    or false
     local maxLetters = config.maxLetters or 100
     local text       = config.text       or ""
     local onEnter    = config.onEnter
@@ -62,16 +64,20 @@ function ns.ui.CreateTextInput(config)
 
     editBox:SetScript("OnChar", function(self, char)
         if not numeric then return end
-        -- Reject anything that isn't a digit the instant it's typed; keep a single
-        -- leading minus only when negatives are allowed (x/y offsets). %D strips the
-        -- minus too, so re-prepend it from the captured sign.
-        local cur = self:GetText()
+        -- Reject anything that isn't a digit the instant it's typed. Keep a single leading minus (when
+        -- negatives are allowed) and a single decimal point (when `decimal`), re-prepended from the sign
+        -- since %D / the digit filter strips them too.
+        local cur  = self:GetText()
+        local sign = (allowNegative and cur:sub(1, 1) == "-") and "-" or ""
+        local body = (sign == "-") and cur:sub(2) or cur
         local cleaned
-        if allowNegative then
-            local sign = cur:sub(1, 1) == "-" and "-" or ""
-            cleaned = sign .. cur:gsub("%D", "")
+        if decimal then
+            body = body:gsub("[^%d%.]", "")                 -- digits + dots only
+            local dot = body:find("%.")
+            if dot then body = body:sub(1, dot) .. body:sub(dot + 1):gsub("%.", "") end   -- at most one dot
+            cleaned = sign .. body
         else
-            cleaned = cur:gsub("%D", "")
+            cleaned = sign .. body:gsub("%D", "")
         end
         if cleaned ~= cur then
             self:SetText(cleaned)

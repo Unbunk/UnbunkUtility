@@ -61,6 +61,10 @@ local function BuildFrame()
     local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
     cd:SetAllPoints()
     cd:SetDrawEdge(false)
+    -- No cooldown-finish "bling" flash. Blizzard draws it C-side ignoring the frame's EFFECTIVE alpha, so it
+    -- punches through the Fader (it flashes even while the CDM is faded) — and it's independent of the swipe,
+    -- so hiding the swipe doesn't hide it. Drop it entirely on engine icons.
+    cd:SetDrawBling(false)
     cd:SetDrawSwipe(true)
     cd:SetReverse(false)              -- cooldown swipe empties as time passes
     cd:SetHideCountdownNumbers(false) -- let the native Cooldown draw the number (secret-safe, C-side)
@@ -267,16 +271,21 @@ local function UpdateSwipe(f)
     local realSwipe = ns.SpellRealCooldownSwipe and ns.SpellRealCooldownSwipe(sid)
     local swipe = realSwipe
     local onGcd = false
-    -- "Show cd with 1 stacks or more": no real cooldown (a charge is still usable) but the user wants the
-    -- recharge arc drawn anyway, like the native CooldownViewer. Secret-safe object; nothing is drawn at full.
-    if not swipe and f._showCdWithStacks and ns.SpellChargeRechargeSwipe then
-        swipe = ns.SpellChargeRechargeSwipe(sid)
-    end
-    -- Default ON (togglable): if there's no REAL cooldown, draw the global-cooldown sweep instead (Coolinator
-    -- style). Its number is hidden (a GCD "1" flashing on every cast is noise); a real cooldown keeps its number.
-    if not swipe and E.Cfg and E.Cfg.Get and E.Cfg.Get("showGcdSwipe") and ns.SpellGcdSwipe then
-        swipe = ns.SpellGcdSwipe(sid)
-        onGcd = swipe ~= nil
+    if not swipe then
+        -- No REAL cooldown. The GCD spin takes PRIORITY (over the opt-in charge-recharge arc) so the
+        -- Coolinator-style pulse shows on EVERY idle icon when you cast — off-GCD spells AND charge spells.
+        -- We drive it from the GLOBAL GCD (spell 61304) so it's spell-independent (a per-spell query never
+        -- reports an off-GCD/charge spell as "on GCD"); fall back to the per-spell GCD if that's unavailable.
+        -- Its number is hidden (a GCD "1" on every cast is noise). Between casts (no GCD running) we fall back
+        -- to the "Show cd with 1 stacks or more" recharge arc — which, if left first, draws NOTHING at full
+        -- charges and so hid the pulse. A real cooldown above keeps its own swipe + number.
+        local gcd = E.Cfg and E.Cfg.Get and E.Cfg.Get("showGcdSwipe")
+            and ((ns.GlobalGcdSwipe and ns.GlobalGcdSwipe()) or (ns.SpellGcdSwipe and ns.SpellGcdSwipe(sid)))
+        if gcd then
+            swipe = gcd; onGcd = true
+        elseif f._showCdWithStacks and ns.SpellChargeRechargeSwipe then
+            swipe = ns.SpellChargeRechargeSwipe(sid)
+        end
     end
     if swipe and f.Cooldown.SetCooldownFromDurationObject then
         f.Cooldown:SetHideCountdownNumbers(onGcd or (f._showTimer == false))   -- honour showTimer=off; also hide during the GCD spin

@@ -549,6 +549,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                     step      = entry.step or 1,
                     value     = entry.get and entry.get() or (entry.min or 0),
                     format    = entry.format,
+                    decimals  = entry.decimals,
                     onChange  = entry.set,
                     editBox   = entry.editBox,
                     editWidth = entry.editWidth,
