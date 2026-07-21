@@ -1,14 +1,13 @@
 -- Modules/BuffGroups/Core/CustomBuffs.lua
 -- Custom (cast-triggered) buffs for the Buff-groups module — frames DRAWN by the addon
--- (we can't track arbitrary auras in combat), mirroring the reference addon the reference CDM addon's
--- Modules/CustomBuffs.lua. A custom buff has no native CDM frame: on the player's OWN cast
+-- (we can't track arbitrary auras in combat). A custom buff has no native CDM frame: on the player's OWN cast
 -- of its registered spellId we start a fixed-duration cooldown swipe on our own frame
 -- (C_DurationUtil duration + SetCooldownFromDurationObject, SetReverse so it fills like a
 -- buff), deactivated on OnCooldownDone / PLAYER_DEAD.
 --
 -- These frames are 100% ours (CreateFrame('Frame',nil,UIParent) + ARTWORK Texture +
--- CooldownFrameTemplate child + our own Title/Stack FontStrings) — no Masque / secret-value
--- worries, so the ENGINE sizes/styles/positions them with SetSize/SetPoint freely, exactly
+-- CooldownFrameTemplate child + our own Title/Stack FontStrings) — no third-party skinning /
+-- secret-value worries, so the ENGINE sizes/styles/positions them with SetSize/SetPoint freely, exactly
 -- like a native frame but on a frame it fully controls. They are POOLED: removing a custom
 -- buff parks its frame for reuse.
 --
@@ -38,7 +37,7 @@ local GetTime = GetTime
 -- client without the system loading (the guard then passes everything through).
 local issecretvalue = issecretvalue or function() return false end
 
--- ── Quick-Add template list (the UI's preset picker — same buffs as the reference addon) ─────
+-- ── Quick-Add template list (the UI's preset picker — a curated preset of buffs) ─────
 -- Each = { spellID, duration }. Name/icon are resolved from the spell at add time (the Data
 -- phase's BG.AddCustom fills them when the opts don't carry one). These are cast-triggered:
 -- the player's own UNIT_SPELLCAST_SUCCEEDED of the spellId starts the fixed-duration swipe.
@@ -79,7 +78,7 @@ local function CustomFrame(spellId)
         cd:SetAllPoints()
         cd:SetDrawEdge(false)
         cd:SetDrawSwipe(true)
-        cd:SetReverse(true)   -- fill up as time passes (buff-style, like the reference addon)
+        cd:SetReverse(true)   -- fill up as time passes (buff-style)
         f.Cooldown = cd
 
         -- Title / stack live on our own FontStrings (the engine re-fonts / re-anchors them
@@ -107,7 +106,7 @@ local function Activate(spellId, overrideStartTime)
 
     local startTime = overrideStartTime or GetTime()
     if f.Cooldown then
-        -- C_DurationUtil drives a buff-style fill swipe (the reference addon's pattern); fall back to a plain
+        -- C_DurationUtil drives a buff-style fill swipe; fall back to a plain
         -- SetCooldown on a client without the duration util.
         f.cdDuration = f.cdDuration or (C_DurationUtil and C_DurationUtil.CreateDuration and C_DurationUtil.CreateDuration())
         if f.cdDuration then
@@ -193,7 +192,7 @@ end
 BG.ActivateCustom   = Activate
 BG.DeactivateCustom = Deactivate
 
--- Deactivate every running custom buff (PLAYER_DEAD; mirrors the reference addon's OnPlayerDead).
+-- Deactivate every running custom buff (PLAYER_DEAD handler).
 function BG.DeactivateAllCustom()
     if not next(active) then return end
     local list = {}

@@ -7,7 +7,7 @@
 -- LEVEL 1 (this file) = the VISUAL switch. In engine mode we MASK the natives with SetAlpha(0) — which
 -- is taint-safe: SetAlpha is NOT a geometry / movable / SHOWN write, so it never enters Blizzard's
 -- 12.1.0 "secret value" comparisons (unlike Hide/SetShown), and a per-viewer SetAlpha hook re-forces 0
--- so Blizzard's / the reference addon's fade can't un-hide it. The native-reuse still RUNS in engine mode (invisible).
+-- so Blizzard's fade can't un-hide it. The native-reuse still RUNS in engine mode (invisible).
 --
 -- LEVEL 2 (later) = the native-reuse consults ns.CDMMode.IsEngine() to STOP its own work in engine mode
 -- (real taint + perf escape). The gate is exposed here now; the stop is not wired yet.

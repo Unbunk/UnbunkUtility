@@ -3,8 +3,8 @@
 -- Phase 2 of the standalone CDM engine (ns.CDMEngine). A pooled GROUP container frame: a plain anchor
 -- frame that holds a flow of E.Icon widgets (one category → one group). No textures, no native-frame
 -- contact. It carries a CACHED size (GetDefaultSize / SetDefaultSize) that the container measures
--- bottom-up, instead of reading the live GetWidth() while a SetSize is still in flight (the the reference engine
--- BaseLayout gotcha). Group.Release does NOT release its child icons — E.Icon.ReleaseAll owns that
+-- bottom-up, instead of reading the live GetWidth() while a SetSize is still in flight (the
+-- live-measure-during-resize gotcha). Group.Release does NOT release its child icons — E.Icon.ReleaseAll owns that
 -- teardown (single owner, avoids double-release).
 
 local _, ns = ...

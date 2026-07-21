@@ -286,7 +286,7 @@ ns.CDMAnchor = ns.CDMAnchor or {}
 -- A native CooldownViewer item frame's spell id. The item frame carries a
 -- `cooldownInfo` table (Blizzard's GetCooldownViewerCooldownInfo result); the DISPLAY
 -- spell is overrideTooltipSpellID -> overrideSpellID -> spellID (same precedence the
--- native viewer + the reference CDM addon use). Returns nil when the frame has no cooldown info.
+-- native viewer uses). Returns nil when the frame has no cooldown info.
 function ns.CDMAnchor.NativeFrameSpellId(nf)
     local ci = nf and nf.cooldownInfo
     if type(ci) ~= "table" then return nil end
@@ -540,7 +540,6 @@ end
 -- frame if present (its bounds ARE the visible art), else Blizzard's PlayerFrame
 -- — but anchored to its inner bars content (PlayerFrameContentMain) so the row
 -- sits flush under the VISIBLE frame, not PlayerFrame's padded geometric bottom.
--- (Same custom-frame candidate approach the reference CDM addon uses for its trackers.)
 local PLAYER_FRAME_CANDIDATES = {
     "ElvUF_Player", "SUFUnitplayer", "UUF_Player",
     "EllesmereUIUnitFrames_Player", "MSUF_player", "EQOLUFPlayerFrame", "oUF_Player",
@@ -1052,9 +1051,9 @@ function ns.CDMAnchor.SetIconAtEnd(frameId, atEnd)
     return false
 end
 
--- ── Native-row "slot" layout (essential / utility) — the reference addon-style takeover ─────
+-- ── Native-row "slot" layout (essential / utility) — viewer takeover ─────────
 -- A coexisting post-hook can't win: Blizzard re-anchors its item frames and self-
--- sizes the viewer on every layout pass. So (like the reference CDM addon) we take ownership of
+-- sizes the viewer on every layout pass. So we take ownership of
 -- the viewer for as long as we host icons in it:
 --   * a proxy CONTAINER (our frame) is the source of truth for position + size;
 --   * the protected viewer is GLUED to fill the container (TOPLEFT+BOTTOMRIGHT),
@@ -1066,7 +1065,7 @@ end
 --     viewer's captured EditMode anchor, so adding icons keeps the row centred.
 -- Protected ops (viewer/container SetPoint+SetSize) run OUT of combat only; the
 -- per-item native re-imposes are taint-free (item frames are not protected).
--- Needs NO other CDM layout addon (the reference addon / CooldownManagerCentered) on the same
+-- Needs NO other CDM layout addon on the same
 -- viewer — two owners fight over the same frames.
 
 local _proxy            = CreateFrame("Frame")
@@ -1599,9 +1598,9 @@ end
 -- Pin a native item frame at a TOPLEFT offset from the viewer and keep it there.
 -- EditMode/Blizzard can apply a scale ~= 1 to item frames, which breaks our
 -- frame-local offsets (icons render mis-sized AND mis-aligned vs our own icons).
--- Lock the scale to 1 like the reference addon does, so natives match our icons' coordinate space.
+-- Lock the scale to 1 so natives match our icons' coordinate space.
 -- Defensive: today the CooldownViewer item frames are NOT protected (SetPoint on
--- them in combat is fine — confirmed by the reference addon/CMC), but if a future build marks
+-- them in combat is fine — confirmed by testing), but if a future build marks
 -- them protected, writing in combat would error. Skip the write then (cosmetic
 -- only — it just defers our alignment to the next out-of-combat refresh).
 local function CanWrite(f)
@@ -1706,7 +1705,7 @@ local function DrawFrameBorder(nf, enabled, color, size, outset)
     size = math.max(1, math.min(16, size or 1))
     -- Snap the thickness to a whole number of physical pixels so the border stays crisp on fractional UI
     -- scale (the icon frames sit at UIParent scale). Falls back to the raw size if the pixel size isn't
-    -- ready. Mirrors the reference CDM addon's Border.lua pixel snapping; the edges also have texel-snap disabled above.
+    -- ready. Native-style pixel snapping; the edges also have texel-snap disabled above.
     local px = ns.PixelSize and ns.PixelSize()
     local thickness = (px and px > 0) and (math.max(1, math.floor(size / px)) * px) or size
     color = color or { r = 0, g = 0, b = 0, a = 1 }
@@ -1752,7 +1751,7 @@ end
 -- Unlike PinNative (which re-anchors a frame WHILE it stays a child of the live viewer, so the viewer must
 -- be kept VISIBLE), AdoptNativeTo REPARENTS the native pool frame onto an engine-owned host frame — so the
 -- native viewer can be alpha-0-masked and the adopted frame still renders (it now inherits the HOST's alpha,
--- not the masked viewer's). This is the reference engine's buff model (AuraIconRetail.lua:31), confirmed taint-safe on
+-- not the masked viewer's). This is the native-frame adoption buff model, confirmed taint-safe on
 -- 12.1.0. Every write is a RAW C method (bypasses taint AND our own hooks); the re-impose
 -- hooks re-force parent+point+size when Blizzard's secure RefreshData re-pools the frame back under the viewer.
 local function AdoptNativeTo(nf, host, x, y, w, h)
@@ -2017,61 +2016,6 @@ local function LayoutCDMRow(viewer, dest, list)
     end
 end
 
--- ── Fade-along with the reference CDM addon ────────────────────────────────────────────────
--- the reference addon fades the native CooldownViewer item frames; our injected icons are
--- separate frames (parented to UIParent), so they wouldn't fade with them. the reference addon
--- exposes a public extension point — CDM.Fading:RegisterTarget(dbKey, fn) calls
--- fn(alpha) on every fade step — so we register our icons there. Essential AND the
--- below-player row follow the Essential viewer's fade; Utility follows Utility's.
-local function SetDestAlpha(dest, a)
-    -- L2: in engine mode the engine hosts the essential/utility trackers and keeps them fully visible;
-    -- the native fade (viewer masked) must not drive OUR frames' alpha down.
-    if EngineOwnsDest(dest) then return end
-    a = a or 1   -- defensive: never pass nil to SetAlpha if an external alpha is missing
-    for _, d in ipairs(appliers) do
-        if d.frame and d.getCfg and d.getCfg("includeInCdm")
-            and (d.getCfg("cdmDest") or "essential") == dest then
-            d.frame:SetAlpha(a)
-        end
-    end
-end
-
-local function the reference addonFading()
-    local A = _G.the reference CDM addon
-    local F = A and A.Fading
-    return (F and F.RegisterTarget) and F or nil
-end
-
--- Re-apply the reference addon's CURRENT fade alpha to our icons after a layout pass, so an icon
--- that just appeared mid-fade matches the faded state instead of popping to full.
-local function ReapplyFade()
-    -- Cooldown Manager off -> icons are free (TimerIcon's free ApplyPosition resets
-    -- their alpha to 1), so never apply the native viewer's fade to them.
-    if not ns.IsCDMEnabled() then return end
-    local F = the reference addonFading()
-    if not (F and F.GetAlpha) then return end
-    local essA = F:GetAlpha("fadingEssential")
-    SetDestAlpha("essential", essA)
-    SetDestAlpha("belowPlayer", essA)
-    SetDestAlpha("utility", F:GetAlpha("fadingUtility"))
-end
-
-local fadeHooked = false
-local function Hookthe reference addonFading()
-    if fadeHooked then return end
-    local F = the reference addonFading()
-    if not F then return end
-    fadeHooked = true
-    F:RegisterTarget("fadingEssential", function(a)
-        SetDestAlpha("essential", a)
-        SetDestAlpha("belowPlayer", a)
-    end)
-    F:RegisterTarget("fadingUtility", function(a)
-        SetDestAlpha("utility", a)
-    end)
-    ReapplyFade()   -- sync immediately in case fading is already active
-end
-
 -- ── Refresh ──────────────────────────────────────────────────────────────────
 -- Layout signature of everything that affects OUR placement (which icons are
 -- shown + their dest/row/atEnd, reorder map, below-row geometry, viewer shown
@@ -2251,9 +2195,6 @@ local function DoRefreshBody(force)
         local okB, errB = pcall(LayoutBelowPlayer, BelowList())
         if not okB then ns.Print("CDM below error: " .. tostring(errB)) end
     end
-    -- Keep our icons matching the reference addon's current fade alpha (icons just (re)laid out
-    -- would otherwise pop to full opacity mid-fade).
-    pcall(ReapplyFade)
     -- (The L2 engine re-collect bridge runs at the TOP of this function, before the no-change early-out.)
 end
 
@@ -2389,7 +2330,6 @@ f:SetScript("OnEvent", function(_, event, cvarName)
         return
     end
     HookViewers()
-    Hookthe reference addonFading()   -- register our icons with the reference CDM addon's fade pipeline (if present)
     lastCdmEnabled = ns.IsCDMEnabled()   -- seed so the first CVAR_UPDATE flip is detected
     C_Timer.After(0.1, function() ns.CDMAnchor.RefreshAll(true) end)
 end)

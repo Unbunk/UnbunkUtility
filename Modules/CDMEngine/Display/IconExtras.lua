@@ -136,7 +136,7 @@ end
 
 -- ── Per-icon registry (each key holds a SET of frames) ───────────────────────────────────────────
 -- A key can be shared by several live icons — two tracked cooldowns whose display spells collapse to
--- the same base (talent variants) share a byBase key. Matching the reference engine's per-frame fan-out, EVERY
+-- the same base (talent variants) share a byBase key. With a per-frame fan-out, EVERY
 -- such icon must react to a proc/range event; a single-slot map would orphan all but the last-registered
 -- (its glow would freeze). So each key maps to a SET of frames and the dispatcher iterates it.
 local bySpell = {}   -- [displaySid] = { [f]=true }  — range events (SPELL_RANGE_CHECK_UPDATE)

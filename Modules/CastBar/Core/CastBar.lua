@@ -1,6 +1,6 @@
 -- Modules/CastBar/Core/CastBar.lua
 -- A custom player cast bar (cast / channel / empower) plus an option to hide Blizzard's
--- native PlayerCastingBarFrame. Inspired by the reference CDM addon's PlayerCastBar: we watch the
+-- native PlayerCastingBarFrame. Modelled on the native player cast bar: we watch the
 -- UNIT_SPELLCAST_* events on "player", read UnitCastingInfo / UnitChannelInfo for the
 -- spell + castID, and hand the fill + countdown text to the 12.0 engine (SetTimerDuration +
 -- a Duration text binding) so there is NO per-frame OnUpdate — with a per-frame OnUpdate
@@ -477,7 +477,7 @@ function CB.StopCast()
     end
 end
 
--- Soft end from a real cast event, with optional feedback (the reference engine-style): briefly hold the
+-- Soft end from a real cast event, with optional feedback: briefly hold the
 -- bar full in a success / interrupted colour before hiding. `complete` is derived from WHICH end
 -- event fired (STOP/CHANNEL_STOP/EMPOWER_STOP = success; FAILED/INTERRUPTED = not). Channels
 -- finish empty, so a held bar would look wrong — they never hold.

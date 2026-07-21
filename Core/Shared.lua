@@ -474,7 +474,7 @@ end
 -- start/duration are SECRET and our heuristic has no data for a spell not cast this session (the old code
 -- then drew NO swipe -> the icon looked falsely "ready"). Returns nil when the spell is NOT on a real
 -- cooldown (idle, or just the GCD): cd.isActive / cd.isOnGCD are STRUCTURAL booleans that stay readable in
--- combat (unlike the secret timing). Mirrors the reference CDM addon's IsOnRealCooldown + GetSpellCooldownDuration(id, true).
+-- combat (unlike the secret timing). Mirrors the native "is on real cooldown" + GetSpellCooldownDuration(id, true).
 function ns.SpellRealCooldownSwipe(spellId)
     if not (spellId and spellId ~= 0 and C_Spell and C_Spell.GetSpellCooldown) then return nil end
     local cd = C_Spell.GetSpellCooldown(spellId)
@@ -482,7 +482,7 @@ function ns.SpellRealCooldownSwipe(spellId)
     -- MULTI-CHARGE spell: the recharging charge's arc is its OWN duration (GetSpellChargeDuration), NOT the
     -- spell cooldown — exactly how the native CDM draws it (we previously drew no recharge arc in combat
     -- because the charge branch nil-drops the secret cdStart and is skipped). maxCharges is a structural
-    -- field readable in combat. the reference addon gates the charge swipe on isOnGCD == false (strict).
+    -- field readable in combat. The charge swipe is gated on isOnGCD == false (strict).
     local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(spellId)
     local maxc = ci and ci.maxCharges
     if maxc and not (issecretvalue and issecretvalue(maxc)) and maxc > 1 then
@@ -511,7 +511,7 @@ end
 
 -- OPTIONAL global-cooldown SWIPE (opt-in; SpellRealCooldownSwipe deliberately suppresses it so an idle spell
 -- looks ready). Returns the GCD's duration object ONLY when the spell's ACTIVE cooldown IS the GCD (a spell
--- with no real cooldown, on the global). Lets the standalone engine draw a the reference engine-style GCD spin (no
+-- with no real cooldown, on the global). Lets the standalone engine draw a global-cooldown spin (no
 -- number). Secret-safe: isActive/isOnGCD are STRUCTURAL; GetSpellCooldownDuration(id, false) INCLUDES the GCD
 -- and returns a duration OBJECT (never the secret raw start/duration).
 function ns.SpellGcdSwipe(spellId)
@@ -521,7 +521,7 @@ function ns.SpellGcdSwipe(spellId)
     return C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(spellId, false)
 end
 
--- The CURRENT global cooldown as a duration OBJECT (secret-safe), for a the reference engine-style GCD spin on EVERY
+-- The CURRENT global cooldown as a duration OBJECT (secret-safe), for a global-cooldown spin on EVERY
 -- idle icon when you cast — including OFF-GCD spells (Counterspell / Alter Time / Mirror Image) and charge
 -- spells, which a per-spell GetSpellCooldown never reports "on GCD" (off-GCD spells answer isOnGCD~=true; a
 -- charge spell answers isActive=false while a charge remains). Spell 61304 is Blizzard's hidden "Global
@@ -546,7 +546,7 @@ end
 
 -- Size of one physical screen pixel in UIParent-local units, for crisp 1px borders on fractional UI scale
 -- (768 = UIParent's reference height; divided by the effective scale). Returns nil if the values aren't
--- ready yet, so callers fall back to the raw size. Mirrors the reference CDM addon's Pixel.GetSize formula. NOTE: a UI
+-- ready yet, so callers fall back to the raw size. Uses the standard physical-pixel size formula. NOTE: a UI
 -- scale change is only picked up on the next border re-apply (relayout) — a /reload re-crisps everything.
 function ns.PixelSize()
     local _, physH = GetPhysicalScreenSize()
@@ -562,10 +562,10 @@ end
 -- hash node that STILL holds the taint, so issecurevariable(t,k) keeps reporting insecure; we
 -- then poke absent integer keys until WoW's Lua 5.1 rehashes the table and abandons every dead
 -- node (the tainted k included), after which the key reads clean. This is the only way to scrub
--- a key that a secret/forbidden value tainted short of a /reload (see the the reference engine analysis
+-- a key that a secret/forbidden value tainted short of a /reload (see the taint analysis notes
 -- and the CooldownViewer:901 wall — a secret spellID key turning wasOnGCDLookup forbidden).
 --
--- Guards vs the reference engine's original: we ONLY ever touch keys that are already nil (never a live
+-- Guards: we ONLY ever touch keys that are already nil (never a live
 -- value), bail immediately if the key is already clean, and cap the loop so a key that can never
 -- come clean cannot hang the client (a rehash happens within a few dozen pokes; the cap is a
 -- safety net). Returns true when the key ends up secure, false if it gave up.

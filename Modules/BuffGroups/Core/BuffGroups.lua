@@ -1,11 +1,11 @@
 -- Modules/BuffGroups/Core/BuffGroups.lua
 -- Engine for the custom "Buff groups". We REUSE the native Buff cooldown viewer
 -- (BuffIconCooldownViewer) item frames — re-sized, re-styled and re-anchored into
--- user-defined GROUPS (movable containers), exactly like the reference addon the reference CDM addon.
+-- user-defined GROUPS (movable containers), like the native viewer does.
 -- The native viewer is NOT hidden; we drive its frames (so Blizzard keeps rendering the
--- cooldown swipe / charges / combat-safe aura state for us). Masque is not an obstacle:
--- we SetSize the native frame directly + refix its .Icon, then re-impose on the viewer's
--- RefreshLayout so we always write AFTER Blizzard/Masque.
+-- cooldown swipe / charges / combat-safe aura state for us). An icon-skinning addon is not an
+-- obstacle: we SetSize the native frame directly + refix its .Icon, then re-impose on the viewer's
+-- RefreshLayout so we always write AFTER Blizzard/any skinning addon.
 --
 -- Buffs are split across user-defined GROUPS via ns.db.profile.buffGroups (drag in the
 -- config). A buff with no explicit assignment defaults to Group 1; group 0 ("Unused") is
@@ -13,7 +13,7 @@
 -- (the pencil) wins over the group. Custom (cast-triggered) buffs are the one exception:
 -- those are DRAWN by the addon (no native frame) and packed alongside the natives.
 --
--- The hard parts (resize that sticks under Masque, the raw-metamethod SetPoint anti-relayout
+-- The hard parts (resize that sticks under a skinning addon, the raw-metamethod SetPoint anti-relayout
 -- hook, scale lock, combat deferral, the addon-drawn border edges) are shared with the CDM
 -- rows and live in ns.CDMAnchor: PinNativeTo / ReleaseNativePin / ApplyFrameBorder.
 
@@ -47,7 +47,7 @@ local trackedCache      -- array of the CDM TrackedBuff spellIds (refreshed on s
 -- ── Per-icon sound alert (start / stop) state ───────────────────────────────────
 -- soundPrev[spellId] = was-active last pass. A buff is "active" when it has a live
 -- displayed frame this RefreshLayout (frameOf[sid] ~= nil — the native pool holds the
--- ACTIVE buffs, like the reference addon's BuildActiveSpellSet). On a CHANGE we fire the configured
+-- ACTIVE buffs, an active-spell set). On a CHANGE we fire the configured
 -- start/stop sound. soundSeeded gates the FIRST pass to SEED-only (no firing) so buffs
 -- already up at login/reload don't blast their start sound.
 local soundPrev   = {}
@@ -213,10 +213,10 @@ local function CollectTrackedSplit(allowEmpty)
 end
 
 -- The DISPLAYED native buffs in NATIVE ON-SCREEN ORDER (the user's EditMode "Tracked Buffs"
--- arrangement). Authoritative source, matching the reference addon the reference CDM addon: each active
+-- arrangement). Authoritative source: each active
 -- itemFramePool frame carries a numeric `layoutIndex` Blizzard assigns from the EditMode layout;
--- sorting the active frames by it ascending reproduces the on-screen order (the reference addon's
--- CompareByLayoutIndex / CompareIconPositionRecords). categorySet(TrackedBuff, true/false) order
+-- sorting the active frames by it ascending reproduces the on-screen order (a
+-- compare-by-layout-index). categorySet(TrackedBuff, true/false) order
 -- is NOT this order — that flag drives the spell-id set, not the displayed arrangement.
 -- Every native read is guarded (the API is nil while the CDM is disabled; layoutIndex/spell ids
 -- can be secret values in combat). Returns nil when the viewer hasn't laid out its pool yet, an
@@ -453,7 +453,7 @@ end
 -- (FrameSpellId is defined earlier, above CollectTrackedSplit, since the split keys pool frames by it.)
 
 -- ── Aspect-preserving icon texcoord (so a non-square icon isn't stretched) ──────
--- Mirrors the reference addon's GetAspectPreservingTexCoord: when w~=h we crop the longer axis instead of
+-- Aspect-preserving texcoord: when w~=h we crop the longer axis instead of
 -- squashing the art (our "bigger icons" use non-square sizes). A small zoom trims the ugly
 -- default-icon green border.
 local ICON_ZOOM = 0.07
@@ -708,7 +708,7 @@ local function StyleCooldownRegions(cd, fontPath, size, outline, color, nf, pos,
     end
 end
 
--- The native title FontString we attach to a frame (the reference addon draws no title; this is ours).
+-- The native title FontString we attach to a frame (the native viewer draws no title; this is ours).
 local function FrameTitle(nf)
     if nf.Title then return nf.Title end
     local fs = nf:CreateFontString(nil, "OVERLAY", nil, 7)
@@ -716,8 +716,8 @@ local function FrameTitle(nf)
     return fs
 end
 
--- Dispel-type colour curve (mirrors MasqueBlizzBars' DispelCurve) so OUR inset border can carry the debuff's
--- dispel colour instead of Masque's OUTSETTING DebuffBorderMBB (which overflowed onto the bar below the row).
+-- Dispel-type colour curve so OUR inset border can carry the debuff's
+-- dispel colour instead of a third-party skin's OUTSETTING DebuffBorderMBB (which overflowed onto the bar below the row).
 -- Built lazily once; `false` marks the API unavailable so we stop retrying.
 local dispelCurve
 local function DispelColorCurve()
@@ -739,7 +739,7 @@ local function DispelColorCurve()
 end
 
 -- The dispel-type border colour {r,g,b,a} for a hosted TARGET-debuff frame, or nil (player buffs / no data /
--- no Masque). auraDataUnit + auraInstanceID are structural (readable in combat, unlike auraSpellID); pcalled
+-- no dispel data). auraDataUnit + auraInstanceID are structural (readable in combat, unlike auraSpellID); pcalled
 -- so any secret/API change degrades to the configured colour instead of erroring.
 local function DispelBorderColor(nf)
     if not (nf and nf.auraDataUnit == "target" and nf.auraInstanceID) then return nil end
@@ -754,7 +754,7 @@ local function DispelBorderColor(nf)
 end
 
 -- Apply OUR border edges via the shared CDMAnchor helper (raw hooks, scale lock, combat-safe). A TARGET debuff
--- overrides the configured colour with its dispel-type colour (the red/blue/… indicator we took off Masque) and
+-- overrides the configured colour with its dispel-type colour (the red/blue/… indicator we took off the native skin) and
 -- FORCES the border on even if disabled, so the dispel indicator survives regardless of the border setting.
 local function ApplyBorder(nf, spellId)
     if not ns.CDMAnchor or not ns.CDMAnchor.ApplyFrameBorder then return end
@@ -766,7 +766,7 @@ local function ApplyBorder(nf, spellId)
     local color   = dispel or BG.IconGet(spellId, "borderColor")
     local size    = dispel and (BG.IconGet(spellId, "nativeBorderSize") or 3) or (BG.IconGet(spellId, "borderSize") or 1)
     -- OUTSET like the regular border so the ICON stays full-size (an inset border overlaid the edges and made
-    -- native-border buffs look smaller than the rest). Much thinner than Masque's original DebuffBorderMBB.
+    -- native-border buffs look smaller than the rest). Much thinner than the third-party skin's original DebuffBorderMBB.
     ns.CDMAnchor.ApplyFrameBorder(nf, enabled, color, size, true)
 end
 
@@ -850,10 +850,10 @@ local function ApplyGlow(nf, spellId)
     glow:Show()
 end
 
--- Hide Blizzard's native debuff border on a buff frame so only OUR border shows. Also hide MasqueBlizzBars'
+-- Hide Blizzard's native debuff border on a buff frame so only OUR border shows. Also hide a third-party skin's
 -- DebuffBorderMBB: an OUTSETTING dispel-coloured texture that overflowed onto the bar below a hosted buff row.
--- Its dispel colour is instead carried by OUR inset border (ApplyBorder/DispelBorderColor). Masque only ever
--- SetVertexColors it (never Show), but ReSkin can re-show it, so hook Show -> Hide to keep it suppressed.
+-- Its dispel colour is instead carried by OUR inset border (ApplyBorder/DispelBorderColor). The skin only ever
+-- SetVertexColors it (never Show), but a re-skin can re-show it, so hook Show -> Hide to keep it suppressed.
 local function HideDebuffBorder(nf)
     local db = nf.DebuffBorder
     if db then
@@ -1073,8 +1073,8 @@ end
 -- placeholderActive / ReleasePlaceholder upvalues resolve to the real locals, not nil globals.
 
 -- ── Placeholder frames (per-icon "Show placeholder") ───────────────────────────
--- A minimal pool of addon-drawn frames, keyed by spellId, mirroring the reference addon's
--- BuffGroupPlaceholders but pared down: when an icon has its per-icon `placeholder` flag on
+-- A minimal pool of addon-drawn frames, keyed by spellId, a pared-down
+-- placeholder pool: when an icon has its per-icon `placeholder` flag on
 -- and its buff is INACTIVE (no live frame this pass), we draw a dimmed, desaturated copy of
 -- the spell icon in the reserved slot (with OUR border if the group has one). Active buffs use
 -- their real native/custom frame instead, so a placeholder is only ever shown in an empty slot.

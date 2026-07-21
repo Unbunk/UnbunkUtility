@@ -2,7 +2,7 @@
 -- Data model for the custom CDM "Bar groups". We REUSE the native BAR cooldown viewer
 -- (BuffBarCooldownViewer) frames — re-sized, re-styled and re-anchored into user-defined
 -- GROUPS (movable containers), exactly like the Buff-groups module does for the buff ICON
--- viewer and like the reference addon the reference CDM addon does for its bar groups. The native viewer is
+-- viewer. The native viewer is
 -- NOT hidden; we drive its frames (so Blizzard keeps filling the bar value / name / duration).
 --
 -- The bar viewer shows the SAME tracked-buff set as the buff icon viewer (the CDM's
@@ -43,7 +43,7 @@ local GROUP_TEMPLATE = {
     spacing  = 0,
     staticDisplay = false,     -- false: only currently-active bars take a slot (reflow); true: every member keeps its slot
     -- bar geometry + style (the user-facing parameters)
-    barWidth  = 220,           -- total row width (icon + gauge), like the reference addon's barWidth
+    barWidth  = 220,           -- total row width (icon + gauge)
     barHeight = 20,
     barTexture = "Better Blizzard",                       -- LSM "statusbar" key (bundled in Media.lua)
     barColor  = { r = 0.2, g = 0.549, b = 1, a = 1 },     -- the filled gauge (default #338CFF, brand colour)

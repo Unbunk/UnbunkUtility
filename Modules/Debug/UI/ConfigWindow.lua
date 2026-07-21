@@ -9,7 +9,7 @@
 -- into three opt-in toggles (player messages / channels / everything else). Chat is
 -- formatted with the NATIVE helpers (class-coloured clickable names via the sender
 -- GUID, real channel names, ChatTypeInfo colours, AFK/DND flags, self-contained
--- system lines) the way Prat-3.0 does, instead of a crude "[TAG] sender: msg".
+-- system lines), instead of a crude "[TAG] sender: msg".
 
 local _, ns = ...
 local L = ns.L
@@ -106,7 +106,7 @@ if not ns._consoleHooked then
         origPrint(...)
         if not ns.IsDebugUnlocked() then return end   -- locked: don't mirror
         -- Secret values (WoW 11.x) stay secret through tostring() and would blow up
-        -- table.concat ("invalid value (secret)") — e.g. BigWigs print()ing a gossip
+        -- table.concat ("invalid value (secret)") — e.g. another addon print()ing a gossip
         -- string. Substitute a placeholder so the mirror never errors on them.
         local n, parts = select("#", ...), {}
         for i = 1, n do
@@ -966,7 +966,7 @@ UnbunkUtility.OnAddonLoaded(function()
     -- owner account for Unbunk).
     UnbunkUtility.RegisterModule(L["Secret settings"], nil, CreateSecretPanel)
     -- "Beta" (Modules/Fader/UI), the "Personal utilities" tabs "Import profiles" /
-    -- "Details! settings" (Modules/DetailsProfile/UI), and "List" / "Print" /
+    -- the profile-import settings tab (Modules/DetailsProfile/UI), and "List" / "Print" /
     -- "Graph" (their own files) are real panels registered elsewhere.
 
     -- Apply saved console options at login (ns.db ready via Core/DB.lua's earlier

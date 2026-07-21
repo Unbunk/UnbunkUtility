@@ -7,7 +7,7 @@
 --   frame.Bar   = the StatusBar (its .BarBG / .Pip we hide, .Name / .Duration we keep),
 --   frame.Icon  = the spell-icon frame (its .Icon texture),
 -- and frame:SetBarContent is the Blizzard refresh that re-fills the bar — we hook it so our
--- style re-applies after every refresh (the the reference addon ApplyBarStyle recipe).
+-- style re-applies after every refresh (the re-style-on-refresh recipe).
 --
 -- Bars draw from the SAME tracked-buff set as the buff ICON viewer (the CDM's TrackedBuff
 -- category), so the universe + displayed-set logic mirrors Buff-groups, just pointed at the
@@ -462,7 +462,7 @@ local function PositionContainer(g, container)
     container:SetPoint(selfPt, rel, relPt, g.posX or 0, g.posY or 0)
 end
 
--- ── Native bar restyle (the the reference addon ApplyBarStyle recipe) ─────────────────────────
+-- ── Native bar restyle (the re-style-on-refresh recipe) ─────────────────────────
 local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 
 -- Re-impose OUR custom name whenever Blizzard re-sets the bar's name FontString (it rewrites it

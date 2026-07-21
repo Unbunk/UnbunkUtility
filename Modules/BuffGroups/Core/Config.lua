@@ -1,7 +1,7 @@
 -- Modules/BuffGroups/Core/Config.lua
 -- Data model for the custom CDM "Buff groups". We REUSE the native Buff cooldown viewer
 -- (BuffIconCooldownViewer) frames — re-sized, re-styled and re-anchored into user-defined
--- GROUPS (movable containers), exactly like the reference addon the reference CDM addon. The native
+-- GROUPS (movable containers), exactly like the native viewer's own icons. The native
 -- viewer is NOT hidden; we drive its frames. Custom (cast-triggered) buffs are the one
 -- exception: those are drawn by the addon and packed alongside the natives.
 --
@@ -51,7 +51,7 @@ local GROUP_TEMPLATE = {
     borderEnabled = true,
     borderColor   = { r = 0, g = 0, b = 0, a = 1 },
     borderSize    = 1,
-    -- "native border": the debuff dispel-type colour carried on OUR inset border (replaces Masque's
+    -- "native border": the debuff dispel-type colour carried on OUR inset border (replaces the
     -- outsetting DebuffBorderMBB). Its own toggle + thickness, independent of the regular border above.
     showNativeBorder = true,
     nativeBorderSize = 3,

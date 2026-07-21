@@ -13,7 +13,7 @@
 --     SIZE scaling can't be reproduced here (a formatter never touches the font), so size stays on the Lua
 --     path (out of combat only); colour now survives combat.
 -- OFF for an icon when decimals 0 AND thresholds disabled -> GetFor returns nil -> native default formatting.
--- Adapted from the reference CDM addon Core/CooldownFormatter (generalised from one colour threshold to the tier list).
+-- Native-style cooldown text formatter (generalised from one colour threshold to the tier list).
 
 local _, ns = ...
 ns.CDMGroups = ns.CDMGroups or {}

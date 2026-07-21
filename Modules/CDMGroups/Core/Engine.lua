@@ -1,9 +1,9 @@
 -- Modules/CDMGroups/Core/Engine.lua
 -- Engine for the custom "Cooldown groups" — a GENERALIZED, dest-parameterized clone of the
 -- Modules/BuffGroups/Core/BuffGroups.lua engine. We REUSE the native cooldown viewer item frames
--- (re-sized, re-styled, re-anchored into user-defined GROUPS), exactly like BuffGroups / the reference CDM addon.
+-- (re-sized, re-styled, re-anchored into user-defined GROUPS), exactly like BuffGroups.
 -- The native viewer is NOT hidden; we drive its frames so Blizzard keeps rendering the cooldown
--- swipe / charges / combat-safe state. The hard parts (resize that sticks under Masque, the raw
+-- swipe / charges / combat-safe state. The hard parts (resize that sticks under a third-party icon-skinning addon, the raw
 -- SetPoint anti-relayout hook, scale lock, combat deferral, the addon-drawn border) are SHARED with
 -- the CDM rows and the buff groups — they live in ns.CDMAnchor (PinNativeTo / ReleaseNativePin /
 -- ApplyFrameBorder / NativeFrameSpellId). We add only an Essential-specific enumerator here.
@@ -41,7 +41,7 @@ local canaccessvalue = canaccessvalue or function() return true end
 local issecretvalue  = issecretvalue  or function() return false end
 
 -- ── LibCustomGlow (bundled) — the glow renderer ──────────────────────────────
--- We delegate the glow to LibCustomGlow-1.0 (the same lib the reference CDM addon ships) instead of drawing our
+-- We delegate the glow to LibCustomGlow-1.0 (a widely-shared glow library) instead of drawing our
 -- own marching-dots. LibStub dedupes the bundled copy with any sibling addon's. If the lib is
 -- missing (very old/broken install) LCG stays nil and every glow op below no-ops gracefully.
 -- The bundled revision (MINOR 24) exports:
@@ -102,7 +102,7 @@ local function MirrorGlow(nf)
     local g = GlowChild(nf)
     if not (g and g:GetParent() == glowHost) then return end
     g:SetShown(nf:IsVisible())
-    -- The host is opaque, so the icon's fade (the reference CDM addon fades the VIEWER, whose alpha used to reach the
+    -- The host is opaque, so the icon's fade (a viewer-level fade, whose alpha used to reach the
     -- glow through the parent chain) has to be carried across by hand. Coarse — re-synced on the relayout
     -- pass and on every show/hide, not per animation frame — which is fine: glows only run on live procs.
     if nf.GetEffectiveAlpha then g:SetAlpha(nf:GetEffectiveAlpha()) end
@@ -197,10 +197,10 @@ local function GlowFnsFor(glowType) return GLOW_FNS[glowType or "pixel"] or GLOW
 -- overlay glow the game flashes on action bars (Brain Freeze, Fingers of Frost, a transform proc,
 -- etc.). The native CDM item frame is fed that proc by Blizzard's ActionButtonSpellAlertManager,
 -- which calls ShowAlert(frame)/HideAlert(frame) on the SAME native frames we restyle (this is exactly
--- the signal the reference CDM addon gates on — see the reference CDM addon/Core/Glow.lua:526 HookAlertManager, which hooks
--- ShowAlert/HideAlert on those item frames). We can't read frame.SpellActivationAlert:IsShown()
+-- the signal we gate on — hooking ShowAlert/HideAlert on the manager reports the proc on those item
+-- frames). We can't read frame.SpellActivationAlert:IsShown()
 -- because ApplyGlow hides that region every relayout to suppress Blizzard's own glow visual; so we
--- instead mirror the reference addon and hook the manager to stamp a plain Lua flag on the frame. The flag is a
+-- instead hook the manager to stamp a plain Lua flag on the frame. The flag is a
 -- normal table field (never a secret), safe to read. If the manager is missing the hook simply never
 -- installs and frames stay flag=nil → glow stays hidden (graceful). When the flag FLIPS we also re-run
 -- the frame's stored glow updater (nf._uuCdgGlowUpdate, installed by ApplyGlow) so the LibCustomGlow
@@ -417,7 +417,7 @@ local function EngineFor(I)
     --       (cooldowns the user moved to another viewer or hid in "Not Displayed"), all momentarily SHOWN,
     --       before EditMode display-overrides apply. So we accumulate ONLY once `viewerReadyAt` (armed on
     --       COOLDOWN_VIEWER_DATA_LOADED / PEW) is SETTLE seconds in the past — the layout has applied.
-    --       Mirrors the reference addon, which gates all setup on COOLDOWN_VIEWER_DATA_LOADED + a settle.
+    --       Gate all setup on COOLDOWN_VIEWER_DATA_LOADED + a settle.
     --   (2) nf:IsShown() — a frame counts only while ACTUALLY shown in THIS viewer (post-settle, a shown
     --       utility frame means it's on CD; the empty-pool GetChildren fallback is also skipped, see
     --       EnumNativeFrames(true) below).

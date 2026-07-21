@@ -7,7 +7,7 @@
 -- ns.db.profile.cdmGroups[dest], so two dests never share state.
 --
 -- We REUSE the native cooldown viewer frames — re-sized, re-styled and re-anchored into user-defined
--- GROUPS (movable containers), exactly like BuffGroups / the reference CDM addon. The native viewer is NOT hidden;
+-- GROUPS (movable containers), exactly like BuffGroups. The native viewer is NOT hidden;
 -- we drive its frames so Blizzard keeps rendering the cooldown swipe / charges / combat-safe state.
 --
 -- Per-profile (ns.db.profile.cdmGroups[dest]):

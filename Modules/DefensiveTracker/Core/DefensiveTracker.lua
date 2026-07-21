@@ -4,8 +4,8 @@
 -- tiers, optional title and stack/charge text, border, sound alerts, CDM-slot or free
 -- placement), one per defensive the player knows for their class + current spec.
 --
--- The per-class/spec defensive spell list is adapted from the reference CDM addon (CDM.CONST.
--- DEFENSIVE_SPELLS). Each defensive gets a per-spell config entry keyed by spellId.
+-- The per-class/spec defensive spell list is a curated table (DEFENSIVE_SPELLS).
+-- Each defensive gets a per-spell config entry keyed by spellId.
 
 local ADDON, ns = ...
 ns.DefensiveTracker = ns.DefensiveTracker or {}
@@ -21,7 +21,7 @@ local issecretvalue = issecretvalue or function() return false end
 local FALLBACK_ICON = 134400
 local GREEN = { r = 0, g = 1, b = 0 }  -- "active buff up" timer colour (shared, read-only)
 
--- ── Class / spec defensive spell data (adapted from the reference CDM addon) ─────────────────
+-- ── Class / spec defensive spell data ─────────────────────────────────────────
 -- DEFENSIVE_SPELLS[CLASS] = { class = {ids…}, [specID] = {ids…} }. The active list
 -- for the player is the class-wide ids plus the current spec's ids.
 local DEFENSIVE_SPELLS = {

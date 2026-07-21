@@ -602,7 +602,7 @@ function IC.Border(bundle, opts)
           get = function() return bundle.get("borderSize") or 1 end,
           set = function(v) if v and v > 0 then bundle.set("borderSize", v); bundle.touch() end end }
         -- opts.nativeBorder (buff groups): a sub-cadre for the debuff dispel-type "native" border carried on
-        -- OUR inset border (replaces Masque's outsetting DebuffBorderMBB). Its own show toggle + thickness.
+        -- OUR inset border (replaces the icon-skinning framework's outsetting debuff border). Its own show toggle + thickness.
         if opts.nativeBorder then
             local nbOn = function() return bundle.get("showNativeBorder") ~= false end
             e[#e + 1] = { type = "group", title = L["Native border"], build = function() return {

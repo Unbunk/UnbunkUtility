@@ -77,7 +77,7 @@ end
 -- id) lets the spell matcher use C_ActionBar.FindSpellActionButtons, which resolves a spell to its action
 -- slots OVERRIDE-AWARE: a cooldown tracked by its BASE spellId still finds the binding when the bar holds
 -- the talent/override form (and vice-versa). The old exact id-equality missed those, so some spells never
--- showed a keybind. (Approach mirrors the reference addon the reference CDM addon.)
+-- showed a keybind.
 local function ResolveByButtons(matchSlot)
     local shortest, raws
     for _, bar in ipairs(BARS) do

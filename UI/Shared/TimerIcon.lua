@@ -186,7 +186,7 @@ local function ProcSpellMatches(arg1, sid)
     return false
 end
 
--- Shared GCD-spin driver: on a cast, every IDLE CDM-hosted tracker icon echoes the same the reference engine-style GCD
+-- Shared GCD-spin driver: on a cast, every IDLE CDM-hosted tracker icon echoes the same global-cooldown
 -- spin the engine's own-draw icons draw. ONE coalesced pass over all TimerIcons per SPELL_UPDATE_COOLDOWN
 -- burst (weak registry so dropped icons don't pin frames); each icon decides for itself (RefreshGcdSpin).
 local gcdInstances = setmetatable({}, { __mode = "k" })
@@ -369,7 +369,7 @@ function ns.ui.CreateTimerIcon(config)
         return v ~= nil and v:IsShown()
     end
 
-    -- the reference engine-style GCD spin on an IDLE, CDM-hosted tracker. Trackers count as OFF-GCD icons, so this is
+    -- A global-cooldown spin on an IDLE, CDM-hosted tracker. Trackers count as OFF-GCD icons, so this is
     -- gated by BOTH showGcdSwipe AND its opt-in "on off-GCD icons" toggle (+ CDMActive, so free / non-CDM icons
     -- never spin). An active timer/cooldown owns the swipe (skip); a stale PAST expiry counts as idle. Driven by
     -- the shared SPELL_UPDATE_COOLDOWN pass above and re-checked from ClearTimer when a real cooldown ends.
@@ -1168,7 +1168,7 @@ function ns.ui.CreateTimerIcon(config)
             -- Launder the secret through Blizzard's C formatter, then pcall the SetText sink — mirrors the
             -- codebase's other secret display path (SpeedDisplay.SD.Update): if a future client ever makes
             -- SetText reject the laundered value we degrade to hidden instead of erroring on every combat
-            -- tick. TruncateWhenZero is itself the proven secret-safe path (the reference CDM addon ships it unprotected).
+            -- tick. TruncateWhenZero is itself the proven secret-safe path (used unprotected in the wild).
             if TruncateWhenZero and pcall(stacksFS.SetText, stacksFS, TruncateWhenZero(ch)) then
                 stacksFS:Show()
             else

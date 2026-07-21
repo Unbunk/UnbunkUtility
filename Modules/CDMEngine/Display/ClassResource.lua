@@ -89,8 +89,8 @@ local function ReleaseCell(c)
 end
 
 -- ── Value / percent text (continuous "bar" resources, e.g. mana) ─────────────────────────────────
--- We render the continuous VALUE text DEFENSIVELY C-side (never touching the number in Lua) — exactly like
--- the reference CDM addon's Tags.lua: AbbreviateNumbers(v) -> "250K" ; FontString:SetFormattedText(fmt, v) consumes v ;
+-- We render the continuous VALUE text DEFENSIVELY C-side (never touching the number in Lua) — the same
+-- native-safe tag pattern: AbbreviateNumbers(v) -> "250K" ; FontString:SetFormattedText(fmt, v) consumes v ;
 -- UnitPowerPercent(...) returns the % (we never divide cur/max ourselves). NOTE: plain UnitPower(...) COUNTS
 -- (combo points, holy power, soul shards, essence, runes) are NOT secret here — this widget runs on its OWN
 -- event frame (UNIT_POWER_*), not inside the CDM secure refresh — so the pip / essence families below do read
@@ -165,7 +165,7 @@ local function UpdateBarText(row, cur, mx)
     local fx = row.frame and row.frame.fx
     if not fx then return end
     if fx.valueFS and fx.valueFS:IsShown() then
-        -- "cur/max" abbreviated. cur may be SECRET: AbbreviateNumbers consumes it C-side (proven by the reference addon),
+        -- "cur/max" abbreviated. cur may be SECRET: AbbreviateNumbers consumes it C-side (proven safe),
         -- but feeding the resulting (secret) string through %s is NOT proven — so try it, and if it can't
         -- render, fall back to the proven %d/%d (SetFormattedText takes a secret number directly). Text
         -- always shows and a %s failure can never crash the rebuild.

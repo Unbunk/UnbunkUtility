@@ -1,6 +1,6 @@
 -- Modules/CDMEngine/Core/Blob.lua
 --
--- Phase 0 of the standalone "the reference engine-like" CDM engine (ns.CDMEngine). This module is
+-- Phase 0 of the standalone CDM engine (ns.CDMEngine). This module is
 -- ISOLATED: it does NOT touch the native-reuse modules (CDMGroups/BuffGroups/BarGroups). It is the
 -- foundation the rest of the engine builds on — the ability to READ, DECODE and (safely) WRITE the
 -- CooldownViewer's persistent LAYOUT blob: the config that decides WHICH cooldowns the CDM tracks
@@ -11,7 +11,7 @@
 -- serialization pipeline we already adopted for profiles (C_EncodingUtil) plus the taint scrub
 -- (ns.PurgeTaintedKey) — so the whole codec + write path is already ours, no new libs.
 --
--- Schema (reverse-engineered from the native serializer; matches the reference engine v94): the decoded blob
+-- Schema (reverse-engineered from the native serializer): the decoded blob
 -- is a POSITIONAL array — [1] = schema version (4 or 5), then the top-level fields in Blob.FIELD.
 -- Each layout is itself positional (Blob.LAYOUT_FIELD).
 --
