@@ -506,6 +506,9 @@ local function CreateRestorePanel(parent)
 
     -- Do the import (AP.SmartImport: override if the name exists, else import), then report / prompt reload.
     local function reallyImport(entry, b)
+        -- Re-check combat at execution time: the RunImport dialog-open check only fires when the popup appears,
+        -- so a player who enters combat before clicking Yes would otherwise run the import in combat.
+        if InCombatLockdown() then ns.Print(L["Can't import a profile in combat."]); return end
         local AP = ns.AddonProfiles
         -- NB: keep the call OUT of an and/or chain — that would truncate its (ok, existed, detail) returns.
         local ok, existed, detail
@@ -534,6 +537,7 @@ local function CreateRestorePanel(parent)
             if detail == "empty"        then msg = L["no string saved — paste it into AddonProfiles.lua first."]
             elseif detail == "notloaded" then msg = L["addon not detected."]
             elseif detail == "decode"    then msg = L["could not decode the string."]
+            elseif detail == "combat"    then msg = L["Can't import a profile in combat."]
             else msg = tostring(detail) end
             ns.Print(string.format(L["%s import failed: %s"], entry.label, msg))
         end
@@ -677,11 +681,8 @@ local function CreateRestorePanel(parent)
         return { type = "group", title = L[entry.label], build = function()
             local AP = ns.AddonProfiles
             if not AP then return { WarnLine(L["addon not detected."]) } end
-            if entry.unsupported == "notinstalled" or not AP.Loaded(entry.addon) then
+            if not AP.Loaded(entry.addon) then
                 return { WarnLine(L["This addon is not detected — install / enable it for this to work."]) }
-            end
-            if entry.unsupported == "nostring" then
-                return { WarnLine(L["This addon has no profile-string import."]) }
             end
             local items = {}
             for _, b in ipairs(entry.buttons or {}) do
@@ -695,11 +696,14 @@ local function CreateRestorePanel(parent)
     -- Import every detected addon's saved profile at once (no per-addon popups): tally the outcomes and
     -- prompt a single reload at the end if any addon needed one.
     local function doImportAll()
+        -- Re-check combat at execution time: the confirm dialog only gated combat when the popup appeared, so a
+        -- player who entered combat before accepting would otherwise run a bulk import in combat.
+        if InCombatLockdown() then ns.Print(L["Can't import a profile in combat."]); return end
         local AP = ns.AddonProfiles
         if not (AP and AP.ENTRIES) then return end
         local imported, overridden, failed, needReload = 0, 0, 0, false
         for _, entry in ipairs(AP.ENTRIES) do
-            if not entry.unsupported and AP.Loaded(entry.addon) then
+            if AP.Loaded(entry.addon) then
                 for _, b in ipairs(entry.buttons or {}) do
                     if not AP.BlobEmpty(b.blob) then          -- skip addons with nothing saved
                         local ok, existed, detail
@@ -746,7 +750,7 @@ local function CreateRestorePanel(parent)
             end
         end
         for _, entry in ipairs(AP.ENTRIES) do
-            if not entry.unsupported and AP.Loaded(entry.addon) then
+            if AP.Loaded(entry.addon) then
                 for _, b in ipairs(entry.buttons or {}) do
                     if b.exportAsync then
                         pending = pending + 1

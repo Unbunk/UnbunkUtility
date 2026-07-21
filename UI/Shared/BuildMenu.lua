@@ -101,7 +101,7 @@ end
 -- it relative to `defaultRel` using entry.point when provided. Returns the
 -- widget result and appends any refresher closure to `refreshers`. Used both
 -- for inline children and row children.
-local function BuildChild(entry, host, defaultRel, refs, refreshers)
+local function BuildChild(entry, host, defaultRel, refs, refreshers, result)
     local t = entry.type
     local widget
 
@@ -184,6 +184,7 @@ local function BuildChild(entry, host, defaultRel, refs, refreshers)
 
     if entry.ref then
         refs[entry.ref] = widget
+        if result then result.frames[entry.ref] = widget and widget.frame end
     end
     if entry.onBuilt then
         entry.onBuilt(widget, entry)
@@ -629,7 +630,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                 hostFrame = CreateFrame("Frame", nil, content)
                 spentHeight = entry.height or DEFAULT_HEIGHTS.row
                 for _, child in ipairs(entry.children or {}) do
-                    BuildChild(child, hostFrame, hostFrame, refs, refreshers)
+                    BuildChild(child, hostFrame, hostFrame, refs, refreshers, result)
                 end
                 widget = { frame = hostFrame }
 
@@ -671,7 +672,7 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
                     if child.relTo and builtInline[tonumber(child.relTo)] then
                         rel = builtInline[tonumber(child.relTo)].frame
                     end
-                    builtInline[i] = BuildChild(child, hostFrame, rel, refs, refreshers)
+                    builtInline[i] = BuildChild(child, hostFrame, rel, refs, refreshers, result)
                 end
             end
 

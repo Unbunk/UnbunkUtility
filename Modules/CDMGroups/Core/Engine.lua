@@ -377,7 +377,11 @@ local function EngineFor(I)
         -- Blizzard hides the ready ones — they momentarily read as shown. Accumulating those is exactly how
         -- the utility universe got polluted; the real pool (EnumerateActive) never holds them.
         if #out == 0 and not activeOnly then
-            for _, c in ipairs({ v:GetChildren() }) do
+            -- Walk the multi-return via select instead of packing a fresh { v:GetChildren() } table each
+            -- call (consistent with the de-allocated scratch reuse elsewhere in the enumerator).
+            local n = select('#', v:GetChildren())
+            for i = 1, n do
+                local c = select(i, v:GetChildren())
                 if c and (c.cooldownInfo or c.GetCooldownInfo or c.GetSpellID) then out[#out + 1] = c end
             end
         end

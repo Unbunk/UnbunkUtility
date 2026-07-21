@@ -1192,7 +1192,7 @@ end
 
 -- ── Per-dest GLOW (below-player) ─────────────────────────────────────────────
 -- enabled / type (pixel|autocast|button) / colour {r,g,b,a}. TimerIcon draws a LibCustomGlow halo on
--- the icon while it is ACTIVE (green/buff-up) when enabled. Stored on cdmBelowRow. Default OFF.
+-- the icon while it is ACTIVE (green/buff-up) when enabled. Stored on cdmBelowRow. Default ON (matches SeedTrackerFreeLook).
 function ns.CDMAnchor.GetDestGlow(dest)
     local c = DestFlagCfg(dest)
     local enabled = (not c) or (c.glowEnabled ~= false)   -- default ON; OFF only when explicitly unchecked

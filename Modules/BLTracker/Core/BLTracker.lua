@@ -39,6 +39,18 @@ for _, data in pairs(BL_SPELLS) do
     BL_DEBUFFS[data.debuff] = true
 end
 
+for spell, data in pairs(BL_SPELLS) do
+    -- The debuff timer is read in combat WITHOUT an AuraTimerReadable gate
+    -- (SyncDebuff), which is only safe because every fatigue debuff is
+    -- never-secret. Fail loudly at load time if a future lust is added whose
+    -- debuff isn't whitelisted, instead of silently reading a secret field
+    -- (broken timer / combat error) in instanced combat. The `ns.NEVER_SECRET and`
+    -- prefix avoids a false positive should the .toc load order ever change.
+    if ns.NEVER_SECRET and not ns.NEVER_SECRET[data.debuff] then
+        error(("BLTracker: debuff %d for spell %d (%s) is not in ns.NEVER_SECRET"):format(data.debuff, spell, data.name or "?"))
+    end
+end
+
 local BL_CLASSES = {
     SHAMAN = true,
     MAGE   = true,

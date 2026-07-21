@@ -908,6 +908,9 @@ local BELOW_SEED_KEYS = {
     "showTimer","timerFontKey","timerFontPath","timerFontSize","timerOutline","timerColor","timerPos","timerOffX","timerOffY","timerThresholdsEnabled",
     "showTitle","titleText","titleFontKey","titleFontPath","titleFontSize","titleOutline","titleColor","titlePos","titleOffX","titleOffY",
     "showStack","showAtZero","stackFontKey","stackFontPath","stackFontSize","stackOutline","stackColor","stackPos","stackOffX","stackOffY",
+    -- Glow-on-proc defaults (glowEnabled=true / pixel / F5FF00). Declares the default-ON read that
+    -- ns.CDMAnchor.GetDestGlow derives from a nil config, so it can't silently regress.
+    "glowEnabled","glowType","glowColor",
 }
 function ns.SeedBelowBucketDefaults(tbl)
     if not tbl then return end

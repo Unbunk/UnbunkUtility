@@ -97,7 +97,7 @@ local GROUP_TEMPLATE = {
     titleColor    = { r = 1, g = 1, b = 1, a = 1 },
     titlePos      = "TOP", titleOffX = 0, titleOffY = 0,
     -- stack / charge count text (native Applications restyle)
-    showStack     = true, showAtZero = false,
+    showStack     = true,
     darkenOnCdWithStacks = true,   -- default: grey the icon while on cooldown even if it still has charges/stacks
     showCdWithStacks     = true,   -- default ON: draw the recharge arc even with a usable charge (native-parity)
     stackFontKey  = "Fira Mono", stackFontPath = nil, stackFontSize = 10, stackOutline = "OUTLINE",

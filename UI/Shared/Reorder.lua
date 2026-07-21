@@ -163,17 +163,17 @@ local function EnsureDragController(group)
         if activeDragCtrl == ctrl then activeDragCtrl = nil end
         if dragId and hovered then
             if hovered == fromStrip then
-                -- Same strip: reorder by removing the dragged id and re-inserting at the hole.
-                local d = fromStrip._drag
-                local ids, cur = d.orderIds(), nil
-                for i, v in ipairs(ids) do if v == dragId then cur = i break end end
-                if cur then
-                    table.remove(ids, cur)
-                    local at = math.max(1, math.min(#ids + 1, (hole or 0) + 1))
-                    table.insert(ids, at, dragId)
-                    if fromStrip._onMove then
-                        fromStrip._onMove(dragId, fromStrip, hovered, hole or 0)
-                    elseif fromStrip._setOrder then
+                -- Same strip: prefer the drop callback; else reorder the id list ourselves.
+                if fromStrip._onMove then
+                    fromStrip._onMove(dragId, fromStrip, hovered, hole or 0)
+                elseif fromStrip._setOrder then
+                    local d = fromStrip._drag
+                    local ids, cur = d.orderIds(), nil
+                    for i, v in ipairs(ids) do if v == dragId then cur = i break end end
+                    if cur then
+                        table.remove(ids, cur)
+                        local at = math.max(1, math.min(#ids + 1, (hole or 0) + 1))
+                        table.insert(ids, at, dragId)
                         fromStrip._setOrder(ids)
                     end
                 end

@@ -40,6 +40,7 @@ local function EnsureDialog()
     f:SetBackdropColor(0.08, 0.08, 0.08, 0.97)
     f:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
     f:Hide()
+    tinsert(UISpecialFrames, "UnbunkUtilityPrompt")   -- ESC = cancel
 
     local title = f:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
     title:SetPoint("TOP", f, "TOP", 0, -14)
