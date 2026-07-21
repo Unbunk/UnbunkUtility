@@ -736,6 +736,186 @@ function AP.SmartImport(entry, b)
     return ok, existed, detail
 end
 
+-- ── "Select" (activate an EXISTING profile without importing) ─────────────────
+-- Ops used ONLY by AP.SelectProfile / AP.CanSelect (the "Select" button + "Select all"). Ace-based addons
+-- reuse their AP.OPS entry (exists/current/switch); SELECT_EXTRA below is MERGED OVER AP.OPS to add or
+-- override ops for addons AP.OPS can't cover:
+--   • addons AP.OPS omits (BigWigs — import uses its own confirm dialog) or that we don't drive from AP.OPS
+--     (UnbunkUtility — our own ns.profiles): a live switch here is silent + safe;
+--   • addons with NO public live profile-switch (DandersFrames / Baganator / EnhanceQoL /
+--     UnhaltedUnitFrames): the ONLY way to switch is to write their active-profile pointer in
+--     SavedVariables and /reload, so `switch` does exactly that and they carry `reload = true` (the pointer
+--     write is non-destructive + reversible in the addon's own UI). Pointers verified vs installed source.
+-- Kept OUT of AP.OPS so none of this changes AP.SmartImport's behaviour.
+local SELECT_EXTRA = {
+    -- BigWigs' profile AceDB lives on the LOADER (BigWigs/Loader.lua: `public.db = LibStub("AceDB-3.0")
+    -- :New("BigWigs3DB", …)`, exposed as the global BigWigsLoader.db) — NOT on the `BigWigs` core object,
+    -- which never gets a `.db`. Verified vs the installed BigWigs source (matches WagoUI/LibAddonProfiles).
+    bigwigs = {
+        exists  = function(n) local db = BigWigsLoader and BigWigsLoader.db; return db ~= nil and db.profiles ~= nil and rawget(db.profiles, n) ~= nil end,
+        current = function() local db = BigWigsLoader and BigWigsLoader.db; return db and db:GetCurrentProfile() or nil end,
+        switch  = function(n) local db = BigWigsLoader and BigWigsLoader.db; if db and db.profiles and rawget(db.profiles, n) ~= nil and db:GetCurrentProfile() ~= n then db:SetProfile(n) end end,
+    },
+
+    -- UnbunkUtility: our own AceDB via ns.profiles — a clean LIVE switch (re-applies every module), no reload.
+    unbunkutility = {
+        exists  = function(n)
+            if not (ns.profiles and ns.profiles.GetList) then return false end
+            for _, v in ipairs(ns.profiles.GetList()) do if v == n then return true end end
+            return false
+        end,
+        current = function() return ns.profiles and ns.profiles.GetCurrent and ns.profiles.GetCurrent() or nil end,
+        switch  = function(n) if ns.profiles and ns.profiles.Load then ns.profiles.Load(n) end end,
+    },
+
+    -- DandersFrames (custom DB): on load the PER-CHARACTER key wins (Core.lua: `currentProfile =
+    -- DandersFramesCharDB.currentProfile or DandersFramesDB_v2.currentProfile`), so set both + /reload.
+    -- Limitation: if the user enabled DandersFrames' SPEC auto-switch (DandersFramesCharDB.enableSpecSwitch,
+    -- default off), CheckProfileAutoSwitch re-picks the per-spec profile shortly after the reload and
+    -- overrides this write — a global "Select" can't beat a per-spec rule the user configured.
+    danders = {
+        current = function()
+            return (type(DandersFramesCharDB) == "table" and DandersFramesCharDB.currentProfile)
+                or (type(DandersFramesDB_v2) == "table" and DandersFramesDB_v2.currentProfile) or nil
+        end,
+        switch  = function(n)
+            if not (type(DandersFramesDB_v2) == "table" and type(DandersFramesDB_v2.profiles) == "table" and DandersFramesDB_v2.profiles[n]) then return end
+            if type(DandersFramesCharDB) == "table" then DandersFramesCharDB.currentProfile = n end
+            DandersFramesDB_v2.currentProfile = n
+        end,
+        reload  = true,
+    },
+
+    -- Baganator (globals): on load it reads BAGANATOR_CURRENT_PROFILE (Config.lua), falling back to
+    -- "DEFAULT" if that name is gone.
+    baganator = {
+        switch = function(n)
+            if type(BAGANATOR_CONFIG) == "table" and type(BAGANATOR_CONFIG.Profiles) == "table" and BAGANATOR_CONFIG.Profiles[n] ~= nil then
+                BAGANATOR_CURRENT_PROFILE = n
+            end
+        end,
+        reload = true,
+    },
+
+    -- UnhaltedUnitFrames (AceDB "UUFDB"): a GLOBAL-profile mode overrides the per-char key (Core.lua
+    -- OnInitialize), so honour it — else set the AceDB per-char key `profileKeys["<Name> - <Realm>"]`.
+    -- Limitation: if the user enabled UUF DUAL-SPEC (LibDualSpec, default off), its login handler re-picks
+    -- the spec's profile and overrides this per-char write (LibDualSpec's mapping lives on the private
+    -- UUF.db object, unreachable from here). The global-profile branch is unaffected.
+    unhaltedUUF = {
+        current = function()
+            if type(UUFDB) ~= "table" then return nil end
+            if UUFDB.global and UUFDB.global.UseGlobalProfile then
+                return UUFDB.global.GlobalProfile or UUFDB.global.GlobalProfileName or "Default"
+            end
+            return (UUFDB.profileKeys and UUFDB.profileKeys[UnitName("player") .. " - " .. (GetRealmName() or "")]) or "Default"
+        end,
+        switch  = function(n)
+            if not (type(UUFDB) == "table" and type(UUFDB.profiles) == "table" and UUFDB.profiles[n] ~= nil) then return end
+            if UUFDB.global and UUFDB.global.UseGlobalProfile then
+                UUFDB.global.GlobalProfile = n
+            else
+                UUFDB.profileKeys = UUFDB.profileKeys or {}
+                UUFDB.profileKeys[UnitName("player") .. " - " .. (GetRealmName() or "")] = n
+            end
+        end,
+        reload  = true,
+    },
+
+    -- EnhanceQoL (custom DB "EnhanceQoLDB"): on load the active profile is profileKeys[<player GUID>]
+    -- (EnhanceQoL.lua), falling back to profileGlobal. We touch ONLY the per-char key (no cross-char spill).
+    enhanceqol = {
+        current = function()
+            if type(EnhanceQoLDB) ~= "table" then return nil end
+            local guid = UnitGUID("player")
+            return (guid and EnhanceQoLDB.profileKeys and EnhanceQoLDB.profileKeys[guid]) or EnhanceQoLDB.profileGlobal or nil
+        end,
+        switch  = function(n)
+            if not (type(EnhanceQoLDB) == "table" and type(EnhanceQoLDB.profiles) == "table" and type(EnhanceQoLDB.profiles[n]) == "table") then return end
+            local guid = UnitGUID("player")
+            if not guid then return end
+            EnhanceQoLDB.profileKeys = EnhanceQoLDB.profileKeys or {}
+            EnhanceQoLDB.profileKeys[guid] = n
+        end,
+        reload  = true,
+    },
+}
+
+-- The ops used to SELECT (switch to) an addon's profile. SELECT_EXTRA is MERGED OVER its AP.OPS entry, so an
+-- extra can supply just `switch`/`reload` (or a more accurate `current`) on top of AP.OPS's exists/current,
+-- or stand alone when AP.OPS has no entry.
+local function SelectOpsFor(entry)
+    if not (entry and entry.key) then return nil end
+    local extra = SELECT_EXTRA[entry.key]
+    local base  = AP.OPS and AP.OPS[entry.key]
+    if not extra then return base end
+    if not base  then return extra end
+    local merged = {}
+    for k, v in pairs(base)  do merged[k] = v end
+    for k, v in pairs(extra) do merged[k] = v end
+    return merged
+end
+
+-- Can this button be "selected"? True only when the addon exposes a switch (exists + switch) AND the button
+-- resolves to a NAMED profile (captured name, else b.default). `b.noSelect` opts a button out — used for the
+-- BigWigs "boss options" button (per-boss settings merged into the current profile, not a switchable
+-- profile of its own). Buttons with no live switch at all (none provides `switch`) are excluded here.
+function AP.CanSelect(entry, b)
+    if not (entry and b) or b.noSelect then return false end
+    local ops = SelectOpsFor(entry)
+    if not (ops and ops.exists and ops.switch) then return false end
+    local targetName = AP.ProfileName(b.blob, b.default)
+    return type(targetName) == "string" and targetName ~= ""
+end
+
+-- Switch an addon to its saved profile WITHOUT importing/overwriting: activate the named profile only when
+-- it already EXISTS and is not already the active one. Returns (ok, detail):
+--   "switched" -> switched, applied live · "reload" -> switched, but a /reload is needed to apply it ·
+--   "already"  -> it was already active (ok = true, no-op) · "notfound" -> no profile of that name ·
+--   "switchfailed" -> profile exists but the switch call errored · "noswitch" -> addon has no live switch.
+--   (last three: ok = false).
+function AP.SelectProfile(entry, b)
+    if not (entry and b) then return false, "noswitch" end
+    local ops = SelectOpsFor(entry)
+    if not (ops and ops.exists and ops.switch) then return false, "noswitch" end
+    local targetName = AP.ProfileName(b.blob, b.default)
+    if not (type(targetName) == "string" and targetName ~= "") then return false, "noswitch" end
+    local okE, exists = pcall(ops.exists, targetName)
+    if not okE or not exists then return false, "notfound" end
+    local cur
+    if ops.current then local okC, c = pcall(ops.current); if okC then cur = c end end
+    if cur == targetName then return true, "already" end
+    -- The profile IS present, so a pcall failure here is a switch error, not a missing profile — report it
+    -- distinctly so the UI doesn't tell the user to "import it first" when the profile already exists.
+    if not pcall(ops.switch, targetName) then return false, "switchfailed" end
+    return true, ops.reload and "reload" or "switched"
+end
+
+-- Switch EVERY detected addon to its saved profile (AP.SelectProfile) — the FIRST selectable button per
+-- addon wins (a profile is singular, so a multi-profile addon like Details picks its first, "Main (dj)").
+-- Non-destructive. Returns a tally { switched, already, skipped, needReload }; the caller prints it and
+-- prompts a reload when needReload (some addons apply the switch only on /reload). Shared by the "Import
+-- profiles" tab's "Select all" and the "New character" tab's one-click setup.
+function AP.SelectAll()
+    local switched, already, skipped, needReload = 0, 0, 0, false
+    if AP.ENTRIES then
+        for _, entry in ipairs(AP.ENTRIES) do
+            if not entry.unsupported and AP.Loaded(entry.addon) then
+                for _, b in ipairs(entry.buttons or {}) do
+                    if AP.CanSelect(entry, b) then
+                        local ok, detail = AP.SelectProfile(entry, b)
+                        if ok and detail == "already" then already = already + 1
+                        elseif ok then switched = switched + 1; if detail == "reload" then needReload = true end
+                        else skipped = skipped + 1 end   -- profile absent, or the switch failed
+                        break
+                    end
+                end
+            end
+        end
+    end
+    return { switched = switched, already = already, skipped = skipped, needReload = needReload }
+end
+
 -- ── Declarative cadre list (drives the Import profiles panel) ─────────────────
 -- addon      = the LoadOnDemand/real addon folder name (for the "loaded?" check).
 -- buttons    = { { label, blob, run = fn -> (ok, detail) }, … }.
@@ -774,7 +954,7 @@ AP.ENTRIES = {
     } },
     { key = "bigwigs", label = "BigWigs", addon = "BigWigs", buttons = {
         { labelKey = "Import Main (core)", blob = "bigwigsCore", default = "Main", export = AP.ExportBigWigs, run = function() return AP.ImportBigWigs(AP.ProfileName("bigwigsCore", "Main")) end },
-        { labelKey = "Import Main (boss)", blob = "bigwigsBoss", exportAsync = AP.ExportBigWigsBoss, run = function() return AP.ImportBigWigsBoss() end },
+        { labelKey = "Import Main (boss)", blob = "bigwigsBoss", noSelect = true, exportAsync = AP.ExportBigWigsBoss, run = function() return AP.ImportBigWigsBoss() end },
     } },
     { key = "unhaltedUUF", label = "UnhaltedUnitFrames", addon = "UnhaltedUnitFrames", buttons = {
         { labelKey = "Import Main", blob = "unhaltedUUF", default = "Main", export = AP.ExportUnhaltedUUF, run = function() return AP.ImportUnhaltedUUF(AP.ProfileName("unhaltedUUF", "Main")) end },

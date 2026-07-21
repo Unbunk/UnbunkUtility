@@ -129,6 +129,7 @@ Modules/DecursiveMove/Core/DecursiveMove.lua
 Modules/DecursiveMove/UI/ConfigWindow.lua
 Modules/ImportKeybinds/Core/ImportKeybinds.lua
 Modules/ImportKeybinds/UI/ConfigWindow.lua
+Modules/NewCharacter/UI/ConfigWindow.lua
 Modules/ReloadAnnounce/Core/ReloadAnnounce.lua
 Modules/ReloadAnnounce/UI/ConfigWindow.lua
 Modules/ShowIDs/Core/ShowIDs.lua

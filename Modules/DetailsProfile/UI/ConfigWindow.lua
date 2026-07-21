@@ -550,6 +550,34 @@ local function CreateRestorePanel(parent)
         })
     end
 
+    -- "Select": switch to the addon's saved profile if it ALREADY exists (no import / overwrite). It is
+    -- non-destructive and instantly reversible, so — unlike Import — it runs with NO Yes/No confirm; just a
+    -- combat guard (a live profile switch can taint / rebuild frames), then a one-line outcome report.
+    local function RunSelect(entry, b)
+        if InCombatLockdown() then ns.Print(L["Can't switch a profile in combat."]); return end
+        local AP = ns.AddonProfiles
+        if not (AP and AP.SelectProfile) then return end
+        local name = AP.ProfileName(b.blob, b.default)
+        local ok, detail = AP.SelectProfile(entry, b)
+        if ok and detail == "already" then
+            ns.Print(string.format(L["%s: the profile « %s » is already active."], entry.label, tostring(name)))
+        elseif ok then
+            ns.Print(string.format(L["%s: switched to the profile « %s »."], entry.label, tostring(name)))
+            if detail == "reload" then
+                -- The addon exposes no live switch — we wrote its active-profile pointer, so a /reload applies it.
+                ns.ui.ShowConfirm({
+                    title    = L["Reload UI?"],
+                    text     = string.format(L["%s: a UI reload is needed to fully apply it. Reload now?"], entry.label),
+                    onAccept = function() ReloadUI() end,
+                })
+            end
+        elseif detail == "notfound" then
+            ns.Print(string.format(L["%s: no profile named « %s » found — import it first."], entry.label, tostring(name)))
+        elseif detail == "switchfailed" then
+            ns.Print(string.format(L["%s: couldn't switch to the profile « %s »."], entry.label, tostring(name)))
+        end
+    end
+
     -- Capture one addon's CURRENT profile (+ its name) into SavedVariables so Import uses the fresh
     -- version — no source edit. Reports (with the profile name) and rebuilds so the status updates.
     -- Supports both a synchronous b.export() -> (str, name) and an async b.exportAsync(onDone) (BigWigs boss
@@ -591,11 +619,28 @@ local function CreateRestorePanel(parent)
     local function ImportButtonRow(entry, b)
         return { type = "custom", height = 46, build = function(host)
             local AP = ns.AddonProfiles
+
+            -- "Select" sits LEFT of Import: activate the saved profile if it already exists (no overwrite).
+            -- Shown only when the addon exposes a live switch AND this button targets a named profile
+            -- (AP.CanSelect) — mirrors how "Refresh" only appears when a capture export exists.
+            local selBtn
+            if AP and AP.CanSelect and AP.CanSelect(entry, b) then
+                selBtn = ns.ui.CreateButton({
+                    parent = host, label = L["Select"], width = 90, height = 22,
+                    onClick = function() RunSelect(entry, b) end,
+                })
+                selBtn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -4)
+            end
+
             local btn = ns.ui.CreateButton({
                 parent = host, label = L[b.labelKey], width = 200, height = 22,
                 onClick = function() RunImport(entry, b) end,
             })
-            btn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -4)
+            if selBtn then
+                btn.frame:SetPoint("LEFT", selBtn.frame, "RIGHT", 8, 0)
+            else
+                btn.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -4)
+            end
 
             if b.export or b.exportAsync then
                 local ref = ns.ui.CreateButton({
@@ -605,8 +650,9 @@ local function CreateRestorePanel(parent)
                 ref.frame:SetPoint("LEFT", btn.frame, "RIGHT", 8, 0)
             end
 
+            -- Status hint below the leftmost button (Select when present, else Import).
             local hint = host:CreateFontString(nil, "ARTWORK", "UnbunkUtilityH6")
-            hint:SetPoint("TOPLEFT", btn.frame, "BOTTOMLEFT", 0, -4)
+            hint:SetPoint("TOPLEFT", (selBtn or btn).frame, "BOTTOMLEFT", 0, -4)
             if AP and AP.HasCaptured(b.blob) then
                 hint:SetTextColor(0.4, 0.8, 0.4)
                 local nm = AP.GetBlobName and AP.GetBlobName(b.blob)
@@ -720,11 +766,45 @@ local function CreateRestorePanel(parent)
         finishIfDone()   -- prints now if nothing async is pending; otherwise the last callback prints
     end
 
-    -- The "All addons" cadre: Import all + Refresh all on one row, each behind a Yes/No confirm.
+    -- Switch every detected addon to its saved profile when that profile already exists and is not already
+    -- active (the loop lives in AP.SelectAll — shared with the "New character" tab). Non-destructive; a
+    -- single tally, plus one reload prompt if any addon applies its switch only on /reload.
+    local function doSelectAll()
+        -- Re-check at EXECUTION time (not just when the confirm dialog opened): the live SetProfile calls
+        -- below rebuild frames / re-anchor bars, which can taint if the player entered combat since clicking.
+        if InCombatLockdown() then ns.Print(L["Can't switch a profile in combat."]); return end
+        local AP = ns.AddonProfiles
+        if not (AP and AP.SelectAll) then return end
+        local r = AP.SelectAll()
+        ns.Print(string.format(L["Select all: %d switched, %d already active, %d skipped."], r.switched, r.already, r.skipped))
+        if r.needReload then
+            ns.ui.ShowConfirm({
+                title    = L["Reload UI?"],
+                text     = L["Some switched profiles need a UI reload to fully apply. Reload now?"],
+                onAccept = function() ReloadUI() end,
+            })
+        end
+    end
+
+    -- The "All addons" cadre: Select all + Import all + Refresh all on one row, each behind a Yes/No confirm.
     local function AllAddonsCadre()
         return { type = "group", title = L["All addons"], build = function()
             return {
                 { type = "custom", height = 34, build = function(host)
+                    -- "Select all" (left of Import all): switch every addon whose saved profile already
+                    -- exists to it, without importing / overwriting anything.
+                    local sel = ns.ui.CreateButton({
+                        parent = host, label = L["Select all"], width = 150, height = 22,
+                        onClick = function()
+                            if InCombatLockdown() then ns.Print(L["Can't switch a profile in combat."]); return end
+                            ns.ui.ShowConfirm({
+                                title    = L["Select all"],
+                                text     = L["Switch every detected addon to its saved profile when that profile already exists? (no import / overwrite)"],
+                                onAccept = doSelectAll,
+                            })
+                        end,
+                    })
+                    sel.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -4)
                     local imp = ns.ui.CreateButton({
                         parent = host, label = L["Import all"], width = 150, height = 22,
                         onClick = function()
@@ -736,7 +816,7 @@ local function CreateRestorePanel(parent)
                             })
                         end,
                     })
-                    imp.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -4)
+                    imp.frame:SetPoint("LEFT", sel.frame, "RIGHT", 10, 0)
                     local ref = ns.ui.CreateButton({
                         parent = host, label = L["Refresh all"], width = 150, height = 22,
                         onClick = function()

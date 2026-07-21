@@ -202,6 +202,7 @@ local function BuildNavTree()
                 if ns.IsAccountOwner and ns.IsAccountOwner() then
                     subs[#subs + 1] = { cat = L["Unbunk"], subs = {
                         { cat = L["Personal utilities"], subs = {
+                            { panel = L["New character"] },
                             { panel = L["Import profiles"] },
                             { panel = L["Import keybinds"] },
                             { panel = L["Details! settings"] },
