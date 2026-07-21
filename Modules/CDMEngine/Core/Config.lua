@@ -24,6 +24,7 @@ local DEFAULTS = {
     glowColor  = { 0.96, 1, 0, 1 },   -- {r,g,b,a} for pixel/autocast (F5FF00) ; button/proc ignore it
     rangeCheck = true,                -- tint the icon red while the spell's target is out of range
     showGcdSwipe = true,              -- default ON: draw the global cooldown as a radial spin (no number) on cooldown icons
+    showGcdSwipeOffGcd = false,       -- default OFF: extend the GCD spin to OFF-GCD icons too (Counterspell/Alter Time/… + hosted trackers)
     -- P4c class resources (Display/ClassResource.lua). Per-SPEC, per-BAR config lives under .bars
     -- (bars[specKey][barIndex] = sparse overrides of BAR_DEFAULTS below); .enable is the master toggle.
     resource = {
