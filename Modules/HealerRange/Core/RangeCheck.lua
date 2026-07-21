@@ -124,42 +124,47 @@ local function ForceClearAlert()
     isOutOfRange = false
 end
 
+-- The 10Hz range poll. Hoisted to a single module-level function (captures only
+-- file-level upvalues) so StartChecking installs the SAME reference every time
+-- instead of allocating a fresh closure on each combat/roster refresh.
+local function RangeOnUpdate(self, elapsed)
+    -- Throttle FIRST so the per-tick guards below (CfgGet + IsActiveInCurrentInstance's
+    -- IsInInstance C call + IsUnlocked/IsTesting) run at ~10Hz, not full framerate.
+    timer = timer + elapsed
+    if timer < CHECK_INTERVAL then return end
+    timer = 0
+
+    -- Clear any stuck alert BEFORE the early-return guards below, otherwise a
+    -- shown alert would freeze on screen when one of these conditions trips.
+    if not HR.CfgGet("enabled")
+        or not IsActiveInCurrentInstance()
+        or HR.IsUnlocked() or HR.IsTesting() then
+        ForceClearAlert()
+        return
+    end
+
+    local alertFrame = HR.GetFrame()
+    local result = IsHealerInRange()
+
+    if result == nil then
+        if alertFrame:IsShown() then alertFrame:Hide() end
+        isOutOfRange = false
+        return
+    end
+
+    if result == false and not isOutOfRange then
+        isOutOfRange = true
+        alertFrame:Show()
+        HR.PlaySound()
+    elseif result == true and isOutOfRange then
+        isOutOfRange = false
+        alertFrame:Hide()
+    end
+end
+
 local function StartChecking()
     timer = 0
-    mainFrame:SetScript("OnUpdate", function(self, elapsed)
-        -- Throttle FIRST so the per-tick guards below (CfgGet + IsActiveInCurrentInstance's
-        -- IsInInstance C call + IsUnlocked/IsTesting) run at ~10Hz, not full framerate.
-        timer = timer + elapsed
-        if timer < CHECK_INTERVAL then return end
-        timer = 0
-
-        -- Clear any stuck alert BEFORE the early-return guards below, otherwise a
-        -- shown alert would freeze on screen when one of these conditions trips.
-        if not HR.CfgGet("enabled")
-            or not IsActiveInCurrentInstance()
-            or HR.IsUnlocked() or HR.IsTesting() then
-            ForceClearAlert()
-            return
-        end
-
-        local alertFrame = HR.GetFrame()
-        local result = IsHealerInRange()
-
-        if result == nil then
-            if alertFrame:IsShown() then alertFrame:Hide() end
-            isOutOfRange = false
-            return
-        end
-
-        if result == false and not isOutOfRange then
-            isOutOfRange = true
-            alertFrame:Show()
-            HR.PlaySound()
-        elseif result == true and isOutOfRange then
-            isOutOfRange = false
-            alertFrame:Hide()
-        end
-    end)
+    mainFrame:SetScript("OnUpdate", RangeOnUpdate)
 end
 
 local function StopChecking()

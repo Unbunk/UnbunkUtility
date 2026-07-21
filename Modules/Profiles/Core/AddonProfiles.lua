@@ -714,6 +714,11 @@ AP.OPS = {
 -- message; `detail` is the importer's own hint ("reload" -> needs /reload, "confirm" -> addon shows its
 -- own dialog) or, on failure, the reason.
 function AP.SmartImport(entry, b)
+    -- Common choke-point for every import path (single + bulk + per-addon buttons). Re-check combat HERE, at
+    -- execution time: the dialog-open checks only guard the moment the confirm popup appears, so a player who
+    -- enters combat before clicking Yes would otherwise run a taint-prone import (Details/Plater/Dominos touch
+    -- protected/EditMode frames + heavy AceDB refreshes). Surfaces as the "combat" detail to the caller.
+    if InCombatLockdown() then return false, false, "combat" end
     local ops = entry and entry.key and AP.OPS and AP.OPS[entry.key]
     local targetName = AP.ProfileName(b.blob, b.default)   -- exactly the name b.run() imports to
     local named   = type(targetName) == "string" and targetName ~= ""
@@ -900,7 +905,7 @@ function AP.SelectAll()
     local switched, already, skipped, needReload = 0, 0, 0, false
     if AP.ENTRIES then
         for _, entry in ipairs(AP.ENTRIES) do
-            if not entry.unsupported and AP.Loaded(entry.addon) then
+            if AP.Loaded(entry.addon) then
                 for _, b in ipairs(entry.buttons or {}) do
                     if AP.CanSelect(entry, b) then
                         local ok, detail = AP.SelectProfile(entry, b)
@@ -919,8 +924,6 @@ end
 -- ── Declarative cadre list (drives the Import profiles panel) ─────────────────
 -- addon      = the LoadOnDemand/real addon folder name (for the "loaded?" check).
 -- buttons    = { { label, blob, run = fn -> (ok, detail) }, … }.
--- unsupported= a reason string when there is NO import path at all (button suppressed):
---   "notinstalled" (addon absent) | "nostring" (addon has no profile-string import).
 AP.ENTRIES = {
 -- `export` (optional) = fn returning the addon's CURRENT profile as an import-string; drives the
 -- per-button "Refresh" (capture -> AP.SetBlob). Buttons without it (bigwigsBoss/UUF/Baganator) stay

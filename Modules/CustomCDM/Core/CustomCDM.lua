@@ -118,6 +118,7 @@ local BUFF_DEFAULTS = {
     timerColor = { r = 0, g = 1, b = 0, a = 1 },   -- green by default (the "buff up" look), now configurable
     titlePos = "TOP", titleOffX = 0, titleOffY = 0,
     stackFontSize = 8, stackPos = "BOTTOMRIGHT", stackOffX = 2, stackOffY = -2,
+    showStack = false,   -- a cast-triggered buff has no charges; keep the count hidden (re-enable via Free icon settings)
     onlyWhenActive = true,   -- a buff free icon shows only while the buff is up (toggle in the editor)
     -- buff glow = "while active" (SetColorGlow), off by default (glowEnabled/glowColor from ICON_DEFAULTS).
 }
@@ -983,53 +984,6 @@ function CC.BuildAll()
     end
     CC.UpdateAll()
     if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end   -- lay the (re)built icons out now
-end
-
-function CC.Add(dest, row, atEnd, spellId)
-    local s = Store()
-    if not s then return end
-    -- Respect the per-BUCKET cap (front / end each, 4 below-player). The "+" tile already hides when the
-    -- target bucket is full; this guards the programmatic path too.
-    if ns.CDMAnchor and ns.CDMAnchor.BucketIconCount
-        and ns.CDMAnchor.BucketIconCount(dest or "belowPlayer", row or 1, atEnd and true or false)
-            >= ns.CDMAnchor.BucketCap(dest or "belowPlayer") then
-        ns.Print(L["This row is full."])
-        return
-    end
-    local id = s.nextId or 1
-    s.nextId = id + 1
-    local e = {}
-    ns.MergeDefaults(e, ICON_DEFAULTS)
-    SeedTiers(e)
-    e.spellId      = spellId
-    e.cdmDest      = dest or "belowPlayer"
-    e.cdmAtEnd     = atEnd and true or false
-    e.cdmRow       = row or 1
-    e.includeInCdm = true
-    s.icons[id]    = e
-    BuildIcon(id)
-    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
-    if ns.RebuildActiveModule then ns.RebuildActiveModule() end
-    return id
-end
-
--- Create a custom icon NOT in the CDM (free-positioned) — used by the "+" in the
--- Free icons tab. No row cap (free icons aren't bound to a CDM row).
-function CC.AddFree(spellId)
-    local s = Store()
-    if not s then return end
-    local id = s.nextId or 1
-    s.nextId = id + 1
-    local e = {}
-    ns.MergeDefaults(e, ICON_DEFAULTS)
-    SeedTiers(e)
-    e.spellId      = spellId
-    e.includeInCdm = false
-    s.icons[id]    = e
-    BuildIcon(id)
-    if ns.CDMAnchor then ns.CDMAnchor.RefreshAll() end
-    if ns.RebuildActiveModule then ns.RebuildActiveModule() end
-    return id
 end
 
 -- ── Draft (the editor's "Add Icon" flow) ──────────────────────────────────────

@@ -309,7 +309,7 @@ driver:SetScript("OnUpdate", function(_, dt)
         end
     end
     -- Pass 2: pick the target (with optional link — any reveal reveals all) and lerp.
-    local linked = (Cfg() and Cfg().link) and true or false
+    local fc = Cfg(); local linked = (fc and fc.link) and true or false
     for key, d in pairs(info) do
         local target
         if not d.active then

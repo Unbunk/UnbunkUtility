@@ -30,7 +30,7 @@ local DEFAULTS = {
     enabled    = false,
     spellID    = 1246769,   -- CDM buff to anchor the number above (Frost Mage "Shatter") — a readable player buff
     countScale = 2,         -- size multiplier on the drawn number
-    minCount   = 1,         -- GetAuraApplicationDisplayCount floor: only debuffs with >= this many stacks show a number
+    minCount   = 2,         -- GetAuraApplicationDisplayCount floor: only debuffs with >= this many stacks show a number
     fontKey    = "",        -- LSM font key for the number ("" = the addon's global font)
     fontPath   = "",        -- resolved font path (paired with fontKey; "" = use the global font)
     outline    = "THICKOUTLINE", -- SetFont outline flags: "", "OUTLINE", "THICKOUTLINE", "MONOCHROME|OUTLINE", …
@@ -56,19 +56,28 @@ local function InitCfg()
     if not p.focusBuffs._baseline1 then
         p.focusBuffs._baseline1 = true
         p.focusBuffs.countScale = 2
-        p.focusBuffs.minCount   = 1
+        p.focusBuffs.minCount   = 2
         p.focusBuffs.outline    = "THICKOUTLINE"
         p.focusBuffs.color      = { r = 0, g = 145/255, b = 1, a = 1 }
+    end
+    -- One-time: correct configs that ran the old _baseline1 (which force-set minCount=1). minCount must be
+    -- >= 2 so only STACKING debuffs render a number (see header) — force it once for already-migrated configs.
+    if not p.focusBuffs._baseline2 then
+        p.focusBuffs._baseline2 = true
+        p.focusBuffs.minCount   = 2
     end
     ns.MergeDefaults(p.focusBuffs, DEFAULTS)
     if FB.Apply then FB.Apply() end
 end
 ns.RegisterCfgInitHook(InitCfg)
 
+local RestyleAll  -- fwd decl (re-styles the FontString pool on config change)
+
 function FB.Get(key) local c = Cfg(); return c and c[key] end
 function FB.Enabled() return FB.Get("enabled") == true end
 function FB.Set(key, v)
     local c = Cfg(); if c then c[key] = v end
+    if RestyleAll then RestyleAll() end   -- config change → re-style the pool (not per-aura)
     FB.Apply()
 end
 
@@ -151,6 +160,7 @@ end
 
 -- ── Number overlay (our own FontStrings) ────────────────────────────────────────
 local FrameShown  -- fwd decl (used by ResolveCDMIcon)
+local StyleFS     -- fwd decl (GetFS styles a fresh FontString at creation)
 local overlay
 local fsPool = {}
 
@@ -171,12 +181,15 @@ local function GetFS(i)
     local fs = EnsureOverlay():CreateFontString(nil, "OVERLAY")
     fs:SetPoint("BOTTOM", overlay, "BOTTOM", 0, 0)
     fsPool[i] = fs
+    StyleFS(fs)   -- style once at creation; config changes re-style the whole pool (RestyleAll)
     return fs
 end
 
 -- Face a number FontString per config: font (LSM key/path override, else the addon's global font),
 -- outline flags and colour. Size is applied separately via SetScale (countScale) in RenderCounts.
-local function StyleFS(fs)
+-- Style depends only on config (not on the aura), so it is applied at FS creation and on config change,
+-- never per-aura per-refresh.
+StyleFS = function(fs)
     local c   = Cfg()
     local key = (c and c.fontKey  and c.fontKey  ~= "") and c.fontKey  or nil
     local pth = (c and c.fontPath and c.fontPath ~= "") and c.fontPath or nil
@@ -186,6 +199,12 @@ local function StyleFS(fs)
     fs:SetFont(path, BASE_FONT_SIZE, (c and c.outline) or DEFAULTS.outline)
     local col = (c and c.color) or DEFAULTS.color
     fs:SetTextColor(col.r or 1, col.g or 1, col.b or 1, col.a or 1)
+end
+
+-- Re-apply the current config style to every already-allocated FontString. Called on config change
+-- (FB.Set) and on /reload, so the per-aura render loop stays style-free.
+RestyleAll = function()
+    for i = 1, #fsPool do StyleFS(fsPool[i]) end
 end
 
 -- ── CDM buff-icon resolution (best-effort auto-follow) ──────────────────────────
@@ -245,18 +264,17 @@ local function RenderCounts(ov, scale, minCount)
     for i = 1, 40 do
         local data = getByIndex("focus", i)
         if not data then break end
-        local ok = pcall(function()
+        pcall(function()
             local aII = data.auraInstanceID
             if aII then
-                shown = shown + 1
-                local fs = GetFS(shown)
-                StyleFS(fs)
+                local slot = shown + 1                            -- provisional; only committed if it renders
+                local fs = GetFS(slot)                            -- styled at creation / on config change
                 fs:SetScale(scale)
-                fs:SetText(getCount("focus", aII, minCount, 999))   -- secret-safe: renders, never read
+                fs:SetText(getCount("focus", aII, minCount, 999)) -- secret-safe: renders, never read
                 fs:Show()
+                shown = slot                                      -- count the slot only once actually shown
             end
         end)
-        if not ok then shown = math.max(shown, 0) end
     end
     return shown
 end
@@ -308,6 +326,7 @@ guard:SetScript("OnEvent", function() if unlocked then FB.SetUnlocked(false) end
 
 ns.RegisterReloadHook(function()
     if unlocked then FB.SetUnlocked(false) end
+    RestyleAll()   -- global font/brand may have changed on reload → refresh the pool once
     FB.Apply()
 end)
 

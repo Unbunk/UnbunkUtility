@@ -178,18 +178,13 @@ local function CollectTrackedSplit(allowEmpty)
     end
     if poolCount == 0 and not allowEmpty then return nil, nil end
     local displayed, notDisplayed, seen = {}, {}, {}
-    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
-        and Enum and Enum.CooldownViewerCategory then
-        local full = C_CooldownViewer.GetCooldownViewerCategorySet(Enum.CooldownViewerCategory.TrackedBuff, true)
-        if type(full) == "table" then
-            for _, id in ipairs(full) do
-                local sid = CooldownInfoSpellId(id)
-                if sid and not seen[sid] then
-                    seen[sid] = true
-                    if inPool[sid] then displayed[#displayed + 1] = sid
-                    else notDisplayed[#notDisplayed + 1] = sid end
-                end
-            end
+    -- Use the CACHED resolved category (GetTrackedCategory) instead of re-fetching the category set +
+    -- per-id cooldownInfo C tables inline, mirroring RefreshDisplayedCache and BuffGroups.
+    for _, sid in ipairs(GetTrackedCategory()) do
+        if not seen[sid] then
+            seen[sid] = true
+            if inPool[sid] then displayed[#displayed + 1] = sid
+            else notDisplayed[#notDisplayed + 1] = sid end
         end
     end
     wipe(displayedCache)

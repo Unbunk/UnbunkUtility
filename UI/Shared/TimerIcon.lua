@@ -72,6 +72,7 @@ end
 local function EnsurePressPoller()
     if pressPoller then return end
     pressPoller = CreateFrame("Frame")
+    pressPoller:Hide()   -- shown only while ≥1 icon has the press overlay registered (empty registry = no OnUpdate)
     local accum = 0
     pressPoller:SetScript("OnUpdate", function(_, dt)
         accum = accum + dt
@@ -373,8 +374,11 @@ function ns.ui.CreateTimerIcon(config)
     -- never spin). An active timer/cooldown owns the swipe (skip); a stale PAST expiry counts as idle. Driven by
     -- the shared SPELL_UPDATE_COOLDOWN pass above and re-checked from ClearTimer when a real cooldown ends.
     local _gcdSpinning = false
+    -- A GENUINE cooldown swipe always wins over the GCD spin, even when the expiry
+    -- couldn't be estimated (swipe-only SetTimer: swipeDurObj set, expiry nil).
+    local _hasRealSwipe = false
     function result.RefreshGcdSpin()
-        if expirationTime and expirationTime > GetTime() then _gcdSpinning = false; return end
+        if _hasRealSwipe or (expirationTime and expirationTime > GetTime()) then _gcdSpinning = false; return end
         local E   = ns.CDMEngine
         local on  = E and E.Cfg and E.Cfg.Get and E.Cfg.Get("showGcdSwipe") and E.Cfg.Get("showGcdSwipeOffGcd")
         local gcd = on and CDMActive() and frame:IsShown() and ns.GlobalGcdSwipe and ns.GlobalGcdSwipe()
@@ -580,6 +584,9 @@ function ns.ui.CreateTimerIcon(config)
             ClockRemove(result)   -- stop ticking until the next SetTimer
             if result.onExpire then result.onExpire() end
         else
+            -- Frame externally hidden while a timer is live: keep ticking so expiry / onExpire
+            -- still fire, but skip the (invisible) render work below.
+            if not frame:IsShown() then return end
             if not timerCacheValid then RefreshTimerCache() end
             -- Only the whole-second value drives the displayed mm:ss, so skip
             -- the format/SetText/SetTextColor work on frames where it is unchanged.
@@ -711,6 +718,11 @@ function ns.ui.CreateTimerIcon(config)
         if expiry then ClockAdd(result, ClockTick) else ClockRemove(result); timerText:Hide() end
         timerText:SetAlpha(1)
         checkTex:Hide()
+        -- A real swipe (duration object, or expiry+duration) owns the cooldown ring:
+        -- flag it so RefreshGcdSpin never overwrites it with the GCD spin, and drop
+        -- any GCD spin currently up so the real swipe takes over.
+        _hasRealSwipe = (swipeDurObj ~= nil) or (expiry ~= nil and duration ~= nil)
+        _gcdSpinning = false
         if swipeDurObj and cooldown.SetCooldownFromDurationObject then
             cooldown:SetCooldownFromDurationObject(swipeDurObj)
         elseif expiry and duration then
@@ -735,6 +747,7 @@ function ns.ui.CreateTimerIcon(config)
 
     function result.ClearTimer()
         expirationTime = nil
+        _hasRealSwipe = false   -- no cooldown swipe anymore; RefreshGcdSpin may re-echo the GCD spin
         lastSecs = nil
         ClockRemove(result)   -- leave the shared clock; nothing to count down
         timerText:Hide()
@@ -1050,12 +1063,14 @@ function ns.ui.CreateTimerIcon(config)
 
         if CdmFlag("showPressOverlay") then
             EnsurePressPoller()
+            pressPoller:Show()   -- EnsurePressPoller early-outs when the frame already exists; re-show it here
             if not pressTrackers[frame] then
                 pressTrackers[frame] = { frame = frame, overlay = pressOverlay, getCombos = KbCombos, getColor = PressColor }
             end
         elseif pressTrackers[frame] then
             pressTrackers[frame] = nil
             pressOverlay:Hide()
+            if pressPoller and next(pressTrackers) == nil then pressPoller:Hide() end   -- park when the registry empties
         end
     end
 

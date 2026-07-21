@@ -273,6 +273,9 @@ end
 function ns.ui.OpenColorPicker(opts)
     opts = opts or {}
     local f = picker or buildPicker()
+    -- If a previous swatch is still open, flush it first so its OnHide revert
+    -- runs against the old onChange/initial before we re-arm for the new swatch.
+    if f:IsShown() then f:Hide() end
     f.onChange   = opts.onChange
     f.hasOpacity = opts.hasOpacity and true or false
     local r, g, b = opts.r or 1, opts.g or 1, opts.b or 1
