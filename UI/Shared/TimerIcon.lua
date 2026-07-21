@@ -368,15 +368,15 @@ function ns.ui.CreateTimerIcon(config)
         return v ~= nil and v:IsShown()
     end
 
-    -- Coolinator-style GCD spin on an IDLE, CDM-hosted tracker so it matches the engine's own-draw icons when
-    -- you cast. An active timer/cooldown owns the swipe (skip); a stale PAST expiry counts as idle. Gated by the
-    -- engine's showGcdSwipe toggle (+ CDMActive, so free / non-CDM icons never spin). Driven by the shared
-    -- SPELL_UPDATE_COOLDOWN pass above and re-checked from ClearTimer when a real cooldown ends.
+    -- Coolinator-style GCD spin on an IDLE, CDM-hosted tracker. Trackers count as OFF-GCD icons, so this is
+    -- gated by BOTH showGcdSwipe AND its opt-in "on off-GCD icons" toggle (+ CDMActive, so free / non-CDM icons
+    -- never spin). An active timer/cooldown owns the swipe (skip); a stale PAST expiry counts as idle. Driven by
+    -- the shared SPELL_UPDATE_COOLDOWN pass above and re-checked from ClearTimer when a real cooldown ends.
     local _gcdSpinning = false
     function result.RefreshGcdSpin()
         if expirationTime and expirationTime > GetTime() then _gcdSpinning = false; return end
         local E   = ns.CDMEngine
-        local on  = E and E.Cfg and E.Cfg.Get and E.Cfg.Get("showGcdSwipe")
+        local on  = E and E.Cfg and E.Cfg.Get and E.Cfg.Get("showGcdSwipe") and E.Cfg.Get("showGcdSwipeOffGcd")
         local gcd = on and CDMActive() and frame:IsShown() and ns.GlobalGcdSwipe and ns.GlobalGcdSwipe()
         if gcd and cooldown.SetCooldownFromDurationObject then
             cooldown:SetCooldownFromDurationObject(gcd); _gcdSpinning = true

@@ -272,18 +272,22 @@ local function UpdateSwipe(f)
     local swipe = realSwipe
     local onGcd = false
     if not swipe then
-        -- No REAL cooldown. The GCD spin takes PRIORITY (over the opt-in charge-recharge arc) so the
-        -- Coolinator-style pulse shows on EVERY idle icon when you cast — off-GCD spells AND charge spells.
-        -- We drive it from the GLOBAL GCD (spell 61304) so it's spell-independent (a per-spell query never
-        -- reports an off-GCD/charge spell as "on GCD"); fall back to the per-spell GCD if that's unavailable.
-        -- Its number is hidden (a GCD "1" on every cast is noise). Between casts (no GCD running) we fall back
-        -- to the "Show cd with 1 stacks or more" recharge arc — which, if left first, draws NOTHING at full
-        -- charges and so hid the pulse. A real cooldown above keeps its own swipe + number.
-        local gcd = E.Cfg and E.Cfg.Get and E.Cfg.Get("showGcdSwipe")
-            and ((ns.GlobalGcdSwipe and ns.GlobalGcdSwipe()) or (ns.SpellGcdSwipe and ns.SpellGcdSwipe(sid)))
-        if gcd then
-            swipe = gcd; onGcd = true
-        elseif f._showCdWithStacks and ns.SpellChargeRechargeSwipe then
+        -- No REAL cooldown. The global-cooldown spin (opt-in via showGcdSwipe) is PRIORITISED over the
+        -- charge-recharge arc (which draws nothing at full charges and would hide the pulse). ON-GCD icons —
+        -- the spell is itself on the GCD, OR it's a charge ability (GCD-locked even with a charge up) — always
+        -- spin; OFF-GCD icons (Counterspell/Alter Time/Mirror Image … SpellGcdSwipe nil and no charges) spin
+        -- ONLY when the opt-in "on off-GCD icons" toggle is set. Driven from the GLOBAL GCD (spell 61304) so
+        -- it's spell-independent; per-spell fallback. The spin's number is hidden (a GCD "1" is noise).
+        if E.Cfg and E.Cfg.Get and E.Cfg.Get("showGcdSwipe") then
+            local perSpell = ns.SpellGcdSwipe and ns.SpellGcdSwipe(sid)   -- non-nil only when THIS spell is on the GCD
+            local gcd = (ns.GlobalGcdSwipe and ns.GlobalGcdSwipe()) or perSpell
+            if gcd then
+                local onGcdIcon = (perSpell ~= nil) or (ns.SpellHasCharges and ns.SpellHasCharges(sid))
+                if onGcdIcon or E.Cfg.Get("showGcdSwipeOffGcd") then swipe = gcd; onGcd = true end
+            end
+        end
+        -- Between casts (no spin drawn): the opt-in "Show cd with 1 stacks or more" recharge arc.
+        if not swipe and f._showCdWithStacks and ns.SpellChargeRechargeSwipe then
             swipe = ns.SpellChargeRechargeSwipe(sid)
         end
     end

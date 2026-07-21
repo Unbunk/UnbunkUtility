@@ -534,6 +534,16 @@ function ns.GlobalGcdSwipe()
     return C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(GCD_SPELL, false)
 end
 
+-- True for a MULTI-charge spell (maxCharges is a STRUCTURAL field readable in combat; currentCharges is never
+-- read). Used to treat a charge ability as "on GCD" for the global cooldown spin — it is GCD-locked even with a
+-- charge up, so it should spin with the main toggle, not the opt-in "off-GCD icons" one.
+function ns.SpellHasCharges(spellId)
+    if not (spellId and spellId ~= 0 and C_Spell and C_Spell.GetSpellCharges) then return false end
+    local ci = C_Spell.GetSpellCharges(spellId)
+    local maxc = ci and ci.maxCharges
+    return (maxc and not (issecretvalue and issecretvalue(maxc)) and maxc > 1) or false
+end
+
 -- Size of one physical screen pixel in UIParent-local units, for crisp 1px borders on fractional UI scale
 -- (768 = UIParent's reference height; divided by the effective scale). Returns nil if the values aren't
 -- ready yet, so callers fall back to the raw size. Mirrors Ayije_CDM's Pixel.GetSize formula. NOTE: a UI
