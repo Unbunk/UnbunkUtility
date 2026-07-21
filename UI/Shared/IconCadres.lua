@@ -474,12 +474,27 @@ function IC.AppendEngineDisplayExtras(list)
           if e and e.Cfg then e.Cfg.Set("rangeCheck", v and true or false) end
           if e and e.IconExtras and e.IconExtras.ReapplyAll then e.IconExtras.ReapplyAll() end
       end }
-    list[#list + 1] = { type = "checkbox", label = L["Show global cooldown sweep"], shown = inEngine,
-      get = function() local e = Eng(); return e and e.Cfg and e.Cfg.Get("showGcdSwipe") == true end,
-      set = function(v)
-          local e = Eng()
-          if e and e.Cfg then e.Cfg.Set("showGcdSwipe", v and true or false) end
-          if e and e.Layout and e.Layout.ScheduleRebuild then e.Layout.ScheduleRebuild() end
+    -- "Global cooldown sweep" box: the master toggle + an opt-in to extend the spin to OFF-GCD icons
+    -- (Counterspell/Alter Time/… + hosted trackers). The gate greys the off-GCD toggle while the master is off.
+    list[#list + 1] = { type = "group", title = L["Global cooldown sweep"], shown = inEngine,
+      gate = { enabled = function() local e = Eng(); return e and e.Cfg and e.Cfg.Get("showGcdSwipe") == true end, master = "gcdSweep" },
+      build = function()
+          return {
+              { type = "checkbox", label = L["Show global cooldown sweep"], ref = "gcdSweep",
+                get = function() local e = Eng(); return e and e.Cfg and e.Cfg.Get("showGcdSwipe") == true end,
+                set = function(v)
+                    local e = Eng()
+                    if e and e.Cfg then e.Cfg.Set("showGcdSwipe", v and true or false) end
+                    if e and e.Layout and e.Layout.ScheduleRebuild then e.Layout.ScheduleRebuild() end
+                end },
+              { type = "checkbox", label = L["Show global cooldown sweep on off-GCD icons"],
+                get = function() local e = Eng(); return e and e.Cfg and e.Cfg.Get("showGcdSwipeOffGcd") == true end,
+                set = function(v)
+                    local e = Eng()
+                    if e and e.Cfg then e.Cfg.Set("showGcdSwipeOffGcd", v and true or false) end
+                    if e and e.Layout and e.Layout.ScheduleRebuild then e.Layout.ScheduleRebuild() end
+                end },
+          }
       end }
 end
 
