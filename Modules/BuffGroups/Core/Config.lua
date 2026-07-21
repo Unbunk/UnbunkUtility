@@ -75,7 +75,7 @@ local GROUP_TEMPLATE = {
     titleColor    = { r = 1, g = 1, b = 1, a = 1 },
     titlePos      = "TOP", titleOffX = 0, titleOffY = 0,
     -- stack count text (native Applications restyle)
-    showStack     = true, showAtZero = false,
+    showStack     = true,
     stackFontKey  = "Fira Mono", stackFontPath = nil, stackFontSize = 8, stackOutline = "OUTLINE",
     stackColor    = { r = 1, g = 1, b = 1, a = 1 },
     stackPos      = "BOTTOMRIGHT", stackOffX = 0, stackOffY = 0,

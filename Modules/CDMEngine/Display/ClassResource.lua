@@ -54,9 +54,6 @@ local AURA_COLOR       = { 0.60, 0.80, 1.00 }
 
 local function Cfg(key) return E.Cfg and E.Cfg.GetResource(key) end                  -- master flag (.enable)
 local function Bar(specKey, i, key) return E.Cfg and E.Cfg.GetBar(specKey, i, key) end -- per-bar setting
-local function Say(msg)
-    if ns.Print then ns.Print(msg) else print("|cff338cff[UnbunkUtility]|r " .. tostring(msg)) end
-end
 
 -- ── State ─────────────────────────────────────────────────────────────────────────────────────
 local shown = false
@@ -568,6 +565,7 @@ end
 
 local function PositionBar(bf, specKey, i)
     local af  = AnchorFrameFor(Bar(specKey, i, "anchorTo"))
+    if af == bf then af = nil end   -- a bar must NEVER anchor to itself (resbar:last after a shrink, or legacy bar<i>); WoW errors on self-SetPoint
     local rel = REL_POINTS[Bar(specKey, i, "placement")] or REL_POINTS.above
     local px, py = Bar(specKey, i, "posX") or 0, Bar(specKey, i, "posY") or 0
     bf:ClearAllPoints()
@@ -624,12 +622,31 @@ function R.AnchorFrameForKey(key)
     return nil
 end
 -- Ordered {key,label} anchor targets for the CURRENT spec ("Last bar" first, then "1: Name", "2: Name", ...).
+-- Cached in module-level scratch: the Fader hover driver calls this every tick, and the list only changes on
+-- spec / bar-count change. atSpec is force-invalidated from the spec-change path so a swap always rebuilds.
+-- Callers (Fader hover, ConfigWindow) copy .key/.label immediately, so handing back a reused table is safe.
+local atCache, atSpec = {}, nil
 function R.AnchorTargets()
-    local out, labels = {}, R.Detect()
-    if type(labels) ~= "table" or #labels == 0 then return out end
-    out[1] = { key = "resbar:last", label = (ns.L and ns.L["Last bar"]) or "Last bar" }
-    for i = 1, #labels do out[#out + 1] = { key = "resbar:" .. i, label = i .. ": " .. tostring(labels[i]) } end
-    return out
+    local spec, labels = R.GetSpecKey(), R.Detect()
+    local n = (type(labels) == "table") and #labels or 0
+    if n == 0 then
+        if #atCache > 0 then wipe(atCache) end
+        atSpec = spec
+        return atCache
+    end
+    if spec == atSpec and #atCache == n + 1 then return atCache end   -- unchanged -> reuse in place
+    atSpec = spec
+    for i = #atCache, n + 2, -1 do atCache[i] = nil end   -- shrank -> drop the tail
+    atCache[1] = atCache[1] or {}
+    atCache[1].key   = "resbar:last"
+    atCache[1].label = (ns.L and ns.L["Last bar"]) or "Last bar"
+    for i = 1, n do
+        local e = atCache[i + 1]
+        if not e then e = {}; atCache[i + 1] = e end   -- only allocate when the list grows
+        e.key   = "resbar:" .. i
+        e.label = i .. ": " .. tostring(labels[i])
+    end
+    return atCache
 end
 -- ns-level shims so other modules don't reach into E.Resource internals.
 ns.ResourceBarAnchorTargets = function() return R.AnchorTargets() end
@@ -649,7 +666,9 @@ local function PointPx(frame, point)
 end
 -- After a drag, derive posX/posY so PositionBar reproduces where the bar was dropped (relative to its anchor).
 local function SaveDraggedPos(bf, specKey, i)
-    local af  = AnchorFrameFor(Bar(specKey, i, "anchorTo")) or UIParent
+    local af  = AnchorFrameFor(Bar(specKey, i, "anchorTo"))
+    if af == bf then af = nil end   -- mirror PositionBar: never measure the bar against itself
+    af = af or UIParent
     local rel = REL_POINTS[Bar(specKey, i, "placement")] or REL_POINTS.above
     local bx, by = PointPx(bf, rel[1])
     local ax, ay = PointPx(af, rel[2])
@@ -846,6 +865,7 @@ local function DoSpecRebuild()
     Rebuild()
 end
 function ScheduleSpecRebuild()
+    atSpec = nil   -- force R.AnchorTargets to rebuild even if the label count is unchanged across the swap/talent change
     if specQueued then return end
     specQueued = true
     C_Timer.After(0, DoSpecRebuild)

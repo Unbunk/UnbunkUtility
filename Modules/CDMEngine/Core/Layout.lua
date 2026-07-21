@@ -35,10 +35,6 @@ local container
 local shown = false
 local groupFrames = {}
 
-local function Say(msg)
-    if ns.Print then ns.Print(msg) else print("|cff338cff[UnbunkUtility]|r " .. tostring(msg)) end
-end
-
 local function EnsureContainer()
     if container then return end
     container = CreateFrame("Frame", "UnbunkCDMEngineContainer", UIParent)

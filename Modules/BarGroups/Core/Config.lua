@@ -52,10 +52,8 @@ local GROUP_TEMPLATE = {
     fillDirection = "RIGHT",   -- "LEFT" | "RIGHT" — side the gauge is anchored on (SetReverseFill)
     invertFill = false,        -- true: the gauge DRAINS over time (mirror the native value) instead of filling up
     iconGap   = 1,             -- px gap between the icon and the gauge
-    -- text: the native name + duration are kept (Blizzard fills them); only their visibility is
-    -- a group flag here, and the per-bar custom-name OVERRIDE lives in iconCfg (see below).
-    showName     = true,
-    showDuration = true,
+    -- text: the native name + duration FontStrings are always kept (Blizzard fills them); the
+    -- per-bar custom-name OVERRIDE lives in iconCfg (nameOverride/customName, see below).
     -- runtime
     unlocked = false,
 }
@@ -260,16 +258,20 @@ end
 
 -- Bars assigned to a group (groupId 0 = Unused), in saved order; any assigned bar not yet in
 -- the order is appended (stable by spellId) so nothing is lost.
+-- Scratch hoisté (GetGroupBuffs n'est pas ré-entrant : AllBuffs/GroupOf/GroupOrder ne rappellent
+-- jamais dedans), wipé par appel pour ne pas allouer 3 tables à chaque relayout. Miroir de BG.
+local ggb_assigned, ggb_seen, ggb_rest = {}, {}, {}
 function BR.GetGroupBuffs(groupId)
-    local assigned = {}
+    local assigned = ggb_assigned; wipe(assigned)
     for _, spellId in ipairs(BR.AllBuffs()) do
         if BR.GroupOf(spellId) == groupId then assigned[spellId] = true end
     end
-    local out, seen = {}, {}
+    local out = {}                        -- reste alloué frais (échappe à l'appelant)
+    local seen = ggb_seen; wipe(seen)
     for _, sid in ipairs(BR.GroupOrder(groupId)) do
         if assigned[sid] and not seen[sid] then out[#out + 1] = sid; seen[sid] = true end
     end
-    local rest = {}
+    local rest = ggb_rest; wipe(rest)
     for sid in pairs(assigned) do if not seen[sid] then rest[#rest + 1] = sid end end
     if #rest > 0 then
         -- Order the not-yet-saved members by the NATIVE on-screen order (the EditMode arrangement), matching

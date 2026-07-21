@@ -57,7 +57,8 @@ end
 local function ItemIconID(itemID)
     if not itemID then return nil end
     if C_Item and C_Item.GetItemIconByID then return C_Item.GetItemIconByID(itemID) end
-    return GetItemIcon and GetItemIcon(itemID) or nil
+    -- Degrade to the addon's other canonical resolver (never a removed global).
+    return select(5, C_Item.GetItemInfoInstant(itemID))
 end
 
 -- The unit token a tooltip currently describes, or nil.
