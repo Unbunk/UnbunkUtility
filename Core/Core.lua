@@ -232,13 +232,38 @@ local function BuildNavTree()
     }
 
     -- Append companion-injected nav nodes, filtered by each node's optional `shown`
-    -- predicate. Appended to a freshly-built tree on every call, so nothing accumulates
-    -- across rebuilds and ns.RefreshNav() re-applies the `shown` gate.
+    -- predicate, to a freshly-built tree on every call so nothing accumulates across
+    -- rebuilds and ns.RefreshNav() re-applies the `shown` gate.
+    --
+    -- Merge-by-name: several companions may target the SAME category name under one main
+    -- tab (e.g. two private companions each nesting their own sub-category under a shared
+    -- "Unbunk" umbrella). Rather than emit duplicate headers we fold them into a single
+    -- category node. To stay rebuild-safe we never mutate the REGISTERED node — the
+    -- umbrella and its sub-list are fresh tables owned by this tree; we only reference
+    -- each companion's sub-nodes into it.
+    local umbrellas = {}   -- "<tab>\0<cat>" -> the fresh merged category node in this tree
     for _, reg in ipairs(navCategories) do
         if type(reg.node.shown) ~= "function" or reg.node.shown() then
             for _, tab in ipairs(tree) do
                 if tab.name == reg.tab then
-                    tab.subs[#tab.subs + 1] = reg.node
+                    local node = reg.node
+                    if node.cat and node.subs then
+                        local key = reg.tab .. "\0" .. node.cat
+                        local umbrella = umbrellas[key]
+                        if not umbrella then
+                            -- The umbrella itself carries no `shown`: gating already
+                            -- happened per-registrant at the `reg.node.shown()` filter
+                            -- above, so a copied predicate here would be dead metadata.
+                            umbrella = { cat = node.cat, subs = {} }
+                            umbrellas[key] = umbrella
+                            tab.subs[#tab.subs + 1] = umbrella
+                        end
+                        for _, sub in ipairs(node.subs) do
+                            umbrella.subs[#umbrella.subs + 1] = sub
+                        end
+                    else
+                        tab.subs[#tab.subs + 1] = node
+                    end
                     break
                 end
             end
@@ -376,14 +401,19 @@ end
 -- clicked. Recurses into the first category if the tab leads with one.
 local function FirstPanelOf(tab)
     if not tab then return nil end
-    for _, item in ipairs(tab.subs) do
-        if item.panel then return item.panel end
-        if item.subs then
-            for _, s in ipairs(item.subs) do
-                if s.panel then return s.panel end
-            end
+    -- Recurse to arbitrary depth (mirroring addItems / NavigateToPanel) so a tab that
+    -- leads with a category — or a category of categories, e.g. a merged companion
+    -- umbrella like "Unbunk" > "Personal utilities" > panel — still resolves its first
+    -- real panel instead of returning nil and opening the window blank.
+    local function firstIn(items)
+        if not items then return nil end
+        for _, item in ipairs(items) do
+            if item.panel then return item.panel end
+            local p = firstIn(item.subs)
+            if p then return p end
         end
     end
+    return firstIn(tab.subs)
 end
 
 -- ── Left sub-tab menu ──────────────────────────────────────────────────────────

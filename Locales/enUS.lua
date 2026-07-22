@@ -64,3 +64,14 @@ end
 function ns.ApplyLocale()
     active = ns.locales[ns.GetEffectiveLocale()] or {}
 end
+
+-- ── English display overrides ──────────────────────────────────────────────────
+-- enUS is normally the identity source (ns.L returns the key). These few entries are
+-- the exceptions: labels whose SHOWN text should differ from the key the code uses to
+-- reference them. Keeping the KEYS stable ("Debug", "Debug Utilities") means every nav
+-- reference, RegisterModule call and companion RegisterNavCategory keeps matching,
+-- while only the visible label changes here.
+local E = ns.locales.enUS or {}
+ns.locales.enUS = E
+E["Debug Utilities"] = "Debug / Dev Utilities"
+E["Debug"]           = "Debug / Dev"
