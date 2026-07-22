@@ -8,6 +8,12 @@ local ADDON, ns = ...
 
 UnbunkUtility = UnbunkUtility or {}
 
+-- Bridge the private namespace to companion addons (e.g. UnbunkUtility_Personal). Each
+-- addon receives its OWN `...` ns, so a dependent addon reaches ours through this global.
+-- Intentional: it exposes internal APIs (ns.ui, ns.db, ns.L, ns.IsDebugUnlocked, …) to a
+-- trusted sibling addon that extends this config UI.
+UnbunkUtility.ns = ns
+
 -- Panel registry: name -> { name, icon, createFn, frame, menu }. Modules call
 -- RegisterModule with the SAME localised name the NAV_TREE references.
 local panels = {}
@@ -23,14 +29,19 @@ end
 -- so each RegisterModule inside a callback resolves its panel name in the SAVED language, exactly
 -- as BuildNavTree (PLAYER_LOGIN) does — the two must agree for the nav to find the panel by name.
 local onLoadedCallbacks = {}
+local addonLoaded = false
+-- Re-entrant: a callback registered AFTER our ADDON_LOADED has already fired — e.g. from a
+-- companion addon, which loads after us — runs immediately instead of being queued into a
+-- list that will never be drained again.
 function UnbunkUtility.OnAddonLoaded(fn)
-    onLoadedCallbacks[#onLoadedCallbacks + 1] = fn
+    if addonLoaded then fn() else onLoadedCallbacks[#onLoadedCallbacks + 1] = fn end
 end
 do
     local f = CreateFrame("Frame")
     f:RegisterEvent("ADDON_LOADED")
     f:SetScript("OnEvent", function(self, _, addon)
         if addon ~= "UnbunkUtility" then return end
+        addonLoaded = true
         for _, fn in ipairs(onLoadedCallbacks) do fn() end
         self:UnregisterEvent("ADDON_LOADED")
     end)
@@ -124,9 +135,24 @@ end
 -- ── Nav tree ──────────────────────────────────────────────────────────────────
 -- Built lazily (needs ns.L at runtime). A `panel` entry references a registered
 -- panel by name; a `cat` entry is a collapsible grouping (its `subs` are panels).
+
+-- Nav nodes injected by companion addons (populated by RegisterNavCategory before the tree
+-- is first built — companions load before PLAYER_LOGIN). BuildNavTree appends these.
+local navCategories = {}
+
+-- Public: let a dependent addon (e.g. UnbunkUtility_Personal) inject a nav node under an
+-- existing main tab. `mainTabName` is the LOCALISED main-tab name — pass ns.L["…"], the same
+-- string BuildNavTree uses so they match. `node` is a nav node: { cat=, subs=, shown= } or
+-- { panel= }. The optional `shown` predicate is re-evaluated on every ns.RefreshNav(), so a
+-- gated section can appear/disappear live (e.g. behind the debug unlock).
+function UnbunkUtility.RegisterNavCategory(mainTabName, node)
+    if not (mainTabName and node) then return end
+    navCategories[#navCategories + 1] = { tab = mainTabName, node = node }
+end
+
 local function BuildNavTree()
     local L = ns.L
-    return {
+    local tree = {
         { name = L["General Settings"], subs = {
             { panel = L["Addon settings"] },
             { panel = L["Profiles"] },
@@ -197,25 +223,54 @@ local function BuildNavTree()
                     { panel = L["Graph"] },
                     { panel = L["Print"] },
                 } }
-                -- Owner-only secret category: requires BOTH the unlock above AND the
-                -- developer's Battle.net account.
-                if ns.IsAccountOwner and ns.IsAccountOwner() then
-                    subs[#subs + 1] = { cat = L["Unbunk"], subs = {
-                        { cat = L["Personal utilities"], subs = {
-                            { panel = L["New character"] },
-                            { panel = L["Import profiles"] },
-                            { panel = L["Import keybinds"] },
-                            { panel = L["Details! settings"] },
-                            { panel = L["Disable keybinds"] },
-                            { panel = L["Focus Freezing"] },
-                            { panel = L["Decursive settings"] },
-                        } },
-                    } }
-                end
+                -- The owner-only "Unbunk" > "Personal utilities" category is injected by the
+                -- private companion addon (UnbunkUtility_Personal) via UnbunkUtility.RegisterNavCategory,
+                -- so the public addon no longer carries those panels or their code.
             end
             return subs
         end)() },
     }
+
+    -- Append companion-injected nav nodes, filtered by each node's optional `shown`
+    -- predicate, to a freshly-built tree on every call so nothing accumulates across
+    -- rebuilds and ns.RefreshNav() re-applies the `shown` gate.
+    --
+    -- Merge-by-name: several companions may target the SAME category name under one main
+    -- tab (e.g. two private companions each nesting their own sub-category under a shared
+    -- "Unbunk" umbrella). Rather than emit duplicate headers we fold them into a single
+    -- category node. To stay rebuild-safe we never mutate the REGISTERED node — the
+    -- umbrella and its sub-list are fresh tables owned by this tree; we only reference
+    -- each companion's sub-nodes into it.
+    local umbrellas = {}   -- "<tab>\0<cat>" -> the fresh merged category node in this tree
+    for _, reg in ipairs(navCategories) do
+        if type(reg.node.shown) ~= "function" or reg.node.shown() then
+            for _, tab in ipairs(tree) do
+                if tab.name == reg.tab then
+                    local node = reg.node
+                    if node.cat and node.subs then
+                        local key = reg.tab .. "\0" .. node.cat
+                        local umbrella = umbrellas[key]
+                        if not umbrella then
+                            -- The umbrella itself carries no `shown`: gating already
+                            -- happened per-registrant at the `reg.node.shown()` filter
+                            -- above, so a copied predicate here would be dead metadata.
+                            umbrella = { cat = node.cat, subs = {} }
+                            umbrellas[key] = umbrella
+                            tab.subs[#tab.subs + 1] = umbrella
+                        end
+                        for _, sub in ipairs(node.subs) do
+                            umbrella.subs[#umbrella.subs + 1] = sub
+                        end
+                    else
+                        tab.subs[#tab.subs + 1] = node
+                    end
+                    break
+                end
+            end
+        end
+    end
+
+    return tree
 end
 local navTree
 
@@ -346,14 +401,19 @@ end
 -- clicked. Recurses into the first category if the tab leads with one.
 local function FirstPanelOf(tab)
     if not tab then return nil end
-    for _, item in ipairs(tab.subs) do
-        if item.panel then return item.panel end
-        if item.subs then
-            for _, s in ipairs(item.subs) do
-                if s.panel then return s.panel end
-            end
+    -- Recurse to arbitrary depth (mirroring addItems / NavigateToPanel) so a tab that
+    -- leads with a category — or a category of categories, e.g. a merged companion
+    -- umbrella like "Unbunk" > "Personal utilities" > panel — still resolves its first
+    -- real panel instead of returning nil and opening the window blank.
+    local function firstIn(items)
+        if not items then return nil end
+        for _, item in ipairs(items) do
+            if item.panel then return item.panel end
+            local p = firstIn(item.subs)
+            if p then return p end
         end
     end
+    return firstIn(tab.subs)
 end
 
 -- ── Left sub-tab menu ──────────────────────────────────────────────────────────

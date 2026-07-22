@@ -1,6 +1,6 @@
 ## Interface: 120007
 ## Title: Unbunk Utility
-## Notes: Utility addon
+## Notes: A comprehensive cooldown manager and combat utility addon.
 ## Author: Unbunk
 ## X-Curse-Project-ID: 1619896
 ## X-Wago-ID: b6XeJjKp
@@ -110,8 +110,6 @@ Modules/CombatState/Core/CombatState.lua
 Modules/CombatTimer/Core/CombatTimer.lua
 Modules/CombatSettings/UI/ConfigWindow.lua
 Modules/MinimapIcon/Core/MinimapIcon.lua
-Modules/Profiles/Core/GlobalCaptures.lua
-Modules/Profiles/Core/AddonProfiles.lua
 Modules/Profiles/UI/ConfigWindow.lua
 Modules/Debug/UI/ConfigWindow.lua
 Modules/Debug/UI/PrintPanel.lua
@@ -119,17 +117,6 @@ Modules/Debug/UI/ListPanel.lua
 Modules/Debug/UI/GraphPanel.lua
 Modules/Fader/Core/Fader.lua
 Modules/Fader/UI/ConfigWindow.lua
-Modules/DetailsProfile/Core/DetailsProfile.lua
-Modules/DetailsProfile/UI/ConfigWindow.lua
-Modules/DisableKeybinds/Core/DisableKeybinds.lua
-Modules/DisableKeybinds/UI/ConfigWindow.lua
-Modules/FocusBuffs/Core/FocusBuffs.lua
-Modules/FocusBuffs/UI/ConfigWindow.lua
-Modules/DecursiveMove/Core/DecursiveMove.lua
-Modules/DecursiveMove/UI/ConfigWindow.lua
-Modules/ImportKeybinds/Core/ImportKeybinds.lua
-Modules/ImportKeybinds/UI/ConfigWindow.lua
-Modules/NewCharacter/UI/ConfigWindow.lua
 Modules/ReloadAnnounce/Core/ReloadAnnounce.lua
 Modules/ReloadAnnounce/UI/ConfigWindow.lua
 Modules/ShowIDs/Core/ShowIDs.lua
