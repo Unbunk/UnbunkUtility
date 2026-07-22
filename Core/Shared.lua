@@ -330,8 +330,15 @@ end
 ns.cfgInitHooks = {}
 
 function ns.RegisterCfgInitHook(fn)
-    if type(fn) == "function" then
-        table.insert(ns.cfgInitHooks, fn)
+    if type(fn) ~= "function" then return end
+    table.insert(ns.cfgInitHooks, fn)
+    -- Re-entrant: a hook registered AFTER the initial bootstrap CfgInit has already run
+    -- (e.g. a module from the private companion addon, which loads after the host's
+    -- ADDON_LOADED) would otherwise never get its defaults merged / initial apply. Run it
+    -- once now so it lands at the same lifecycle position as a host module at bootstrap.
+    if ns.cfgInitDone then
+        local ok, err = pcall(fn)
+        if not ok then ns.Print("cfgInit hook error: " .. tostring(err)) end
     end
 end
 
@@ -342,6 +349,7 @@ function ns.RunCfgInitHooks()
             ns.Print("cfgInit hook error: " .. tostring(err))
         end
     end
+    ns.cfgInitDone = true   -- initial pass done; late registrants self-run (see RegisterCfgInitHook)
 end
 
 -- ── Default merge ───────────────────────────────────────────────────────────

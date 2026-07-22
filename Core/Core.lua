@@ -223,21 +223,9 @@ local function BuildNavTree()
                     { panel = L["Graph"] },
                     { panel = L["Print"] },
                 } }
-                -- Owner-only secret category: requires BOTH the unlock above AND the
-                -- developer's Battle.net account.
-                if ns.IsAccountOwner and ns.IsAccountOwner() then
-                    subs[#subs + 1] = { cat = L["Unbunk"], subs = {
-                        { cat = L["Personal utilities"], subs = {
-                            { panel = L["New character"] },
-                            { panel = L["Import profiles"] },
-                            { panel = L["Import keybinds"] },
-                            { panel = L["Details! settings"] },
-                            { panel = L["Disable keybinds"] },
-                            { panel = L["Focus Freezing"] },
-                            { panel = L["Decursive settings"] },
-                        } },
-                    } }
-                end
+                -- The owner-only "Unbunk" > "Personal utilities" category is injected by the
+                -- private companion addon (UnbunkUtility_Personal) via UnbunkUtility.RegisterNavCategory,
+                -- so the public addon no longer carries those panels or their code.
             end
             return subs
         end)() },
