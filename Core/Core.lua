@@ -8,6 +8,12 @@ local ADDON, ns = ...
 
 UnbunkUtility = UnbunkUtility or {}
 
+-- Bridge the private namespace to companion addons (e.g. UnbunkUtility_Personal). Each
+-- addon receives its OWN `...` ns, so a dependent addon reaches ours through this global.
+-- Intentional: it exposes internal APIs (ns.ui, ns.db, ns.L, ns.IsDebugUnlocked, …) to a
+-- trusted sibling addon that extends this config UI.
+UnbunkUtility.ns = ns
+
 -- Panel registry: name -> { name, icon, createFn, frame, menu }. Modules call
 -- RegisterModule with the SAME localised name the NAV_TREE references.
 local panels = {}
@@ -23,14 +29,19 @@ end
 -- so each RegisterModule inside a callback resolves its panel name in the SAVED language, exactly
 -- as BuildNavTree (PLAYER_LOGIN) does — the two must agree for the nav to find the panel by name.
 local onLoadedCallbacks = {}
+local addonLoaded = false
+-- Re-entrant: a callback registered AFTER our ADDON_LOADED has already fired — e.g. from a
+-- companion addon, which loads after us — runs immediately instead of being queued into a
+-- list that will never be drained again.
 function UnbunkUtility.OnAddonLoaded(fn)
-    onLoadedCallbacks[#onLoadedCallbacks + 1] = fn
+    if addonLoaded then fn() else onLoadedCallbacks[#onLoadedCallbacks + 1] = fn end
 end
 do
     local f = CreateFrame("Frame")
     f:RegisterEvent("ADDON_LOADED")
     f:SetScript("OnEvent", function(self, _, addon)
         if addon ~= "UnbunkUtility" then return end
+        addonLoaded = true
         for _, fn in ipairs(onLoadedCallbacks) do fn() end
         self:UnregisterEvent("ADDON_LOADED")
     end)
@@ -124,9 +135,24 @@ end
 -- ── Nav tree ──────────────────────────────────────────────────────────────────
 -- Built lazily (needs ns.L at runtime). A `panel` entry references a registered
 -- panel by name; a `cat` entry is a collapsible grouping (its `subs` are panels).
+
+-- Nav nodes injected by companion addons (populated by RegisterNavCategory before the tree
+-- is first built — companions load before PLAYER_LOGIN). BuildNavTree appends these.
+local navCategories = {}
+
+-- Public: let a dependent addon (e.g. UnbunkUtility_Personal) inject a nav node under an
+-- existing main tab. `mainTabName` is the LOCALISED main-tab name — pass ns.L["…"], the same
+-- string BuildNavTree uses so they match. `node` is a nav node: { cat=, subs=, shown= } or
+-- { panel= }. The optional `shown` predicate is re-evaluated on every ns.RefreshNav(), so a
+-- gated section can appear/disappear live (e.g. behind the debug unlock).
+function UnbunkUtility.RegisterNavCategory(mainTabName, node)
+    if not (mainTabName and node) then return end
+    navCategories[#navCategories + 1] = { tab = mainTabName, node = node }
+end
+
 local function BuildNavTree()
     local L = ns.L
-    return {
+    local tree = {
         { name = L["General Settings"], subs = {
             { panel = L["Addon settings"] },
             { panel = L["Profiles"] },
@@ -216,6 +242,22 @@ local function BuildNavTree()
             return subs
         end)() },
     }
+
+    -- Append companion-injected nav nodes, filtered by each node's optional `shown`
+    -- predicate. Appended to a freshly-built tree on every call, so nothing accumulates
+    -- across rebuilds and ns.RefreshNav() re-applies the `shown` gate.
+    for _, reg in ipairs(navCategories) do
+        if type(reg.node.shown) ~= "function" or reg.node.shown() then
+            for _, tab in ipairs(tree) do
+                if tab.name == reg.tab then
+                    tab.subs[#tab.subs + 1] = reg.node
+                    break
+                end
+            end
+        end
+    end
+
+    return tree
 end
 local navTree
 
