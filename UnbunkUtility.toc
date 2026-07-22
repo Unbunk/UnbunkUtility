@@ -1,6 +1,6 @@
 ## Interface: 120007
 ## Title: Unbunk Utility
-## Notes: Utility addon
+## Notes: A comprehensive cooldown manager and combat utility addon.
 ## Author: Unbunk
 ## X-Curse-Project-ID: 1619896
 ## X-Wago-ID: b6XeJjKp
