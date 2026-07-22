@@ -2,7 +2,8 @@ name: Package and release
 
 # On every version tag (v*):
 #   1. BigWigsMods/packager builds the addon from .pkgmeta (substitutes @project-version@, makes a clean
-#      `UnbunkUtility.zip` via -n "{package-name}") and uploads it to CurseForge / Wago / WoWInterface
+#      `UnbunkUtility.zip` file with a version display label (e.g. "v5.2.4") via
+#      -n "{package-name}:{project-version}") and uploads it to CurseForge / Wago / WoWInterface
 #      (each skipped if its .toc `## X-*-ID:` or API-token secret is missing).
 #   2. A separate step creates the GitHub release with auto-generated notes and attaches the same zip —
 #      the packager does NOT touch GitHub releases itself, so this step is what puts the build on GitHub.
@@ -32,7 +33,7 @@ jobs:
       - name: Package + upload to CurseForge / Wago / WoWInterface
         uses: BigWigsMods/packager@v2
         with:
-          args: -n "{package-name}"
+          args: -n "{package-name}:{project-version}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
