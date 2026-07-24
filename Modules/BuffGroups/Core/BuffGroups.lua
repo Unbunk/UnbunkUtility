@@ -284,6 +284,64 @@ function BG.SortGroupNativeOrder(groupId)
     for _, e in ipairs(customs) do o[#o + 1] = e.sid end
 end
 
+-- RESET + REBUILD: adopt the native buff arrangement into Group 1. Unlike SortGroupNativeOrder
+-- (which only re-sorts Group 1's CURRENT members), this pulls EVERY native buff into Group 1 in
+-- native order, parks every non-native member (customs assigned elsewhere) into "Unused", and keeps
+-- Group 1's custom members AFTER the natives. Order is FLAT (single list) — buffs have no multi-row
+-- layout. No-op (no wipe) if the native pool isn't ready yet — BG.NativeOrder() returns nil.
+function BG.AdoptNativeIntoGroup1()
+    local s = BG.Store and BG.Store()
+    if not s then return end
+    local nat = BG.NativeOrder()
+    if not nat then return end            -- pool not ready: do NOT wipe the saved layout
+    local natSet = {}
+    for _, sid in ipairs(nat) do natSet[sid] = true end
+    s.assign = s.assign or {}
+    s.order  = s.order  or {}
+
+    -- Capture FIRST (before the reassign): Group 1's current custom members in present order.
+    local keepCustoms = {}
+    for _, key in ipairs(BG.GetGroupBuffs(1)) do
+        if BG.IsCustom(key) then keepCustoms[#keepCustoms + 1] = key end
+    end
+
+    -- STEP A: every native -> Group 1; every custom keeps its assignment; every other key -> Unused.
+    local visited = {}
+    local function classify(key)
+        if visited[key] then return end
+        visited[key] = true
+        if natSet[key] then
+            s.assign[key] = 1
+        elseif BG.IsCustom(key) then
+            -- leave s.assign[key] untouched (customs stay where the user put them)
+        else
+            s.assign[key] = 0
+        end
+    end
+    for _, key in ipairs(BG.AllBuffs()) do classify(key) end
+    for key in pairs(s.assign) do classify(key) end
+
+    -- STEP B: Group 1 order = natives (native order) then the captured customs — FLAT single list.
+    local o1 = BG.GroupOrder(1)
+    wipe(o1)
+    for _, sid in ipairs(nat) do o1[#o1 + 1] = sid end
+    for _, key in ipairs(keepCustoms) do o1[#o1 + 1] = key end
+
+    -- STEP C: created groups (id>=2) keep ONLY customs — strip every native key from assign + order.
+    for _, g in ipairs(BG.GroupList()) do
+        local gid = g.id
+        if gid and gid >= 2 then
+            for key, gAssigned in pairs(s.assign) do
+                if gAssigned == gid and natSet[key] then s.assign[key] = 0 end
+            end
+            local o = s.order[gid]
+            if type(o) == "table" then
+                for i = #o, 1, -1 do if natSet[o[i]] then table.remove(o, i) end end
+            end
+        end
+    end
+end
+
 -- Can this buff actually render in a group? Customs are addon-drawn (always); a tracked buff renders
 -- only if it's in the native viewer's DISPLAYED pool (its EditMode "Tracked Buffs" section). The config
 -- uses these to flag a not-displayed buff dropped into a real group RED (no native frame -> never shows).
