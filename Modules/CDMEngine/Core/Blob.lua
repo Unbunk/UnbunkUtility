@@ -114,6 +114,21 @@ function Blob.Encode(cdmData)
     return nil
 end
 
+-- Reverse Encode: turn a "<version>|<base64(deflate(cbor))>" string back into its Lua table, or nil.
+-- Pure/non-mutating (mirrors Read's decode step without touching the live CDM). Generic — it does NOT
+-- interpret the schema, so any caller that later wants to Write() a decoded blob owns that decision.
+function Blob.Decode(str)
+    if type(str) ~= "string" or not (C_EncodingUtil and DEFLATE) then return nil end
+    local body = str:match("^%d+%|(.*)$")
+    if not body then return nil end
+    local ok, data = pcall(function()
+        return C_EncodingUtil.DeserializeCBOR(
+            C_EncodingUtil.DecompressString(C_EncodingUtil.DecodeBase64(body), DEFLATE))
+    end)
+    if ok and type(data) == "table" then return data end
+    return nil
+end
+
 -- The cooldownIDs of a category. The 2nd arg widens the set: false/nil = the currently CONFIGURED
 -- subset (what the user selected for this category), true = ALL cooldowns AVAILABLE to the category
 -- for this spec (a superset — verified in-game: configured count <= available count). Exact API
