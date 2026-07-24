@@ -812,6 +812,86 @@ local function EngineFor(I)
         if s then s.order = s.order or {}; s.order[groupId] = rows end
     end
 
+    -- RESET + REBUILD: adopt the native CDM arrangement into Group 1. Unlike SortGroupNativeOrder
+    -- (which only re-sorts Group 1's CURRENT members), this pulls EVERY native cooldown into Group 1
+    -- in native order, parks every OTHER native-less member (customs / non-Group-1 natives) into
+    -- "Unused", and keeps addon-tracker + custom members where the user put them. Group 1's own
+    -- tracker/custom members are appended AFTER the natives so nothing the user added is lost.
+    -- No-op (no wipe) if the native pool isn't ready yet — NativeOrder() returns nil.
+    function I.AdoptNativeIntoGroup1()
+        local s = I.Store and I.Store()
+        if not s then return end
+        local nat = I.NativeOrder()
+        if not nat then return end            -- pool not ready: do NOT wipe the saved layout
+        local natSet = {}
+        for _, sid in ipairs(nat) do natSet[sid] = true end
+        s.assign = s.assign or {}
+        s.order  = s.order  or {}
+
+        -- STEP B (capture FIRST, before the reassign): Group 1's current tracker/custom members in
+        -- their present relative order — these ride along AFTER the natives in the rebuilt Group 1.
+        local keepMembers = {}
+        for _, key in ipairs(I.GetGroupBuffs(1)) do
+            if I.IsTracker(key) or I.IsCustom(key) then keepMembers[#keepMembers + 1] = key end
+        end
+
+        -- STEP A: every native -> Group 1; every tracker keeps its existing assignment; everything
+        -- else (a native-less number key, i.e. a custom or a stale spellId) -> Unused. Walk the whole
+        -- universe UNION every explicit assign key so nothing assigned-but-out-of-pool is missed.
+        local visited = {}
+        local function classify(key)
+            if visited[key] then return end
+            visited[key] = true
+            if natSet[key] then
+                s.assign[key] = 1
+            elseif I.IsTracker(key) then
+                -- leave s.assign[key] untouched (tracker/custom members stay where the user put them)
+            elseif I.IsCustom(key) then
+                -- a custom keeps its current assignment too (it's a user-added member, not a native)
+            else
+                s.assign[key] = 0
+            end
+        end
+        for _, key in ipairs(I.AllBuffs()) do classify(key) end
+        for key in pairs(s.assign) do classify(key) end
+
+        -- STEP B (rebuild): Group 1 order = natives (native order) then the captured tracker/custom
+        -- members, chunked into explicit rows of Group 1's maxPerRow.
+        local flat = {}
+        for _, sid in ipairs(nat) do flat[#flat + 1] = sid end
+        for _, key in ipairs(keepMembers) do flat[#flat + 1] = key end
+        local per = I.MaxPerRow(1)
+        local rows, row = {}, {}
+        for _, key in ipairs(flat) do
+            if #row >= per then rows[#rows + 1] = row; row = {} end
+            row[#row + 1] = key
+        end
+        if #row > 0 then rows[#rows + 1] = row end
+        if #rows == 0 then rows[1] = {} end
+        s.order[1] = rows
+
+        -- STEP C: created groups (id>=2) keep ONLY their tracker/custom members — strip every native
+        -- key (assign -> Unused, and out of the stored order) so no native lives outside Group 1.
+        for _, g in ipairs(I.GroupList()) do
+            local gid = g.id
+            if gid and gid >= 2 then
+                for key, gAssigned in pairs(s.assign) do
+                    if gAssigned == gid and natSet[key] then s.assign[key] = 0 end
+                end
+                local o = s.order[gid]
+                if type(o) == "table" then
+                    for _, orow in ipairs(o) do
+                        if type(orow) == "table" then
+                            for i = #orow, 1, -1 do
+                                if natSet[orow[i]] then table.remove(orow, i) end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     -- ── Per-spell CreateFont objects for the native countdown ──────────────────
     local function CountdownFont(spellId)
         local name = "UnbunkUtilityCDG_" .. dest .. "_Timer_" .. spellId

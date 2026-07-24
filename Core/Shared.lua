@@ -389,6 +389,37 @@ end
 -- the single implementation instead of hand-rolling their own.
 ns.DeepCopy = ns.CopyDefault
 
+-- ── Per-character group-config store ─────────────────────────────────────────
+-- Group configs (cdmGroups / buffGroups / barGroups) are PER-CHARACTER: the same
+-- toon keeps its own layout regardless of the shared account-wide profile. They
+-- live under ns.db.global.perChar[charKey][moduleKey] (global = NOT profile-scoped,
+-- so a profile switch/import never touches them).
+--   moduleKey: "cdmGroups" | "buffGroups" | "barGroups"
+--
+-- The charKey is memoized ONCE the first time it can be computed: GetPerCharStore
+-- runs on 0.2s hot-path tickers, so we must NOT concat name.."-"..realm on every
+-- call. Early in login UnitName/GetRealmName can still be empty; we refuse to
+-- memoize a bad key so a later call (once they resolve) gets the real one.
+local perCharKey  -- cached "Name-Realm", set exactly once
+function ns.PerCharKey()
+    if perCharKey then return perCharKey end
+    local name = UnitName("player")
+    local realm = GetRealmName()
+    if not name or name == "" or not realm or realm == "" then return nil end
+    perCharKey = name .. "-" .. realm
+    return perCharKey
+end
+function ns.GetPerCharStore(moduleKey)
+    if not (ns.db and ns.db.global) then return nil end
+    local ck = ns.PerCharKey()
+    if not ck then return nil end
+    local g = ns.db.global
+    g.perChar = g.perChar or {}
+    g.perChar[ck] = g.perChar[ck] or {}
+    g.perChar[ck][moduleKey] = g.perChar[ck][moduleKey] or {}
+    return g.perChar[ck][moduleKey]
+end
+
 -- ── Sound playback ──────────────────────────────────────────────────────────
 -- Plays a configured sound: explicit file path > LSM key > nothing. `cfg` is
 -- the (sub)table holding the two keys. Replaces the per-module PlaySound copies

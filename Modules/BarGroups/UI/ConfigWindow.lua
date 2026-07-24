@@ -816,10 +816,14 @@ local function CreateBarsPanel(parent)
                   get = function() return BR.GGet(id, "name") or "" end,
                   set = function(v) BR.GSet(id, "name", v or ""); rebuild() end },
                 BarStripEntry(id),
-                { type = "button", label = L["Copy native CDM order"], width = 200, hostHeight = 30,
-                  onClick = function() BR.SortGroupNativeOrder(id); touch(); rebuild() end },
-                GroupSettingsSection(id),
             }
+            -- Group 1 only: RESET + REBUILD Group 1 from the native bar arrangement (all native bars
+            -- into Group 1 in native order; every other bar parked in Unused; created groups cleared).
+            if id == 1 then
+                e[#e + 1] = { type = "button", label = L["Copy native CDM order"], width = 200, hostHeight = 30,
+                    onClick = function() BR.AdoptNativeIntoGroup1(); touch(); rebuild() end }
+            end
+            e[#e + 1] = GroupSettingsSection(id)
             if id ~= 1 then
                 e[#e + 1] = { type = "button", label = L["Delete group"], width = 160, hostHeight = 30,
                     onClick = function() BR.RemoveGroup(id); touch(); rebuild() end }

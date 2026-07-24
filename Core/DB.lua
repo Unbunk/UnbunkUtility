@@ -99,6 +99,40 @@ local function MigrateLegacy()
     UnbunkUtilityAceDB.__legacyMigrated = true
 end
 
+-- ── Per-character group-config migration ─────────────────────────────────────
+-- The group configs (cdmGroups / buffGroups / barGroups) used to live in the
+-- shared account-wide profile (ns.db.profile.*); they are now PER-CHARACTER under
+-- ns.db.global.perChar[charKey][moduleKey] (see ns.GetPerCharStore). On the first
+-- login of a character AFTER this upgrade, seed its per-char store from whatever
+-- the shared profile currently holds, so no layout is lost.
+--
+-- Zero-loss + reversible: the OLD ns.db.profile.{cdmGroups,buffGroups,barGroups}
+-- tables are left intact (a frozen backup — downgrading reads them again). Gated
+-- once per character via ns.db.global.perCharMigrated[charKey] (nil = not yet).
+local function MigrateGroupsToPerChar()
+    if not (ns.db and ns.db.global) then return end
+    local ck = ns.PerCharKey and ns.PerCharKey()
+    if not ck then return end   -- name/realm not ready; modules re-run on PLAYER_LOGIN
+    local g = ns.db.global
+    g.perCharMigrated = g.perCharMigrated or {}
+    if g.perCharMigrated[ck] then return end
+    g.perCharMigrated[ck] = true
+
+    local prof = ns.db.profile
+    local function adopt(moduleKey)
+        local src = prof and prof[moduleKey]
+        if type(src) ~= "table" or not next(src) then return end
+        local dst = ns.GetPerCharStore(moduleKey)
+        -- Only seed when the per-char store is still empty (never clobber real data).
+        if dst and not next(dst) then
+            g.perChar[ck][moduleKey] = ns.DeepCopy(src)
+        end
+    end
+    adopt("cdmGroups")
+    adopt("buffGroups")
+    adopt("barGroups")
+end
+
 -- ── Profile (re)apply ────────────────────────────────────────────────────────
 -- Re-merge each module's defaults + sound-key migration into the active profile,
 -- then have every module re-apply its settings. Driven off the existing hook
@@ -142,6 +176,11 @@ local function Bootstrap()
     ns.db.RegisterCallback(ns, "OnProfileChanged", function() OnProfileChange() end)
     ns.db.RegisterCallback(ns, "OnProfileCopied",  function() OnProfileChange() end)
     ns.db.RegisterCallback(ns, "OnProfileReset",   function() OnProfileChange() end)
+
+    -- One-time seed of this character's per-char group store from the shared
+    -- profile. MUST run BEFORE the initial CfgInit so the first CfgInit reads the
+    -- already-migrated per-char store rather than an empty default.
+    MigrateGroupsToPerChar()
 
     -- Initial defaults merge + module apply for the active profile. (Reload hooks
     -- also run later from the modules' own PLAYER_LOGIN frames; running CfgInit now

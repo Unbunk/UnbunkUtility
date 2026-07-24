@@ -4,13 +4,14 @@
 -- (BuffIconCooldownViewer + Enum.CooldownViewerCategory.TrackedBuff), THIS module is a factory:
 -- ns.CDMGroups.Make(dest) builds one self-contained INSTANCE (all the same accessors) bound to a
 -- destination ("essential" + "utility" are both instantiated). Each instance reads/writes
--- ns.db.profile.cdmGroups[dest], so two dests never share state.
+-- its PER-CHARACTER store ns.db.global.perChar[charKey].cdmGroups[dest] (see ns.GetPerCharStore),
+-- so two dests never share state AND every character keeps its own layout.
 --
 -- We REUSE the native cooldown viewer frames — re-sized, re-styled and re-anchored into user-defined
 -- GROUPS (movable containers), exactly like BuffGroups. The native viewer is NOT hidden;
 -- we drive its frames so Blizzard keeps rendering the cooldown swipe / charges / combat-safe state.
 --
--- Per-profile (ns.db.profile.cdmGroups[dest]):
+-- Per-character (ns.db.global.perChar[charKey].cdmGroups[dest]):
 --   groups[id] = a GROUP: position + grow direction + geometry + border/glow + the native text
 --                restyle (timer / title / stacks). Applies to every icon in it.
 --   assign[spellId] = groupId  -- which group a cooldown belongs to:
@@ -174,10 +175,15 @@ end
 -- ════════════════════════════════════════════════════════════════════════════════
 CDG.instances = CDG.instances or {}
 
+-- Per-character store for this dest (essential/utility): the group config lives
+-- under ns.db.global.perChar[charKey].cdmGroups[dest], NOT the shared profile, so
+-- each character keeps its own CDM layout. Returns nil before the DB / char key is
+-- ready (callers early-out). The one-time migration flags below live on this table.
 local function Store(dest)
-    if not (ns.db and ns.db.profile) then return nil end
-    ns.db.profile.cdmGroups = ns.db.profile.cdmGroups or {}
-    return ns.db.profile.cdmGroups[dest]
+    local pc = ns.GetPerCharStore and ns.GetPerCharStore("cdmGroups")
+    if not pc then return nil end
+    pc[dest] = pc[dest] or {}
+    return pc[dest]
 end
 
 function CDG.Make(dest)
@@ -192,9 +198,8 @@ function CDG.Make(dest)
 
     function I.CfgInit()
         if not ns.db then return end
-        ns.db.profile.cdmGroups = ns.db.profile.cdmGroups or {}
-        ns.db.profile.cdmGroups[dest] = ns.db.profile.cdmGroups[dest] or {}
-        local s = ns.db.profile.cdmGroups[dest]
+        local s = Store(dest)
+        if not s then return end
         ns.MergeDefaults(s, MakeDefaults(dest))
         s.groups = s.groups or {}
         if not s.groups[1] then s.groups[1] = MakeGroup1(dest) end
