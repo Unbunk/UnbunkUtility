@@ -5,7 +5,7 @@
 -- viewer is NOT hidden; we drive its frames. Custom (cast-triggered) buffs are the one
 -- exception: those are drawn by the addon and packed alongside the natives.
 --
--- Per-profile (ns.db.profile.buffGroups):
+-- Per-character (ns.db.global.perChar[charKey].buffGroups):
 --   groups[id] = a GROUP: position + grow direction + geometry + border/glow + the
 --                native text restyle (timer / title / stacks). Applies to every icon in it.
 --   assign[spellId] = groupId   -- which group a buff belongs to:
@@ -119,16 +119,19 @@ local DEFAULTS = {
     iconCfg = {},             -- iconCfg[spellId] = sparse per-icon overrides (the pencil)
 }
 
+-- Per-character store: the buff-group config lives under
+-- ns.db.global.perChar[charKey].buffGroups (see ns.GetPerCharStore), NOT the shared
+-- profile, so each character keeps its own layout. nil before the DB / char key is
+-- ready (callers early-out). The one-time migration flags below live on this table.
 local function Store()
-    if not (ns.db and ns.db.profile) then return nil end
-    return ns.db.profile.buffGroups
+    return ns.GetPerCharStore and ns.GetPerCharStore("buffGroups") or nil
 end
 BG.Store = Store
 
 function BG.CfgInit()
     if not ns.db then return end
-    ns.db.profile.buffGroups = ns.db.profile.buffGroups or {}
-    local s = ns.db.profile.buffGroups
+    local s = Store()
+    if not s then return end
     ns.MergeDefaults(s, DEFAULTS)
     -- Group 1 is indelible: (re)seed it if missing, but never overwrite a saved one.
     s.groups = s.groups or {}

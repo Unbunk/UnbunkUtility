@@ -799,13 +799,14 @@ local function CreateBuffsPanel(parent)
                   get = function() return BG.GGet(id, "name") or "" end,
                   set = function(v) BG.GSet(id, "name", v or ""); rebuild() end },
                 BuffStripEntry(id),
-                -- Re-sort this group's strip so its NATIVE buffs follow the native on-screen order
-                -- (the EditMode "Tracked Buffs" arrangement); CUSTOM buffs keep their relative order
-                -- AFTER the natives. Reorders within the group only (no add/remove/reassign).
-                { type = "button", label = L["Copy native CDM order"], width = 200, hostHeight = 30,
-                  onClick = function() BG.SortGroupNativeOrder(id); touch(); rebuild() end },
-                GroupSettingsSection(id),
             }
+            -- Group 1 only: RESET + REBUILD Group 1 from the native buff arrangement (all natives into
+            -- Group 1 in native order; every other buff parked in Unused; Group 1's customs kept after).
+            if id == 1 then
+                e[#e + 1] = { type = "button", label = L["Copy native CDM order"], width = 200, hostHeight = 30,
+                    onClick = function() BG.AdoptNativeIntoGroup1(); touch(); rebuild() end }
+            end
+            e[#e + 1] = GroupSettingsSection(id)
             if id ~= 1 then
                 e[#e + 1] = { type = "button", label = L["Delete group"], width = 160, hostHeight = 30,
                     onClick = function() BG.RemoveGroup(id); touch(); rebuild() end }

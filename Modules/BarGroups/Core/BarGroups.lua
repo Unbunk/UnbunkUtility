@@ -252,6 +252,47 @@ function BR.SortGroupNativeOrder(groupId)
     for _, e in ipairs(ranked) do o[#o + 1] = e.sid end
 end
 
+-- RESET + REBUILD: adopt the native bar arrangement into Group 1. Unlike SortGroupNativeOrder
+-- (which only re-sorts Group 1's CURRENT members), this pulls EVERY native bar into Group 1 in
+-- native order and parks every other assigned bar into "Unused". BarGroups has no custom/tracker
+-- members (all bars are native TrackedBuff), so Group 1 ends up as a FLAT copy of the native order
+-- and created groups (id>=2) are cleared. No-op (no wipe) if BR.NativeOrder() returns nil.
+function BR.AdoptNativeIntoGroup1()
+    local s = BR.Store and BR.Store()
+    if not s then return end
+    local nat = BR.NativeOrder()
+    if not nat then return end            -- pool not ready: do NOT wipe the saved layout
+    local natSet = {}
+    for _, sid in ipairs(nat) do natSet[sid] = true end
+    s.assign = s.assign or {}
+    s.order  = s.order  or {}
+
+    -- STEP A: every native -> Group 1; every other key -> Unused. Walk the universe UNION every
+    -- explicit assign key so an assigned-but-out-of-pool bar is still parked.
+    local visited = {}
+    local function classify(key)
+        if visited[key] then return end
+        visited[key] = true
+        s.assign[key] = natSet[key] and 1 or 0
+    end
+    for _, key in ipairs(BR.AllBuffs()) do classify(key) end
+    for key in pairs(s.assign) do classify(key) end
+
+    -- STEP B: Group 1 order = flat copy of the native order.
+    local o1 = BR.GroupOrder(1)
+    wipe(o1)
+    for _, sid in ipairs(nat) do o1[#o1 + 1] = sid end
+
+    -- STEP C: created groups (id>=2) hold nothing non-native -> clear their order entirely.
+    for _, g in ipairs(BR.GroupList()) do
+        local gid = g.id
+        if gid and gid >= 2 then
+            local o = s.order[gid]
+            if type(o) == "table" then wipe(o) end
+        end
+    end
+end
+
 function BR.IsDisplayed(sid) return displayedCache[sid] == true end
 function BR.DisplayedKnown() return displayedKnown end
 function BR.IsDisplayable(sid) return displayedCache[sid] == true end

@@ -9,7 +9,7 @@
 -- TrackedBuff category), just rendered as horizontal bars instead of icons — so this module's
 -- buff universe (AllBuffs) is the TrackedBuff category, like Buff-groups.
 --
--- Per-profile (ns.db.profile.barGroups):
+-- Per-character (ns.db.global.perChar[charKey].barGroups):
 --   groups[id] = a GROUP: position + grow direction + the BAR style (colour / background /
 --                icon side / fill direction / height / width). Applies to every bar in it.
 --   assign[spellId] = groupId   -- which group a bar belongs to:
@@ -75,16 +75,19 @@ local DEFAULTS = {
     iconCfg = {},             -- iconCfg[spellId] = sparse per-bar overrides (the pencil)
 }
 
+-- Per-character store: the bar-group config lives under
+-- ns.db.global.perChar[charKey].barGroups (see ns.GetPerCharStore), NOT the shared
+-- profile, so each character keeps its own layout. nil before the DB / char key is
+-- ready (callers early-out). The one-time migration flags below live on this table.
 local function Store()
-    if not (ns.db and ns.db.profile) then return nil end
-    return ns.db.profile.barGroups
+    return ns.GetPerCharStore and ns.GetPerCharStore("barGroups") or nil
 end
 BR.Store = Store
 
 function BR.CfgInit()
     if not ns.db then return end
-    ns.db.profile.barGroups = ns.db.profile.barGroups or {}
-    local s = ns.db.profile.barGroups
+    local s = Store()
+    if not s then return end
     ns.MergeDefaults(s, DEFAULTS)
     -- Group 1 is indelible: (re)seed it if missing, but never overwrite a saved one.
     s.groups = s.groups or {}

@@ -1225,10 +1225,14 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
                       get = function() return I.GGet(id, "name") or "" end,
                       set = function(v) I.GSet(id, "name", v or ""); rebuild() end },
                     CDStripEntry(id),
-                    { type = "button", label = L["Copy native CDM order"], width = 200, hostHeight = 30,
-                      onClick = function() I.SortGroupNativeOrder(id); touch(); rebuild() end },
-                    GroupSettingsSection(id),
                 }
+                -- Group 1 only: RESET + REBUILD Group 1 from the native CDM arrangement (all natives
+                -- into Group 1 in native order; everything else parked in Unused; trackers/customs kept).
+                if id == 1 then
+                    e[#e + 1] = { type = "button", label = L["Copy native CDM order"], width = 200, hostHeight = 30,
+                        onClick = function() I.AdoptNativeIntoGroup1(); touch(); rebuild() end }
+                end
+                e[#e + 1] = GroupSettingsSection(id)
                 if id ~= 1 then
                     e[#e + 1] = { type = "button", label = L["Delete group"], width = 160, hostHeight = 30,
                         onClick = function() I.RemoveGroup(id); touch(); rebuild() end }
