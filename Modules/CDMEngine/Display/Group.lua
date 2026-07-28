@@ -32,9 +32,18 @@ function Group.Acquire()
     return g
 end
 
-function Group.Setup(g, spec)
+function Group.Setup(g, spec, catKey)
     g.spec = spec
-    g.catKey = spec and spec.key   -- stable string key ("Essential"/...) for per-group tab-driven positions
+    -- Per-group key "<dest>:<id>" ("essential:1") — the ONE handle every outside consumer resolves a group by:
+    -- the cast bar + resource-bar anchors (E.Layout.GroupFrame), the Fader's per-group fade scope
+    -- (CollectGroupFrames' "<dest>:" prefix) and the tab-driven posX/posY (GroupTabGet's "^(%a+):(%d+)$").
+    -- Taken as a PARAMETER, never stamped by the caller after we return: the fade snap at the bottom of this
+    -- function READS it, so a key written afterwards leaves that snap blind to the fade scope — with no id the
+    -- per-group exclusion check silently no-ops, and a raw SPEC key shaped like "TrackedBuff" misses even the
+    -- CATEGORY exclusion (it doesn't lower-case to a known dest), snapping an excluded group to the faded
+    -- alpha that nothing then drives back. Falls back to the raw SPEC key for a caller with no dest to key by
+    -- — nothing downstream matches that shape, so such a group simply stays inert.
+    g.catKey = catKey or (spec and spec.key)
     if g.children then wipe(g.children) else g.children = {} end
     if g.trackers then wipe(g.trackers) else g.trackers = {} end
     if g.nativeBuffs then wipe(g.nativeBuffs) else g.nativeBuffs = {} end

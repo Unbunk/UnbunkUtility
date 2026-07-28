@@ -6,9 +6,10 @@
 -- the PROFILE table, so it round-trips across /reload and travels with the active profile on
 -- switch/export/import (the reload + CfgInit hooks re-run then). No native-frame contact here.
 --
--- A group's on-screen position is keyed by its STABLE string catKey ("Essential" / "Utility" /
--- "TrackedBuff"), never the numeric enum (which is a client-local id). ABSENCE of a saved position
--- for a catKey means "auto-stack" — the Phase 2 behaviour, which is also what "reset" restores.
+-- A group's on-screen position is keyed by its STABLE string catKey — the PER-DISPLAY-GROUP key
+-- "<dest>:<id>" ("essential:1" / "utility:2" / "buff:1" / "bar:1"), never the numeric enum (which is a
+-- client-local id). ABSENCE of a saved position for a catKey means "auto-stack" — the Phase 2 behaviour,
+-- which is also what "reset" restores.
 
 local _, ns = ...
 ns.CDMEngine = ns.CDMEngine or {}

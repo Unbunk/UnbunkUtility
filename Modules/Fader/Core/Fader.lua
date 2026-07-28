@@ -371,9 +371,12 @@ function F.CDMGroupAlpha(g)
     if not (c and c.enabled) then return 1 end
     local activeFn = ns.IsActiveInInstance
     if activeFn and not activeFn(c.instanceFilter) then return 1 end
-    -- g.catKey is "essential:1" once a group is materialized, but the SPEC key ("Essential", no id) at the
-    -- Group.Setup snap — tolerate BOTH (lower-cased dest) so a category EXCLUDED from the fade is honoured even
-    -- on that snap; the per-group id check just no-ops until the full key is set (the driver corrects next tick).
+    -- g.catKey is the full "<dest>:<id>" from the moment the group is set up — Group.Setup takes it as an
+    -- argument precisely so this snap can read it (a key stamped after Setup returned left us with the raw SPEC
+    -- key, which has no id, so the per-group exclusion below silently no-opped and a "TrackedBuff"-shaped key
+    -- didn't even lower-case to a known dest: an EXCLUDED group got snapped to the faded alpha, and since an
+    -- excluded group contributes no frames it was never driven back). The bare-dest match is kept as a belt for
+    -- any caller that hands Setup no key — it still honours the CATEGORY exclusion; only the id check no-ops.
     local catKey = g and g.catKey
     if catKey then
         local dest, id = catKey:match("^(%a+):(%d+)$")
