@@ -583,8 +583,7 @@ end
 -- is a cooldown E.Icon (cdmID via the cache) or a hosted CDM tracker (by name, sized to the group).
 local function MaterializeIconGroup(gs, dest, I, groupId, sidMap, trackerMap)
     local g = E.Group.Acquire()
-    E.Group.Setup(g, gs)
-    g.catKey = dest .. ":" .. groupId   -- per-group key (tab-driven posX/posY are keyed by this)
+    E.Group.Setup(g, gs, dest .. ":" .. groupId)   -- per-group key (tab-driven posX/posY + the fade scope key on this)
     g._groupId, g._I = groupId, I        -- so ArrangeIconGroup reads this group's growDir/spacing/relPos
     g:SetParent(container)
     local iconW = I.GGet(groupId, "iconW") or 44
@@ -658,8 +657,7 @@ end
 -- (GetGroupBuffs). ArrangeGroup then adopts + styles the hosted frames. Kept only if it has a shown member.
 local function MaterializeHostGroup(gs, dest, groupId, mod, frameOf)
     local g = E.Group.Acquire()
-    E.Group.Setup(g, gs)
-    g.catKey = dest .. ":" .. groupId
+    E.Group.Setup(g, gs, dest .. ":" .. groupId)
     g._relPos = (mod.GGet and mod.GGet(groupId, "relPos")) or "above"   -- drives row cross-alignment in ArrangeGroup
     g._spacing = mod.GGet and mod.GGet(groupId, "spacing")              -- honour the group's own spacing (not the SPEC default)
     g:SetParent(container)
@@ -716,9 +714,12 @@ local function BuildLayout()
                         end
                     end
                 else
-                    -- Fallback (module not ready): the single-group hosting of every shown frame.
+                    -- Fallback (module not ready): the single-group hosting of every shown frame. Keyed
+                    -- "<dest>:1" like a real Group 1 — this block IS the dest's primary (and only) block here,
+                    -- so every "<dest>:1" consumer means exactly this frame. Left on the raw SPEC key it would
+                    -- match NONE of them: unanchorable by the cast bar, invisible to the Fader's prefix scan.
                     local g = E.Group.Acquire()
-                    E.Group.Setup(g, gs)
+                    E.Group.Setup(g, gs, dest .. ":1")
                     g:SetParent(container)
                     PopulateGroup(g, gs)
                     if #g.nativeBuffs > 0 or #g.nativeBars > 0 then
@@ -740,9 +741,12 @@ local function BuildLayout()
                         end
                     end
                 else
-                    -- Fallback (no CDMGroups instance): single-group render of the whole category.
+                    -- Fallback (no CDMGroups instance): single-group render of the whole category. Keyed
+                    -- "<dest>:1" for the same reason as the hosted fallback above. Guarded: trackerDest is what
+                    -- may be missing here (a SPEC entry with neither a dest nor isBuff/isBar lands in this
+                    -- branch), and an unguarded concat would error mid-layout — no key at all is inert instead.
                     local g = E.Group.Acquire()
-                    E.Group.Setup(g, gs)
+                    E.Group.Setup(g, gs, gs.trackerDest and (gs.trackerDest .. ":1"))
                     g:SetParent(container)
                     PopulateGroup(g, gs)
                     if #g.children > 0 or #g.trackers > 0 then
