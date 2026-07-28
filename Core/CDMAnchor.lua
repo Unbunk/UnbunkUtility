@@ -603,6 +603,25 @@ function ns.CDMAnchor.GetPlayerFrames()
     return out
 end
 
+-- Every pet frame that can fade WITH the player frame, appended straight into the caller's list (the fade
+-- driver runs ~20x/s, so this must not allocate). Mirrors the player candidates, plus Blizzard's own PetFrame.
+-- Nesting is NOT filtered here: Blizzard parents PetFrame under PlayerFrame (through
+-- PlayerFrameBottomManagedFramesContainer) but Edit Mode re-parents it to UIParent, and that can flip
+-- mid-session. The fader drives the pet's alpha independently of that (see Fader.lua's OwnPetAlpha), so both
+-- layouts take the same path.
+local PET_FRAME_CANDIDATES = {
+    "ElvUF_Pet", "SUFUnitpet", "UUF_Pet",
+    "EllesmereUIUnitFrames_Pet", "MSUF_pet", "EQOLUFPetFrame", "oUF_Pet",
+    "PetFrame",
+}
+function ns.CDMAnchor.AppendPetFrames(out)
+    for _, name in ipairs(PET_FRAME_CANDIDATES) do
+        local f = _G[name]
+        if f then out[#out + 1] = f end
+    end
+    return out
+end
+
 -- Anchor each bucket to the player frame (+ its manual offset): the FRONT bucket's
 -- TOPLEFT to BOTTOMLEFT, the END bucket's TOPRIGHT to BOTTOMRIGHT (so it grows to the
 -- left and stays right-aligned). Default offset 0,0 -> flush under the visible frame.

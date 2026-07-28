@@ -38,6 +38,7 @@ local DEFAULTS = {
         fadedAlpha     = 0.3,
         revealCombat   = true,
         revealTarget   = false,
+        fadePet        = true,   -- fade the pet frame along with the player frame (opt-out)
         hover          = { player = true },
         instanceFilter = { dungeon = true, raid = true, battleground = true, outdoor = true },
     },
@@ -174,6 +175,22 @@ local GROUPS = {
     },
 }
 
+-- ── Pet frame alpha ownership ────────────────────────────────────────────────
+-- Alpha MULTIPLIES down the parent chain, and Blizzard docks PetFrame under PlayerFrame — so a pet frame
+-- would otherwise inherit the player fade whatever we write on it (opting out could never lift it back to
+-- full, and fading it too would render it at the faded alpha SQUARED). Edit Mode re-parents the pet to
+-- UIParent when it's moved, so the layout can even flip mid-session. SetIgnoreParentAlpha detaches its
+-- RENDERED alpha from the chain, so one code path drives both layouts; F.RestorePetFrames hands it back.
+-- Both tables are hoisted because the driver runs ~20x/s and must not allocate.
+local petOwned = {}   -- [frame] = true while we drive its alpha
+local pets     = {}   -- reused per call (ComponentFrames is not re-entrant, same as the driver's scratch)
+local function OwnPetAlpha(f)
+    if not petOwned[f] then
+        if f.SetIgnoreParentAlpha then f:SetIgnoreParentAlpha(true) end
+        petOwned[f] = true
+    end
+end
+
 -- Append a component's live frames to `out`. fadeFilter (optional) filters the PER-GROUP paths (engine group
 -- frames + resource bars) so a deselected group in "Fade applies to" isn't faded; nil = every frame (restore).
 local function ComponentFrames(comp, out, fadeFilter)
@@ -184,6 +201,21 @@ local function ComponentFrames(comp, out, fadeFilter)
             for _, f in ipairs(ns.CDMAnchor.GetPlayerFrames()) do out[#out + 1] = f end
         elseif PlayerFrame then
             out[#out + 1] = PlayerFrame
+        end
+        -- The pet frame fades with the player frame unless opted out. Only while the player fade is ON: with it
+        -- off we own nothing (F.Apply's restore path releases what we held). Opted IN, the pet joins `out` and
+        -- the driver lerps it with the group — which also makes hovering the pet reveal it, as it's the same
+        -- unit. Opted OUT, we pin it at full every tick; that only sticks because we own its alpha.
+        local pc = F.GroupCfg("player")
+        if pc and pc.enabled and ns.CDMAnchor and ns.CDMAnchor.AppendPetFrames then
+            local fade = pc.fadePet ~= false
+            wipe(pets)
+            ns.CDMAnchor.AppendPetFrames(pets)
+            for i = 1, #pets do
+                local f = pets[i]
+                OwnPetAlpha(f)
+                if fade then out[#out + 1] = f else f:SetAlpha(1) end
+            end
         end
         return out
     end
@@ -369,9 +401,21 @@ function F.Apply()
             local frames = {}
             for _, comp in ipairs(g.components) do ComponentFrames(comp, frames) end
             for _, f in ipairs(frames) do f:SetAlpha(1) end
+            if key == "player" then F.RestorePetFrames() end   -- the pets aren't in `frames` once the fade is off
         end
     end
     if anyEnabled then driver:Show() else driver:Hide() end
+end
+
+-- Hand every pet frame we took over back to the UI: full alpha AND its parent's alpha again, so it behaves
+-- exactly as it did before the fade was ever enabled. Only frames we actually own are touched — a pet frame
+-- some other addon is driving is left alone.
+function F.RestorePetFrames()
+    for f in pairs(petOwned) do
+        if f.SetIgnoreParentAlpha then f:SetIgnoreParentAlpha(false) end
+        f:SetAlpha(1)
+        petOwned[f] = nil
+    end
 end
 
 -- A "Fade applies to" edit (category/group toggled): restore EVERY cdm frame to full, so a just-DESELECTED
