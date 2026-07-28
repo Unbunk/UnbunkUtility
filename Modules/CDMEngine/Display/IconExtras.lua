@@ -123,6 +123,29 @@ local function UpdateGlow(f)
     end
 end
 
+-- ── Deferred glow stop (pooled-icon recycle firewall) ────────────────────────────────────────────
+-- Icon frames are POOLED: every layout rebuild releases + re-acquires them, and rebuilds fire on casts and
+-- aura changes. Stopping the glow synchronously in Unregister therefore restarted its animation from zero
+-- several times a second — a proc glow visibly re-flashed instead of animating. Defer the stop by one frame:
+-- a frame that comes back on the SAME spell cancels it (its glow is never interrupted), one that comes back
+-- on a DIFFERENT spell stops it right there (the new spell starts its own type/colour), and a genuinely
+-- retired one is stopped by the flush.
+local glowStop, glowStopQueued = {}, false
+local function FlushGlowStops()
+    glowStopQueued = false
+    for f in pairs(glowStop) do
+        glowStop[f] = nil   -- clearing the current key mid-`pairs` is allowed
+        StopGlow(f)
+    end
+end
+local function DeferStopGlow(f)
+    if not f._uuGlowActive then return end
+    glowStop[f] = f._uuExtraSid or false   -- the spell it was glowing for (false = none), compared on re-register
+    if glowStopQueued then return end
+    glowStopQueued = true
+    C_Timer.After(0, FlushGlowStops)
+end
+
 -- ── Range tint on the icon texture ───────────────────────────────────────────────────────────────
 local function ApplyRange(f)
     local tex = f.Icon
@@ -161,9 +184,26 @@ end
 function Extras.Register(f)
     if not f then return end
     local sid = f.spellID or f._lastGoodSid
-    if not sid then return end               -- unresolved (secret in combat): retried on a later Update
+    if not sid then
+        -- Unresolved (secret in combat): retried on a later Update. Still drop the deferred stop queued by
+        -- this frame's release — the frame is back IN SERVICE, and letting the flush fire would kill a glow
+        -- that should have carried straight through (a rebuild fires on every cast, so this is reachable on
+        -- any procced cooldown in combat). UpdateGlow reconciles against the real proc state once the id lands.
+        glowStop[f] = nil
+        return
+    end
     if f._uuExtraSid == sid then return end
     if f._uuExtraSid then Extras.Unregister(f) end   -- id changed: drop the old registration first
+
+    -- A deferred glow stop is pending on this frame — either from the Unregister just above (id changed) or
+    -- from a pooled release a moment ago. Same spell -> cancel it and let the running glow carry on; different
+    -- spell -> stop NOW so the new spell starts its own type/colour clean. MUST come after the Unregister
+    -- above, which is itself what queues the stop in the id-changed case.
+    local pending = glowStop[f]
+    if pending ~= nil then
+        glowStop[f] = nil
+        if pending ~= sid then StopGlow(f) end
+    end
 
     f._uuExtraSid = sid
     AddTo(bySpell, sid, f)
@@ -182,7 +222,7 @@ end
 
 function Extras.Unregister(f)
     if not f then return end
-    StopGlow(f)
+    DeferStopGlow(f)   -- NOT a synchronous StopGlow: a pooled icon coming straight back keeps its glow running
     local sid = f._uuExtraSid
     if sid then
         local lastOnSid = RemoveFrom(bySpell, sid, f)

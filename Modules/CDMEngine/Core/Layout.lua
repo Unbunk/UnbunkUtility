@@ -372,29 +372,50 @@ local function ScreenPoint(f, point)
     return x * s, y * s
 end
 
+-- Last edge a group was SUCCESSFULLY pinned to, in absolute screen px, per catKey (tagged with the anchor key
+-- + relPos it was measured under, so a settings change never re-imposes a stale target's edge). NOT stored on
+-- the group frame: the frames are POOLED and a full build releases every one of them, so a frame-scoped memory
+-- would be wiped by exactly the rebuild that needs it.
+local lastAnchorAbs = {}   -- [catKey] = { x, y, anchorTo = , relPos = }
+
 -- Re-impose each positioned group's anchor. A tab anchorTo of resbar:* / essential / utility / belowPlayer
 -- resolves (EngineAnchorFrame) to a live frame the group rides (relPos side + posX/posY offset) — e.g. Buffs
--- under the last resource bar, or above the Utility block. Anything unresolved is a plain screen-centre offset
--- from the tab posX/posY. Idempotent; called last in a build + the cheap refresh path.
+-- under the last resource bar, or above the Utility block. A group with NO anchor key is a plain screen-centre
+-- offset from the tab posX/posY. Idempotent; called last in a build + the cheap refresh path.
 local function ApplyFreePositions()
     for _, g in ipairs(groupFrames) do
         local a  = GroupTabGet(g, "anchorTo")
         local rf = EngineAnchorFrame(g, a)
-        if rf then
-            local x, y = GroupTabPos(g)
-            local pts  = RELPOS_POINTS[GroupTabGet(g, "relPos") or "above"] or RELPOS_POINTS.above
+        if rf or IsAnchoredKey(g, a) then
+            local x, y  = GroupTabPos(g)
+            local relKey = GroupTabGet(g, "relPos") or "above"
+            local pts   = RELPOS_POINTS[relKey] or RELPOS_POINTS.above
             local bx, by
             if rf then bx, by = ScreenPoint(rf, pts[2]) end   -- NB: keep as an if, not `rf and ScreenPoint(...)` (that `and` truncates the 2nd return)
-            local gs   = g:GetEffectiveScale()
-            g:ClearAllPoints()
+            -- The anchor target is itself pooled (a resource bar / another group), so a build in flight can leave
+            -- it hidden or unpositioned for a frame. Falling through to the screen centre there teleports the
+            -- group to the middle of the screen and back — a ghost that flashes once per rebuild. Ride the last
+            -- known edge instead; the next pass with a live target refreshes it.
+            local m = g.catKey and lastAnchorAbs[g.catKey]
+            if bx then
+                if g.catKey then
+                    if not m then m = {}; lastAnchorAbs[g.catKey] = m end
+                    m[1], m[2], m.anchorTo, m.relPos = bx, by, a, relKey
+                end
+            elseif m and m[1] and m.anchorTo == a and m.relPos == relKey then
+                bx, by = m[1], m[2]
+            end
+            local gs = g:GetEffectiveScale()
             if bx and gs and gs > 0 then
                 -- Pin at the target's edge in ABSOLUTE UIParent coords, NOT a live SetPoint into rf: the engine
                 -- groups are children of `container` and the target (a resource bar / essential block) can anchor
                 -- back into that chain, so a live SetPoint trips WoW's circular-dependency guard. The deferred
                 -- ReapplyPositions poke (on every (re)build) keeps it tracking the target.
+                g:ClearAllPoints()
                 g:SetPoint(pts[1], UIParent, "BOTTOMLEFT", bx / gs + (x or 0), by / gs + (y or 0))
-            else
-                g:SetPoint("CENTER", UIParent, "CENTER", x or 0, y or 0)   -- target absent -> screen centre
+            elseif g:GetNumPoints() == 0 then
+                g:ClearAllPoints()
+                g:SetPoint("CENTER", UIParent, "CENTER", x or 0, y or 0)   -- never resolved yet -> screen centre
             end
         else
             local x, y = GroupTabPos(g)
@@ -663,6 +684,12 @@ end
 -- the container stacks them. E.Icon.ReleaseAll is the single owner of icon teardown.
 local function BuildLayout()
     if not (container and E.Blob and E.Icon and E.Group) then return end
+    -- Cut every OUTSIDE consumer loose from the pooled group frames FIRST. ReleaseGroups hides + unpositions
+    -- + reparents them, and any foreign frame still holding a SetPoint on one is dragged to the centre of the
+    -- screen for as long as it takes that consumer to re-anchor. Freezing them on absolute coordinates first
+    -- makes the whole teardown invisible; they re-attach at the bottom of this function.
+    if E.Resource and E.Resource.FreezeAnchors then E.Resource.FreezeAnchors() end   -- resource bars + their "resbar:*" proxies
+    if ns.CastBar and ns.CastBar.FreezePosition then ns.CastBar.FreezePosition() end
     E.Icon.ReleaseAll()
     ReleaseGroups()
     for _, gs in ipairs(SPEC.groups) do
@@ -732,8 +759,15 @@ local function BuildLayout()
     ApplyFreePositions()                   -- positioned groups: pinned to UIParent, the last word on position
     if E.Icon.RefreshPressPoll then E.Icon.RefreshPressPoll() end   -- (dis)arm the press-overlay poller
     if E.Icon.RefreshTierPoll  then E.Icon.RefreshTierPoll()  end   -- (dis)arm the timer-threshold size poller
-    if ns.CastBar and ns.CastBar.NotifyAnchorChanged then ns.CastBar.NotifyAnchorChanged() end   -- cast bar re-adapts to the engine group
+    -- Re-anchor the outside consumers, resource bars FIRST (a positioned group can be anchored to a resource
+    -- bar, and the cast bar can be anchored to either). SYNCHRONOUS on purpose: the deferred variant would
+    -- leave the cast bar pointing at a released group frame for one rendered frame.
     if E.Resource and E.Resource.Reposition then E.Resource.Reposition() end   -- resource bars re-anchor to the (pooled) group frames
+    ApplyFreePositions()   -- 2nd pass (idempotent): a group riding a "resbar:*" now reads the SETTLED bar rect
+    if ns.CastBar then                                                          -- cast bar re-adapts to the engine group
+        local re = ns.CastBar.ReanchorNow or ns.CastBar.NotifyAnchorChanged
+        if re then re() end
+    end
 end
 
 -- ── Coalesced, DEFERRED relayout (Phase 1 firewall, generalised) ────────────────────────────────
@@ -869,7 +903,9 @@ end
 -- only while the engine is shown (native mode = no-op) — and in engine mode the ceded CDMGroups/BuffGroups
 -- aura callbacks no-op, so this adds no net aura fan-out.
 if ns.AuraDispatch and ns.AuraDispatch.Register then
-    ns.AuraDispatch.Register("player", function() if shown then ScheduleRebuild() end end)
+    ns.AuraDispatch.Register("player", function()
+        if shown then ScheduleRebuild() end
+    end)
 end
 
 -- ── Show / hide (driven by the engine's mode-driven auto-show) ───────────────────────────────────
@@ -890,6 +926,9 @@ local function HideWidgets()
     E.Icon.ReleaseAll()
     if E.Icon.RefreshPressPoll then E.Icon.RefreshPressPoll() end   -- no active icons now -> stop the poller
     if E.Icon.RefreshTierPoll  then E.Icon.RefreshTierPoll()  end
+    -- see BuildLayout: unpin the outside consumers before the pool takes the frames back
+    if E.Resource and E.Resource.FreezeAnchors then E.Resource.FreezeAnchors() end
+    if ns.CastBar and ns.CastBar.FreezePosition then ns.CastBar.FreezePosition() end
     ReleaseGroups()   -- Group.Release re-parents every hosted tracker back to UIParent (single owner of that handoff)
     if container then container:Hide() end
     if E.Resource and E.Resource.HideWidgets then E.Resource.HideWidgets() end   -- P4c class resources

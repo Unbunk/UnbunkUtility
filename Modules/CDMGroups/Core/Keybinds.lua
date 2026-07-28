@@ -157,9 +157,28 @@ end
 -- Consumers hook ns.CDGKeybinds.onInvalidate (chained) to repaint immediately on a rebind / bar swap;
 -- otherwise the engine's / tracker's own ticker picks the change up within its interval.
 local function Invalidate()
-    wipe(textCache); wipe(rawCache); wipe(itemTextCache); wipe(itemRawCache)
+    -- Snapshot what was previously resolved for anything a CDM icon actually asked about, so we can tell
+    -- whether this pass changed anything VISIBLE. Some of the events below (notably ACTIONBAR_SLOT_CHANGED)
+    -- can fire repeatedly without any bound key actually changing for a tracked spell/item; chasing every
+    -- one of those with onInvalidate() (which forces an immediate CDM relayout) produced a visible flash
+    -- for no reason. Falling back to the icon's own refresh tick when nothing actually changed keeps
+    -- repaints immediate for real rebinds without the needless churn.
+    local prevText, prevItemText = textCache, itemTextCache
+    textCache, rawCache, itemTextCache, itemRawCache = {}, {}, {}, {}
     version = version + 1
-    if KB.onInvalidate then KB.onInvalidate() end
+
+    if KB.onInvalidate then
+        local changed = false
+        for spellID, text in pairs(prevText) do
+            if (KB.GetKeybindText(spellID) or false) ~= text then changed = true; break end
+        end
+        if not changed then
+            for itemID, text in pairs(prevItemText) do
+                if (KB.GetKeybindTextForItem(itemID) or false) ~= text then changed = true; break end
+            end
+        end
+        if changed then KB.onInvalidate() end
+    end
 end
 
 local pending = false
