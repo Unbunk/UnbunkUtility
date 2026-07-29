@@ -169,8 +169,8 @@ local function FaderGroup(key, title, refresh, collapsedState, rebuild)
                       if ns.Fader and ns.Fader.Apply then ns.Fader.Apply() end
                   end })
                 -- …and, right under it, the pet-frame opt-out: the pet fades with the player frame by default.
-                -- Just write the flag — the driver reads it every tick and either fades the pet or pins it back
-                -- to full within 50ms, so there's nothing to re-apply here.
+                -- Just write the flag — the driver reads it every tick and either applies the fade to the pet
+                -- or drops back to leaving its alpha alone, within 50ms, so there's nothing to re-apply here.
                 table.insert(entries, 3, { type = "checkbox", label = L["Fade pet frame"],
                   get = function() local c = gcfg(key); return not (c and c.fadePet == false) end,
                   set = function(v) local c = gcfg(key); if c then c.fadePet = v and true or false end end })
