@@ -604,11 +604,10 @@ function ns.CDMAnchor.GetPlayerFrames()
 end
 
 -- Every pet frame that can fade WITH the player frame, appended straight into the caller's list (the fade
--- driver runs ~20x/s, so this must not allocate). Mirrors the player candidates, plus Blizzard's own PetFrame.
--- Nesting is NOT filtered here: Blizzard parents PetFrame under PlayerFrame (through
--- PlayerFrameBottomManagedFramesContainer) but Edit Mode re-parents it to UIParent, and that can flip
--- mid-session. The fader drives the pet's alpha independently of that (see Fader.lua's OwnPetAlpha), so both
--- layouts take the same path.
+-- driver sweeps this ~20x/s, so it must not allocate). Mirrors the player candidates, plus Blizzard's own
+-- PetFrame. Deliberately unfiltered — where each frame sits in the parent chain doesn't matter, because the
+-- fader composes with whatever already owns a pet frame's alpha rather than writing over it; the whole
+-- rationale lives next to that code, in Modules/Fader/Core/Fader.lua.
 local PET_FRAME_CANDIDATES = {
     "ElvUF_Pet", "SUFUnitpet", "UUF_Pet",
     "EllesmereUIUnitFrames_Pet", "MSUF_pet", "EQOLUFPetFrame", "oUF_Pet",
