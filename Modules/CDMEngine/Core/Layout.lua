@@ -203,7 +203,12 @@ local function ArrangeGroup(g)
     local A, BGm = ns.CDMAnchor, ns.BuffGroups
     local maxBuffH = 0
     for _, nf in ipairs(g.nativeBuffs) do
-        local s = nf.ph and nf.sid or (A and A.NativeFrameSpellId and A.NativeFrameSpellId(nf))
+        local sid = nf.ph and nf.sid or (A and A.NativeFrameSpellId and A.NativeFrameSpellId(nf))
+        -- Style key fallback: NativeFrameSpellId is nil while the display spell is SECRET (e.g. mid-combat-log
+        -- during a live spell transformation like Frostbolt -> Glacial Spike). Falling back to the group's
+        -- generic gs.size here (instead of the buff's own last-known style) would desync this measuring pass
+        -- from the one below it for the exact same transient window, so remember + reuse the last REAL resolve.
+        local s = sid or nf._uuStyleSid
         maxBuffH = math.max(maxBuffH, (s and BGm and BGm.IconGet and BGm.IconGet(s, "iconH")) or gs.size)
         -- Cache each buff's border OUTSET so the pack can line up the OUTER border edges (a thicker native/
         -- dispel border must not stick out past the others). Icons stay full-size; only their y shifts.
@@ -216,8 +221,12 @@ local function ArrangeGroup(g)
             main = main + bw
         else
         local sid = A and A.NativeFrameSpellId and A.NativeFrameSpellId(nf)   -- nil (secret) in combat -> keep last style
-        local bw = (sid and BGm and BGm.IconGet and BGm.IconGet(sid, "iconW")) or gs.size
-        local bh = (sid and BGm and BGm.IconGet and BGm.IconGet(sid, "iconH")) or gs.size
+        -- styleSid: SIZE ONLY (fed to AdoptNativeTo, which never touches nf.Icon — frame-level SetParent/
+        -- SetPoint/SetSize is fine) so a transient secret sid doesn't jump the frame to the SPEC default
+        -- (gs.size) for that one pass. Deliberately NOT used to gate the StyleFrame call below (see there).
+        local styleSid = sid or nf._uuStyleSid
+        local bw = (styleSid and BGm and BGm.IconGet and BGm.IconGet(styleSid, "iconW")) or gs.size
+        local bh = (styleSid and BGm and BGm.IconGet and BGm.IconGet(styleSid, "iconH")) or gs.size
         -- Line up the OUTER border edges (not the icon edges): shift each frame by its own border outset so
         -- the border edge sits on the row line — thicker-bordered icons move IN (their icon body offsets), the
         -- borders align, and nothing spills past the row. "above" -> bottom edge; "below" -> top edge.
@@ -227,10 +236,30 @@ local function ArrangeGroup(g)
         -- PARITY: restyle the hosted native buff frame with BuffGroups' own recipe (font/border/stack/colour;
         -- its SetSize matches the adopt size). Runs in the deferred layout pass, never inside Blizzard's secure
         -- refresh, so it is taint-safe (same as BuffGroups' own pass; ReanchorStack uses ns.AnchorFSRaw).
-        if sid and BGm and BGm.StyleFrame then BGm.StyleFrame(nf, sid) end
+        -- ⚠️ Gated on the RAW sid (NOT styleSid) ON PURPOSE (restored 2026-07-29): StyleFrame writes to
+        -- nf.Icon (ClearAllPoints/SetAllPoints/SetTexCoord). A prior change called it with the styleSid
+        -- fallback too, so it ALSO ran while sid was secret (mid-transition) — the in-game taint errors from
+        -- the nf.Icon:SetAlpha attempt (see below) surfaced right after that same change, so ANY nf.Icon write
+        -- during that transient secret window is now suspect, not just SetAlpha specifically. Skipping
+        -- StyleFrame outright while sid is secret (the ORIGINAL behaviour) leaves the icon's crop momentarily
+        -- stale against AdoptNativeTo's size — cosmetic, at worst — instead of risking taint again.
+        if sid and BGm and BGm.StyleFrame then
+            BGm.StyleFrame(nf, sid)
+            nf._uuStyleSid = sid
+        end
         -- Blizzard runs a per-FRAME alpha fade on the buff pool frames (aura in/out); the reparent doesn't
         -- reset it and the viewer mask only guards the viewer, so clear a lingering sub-1 alpha. Taint-safe.
         if nf.GetAlpha and nf:GetAlpha() ~= 1 then nf:SetAlpha(1) end
+        -- REVERTED (2026-07-29): a "nf.Icon:SetAlpha(1)" here — one-shot AND as a continuous poller — was
+        -- tried to fix a "buff icon art vanishes, cooldown swipe keeps rendering" bug, on the theory that a
+        -- plain SetAlpha write is always taint-safe (true for the FRAME-level reset just above). It is NOT
+        -- true for nf.Icon specifically: an in-game test threw real "execution tainted by 'UnbunkUtility'"
+        -- errors out of Blizzard's OWN CooldownViewer.lua RefreshData/RefreshSpellChargeInfo/CacheChargeValues
+        -- chain shortly after. nf.Icon on these frames is far more tightly coupled to Blizzard's secure aura/
+        -- charge tracking than nf itself (every read off it — GetAlpha/IsShown/GetWidth/GetPoint/GetTexture —
+        -- comes back a SECRET value, unlike nf's own properties) — writing to it, even a bare SetAlpha, taints
+        -- the frame for Blizzard's NEXT native refresh. DO NOT re-add without a way to test for real taint
+        -- fallout, not just a plausibility argument from the frame-level precedent.
         main = main + bw
         end
     end
@@ -249,10 +278,13 @@ local function ArrangeGroup(g)
             cross = math.max(cross, horizontal and bh or bw)
         else
         local A = ns.CDMAnchor
-        local sid = A and A.NativeFrameSpellId and A.NativeFrameSpellId(nf)
+        local sid = A and A.NativeFrameSpellId and A.NativeFrameSpellId(nf)   -- nil (secret) in combat -> keep last style
+        -- styleSid: SIZE ONLY, same rationale as the buff loop above (AdoptNativeTo never touches nf.Icon,
+        -- so it's safe to feed it a held "last known good" size during a transient secret window).
+        local styleSid = sid or nf._uuStyleSid
         local dw, dh = BarSize(nf)
-        local bw = (sid and BRm and BRm.IconGet and BRm.IconGet(sid, "barWidth"))  or dw
-        local bh = (sid and BRm and BRm.IconGet and BRm.IconGet(sid, "barHeight")) or dh
+        local bw = (styleSid and BRm and BRm.IconGet and BRm.IconGet(styleSid, "barWidth"))  or dw
+        local bh = (styleSid and BRm and BRm.IconGet and BRm.IconGet(styleSid, "barHeight")) or dh
         if A and A.AdoptNativeTo then
             local x = horizontal and main or 0
             local y = horizontal and 0 or -main
@@ -260,7 +292,13 @@ local function ArrangeGroup(g)
         end
         -- PARITY: restyle the hosted native bar (texture/colour/fill/icon side + size) with BarGroups' recipe,
         -- in the deferred pass (taint-safe). StyleBarFrame's SetSize matches the adopt size above.
-        if sid and BRm and BRm.StyleBarFrame then BRm.StyleBarFrame(nf, sid) end
+        -- ⚠️ Gated on the RAW sid (NOT styleSid) ON PURPOSE — see the buff loop's comment above: StyleBarFrame
+        -- likely touches an icon/texture sub-element too, and calling it during a transient secret window is
+        -- now suspect after the nf.Icon taint fallout found in the buff path. Skip it outright while secret.
+        if sid and BRm and BRm.StyleBarFrame then
+            BRm.StyleBarFrame(nf, sid)
+            nf._uuStyleSid = sid
+        end
         if nf.GetAlpha and nf:GetAlpha() ~= 1 then nf:SetAlpha(1) end
         main  = main + (horizontal and bw or bh)
         cross = math.max(cross, horizontal and bh or bw)

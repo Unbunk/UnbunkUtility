@@ -335,16 +335,18 @@ end
 
 function Icon.Update(f)
     if not f.cdmID then return end
-    -- Self-heal a never-resolved id: a Setup that ran IN combat can't resolve the display spell (the
-    -- ids are secret then) and leaves the icon a fallback with no swipe. Re-resolve here — it succeeds
-    -- once we're out of combat (the row's PLAYER_REGEN_ENABLED refresh drives this) — and re-apply the
-    -- texture. NOTE: live spell TRANSFORMATIONS (override changing mid-fight) are NOT tracked in Phase 1;
-    -- they pick up at the next Rebuild (live override rebind is a later phase).
-    if not (f.spellID or f._lastGoodSid) then
-        Resolve(f)
-        local sid = f.spellID or f._lastGoodSid
-        f.Icon:SetTexture((sid and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)) or FALLBACK_ICON)
-        if sid then Icon.StyleFrame(f) end   -- re-style now that a config lookup by sid is possible
+    -- Re-resolve the display spell on EVERY pass (cheap: Blob.GetInfo is a live native read, not a cache) and
+    -- only pay for the texture + full StyleFrame when it actually changed. This covers BOTH the original
+    -- combat self-heal (never resolved yet -> resolves once secrecy lifts) AND a live spell TRANSFORMATION
+    -- (e.g. Frostbolt -> Glacial Spike via 5 Icicles): the cooldown's cdmID stays the SAME across an override,
+    -- so ComputeSig() (Layout.lua) never forces a Rebuild for it — this per-tick check is what actually
+    -- catches the swap, instead of leaving the icon stuck on its first-resolved spell until the next Rebuild.
+    local prevSid = f.spellID
+    Resolve(f)
+    local sid = f.spellID or f._lastGoodSid
+    if sid and sid ~= prevSid then
+        f.Icon:SetTexture((C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)) or FALLBACK_ICON)
+        Icon.StyleFrame(f)   -- re-style: a transformed spell can resolve to a different BASE id -> different config
     end
     UpdateSwipe(f)
     UpdateCharges(f)
