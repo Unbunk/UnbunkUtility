@@ -1179,7 +1179,16 @@ ns.RegisterBrandColorHook(ns.BumpStyleEpoch)
 do
     local bindWatch = CreateFrame("Frame")
     bindWatch:RegisterEvent("UPDATE_BINDINGS")
-    bindWatch:SetScript("OnEvent", function() ns.BumpStyleEpoch() end)
+    bindWatch:SetScript("OnEvent", function()
+        -- The shared keybind resolver owns this event too, and its invalidation ALREADY bumps
+        -- the epoch — but only after checking that a key actually changed for a spell an icon
+        -- asked about. Bumping unconditionally here defeated that guard: UPDATE_BINDINGS also
+        -- fires on login, on a spec change and on any unrelated rebind, and in engine mode a
+        -- bump costs a full teardown + rebuild of the display. Defer to the guarded path when
+        -- it exists; keep the blunt bump only as the fallback.
+        if ns.CDGKeybinds and ns.CDGKeybinds.onInvalidate then return end
+        ns.BumpStyleEpoch()
+    end)
 end
 
 -- ── Shared 0.5s poll driver ───────────────────────────────────────────────────
