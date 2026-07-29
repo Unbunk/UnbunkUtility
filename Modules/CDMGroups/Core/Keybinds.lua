@@ -156,29 +156,25 @@ end
 -- ── Invalidation (debounced to next frame) ───────────────────────────────────
 -- Consumers hook ns.CDGKeybinds.onInvalidate (chained) to repaint immediately on a rebind / bar swap;
 -- otherwise the engine's / tracker's own ticker picks the change up within its interval.
+--
+-- REVERTED (2026-07-29): a "only call onInvalidate() when a tracked spell/item's resolved keybind text
+-- actually changed" optimization was tried here (avoids a needless CDM flash on keybind-adjacent events that
+-- don't change anything visible, e.g. ACTIONBAR_SLOT_CHANGED with no real rebind). In-game bisection proved
+-- it was incidentally responsible for a WORSE, unrelated bug: onInvalidate() also unconditionally bumps
+-- ns.StyleEpoch (Modules/CDMGroups/Core/Engine.lua), which the CDM engine folds into its rebuild-membership
+-- signature (Modules/CDMEngine/Core/Layout.lua ComputeSig) — so this function's frequent, UNCONDITIONAL firing
+-- was accidentally forcing frequent full engine rebuilds, which incidentally kept re-fixing a SEPARATE, older
+-- bug where a hosted native buff icon can be left stuck (invisible art, cooldown swipe still rendering) after
+-- an in-combat spell-override transition (Frostbolt -> Glacial Spike via Icicles). Several targeted fixes for
+-- that underlying gap in Layout.lua's rebuild-signature logic were tried and did not resolve it; reverting
+-- this optimization was the only change that reliably did, in-game. DO NOT re-add this debounce without also
+-- fixing the underlying CDM-engine gap (untraced beyond: BuffFrameKey's secret-value fallback can make the
+-- rebuild signature look unchanged across such a transition) — see git history around this comment for what
+-- was already tried and failed.
 local function Invalidate()
-    -- Snapshot what was previously resolved for anything a CDM icon actually asked about, so we can tell
-    -- whether this pass changed anything VISIBLE. Some of the events below (notably ACTIONBAR_SLOT_CHANGED)
-    -- can fire repeatedly without any bound key actually changing for a tracked spell/item; chasing every
-    -- one of those with onInvalidate() (which forces an immediate CDM relayout) produced a visible flash
-    -- for no reason. Falling back to the icon's own refresh tick when nothing actually changed keeps
-    -- repaints immediate for real rebinds without the needless churn.
-    local prevText, prevItemText = textCache, itemTextCache
-    textCache, rawCache, itemTextCache, itemRawCache = {}, {}, {}, {}
+    wipe(textCache); wipe(rawCache); wipe(itemTextCache); wipe(itemRawCache)
     version = version + 1
-
-    if KB.onInvalidate then
-        local changed = false
-        for spellID, text in pairs(prevText) do
-            if (KB.GetKeybindText(spellID) or false) ~= text then changed = true; break end
-        end
-        if not changed then
-            for itemID, text in pairs(prevItemText) do
-                if (KB.GetKeybindTextForItem(itemID) or false) ~= text then changed = true; break end
-            end
-        end
-        if changed then KB.onInvalidate() end
-    end
+    if KB.onInvalidate then KB.onInvalidate() end
 end
 
 local pending = false
