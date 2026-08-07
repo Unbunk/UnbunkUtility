@@ -312,6 +312,39 @@ function ns.CDMAnchor.NativeFrameBaseSpellId(nf)
     return id
 end
 
+-- A native cooldown frame that represents an ITEM rather than a spell: an equipped trinket
+-- (cooldownInfo.equipSlot) or a generic consumable — combat/health potion, healthstone
+-- (cooldownInfo.spellCategoryID) — or one of 12.1.0's dedicated item buckets (category
+-- EquipSlotEssential=7 / EquipSlotTracked=8). Shared so every module that walks a native pool
+-- (CDMGroups, BuffGroups, BarGroups) can skip these consistently instead of re-deriving its own
+-- classifier. Secret-guarded and memoized on _uuIsItem; the OnAcquireItemFrame recycle hook
+-- above clears the cache when Blizzard reuses the frame for new content.
+local function ItemNum(x)
+    if x == nil then return nil end
+    if issecretvalue and issecretvalue(x) then return nil end
+    return x
+end
+function ns.CDMAnchor.IsNativeItemFrame(nf)
+    if not nf then return false end
+    local ci = nf.cooldownInfo
+    if type(ci) ~= "table" and nf.GetCooldownInfo then
+        local ok, info = pcall(nf.GetCooldownInfo, nf); if ok then ci = info end
+    end
+    if type(ci) ~= "table" then return nf._uuIsItem == true end
+    local cat = ItemNum(ci.category)
+    if ItemNum(ci.equipSlot) ~= nil or ItemNum(ci.spellCategoryID) ~= nil
+        or cat == 7 or cat == 8 then
+        nf._uuIsItem = true
+        return true
+    end
+    if not (issecretvalue and (issecretvalue(ci.equipSlot) or issecretvalue(ci.spellCategoryID)
+            or issecretvalue(ci.category))) then
+        nf._uuIsItem = false
+        return false
+    end
+    return nf._uuIsItem == true
+end
+
 -- The native BUFF cooldown viewer's icon frames (BuffIconCooldownViewer). The Buff-groups
 -- module redistributes these into its own movable group containers (reusing the real native
 -- frames so Blizzard keeps rendering their cooldown / charges / combat state).

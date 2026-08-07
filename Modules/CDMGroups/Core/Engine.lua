@@ -807,10 +807,12 @@ local function EngineFor(I)
         end
         local entries, n = {}, 0
         for f in v.itemFramePool:EnumerateActive() do
-            local sid = FrameKey(f)   -- order entries key on the STABLE BASE key (matches the group store)
-            if sid then
-                n = n + 1
-                entries[n] = { sid = sid, li = FrameLayoutIndex(f) or math.huge, seq = n }
+            if not IsNativeItemFrame(f) then
+                local sid = FrameKey(f)   -- order entries key on the STABLE BASE key (matches the group store)
+                if sid then
+                    n = n + 1
+                    entries[n] = { sid = sid, li = FrameLayoutIndex(f) or math.huge, seq = n }
+                end
             end
         end
         if n == 0 then
