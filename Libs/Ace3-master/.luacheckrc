@@ -53,6 +53,7 @@ read_globals = {
 	"GetTime",
 	"hooksecurefunc",
 	"InCombatLockdown",
+	"issecretvalue",
 	"issecurevariable",
 	"IsAltKeyDown",
 	"IsControlKeyDown",
@@ -74,7 +75,6 @@ read_globals = {
 	"ChatFrameUtil",
 	"InterfaceOptions_AddCategory",
 	"IsSecureCmd",
-	"SetDesaturation",
 	"Settings",
 
 	-- FrameXML Frames & Constants
