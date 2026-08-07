@@ -44,7 +44,7 @@ function ns.ui.CreateInstanceFilter(config)
     local perRow = 4
 
     for i, filter in ipairs(filters) do
-        local cfg = getConfig()
+        local cfg = getConfig() or {}
         local cb = ns.ui.CreateCheckbox({
             parent  = container,
             label   = filter.label,
@@ -74,7 +74,7 @@ function ns.ui.CreateInstanceFilter(config)
     result.height = height
 
     function result.Refresh()
-        local cfg = getConfig()
+        local cfg = getConfig() or {}
         for key, cb in pairs(checkboxes) do
             cb.SetChecked(cfg[key] ~= false)
         end

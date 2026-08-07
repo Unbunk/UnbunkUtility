@@ -1,9 +1,9 @@
 -- Modules/CDMGroups/Core/Engine.lua
 -- Engine for the custom "Cooldown groups" — a GENERALIZED, dest-parameterized clone of the
 -- Modules/BuffGroups/Core/BuffGroups.lua engine. We REUSE the native cooldown viewer item frames
--- (re-sized, re-styled, re-anchored into user-defined GROUPS), exactly like BuffGroups / the reference CDM addon.
+-- (re-sized, re-styled, re-anchored into user-defined GROUPS), exactly like BuffGroups.
 -- The native viewer is NOT hidden; we drive its frames so Blizzard keeps rendering the cooldown
--- swipe / charges / combat-safe state. The hard parts (resize that sticks under Masque, the raw
+-- swipe / charges / combat-safe state. The hard parts (resize that sticks under a third-party icon-skinning addon, the raw
 -- SetPoint anti-relayout hook, scale lock, combat deferral, the addon-drawn border) are SHARED with
 -- the CDM rows and the buff groups — they live in ns.CDMAnchor (PinNativeTo / ReleaseNativePin /
 -- ApplyFrameBorder / NativeFrameSpellId). We add only an Essential-specific enumerator here.
@@ -41,7 +41,7 @@ local canaccessvalue = canaccessvalue or function() return true end
 local issecretvalue  = issecretvalue  or function() return false end
 
 -- ── LibCustomGlow (bundled) — the glow renderer ──────────────────────────────
--- We delegate the glow to LibCustomGlow-1.0 (the same lib the reference CDM addon ships) instead of drawing our
+-- We delegate the glow to LibCustomGlow-1.0 (a widely-shared glow library) instead of drawing our
 -- own marching-dots. LibStub dedupes the bundled copy with any sibling addon's. If the lib is
 -- missing (very old/broken install) LCG stays nil and every glow op below no-ops gracefully.
 -- The bundled revision (MINOR 24) exports:
@@ -102,7 +102,7 @@ local function MirrorGlow(nf)
     local g = GlowChild(nf)
     if not (g and g:GetParent() == glowHost) then return end
     g:SetShown(nf:IsVisible())
-    -- The host is opaque, so the icon's fade (the reference CDM addon fades the VIEWER, whose alpha used to reach the
+    -- The host is opaque, so the icon's fade (a viewer-level fade, whose alpha used to reach the
     -- glow through the parent chain) has to be carried across by hand. Coarse — re-synced on the relayout
     -- pass and on every show/hide, not per animation frame — which is fine: glows only run on live procs.
     if nf.GetEffectiveAlpha then g:SetAlpha(nf:GetEffectiveAlpha()) end
@@ -197,10 +197,10 @@ local function GlowFnsFor(glowType) return GLOW_FNS[glowType or "pixel"] or GLOW
 -- overlay glow the game flashes on action bars (Brain Freeze, Fingers of Frost, a transform proc,
 -- etc.). The native CDM item frame is fed that proc by Blizzard's ActionButtonSpellAlertManager,
 -- which calls ShowAlert(frame)/HideAlert(frame) on the SAME native frames we restyle (this is exactly
--- the signal the reference CDM addon gates on — see the reference CDM addon/Core/Glow.lua:526 HookAlertManager, which hooks
--- ShowAlert/HideAlert on those item frames). We can't read frame.SpellActivationAlert:IsShown()
+-- the signal we gate on — hooking ShowAlert/HideAlert on the manager reports the proc on those item
+-- frames). We can't read frame.SpellActivationAlert:IsShown()
 -- because ApplyGlow hides that region every relayout to suppress Blizzard's own glow visual; so we
--- instead mirror the reference addon and hook the manager to stamp a plain Lua flag on the frame. The flag is a
+-- instead hook the manager to stamp a plain Lua flag on the frame. The flag is a
 -- normal table field (never a secret), safe to read. If the manager is missing the hook simply never
 -- installs and frames stay flag=nil → glow stays hidden (graceful). When the flag FLIPS we also re-run
 -- the frame's stored glow updater (nf._uuCdgGlowUpdate, installed by ApplyGlow) so the LibCustomGlow
@@ -418,7 +418,11 @@ local function EngineFor(I)
         -- Blizzard hides the ready ones — they momentarily read as shown. Accumulating those is exactly how
         -- the utility universe got polluted; the real pool (EnumerateActive) never holds them.
         if #out == 0 and not activeOnly then
-            for _, c in ipairs({ v:GetChildren() }) do
+            -- Walk the multi-return via select instead of packing a fresh { v:GetChildren() } table each
+            -- call (consistent with the de-allocated scratch reuse elsewhere in the enumerator).
+            local n = select('#', v:GetChildren())
+            for i = 1, n do
+                local c = select(i, v:GetChildren())
                 if c and (c.cooldownInfo or c.GetCooldownInfo or c.GetSpellID) then out[#out + 1] = c end
             end
         end
@@ -454,7 +458,7 @@ local function EngineFor(I)
     --       (cooldowns the user moved to another viewer or hid in "Not Displayed"), all momentarily SHOWN,
     --       before EditMode display-overrides apply. So we accumulate ONLY once `viewerReadyAt` (armed on
     --       COOLDOWN_VIEWER_DATA_LOADED / PEW) is SETTLE seconds in the past — the layout has applied.
-    --       Mirrors the reference addon, which gates all setup on COOLDOWN_VIEWER_DATA_LOADED + a settle.
+    --       Gate all setup on COOLDOWN_VIEWER_DATA_LOADED + a settle.
     --   (2) nf:IsShown() — a frame counts only while ACTUALLY shown in THIS viewer (post-settle, a shown
     --       utility frame means it's on CD; the empty-pool GetChildren fallback is also skipped, see
     --       EnumNativeFrames(true) below).
@@ -852,6 +856,86 @@ local function EngineFor(I)
         if #row > 0 then rows[#rows + 1] = row end
         local s = I.Store and I.Store()
         if s then s.order = s.order or {}; s.order[groupId] = rows end
+    end
+
+    -- RESET + REBUILD: adopt the native CDM arrangement into Group 1. Unlike SortGroupNativeOrder
+    -- (which only re-sorts Group 1's CURRENT members), this pulls EVERY native cooldown into Group 1
+    -- in native order, parks every OTHER native-less member (customs / non-Group-1 natives) into
+    -- "Unused", and keeps addon-tracker + custom members where the user put them. Group 1's own
+    -- tracker/custom members are appended AFTER the natives so nothing the user added is lost.
+    -- No-op (no wipe) if the native pool isn't ready yet — NativeOrder() returns nil.
+    function I.AdoptNativeIntoGroup1()
+        local s = I.Store and I.Store()
+        if not s then return end
+        local nat = I.NativeOrder()
+        if not nat then return end            -- pool not ready: do NOT wipe the saved layout
+        local natSet = {}
+        for _, sid in ipairs(nat) do natSet[sid] = true end
+        s.assign = s.assign or {}
+        s.order  = s.order  or {}
+
+        -- STEP B (capture FIRST, before the reassign): Group 1's current tracker/custom members in
+        -- their present relative order — these ride along AFTER the natives in the rebuilt Group 1.
+        local keepMembers = {}
+        for _, key in ipairs(I.GetGroupBuffs(1)) do
+            if I.IsTracker(key) or I.IsCustom(key) then keepMembers[#keepMembers + 1] = key end
+        end
+
+        -- STEP A: every native -> Group 1; every tracker keeps its existing assignment; everything
+        -- else (a native-less number key, i.e. a custom or a stale spellId) -> Unused. Walk the whole
+        -- universe UNION every explicit assign key so nothing assigned-but-out-of-pool is missed.
+        local visited = {}
+        local function classify(key)
+            if visited[key] then return end
+            visited[key] = true
+            if natSet[key] then
+                s.assign[key] = 1
+            elseif I.IsTracker(key) then
+                -- leave s.assign[key] untouched (tracker/custom members stay where the user put them)
+            elseif I.IsCustom(key) then
+                -- a custom keeps its current assignment too (it's a user-added member, not a native)
+            else
+                s.assign[key] = 0
+            end
+        end
+        for _, key in ipairs(I.AllBuffs()) do classify(key) end
+        for key in pairs(s.assign) do classify(key) end
+
+        -- STEP B (rebuild): Group 1 order = natives (native order) then the captured tracker/custom
+        -- members, chunked into explicit rows of Group 1's maxPerRow.
+        local flat = {}
+        for _, sid in ipairs(nat) do flat[#flat + 1] = sid end
+        for _, key in ipairs(keepMembers) do flat[#flat + 1] = key end
+        local per = I.MaxPerRow(1)
+        local rows, row = {}, {}
+        for _, key in ipairs(flat) do
+            if #row >= per then rows[#rows + 1] = row; row = {} end
+            row[#row + 1] = key
+        end
+        if #row > 0 then rows[#rows + 1] = row end
+        if #rows == 0 then rows[1] = {} end
+        s.order[1] = rows
+
+        -- STEP C: created groups (id>=2) keep ONLY their tracker/custom members — strip every native
+        -- key (assign -> Unused, and out of the stored order) so no native lives outside Group 1.
+        for _, g in ipairs(I.GroupList()) do
+            local gid = g.id
+            if gid and gid >= 2 then
+                for key, gAssigned in pairs(s.assign) do
+                    if gAssigned == gid and natSet[key] then s.assign[key] = 0 end
+                end
+                local o = s.order[gid]
+                if type(o) == "table" then
+                    for _, orow in ipairs(o) do
+                        if type(orow) == "table" then
+                            for i = #orow, 1, -1 do
+                                if natSet[orow[i]] then table.remove(orow, i) end
+                            end
+                        end
+                    end
+                end
+            end
+        end
     end
 
     -- ── Per-spell CreateFont objects for the native countdown ──────────────────

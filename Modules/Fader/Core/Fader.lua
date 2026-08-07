@@ -38,6 +38,7 @@ local DEFAULTS = {
         fadedAlpha     = 0.3,
         revealCombat   = true,
         revealTarget   = false,
+        fadePet        = true,   -- fade the pet frame along with the player frame (opt-out)
         hover          = { player = true },
         instanceFilter = { dungeon = true, raid = true, battleground = true, outdoor = true },
     },
@@ -174,12 +175,105 @@ local GROUPS = {
     },
 }
 
+-- ── Pet frames: fade by COMPOSING with their real owner, never by overwriting ──────────────────────────
+-- The pet frame follows the player fade (opt-out: player.fadePet), but it cannot be faded the way every other
+-- frame here is, because something else already owns its alpha and re-asserts it on a timer: a unit-frame
+-- addon's range fader dims the pet several times a second while it is out of range, and so does Blizzard's own
+-- pet frame. Two writers on one property at different rates make the frame strobe — which is exactly what a
+-- plain SetAlpha every tick produced. (The player frame is exempt from those range faders, which is why it
+-- never had the problem.)
+--
+-- So we don't write over the owner. We post-hook the frame's alpha setters, remember the value the OWNER asked
+-- for, and immediately re-apply it MULTIPLIED by the current fade. The correction runs inside the owner's own
+-- call, before anything is drawn, so nothing flickers and the out-of-range dimming still shows through. There
+-- is nothing to re-apply on a steady alpha, so the driver only writes when the fade itself moves.
+--
+-- SetIgnoreParentAlpha comes along for the ride because alpha also multiplies down the PARENT chain and
+-- Blizzard docks PetFrame under PlayerFrame: without it the composed alpha would be multiplied by the player
+-- fade a second time (0.3 x 0.3), and opting out could never bring the pet back to full.
+--
+-- SetAlphaFromBoolean is the secret-value form of SetAlpha (12.0): the boolean stays hidden, so we scale both
+-- of its branches and hand the boolean straight back rather than trying to read it. Every table here is
+-- hoisted — the driver runs ~20x/s and must not allocate.
+local petHooked = {}   -- [frame] = true once its setters are hooked (hooks can never be removed)
+local petFactor = {}   -- [frame] = fade currently imposed on it, nil once the frame is handed back
+local petBase   = {}   -- [frame] = plain alpha its owner last asked for
+local petBoolOn = {}   -- [frame] = true while the owner is using the secret boolean form (a PLAIN flag:
+local petBoolB  = {}   -- [frame] = …the secret boolean itself, which must never be compared or branched on)
+local petBoolX  = {}   -- [frame] = its true-branch alpha
+local petBoolY  = {}   -- [frame] = its false-branch alpha
+local pets      = {}   -- scratch for the per-tick candidate sweep
+local applying         -- re-entry guard: our own writes are not the owner's
+
+local function ApplyPetAlpha(f)
+    local k = petFactor[f]
+    if not k then return end
+    applying = true
+    if petBoolOn[f] then f:SetAlphaFromBoolean(petBoolB[f], petBoolX[f] * k, petBoolY[f] * k)
+    else                 f:SetAlpha(petBase[f] * k) end
+    applying = false
+end
+
+local function AdoptPetFrame(f)
+    if petHooked[f] then return end
+    petHooked[f], petBase[f] = true, 1   -- assume full until the owner says otherwise (it will, on its timer)
+    hooksecurefunc(f, "SetAlpha", function(fr, a)
+        if applying then return end
+        petBoolOn[fr], petBase[fr] = nil, a
+        ApplyPetAlpha(fr)
+    end)
+    if f.SetAlphaFromBoolean then
+        hooksecurefunc(f, "SetAlphaFromBoolean", function(fr, b, x, y)
+            if applying then return end
+            petBoolOn[fr], petBoolB[fr], petBoolX[fr], petBoolY[fr] = true, b, x or 1, y or 1
+            ApplyPetAlpha(fr)
+        end)
+    end
+end
+
+-- Bring the pet frames in step with the player group's live alpha. The candidate sweep runs every tick (a
+-- handful of global lookups) so a pet frame that only exists once the pet is summoned still gets picked up.
+local function UpdatePetFade(a)
+    local pc = F.GroupCfg("player")
+    local k = (pc and pc.fadePet == false) and 1 or a   -- opted out -> multiply by 1, i.e. leave the owner alone
+    wipe(pets)
+    if ns.CDMAnchor and ns.CDMAnchor.AppendPetFrames then ns.CDMAnchor.AppendPetFrames(pets) end
+    for i = 1, #pets do
+        local f = pets[i]
+        AdoptPetFrame(f)
+        -- Detach from the parent's alpha every time we (re-)take the frame, not once at adopt time: the hooks
+        -- survive a fade disable but F.RestorePetFrames re-attaches, so an off/on cycle has to redo this.
+        if petFactor[f] == nil and f.SetIgnoreParentAlpha then f:SetIgnoreParentAlpha(true) end
+        if petFactor[f] ~= k then
+            petFactor[f] = k
+            ApplyPetAlpha(f)
+        end
+    end
+end
+
+-- Is the mouse over a pet frame? Composing means the pets are NOT in the group's frame list, so the reveal
+-- pass in Evaluate can't hit-test them the way it does every other frame — but the pet is part of the same
+-- unit as the player, so hovering it has to reveal the group just the same. Its own scratch list, because
+-- this runs in the driver's Pass 1 while UpdatePetFade owns `pets` in Pass 2.
+local petsHover = {}
+local function PetHovered()
+    if not (ns.CDMAnchor and ns.CDMAnchor.AppendPetFrames) then return false end
+    wipe(petsHover)
+    ns.CDMAnchor.AppendPetFrames(petsHover)
+    for i = 1, #petsHover do
+        local f = petsHover[i]
+        if f:IsShown() and f:IsMouseOver() then return true end
+    end
+    return false
+end
+
 -- Append a component's live frames to `out`. fadeFilter (optional) filters the PER-GROUP paths (engine group
 -- frames + resource bars) so a deselected group in "Fade applies to" isn't faded; nil = every frame (restore).
 local function ComponentFrames(comp, out, fadeFilter)
     if comp.playerFrame then
         -- Custom unit-frame addons (ElvUI / Unhalted / …) replace Blizzard's PlayerFrame,
         -- so fade whichever player frame(s) actually exist, not just the Blizzard one.
+        -- The pet frames are deliberately NOT in this list — they go through UpdatePetFade instead.
         if ns.CDMAnchor and ns.CDMAnchor.GetPlayerFrames then
             for _, f in ipairs(ns.CDMAnchor.GetPlayerFrames()) do out[#out + 1] = f end
         elseif PlayerFrame then
@@ -264,6 +358,9 @@ local function Evaluate(g, c, all, isCDM)
                     local f = all[i]
                     if f:IsShown() and f:IsMouseOver() then reveal = true; break end
                 end
+                -- …plus the pet frames, which are faded by composition and so never land in `all`. Skipped when
+                -- the pet is opted out of the fade: it's already at full and has nothing to reveal.
+                if not reveal and comp.playerFrame and c.fadePet ~= false and PetHovered() then reveal = true end
             end
         end
     end
@@ -309,7 +406,7 @@ driver:SetScript("OnUpdate", function(_, dt)
         end
     end
     -- Pass 2: pick the target (with optional link — any reveal reveals all) and lerp.
-    local linked = (Cfg() and Cfg().link) and true or false
+    local fc = Cfg(); local linked = (fc and fc.link) and true or false
     for key, d in pairs(info) do
         local target
         if not d.active then
@@ -324,9 +421,41 @@ driver:SetScript("OnUpdate", function(_, dt)
         elseif a > target then a = math.max(target, a - step) end
         cur[key] = a
         for _, f in ipairs(d.frames) do f:SetAlpha(a) end    -- re-applied each tick (wins over relayouts)
+        if key == "player" then UpdatePetFade(a) end          -- the pet frames compose instead of overwriting
     end
     if not anyEnabled then driver:Hide() end
 end)
+
+-- The alpha an engine CDM group frame should carry RIGHT NOW. The engine's group frames are pooled and
+-- Group.Setup re-inits one on every rebuild (rebuilds fire on each cast); it uses this to snap the fresh
+-- group straight to the live fade instead of resetting to 1 and flashing for a Fader tick. Returns 1 when
+-- the cdm fade is disabled / inactive here / this group is excluded from the fade (per category or group);
+-- else the current (lerped, reveal-aware) cdm alpha. `g.catKey` is "<dest>:<id>" (e.g. "essential:1").
+local DEST_TO_COMP = { essential = "essentials", utility = "utility", buff = "buffs", bar = "bars" }
+function F.CDMGroupAlpha(g)
+    local c = F.GroupCfg("cdm")
+    if not (c and c.enabled) then return 1 end
+    local activeFn = ns.IsActiveInInstance
+    if activeFn and not activeFn(c.instanceFilter) then return 1 end
+    -- g.catKey is the full "<dest>:<id>" from the moment the group is set up — Group.Setup takes it as an
+    -- argument precisely so this snap can read it (a key stamped after Setup returned left us with the raw SPEC
+    -- key, which has no id, so the per-group exclusion below silently no-opped and a "TrackedBuff"-shaped key
+    -- didn't even lower-case to a known dest: an EXCLUDED group got snapped to the faded alpha, and since an
+    -- excluded group contributes no frames it was never driven back). The bare-dest match is kept as a belt for
+    -- any caller that hands Setup no key — it still honours the CATEGORY exclusion; only the id check no-ops.
+    local catKey = g and g.catKey
+    if catKey then
+        local dest, id = catKey:match("^(%a+):(%d+)$")
+        if not dest then dest = catKey:match("^(%a+)") end
+        local compKey = dest and DEST_TO_COMP[dest:lower()]
+        if compKey then
+            if c.fade and c.fade[compKey] == false then return 1 end        -- category excluded from the fade
+            local fg = c.fadeGroups and c.fadeGroups[compKey]
+            if fg and id and fg[id] == false then return 1 end              -- this specific group excluded
+        end
+    end
+    return cur.cdm or 1
+end
 
 -- (Re)evaluate which groups are enabled: start the driver for enabled ones, restore full
 -- opacity for disabled ones. Called on config change, reload-hook (profile switch) + login.
@@ -341,9 +470,26 @@ function F.Apply()
             local frames = {}
             for _, comp in ipairs(g.components) do ComponentFrames(comp, frames) end
             for _, f in ipairs(frames) do f:SetAlpha(1) end
+            if key == "player" then F.RestorePetFrames() end   -- the pets are never in `frames` (see UpdatePetFade)
         end
     end
     if anyEnabled then driver:Show() else driver:Hide() end
+end
+
+-- Hand every pet frame back to its real owner: drop our multiplier, restore the alpha the owner last asked
+-- for, and let it follow its parent again. The setter hooks stay installed (hooks can't be removed) but go
+-- inert with no multiplier — they then only keep tracking what the owner wants, ready for the next enable.
+function F.RestorePetFrames()
+    for f in pairs(petFactor) do
+        petFactor[f] = nil
+        if f.SetIgnoreParentAlpha then f:SetIgnoreParentAlpha(false) end
+        applying = true
+        -- No `or 1` fallbacks anywhere in here: petBase is seeded at adopt time and an owner is free to hand us
+        -- a SECRET alpha, which must never be put through a truthiness test.
+        if petBoolOn[f] then f:SetAlphaFromBoolean(petBoolB[f], petBoolX[f], petBoolY[f])
+        else                 f:SetAlpha(petBase[f]) end
+        applying = false
+    end
 end
 
 -- A "Fade applies to" edit (category/group toggled): restore EVERY cdm frame to full, so a just-DESELECTED

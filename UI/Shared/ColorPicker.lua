@@ -86,20 +86,64 @@ local function redraw(f)
     if f.inA then f.inA.SetText(tostring(floor(f.a * 100 + 0.5))) end
 end
 
--- Refresh + fire the live callback (used by every interactive change).
+-- Interval at which a click-and-drag hands the new colour to the CONSUMER. The picker itself
+-- still repaints every frame (see commit), so the swatch tracks the cursor at full framerate.
+local DRAG_FLUSH = 0.1
+local dragging, dragPending = false, false
+
+local function fireChange(f)
+    if f and f.onChange then f.onChange(f.r, f.g, f.b, f.hasOpacity and f.a or 1) end
+end
+
+-- Flush a coalesced drag value. No-op when nothing is pending, so it is safe to call on
+-- press / release / tick without tracking whether the cursor actually moved.
+local function flushDrag(f)
+    if not dragPending then return end
+    dragPending = false
+    fireChange(f)
+end
+
+-- Refresh + fire the live callback (used by every interactive change). Inside a drag the
+-- callback is coalesced instead: only the repaint stays per-frame.
 local function commit(f)
     redraw(f)
-    if f.onChange then f.onChange(f.r, f.g, f.b, f.hasOpacity and f.a or 1) end
+    if dragging then dragPending = true; return end
+    fireChange(f)
 end
 
 -- Wire a frame as a click-and-drag area: onFrac(fx, fy) gets called on press and on every
 -- subsequent frame until release.
+--
+-- onChange is what makes a live edit expensive: each listener re-applies its config, and for
+-- the cooldown display that means a full teardown + rebuild. Firing it on every rendered frame
+-- paid that ~60x/second for the whole duration of a drag; coalescing to DRAG_FLUSH looks the
+-- same on screen for a sixth of the cost. Press and release always flush, so the first and the
+-- final colour are exact. Hiding DISCARDS the pending value instead of flushing it: the
+-- picker's OnHide reverts to the opening colour on cancel, and a late flush would land after
+-- that revert and win.
 local function makeDragArea(frame, onFrac)
     frame:EnableMouse(true)
-    local function upd() onFrac(cursorFrac(frame)) end
-    frame:SetScript("OnMouseDown", function() upd(); frame:SetScript("OnUpdate", upd) end)
-    frame:SetScript("OnMouseUp",   function() frame:SetScript("OnUpdate", nil) end)
-    frame:SetScript("OnHide",      function() frame:SetScript("OnUpdate", nil) end)
+    local acc = 0
+    local function upd(_, elapsed)
+        dragging = true
+        onFrac(cursorFrac(frame))
+        dragging = false
+        acc = acc + (elapsed or 0)
+        if acc >= DRAG_FLUSH then acc = 0; flushDrag(picker) end
+    end
+    frame:SetScript("OnMouseDown", function()
+        acc = DRAG_FLUSH   -- the press itself flushes on the spot
+        upd(nil, 0)
+        frame:SetScript("OnUpdate", upd)
+    end)
+    frame:SetScript("OnMouseUp", function()
+        frame:SetScript("OnUpdate", nil)
+        flushDrag(picker)
+    end)
+    frame:SetScript("OnHide", function()
+        frame:SetScript("OnUpdate", nil)
+        dragPending = false
+    end)
 end
 
 local function buildPicker()
@@ -273,6 +317,9 @@ end
 function ns.ui.OpenColorPicker(opts)
     opts = opts or {}
     local f = picker or buildPicker()
+    -- If a previous swatch is still open, flush it first so its OnHide revert
+    -- runs against the old onChange/initial before we re-arm for the new swatch.
+    if f:IsShown() then f:Hide() end
     f.onChange   = opts.onChange
     f.hasOpacity = opts.hasOpacity and true or false
     local r, g, b = opts.r or 1, opts.g or 1, opts.b or 1

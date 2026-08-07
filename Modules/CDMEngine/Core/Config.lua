@@ -6,9 +6,10 @@
 -- the PROFILE table, so it round-trips across /reload and travels with the active profile on
 -- switch/export/import (the reload + CfgInit hooks re-run then). No native-frame contact here.
 --
--- A group's on-screen position is keyed by its STABLE string catKey ("Essential" / "Utility" /
--- "TrackedBuff"), never the numeric enum (which is a client-local id). ABSENCE of a saved position
--- for a catKey means "auto-stack" — the Phase 2 behaviour, which is also what "reset" restores.
+-- A group's on-screen position is keyed by its STABLE string catKey — the PER-DISPLAY-GROUP key
+-- "<dest>:<id>" ("essential:1" / "utility:2" / "buff:1" / "bar:1"), never the numeric enum (which is a
+-- client-local id). ABSENCE of a saved position for a catKey means "auto-stack" — the Phase 2 behaviour,
+-- which is also what "reset" restores.
 
 local _, ns = ...
 ns.CDMEngine = ns.CDMEngine or {}
@@ -24,6 +25,7 @@ local DEFAULTS = {
     glowColor  = { 0.96, 1, 0, 1 },   -- {r,g,b,a} for pixel/autocast (F5FF00) ; button/proc ignore it
     rangeCheck = true,                -- tint the icon red while the spell's target is out of range
     showGcdSwipe = true,              -- default ON: draw the global cooldown as a radial spin (no number) on cooldown icons
+    showGcdSwipeOffGcd = false,       -- default OFF: extend the GCD spin to OFF-GCD icons too (Counterspell/Alter Time/… + hosted trackers)
     -- P4c class resources (Display/ClassResource.lua). Per-SPEC, per-BAR config lives under .bars
     -- (bars[specKey][barIndex] = sparse overrides of BAR_DEFAULTS below); .enable is the master toggle.
     resource = {

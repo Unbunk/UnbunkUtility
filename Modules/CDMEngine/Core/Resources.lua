@@ -15,7 +15,6 @@ local PT = Enum and Enum.PowerType
 
 -- SPEC_RESOURCES[specID or CLASSFILE] = ORDERED list of resource labels (primary first). Keyed by
 -- numeric specID, with a CLASSFILE string fallback so an unknown spec of a known class still resolves.
--- (mirrors the reference engine's Constants.ClassResources)
 R.SPEC_RESOURCES = {
     DEATHKNIGHT = { "runes", "runic-power" },
     [250] = { "runes", "runic-power" }, [251] = { "runes", "runic-power" }, [252] = { "runes", "runic-power" },

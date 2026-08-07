@@ -330,8 +330,15 @@ end
 ns.cfgInitHooks = {}
 
 function ns.RegisterCfgInitHook(fn)
-    if type(fn) == "function" then
-        table.insert(ns.cfgInitHooks, fn)
+    if type(fn) ~= "function" then return end
+    table.insert(ns.cfgInitHooks, fn)
+    -- Re-entrant: a hook registered AFTER the initial bootstrap CfgInit has already run
+    -- (e.g. a module from the private companion addon, which loads after the host's
+    -- ADDON_LOADED) would otherwise never get its defaults merged / initial apply. Run it
+    -- once now so it lands at the same lifecycle position as a host module at bootstrap.
+    if ns.cfgInitDone then
+        local ok, err = pcall(fn)
+        if not ok then ns.Print("cfgInit hook error: " .. tostring(err)) end
     end
 end
 
@@ -342,6 +349,7 @@ function ns.RunCfgInitHooks()
             ns.Print("cfgInit hook error: " .. tostring(err))
         end
     end
+    ns.cfgInitDone = true   -- initial pass done; late registrants self-run (see RegisterCfgInitHook)
 end
 
 -- ── Default merge ───────────────────────────────────────────────────────────
@@ -380,6 +388,37 @@ end
 -- aren't dealing with config defaults (e.g. the profile snapshotter) can share
 -- the single implementation instead of hand-rolling their own.
 ns.DeepCopy = ns.CopyDefault
+
+-- ── Per-character group-config store ─────────────────────────────────────────
+-- Group configs (cdmGroups / buffGroups / barGroups) are PER-CHARACTER: the same
+-- toon keeps its own layout regardless of the shared account-wide profile. They
+-- live under ns.db.global.perChar[charKey][moduleKey] (global = NOT profile-scoped,
+-- so a profile switch/import never touches them).
+--   moduleKey: "cdmGroups" | "buffGroups" | "barGroups"
+--
+-- The charKey is memoized ONCE the first time it can be computed: GetPerCharStore
+-- runs on 0.2s hot-path tickers, so we must NOT concat name.."-"..realm on every
+-- call. Early in login UnitName/GetRealmName can still be empty; we refuse to
+-- memoize a bad key so a later call (once they resolve) gets the real one.
+local perCharKey  -- cached "Name-Realm", set exactly once
+function ns.PerCharKey()
+    if perCharKey then return perCharKey end
+    local name = UnitName("player")
+    local realm = GetRealmName()
+    if not name or name == "" or not realm or realm == "" then return nil end
+    perCharKey = name .. "-" .. realm
+    return perCharKey
+end
+function ns.GetPerCharStore(moduleKey)
+    if not (ns.db and ns.db.global) then return nil end
+    local ck = ns.PerCharKey()
+    if not ck then return nil end
+    local g = ns.db.global
+    g.perChar = g.perChar or {}
+    g.perChar[ck] = g.perChar[ck] or {}
+    g.perChar[ck][moduleKey] = g.perChar[ck][moduleKey] or {}
+    return g.perChar[ck][moduleKey]
+end
 
 -- ── Sound playback ──────────────────────────────────────────────────────────
 -- Plays a configured sound: explicit file path > LSM key > nothing. `cfg` is
@@ -474,7 +513,7 @@ end
 -- start/duration are SECRET and our heuristic has no data for a spell not cast this session (the old code
 -- then drew NO swipe -> the icon looked falsely "ready"). Returns nil when the spell is NOT on a real
 -- cooldown (idle, or just the GCD): cd.isActive / cd.isOnGCD are STRUCTURAL booleans that stay readable in
--- combat (unlike the secret timing). Mirrors the reference CDM addon's IsOnRealCooldown + GetSpellCooldownDuration(id, true).
+-- combat (unlike the secret timing). Mirrors the native "is on real cooldown" + GetSpellCooldownDuration(id, true).
 function ns.SpellRealCooldownSwipe(spellId)
     if not (spellId and spellId ~= 0 and C_Spell and C_Spell.GetSpellCooldown) then return nil end
     local cd = C_Spell.GetSpellCooldown(spellId)
@@ -482,7 +521,7 @@ function ns.SpellRealCooldownSwipe(spellId)
     -- MULTI-CHARGE spell: the recharging charge's arc is its OWN duration (GetSpellChargeDuration), NOT the
     -- spell cooldown — exactly how the native CDM draws it (we previously drew no recharge arc in combat
     -- because the charge branch nil-drops the secret cdStart and is skipped). maxCharges is a structural
-    -- field readable in combat. the reference addon gates the charge swipe on isOnGCD == false (strict).
+    -- field readable in combat. The charge swipe is gated on isOnGCD == false (strict).
     local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(spellId)
     local maxc = ci and ci.maxCharges
     if maxc and not (issecretvalue and issecretvalue(maxc)) and maxc > 1 then
@@ -511,7 +550,7 @@ end
 
 -- OPTIONAL global-cooldown SWIPE (opt-in; SpellRealCooldownSwipe deliberately suppresses it so an idle spell
 -- looks ready). Returns the GCD's duration object ONLY when the spell's ACTIVE cooldown IS the GCD (a spell
--- with no real cooldown, on the global). Lets the standalone engine draw a the reference engine-style GCD spin (no
+-- with no real cooldown, on the global). Lets the standalone engine draw a global-cooldown spin (no
 -- number). Secret-safe: isActive/isOnGCD are STRUCTURAL; GetSpellCooldownDuration(id, false) INCLUDES the GCD
 -- and returns a duration OBJECT (never the secret raw start/duration).
 function ns.SpellGcdSwipe(spellId)
@@ -521,9 +560,32 @@ function ns.SpellGcdSwipe(spellId)
     return C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(spellId, false)
 end
 
+-- The CURRENT global cooldown as a duration OBJECT (secret-safe), for a global-cooldown spin on EVERY
+-- idle icon when you cast — including OFF-GCD spells (Counterspell / Alter Time / Mirror Image) and charge
+-- spells, which a per-spell GetSpellCooldown never reports "on GCD" (off-GCD spells answer isOnGCD~=true; a
+-- charge spell answers isActive=false while a charge remains). Spell 61304 is Blizzard's hidden "Global
+-- Cooldown" whose cooldown IS the live GCD. Returns nil when no GCD is running (idle) → the spin clears.
+local GCD_SPELL = 61304
+function ns.GlobalGcdSwipe()
+    if not (C_Spell and C_Spell.GetSpellCooldown) then return nil end
+    local cd = C_Spell.GetSpellCooldown(GCD_SPELL)
+    if not (cd and cd.isActive) then return nil end
+    return C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(GCD_SPELL, false)
+end
+
+-- True for a MULTI-charge spell (maxCharges is a STRUCTURAL field readable in combat; currentCharges is never
+-- read). Used to treat a charge ability as "on GCD" for the global cooldown spin — it is GCD-locked even with a
+-- charge up, so it should spin with the main toggle, not the opt-in "off-GCD icons" one.
+function ns.SpellHasCharges(spellId)
+    if not (spellId and spellId ~= 0 and C_Spell and C_Spell.GetSpellCharges) then return false end
+    local ci = C_Spell.GetSpellCharges(spellId)
+    local maxc = ci and ci.maxCharges
+    return (maxc and not (issecretvalue and issecretvalue(maxc)) and maxc > 1) or false
+end
+
 -- Size of one physical screen pixel in UIParent-local units, for crisp 1px borders on fractional UI scale
 -- (768 = UIParent's reference height; divided by the effective scale). Returns nil if the values aren't
--- ready yet, so callers fall back to the raw size. Mirrors the reference CDM addon's Pixel.GetSize formula. NOTE: a UI
+-- ready yet, so callers fall back to the raw size. Uses the standard physical-pixel size formula. NOTE: a UI
 -- scale change is only picked up on the next border re-apply (relayout) — a /reload re-crisps everything.
 function ns.PixelSize()
     local _, physH = GetPhysicalScreenSize()
@@ -539,10 +601,10 @@ end
 -- hash node that STILL holds the taint, so issecurevariable(t,k) keeps reporting insecure; we
 -- then poke absent integer keys until WoW's Lua 5.1 rehashes the table and abandons every dead
 -- node (the tainted k included), after which the key reads clean. This is the only way to scrub
--- a key that a secret/forbidden value tainted short of a /reload (see the the reference engine analysis
+-- a key that a secret/forbidden value tainted short of a /reload (see the taint analysis notes
 -- and the CooldownViewer:901 wall — a secret spellID key turning wasOnGCDLookup forbidden).
 --
--- Guards vs the reference engine's original: we ONLY ever touch keys that are already nil (never a live
+-- Guards: we ONLY ever touch keys that are already nil (never a live
 -- value), bail immediately if the key is already clean, and cap the loop so a key that can never
 -- come clean cannot hang the client (a rehash happens within a few dozen pokes; the cap is a
 -- safety net). Returns true when the key ends up secure, false if it gave up.
@@ -885,6 +947,9 @@ local BELOW_SEED_KEYS = {
     "showTimer","timerFontKey","timerFontPath","timerFontSize","timerOutline","timerColor","timerPos","timerOffX","timerOffY","timerThresholdsEnabled",
     "showTitle","titleText","titleFontKey","titleFontPath","titleFontSize","titleOutline","titleColor","titlePos","titleOffX","titleOffY",
     "showStack","showAtZero","stackFontKey","stackFontPath","stackFontSize","stackOutline","stackColor","stackPos","stackOffX","stackOffY",
+    -- Glow-on-proc defaults (glowEnabled=true / pixel / F5FF00). Declares the default-ON read that
+    -- ns.CDMAnchor.GetDestGlow derives from a nil config, so it can't silently regress.
+    "glowEnabled","glowType","glowColor",
 }
 function ns.SeedBelowBucketDefaults(tbl)
     if not tbl then return end
@@ -1114,7 +1179,16 @@ ns.RegisterBrandColorHook(ns.BumpStyleEpoch)
 do
     local bindWatch = CreateFrame("Frame")
     bindWatch:RegisterEvent("UPDATE_BINDINGS")
-    bindWatch:SetScript("OnEvent", function() ns.BumpStyleEpoch() end)
+    bindWatch:SetScript("OnEvent", function()
+        -- The shared keybind resolver owns this event too, and its invalidation ALREADY bumps
+        -- the epoch — but only after checking that a key actually changed for a spell an icon
+        -- asked about. Bumping unconditionally here defeated that guard: UPDATE_BINDINGS also
+        -- fires on login, on a spec change and on any unrelated rebind, and in engine mode a
+        -- bump costs a full teardown + rebuild of the display. Defer to the guarded path when
+        -- it exists; keep the blunt bump only as the fallback.
+        if ns.CDGKeybinds and ns.CDGKeybinds.onInvalidate then return end
+        ns.BumpStyleEpoch()
+    end)
 end
 
 -- ── Shared 0.5s poll driver ───────────────────────────────────────────────────

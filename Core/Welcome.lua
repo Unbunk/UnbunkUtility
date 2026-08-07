@@ -35,6 +35,7 @@ f:SetScript("OnEvent", function(self)
     if not ns.Welcome_IsEnabled() then return end
     local meta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
     local version = (meta and meta(ADDON, "Version")) or "?"
+    if version:find("@", 1, true) then version = "dev" end   -- unsubstituted @project-version@ = unpackaged (git) build
     -- ns.L (not a captured upvalue): Welcome.lua loads BEFORE Locales/*.lua in the
     -- .toc, so ns.L doesn't exist yet at file-load time — resolve it at call time.
     print(string.format(

@@ -61,6 +61,10 @@ local function BuildFrame()
     local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
     cd:SetAllPoints()
     cd:SetDrawEdge(false)
+    -- No cooldown-finish "bling" flash. Blizzard draws it C-side ignoring the frame's EFFECTIVE alpha, so it
+    -- punches through the Fader (it flashes even while the CDM is faded) — and it's independent of the swipe,
+    -- so hiding the swipe doesn't hide it. Drop it entirely on engine icons.
+    cd:SetDrawBling(false)
     cd:SetDrawSwipe(true)
     cd:SetReverse(false)              -- cooldown swipe empties as time passes
     cd:SetHideCountdownNumbers(false) -- let the native Cooldown draw the number (secret-safe, C-side)
@@ -267,16 +271,25 @@ local function UpdateSwipe(f)
     local realSwipe = ns.SpellRealCooldownSwipe and ns.SpellRealCooldownSwipe(sid)
     local swipe = realSwipe
     local onGcd = false
-    -- "Show cd with 1 stacks or more": no real cooldown (a charge is still usable) but the user wants the
-    -- recharge arc drawn anyway, like the native CooldownViewer. Secret-safe object; nothing is drawn at full.
-    if not swipe and f._showCdWithStacks and ns.SpellChargeRechargeSwipe then
-        swipe = ns.SpellChargeRechargeSwipe(sid)
-    end
-    -- Default ON (togglable): if there's no REAL cooldown, draw the global-cooldown sweep instead (the reference engine
-    -- style). Its number is hidden (a GCD "1" flashing on every cast is noise); a real cooldown keeps its number.
-    if not swipe and E.Cfg and E.Cfg.Get and E.Cfg.Get("showGcdSwipe") and ns.SpellGcdSwipe then
-        swipe = ns.SpellGcdSwipe(sid)
-        onGcd = swipe ~= nil
+    if not swipe then
+        -- No REAL cooldown. The global-cooldown spin (opt-in via showGcdSwipe) is PRIORITISED over the
+        -- charge-recharge arc (which draws nothing at full charges and would hide the pulse). ON-GCD icons —
+        -- the spell is itself on the GCD, OR it's a charge ability (GCD-locked even with a charge up) — always
+        -- spin; OFF-GCD icons (Counterspell/Alter Time/Mirror Image … SpellGcdSwipe nil and no charges) spin
+        -- ONLY when the opt-in "on off-GCD icons" toggle is set. Driven from the GLOBAL GCD (spell 61304) so
+        -- it's spell-independent; per-spell fallback. The spin's number is hidden (a GCD "1" is noise).
+        if E.Cfg and E.Cfg.Get and E.Cfg.Get("showGcdSwipe") then
+            local perSpell = ns.SpellGcdSwipe and ns.SpellGcdSwipe(sid)   -- non-nil only when THIS spell is on the GCD
+            local gcd = (ns.GlobalGcdSwipe and ns.GlobalGcdSwipe()) or perSpell
+            if gcd then
+                local onGcdIcon = (perSpell ~= nil) or (ns.SpellHasCharges and ns.SpellHasCharges(sid))
+                if onGcdIcon or E.Cfg.Get("showGcdSwipeOffGcd") then swipe = gcd; onGcd = true end
+            end
+        end
+        -- Between casts (no spin drawn): the opt-in "Show cd with 1 stacks or more" recharge arc.
+        if not swipe and f._showCdWithStacks and ns.SpellChargeRechargeSwipe then
+            swipe = ns.SpellChargeRechargeSwipe(sid)
+        end
     end
     if swipe and f.Cooldown.SetCooldownFromDurationObject then
         f.Cooldown:SetHideCountdownNumbers(onGcd or (f._showTimer == false))   -- honour showTimer=off; also hide during the GCD spin
@@ -322,16 +335,18 @@ end
 
 function Icon.Update(f)
     if not f.cdmID then return end
-    -- Self-heal a never-resolved id: a Setup that ran IN combat can't resolve the display spell (the
-    -- ids are secret then) and leaves the icon a fallback with no swipe. Re-resolve here — it succeeds
-    -- once we're out of combat (the row's PLAYER_REGEN_ENABLED refresh drives this) — and re-apply the
-    -- texture. NOTE: live spell TRANSFORMATIONS (override changing mid-fight) are NOT tracked in Phase 1;
-    -- they pick up at the next Rebuild (live override rebind is a later phase).
-    if not (f.spellID or f._lastGoodSid) then
-        Resolve(f)
-        local sid = f.spellID or f._lastGoodSid
-        f.Icon:SetTexture((sid and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)) or FALLBACK_ICON)
-        if sid then Icon.StyleFrame(f) end   -- re-style now that a config lookup by sid is possible
+    -- Re-resolve the display spell on EVERY pass (cheap: Blob.GetInfo is a live native read, not a cache) and
+    -- only pay for the texture + full StyleFrame when it actually changed. This covers BOTH the original
+    -- combat self-heal (never resolved yet -> resolves once secrecy lifts) AND a live spell TRANSFORMATION
+    -- (e.g. Frostbolt -> Glacial Spike via 5 Icicles): the cooldown's cdmID stays the SAME across an override,
+    -- so ComputeSig() (Layout.lua) never forces a Rebuild for it — this per-tick check is what actually
+    -- catches the swap, instead of leaving the icon stuck on its first-resolved spell until the next Rebuild.
+    local prevSid = f.spellID
+    Resolve(f)
+    local sid = f.spellID or f._lastGoodSid
+    if sid and sid ~= prevSid then
+        f.Icon:SetTexture((C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)) or FALLBACK_ICON)
+        Icon.StyleFrame(f)   -- re-style: a transformed spell can resolve to a different BASE id -> different config
     end
     UpdateSwipe(f)
     UpdateCharges(f)

@@ -1,6 +1,6 @@
 -- Core/CDMEditModeLock.lua
--- Lock the Essential / Utility Cooldown Manager viewers in Blizzard's Edit Mode (the same
--- approach the reference CDM addon uses). UnbunkUtility owns their position + per-row icon size, so the
+-- Lock the Essential / Utility Cooldown Manager viewers in Blizzard's Edit Mode.
+-- UnbunkUtility owns their position + per-row icon size, so the
 -- native Edit Mode controls would fight ours — we therefore: hide the Edit Mode settings
 -- dialog whenever it attaches to one of these viewers, clear the selection's drag scripts so it
 -- can't be moved (NOT frame:SetMovable(false) — that taints a registered Edit Mode system, which

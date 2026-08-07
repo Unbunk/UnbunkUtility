@@ -2,14 +2,14 @@
 -- Data model for the custom CDM "Bar groups". We REUSE the native BAR cooldown viewer
 -- (BuffBarCooldownViewer) frames — re-sized, re-styled and re-anchored into user-defined
 -- GROUPS (movable containers), exactly like the Buff-groups module does for the buff ICON
--- viewer and like the reference addon the reference CDM addon does for its bar groups. The native viewer is
+-- viewer. The native viewer is
 -- NOT hidden; we drive its frames (so Blizzard keeps filling the bar value / name / duration).
 --
 -- The bar viewer shows the SAME tracked-buff set as the buff icon viewer (the CDM's
 -- TrackedBuff category), just rendered as horizontal bars instead of icons — so this module's
 -- buff universe (AllBuffs) is the TrackedBuff category, like Buff-groups.
 --
--- Per-profile (ns.db.profile.barGroups):
+-- Per-character (ns.db.global.perChar[charKey].barGroups):
 --   groups[id] = a GROUP: position + grow direction + the BAR style (colour / background /
 --                icon side / fill direction / height / width). Applies to every bar in it.
 --   assign[spellId] = groupId   -- which group a bar belongs to:
@@ -43,7 +43,7 @@ local GROUP_TEMPLATE = {
     spacing  = 0,
     staticDisplay = false,     -- false: only currently-active bars take a slot (reflow); true: every member keeps its slot
     -- bar geometry + style (the user-facing parameters)
-    barWidth  = 220,           -- total row width (icon + gauge), like the reference addon's barWidth
+    barWidth  = 220,           -- total row width (icon + gauge)
     barHeight = 20,
     barTexture = "Better Blizzard",                       -- LSM "statusbar" key (bundled in Media.lua)
     barColor  = { r = 0.2, g = 0.549, b = 1, a = 1 },     -- the filled gauge (default #338CFF, brand colour)
@@ -52,10 +52,8 @@ local GROUP_TEMPLATE = {
     fillDirection = "RIGHT",   -- "LEFT" | "RIGHT" — side the gauge is anchored on (SetReverseFill)
     invertFill = false,        -- true: the gauge DRAINS over time (mirror the native value) instead of filling up
     iconGap   = 1,             -- px gap between the icon and the gauge
-    -- text: the native name + duration are kept (Blizzard fills them); only their visibility is
-    -- a group flag here, and the per-bar custom-name OVERRIDE lives in iconCfg (see below).
-    showName     = true,
-    showDuration = true,
+    -- text: the native name + duration FontStrings are always kept (Blizzard fills them); the
+    -- per-bar custom-name OVERRIDE lives in iconCfg (nameOverride/customName, see below).
     -- runtime
     unlocked = false,
 }
@@ -77,16 +75,19 @@ local DEFAULTS = {
     iconCfg = {},             -- iconCfg[spellId] = sparse per-bar overrides (the pencil)
 }
 
+-- Per-character store: the bar-group config lives under
+-- ns.db.global.perChar[charKey].barGroups (see ns.GetPerCharStore), NOT the shared
+-- profile, so each character keeps its own layout. nil before the DB / char key is
+-- ready (callers early-out). The one-time migration flags below live on this table.
 local function Store()
-    if not (ns.db and ns.db.profile) then return nil end
-    return ns.db.profile.barGroups
+    return ns.GetPerCharStore and ns.GetPerCharStore("barGroups") or nil
 end
 BR.Store = Store
 
 function BR.CfgInit()
     if not ns.db then return end
-    ns.db.profile.barGroups = ns.db.profile.barGroups or {}
-    local s = ns.db.profile.barGroups
+    local s = Store()
+    if not s then return end
     ns.MergeDefaults(s, DEFAULTS)
     -- Group 1 is indelible: (re)seed it if missing, but never overwrite a saved one.
     s.groups = s.groups or {}
@@ -260,16 +261,20 @@ end
 
 -- Bars assigned to a group (groupId 0 = Unused), in saved order; any assigned bar not yet in
 -- the order is appended (stable by spellId) so nothing is lost.
+-- Scratch hoisté (GetGroupBuffs n'est pas ré-entrant : AllBuffs/GroupOf/GroupOrder ne rappellent
+-- jamais dedans), wipé par appel pour ne pas allouer 3 tables à chaque relayout. Miroir de BG.
+local ggb_assigned, ggb_seen, ggb_rest = {}, {}, {}
 function BR.GetGroupBuffs(groupId)
-    local assigned = {}
+    local assigned = ggb_assigned; wipe(assigned)
     for _, spellId in ipairs(BR.AllBuffs()) do
         if BR.GroupOf(spellId) == groupId then assigned[spellId] = true end
     end
-    local out, seen = {}, {}
+    local out = {}                        -- reste alloué frais (échappe à l'appelant)
+    local seen = ggb_seen; wipe(seen)
     for _, sid in ipairs(BR.GroupOrder(groupId)) do
         if assigned[sid] and not seen[sid] then out[#out + 1] = sid; seen[sid] = true end
     end
-    local rest = {}
+    local rest = ggb_rest; wipe(rest)
     for sid in pairs(assigned) do if not seen[sid] then rest[#rest + 1] = sid end end
     if #rest > 0 then
         -- Order the not-yet-saved members by the NATIVE on-screen order (the EditMode arrangement), matching

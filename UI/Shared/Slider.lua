@@ -29,6 +29,16 @@ function ns.ui.CreateSlider(config)
     local onChange  = config.onChange
     local withInput = config.editBox and true or false
     local inputW    = config.editWidth or 50
+    -- Decimal places to snap/display (0 = integer, the default for every existing caller).
+    local decimals  = config.decimals or 0
+    local function roundV(v)
+        v = v or minV
+        if decimals > 0 then
+            local m = 10 ^ decimals
+            return math.floor(v * m + 0.5) / m
+        end
+        return math.floor(v + 0.5)
+    end
 
     local result = {}
 
@@ -59,10 +69,10 @@ function ns.ui.CreateSlider(config)
     local suppress = true   -- guards onChange during programmatic / echo updates
     if withInput then
         input = ns.ui.CreateTextInput({
-            parent = container, width = inputW, numeric = true, min = minV, max = maxV,
+            parent = container, width = inputW, numeric = true, decimal = decimals > 0, min = minV, max = maxV,
             onEnter = function(v)
                 if v == nil then return end
-                v = math.max(minV, math.min(maxV, math.floor(v + 0.5)))
+                v = math.max(minV, math.min(maxV, roundV(v)))
                 slider:SetValue(v)          -- fires OnValueChanged -> onChange (only if the value CHANGED)
                 if input then input.SetText(tostring(v)) end   -- reflect the clamped value even if unchanged
             end,
@@ -83,7 +93,7 @@ function ns.ui.CreateSlider(config)
     end
 
     slider:SetScript("OnValueChanged", function(_, v)
-        v = math.floor(v + 0.5)
+        v = roundV(v)
         Readout(v)
         if not suppress and onChange then onChange(v) end
     end)
@@ -99,10 +109,10 @@ function ns.ui.CreateSlider(config)
     function result.SetValue(v)
         suppress = true
         slider:SetValue(v)
-        Readout(math.floor((slider:GetValue() or minV) + 0.5))
+        Readout(roundV(slider:GetValue()))
         suppress = false
     end
-    function result.GetValue() return math.floor((slider:GetValue() or minV) + 0.5) end
+    function result.GetValue() return roundV(slider:GetValue()) end
 
     result.frame  = container
     result.slider = slider

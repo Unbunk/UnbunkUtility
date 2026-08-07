@@ -1,6 +1,6 @@
 -- Modules/CDMEngine/Core/Blob.lua
 --
--- Phase 0 of the standalone "the reference engine-like" CDM engine (ns.CDMEngine). This module is
+-- Phase 0 of the standalone CDM engine (ns.CDMEngine). This module is
 -- ISOLATED: it does NOT touch the native-reuse modules (CDMGroups/BuffGroups/BarGroups). It is the
 -- foundation the rest of the engine builds on — the ability to READ, DECODE and (safely) WRITE the
 -- CooldownViewer's persistent LAYOUT blob: the config that decides WHICH cooldowns the CDM tracks
@@ -11,7 +11,7 @@
 -- serialization pipeline we already adopted for profiles (C_EncodingUtil) plus the taint scrub
 -- (ns.PurgeTaintedKey) — so the whole codec + write path is already ours, no new libs.
 --
--- Schema (reverse-engineered from the native serializer; matches the reference engine v94): the decoded blob
+-- Schema (reverse-engineered from the native serializer): the decoded blob
 -- is a POSITIONAL array — [1] = schema version (4 or 5), then the top-level fields in Blob.FIELD.
 -- Each layout is itself positional (Blob.LAYOUT_FIELD).
 --
@@ -114,6 +114,21 @@ function Blob.Encode(cdmData)
     return nil
 end
 
+-- Reverse Encode: turn a "<version>|<base64(deflate(cbor))>" string back into its Lua table, or nil.
+-- Pure/non-mutating (mirrors Read's decode step without touching the live CDM). Generic — it does NOT
+-- interpret the schema, so any caller that later wants to Write() a decoded blob owns that decision.
+function Blob.Decode(str)
+    if type(str) ~= "string" or not (C_EncodingUtil and DEFLATE) then return nil end
+    local body = str:match("^%d+%|(.*)$")
+    if not body then return nil end
+    local ok, data = pcall(function()
+        return C_EncodingUtil.DeserializeCBOR(
+            C_EncodingUtil.DecompressString(C_EncodingUtil.DecodeBase64(body), DEFLATE))
+    end)
+    if ok and type(data) == "table" then return data end
+    return nil
+end
+
 -- The cooldownIDs of a category. The 2nd arg widens the set: false/nil = the currently CONFIGURED
 -- subset (what the user selected for this category), true = ALL cooldowns AVAILABLE to the category
 -- for this spec (a superset — verified in-game: configured count <= available count). Exact API
@@ -196,28 +211,3 @@ function Blob.GetActiveLayoutName(data, tag)
     local idData = data[F.LAYOUT_ID_DATA]
     return id and idData and idData[id] or nil, id
 end
-
--- ── Dev / verification slash: /uucdmblob ──────────────────────────────────────────────────────
--- Reads the live blob, prints a summary of what the CDM tracks, and runs the round-trip check.
--- READ-ONLY — never writes. Purely to confirm the Phase 0 foundation works on real data.
-local function PrintSummary()
-    local pr = ns.Print or function(m) print("|cff338cff[UnbunkUtility]|r " .. m) end
-    local data, tag, reason = Blob.Read()
-    if not data then
-        pr("CDM blob: could not read (" .. tostring(reason) .. "). Is the Cooldown Manager enabled?")
-        return
-    end
-    local name, id = Blob.GetActiveLayoutName(data, tag)
-    pr(("CDM blob: schema v%s, spec tag %q, active layout id %s (%s)")
-        :format(tostring(data[F.VERSION]), tostring(tag), tostring(id), tostring(name or "?")))
-    for _, cat in ipairs(Blob.CATEGORIES) do
-        local configured = Blob.GetTracked(cat.enum, false)   -- currently-selected subset
-        local available  = Blob.GetTracked(cat.enum, true)    -- all available to the category
-        pr(("  %s: %d configured / %d available"):format(cat.key, #configured, #available))
-    end
-    local ok, why = Blob.VerifyRoundTrip()
-    pr("  Round-trip codec: " .. (ok and "|cff40ff40OK (faithful)|r" or ("|cffff4040MISMATCH|r (" .. tostring(why) .. ")")))
-end
-
-SLASH_UUCDMBLOB1 = "/uucdmblob"
-SlashCmdList["UUCDMBLOB"] = PrintSummary

@@ -3,8 +3,8 @@
 -- Phase 2 of the standalone CDM engine (ns.CDMEngine). A pooled GROUP container frame: a plain anchor
 -- frame that holds a flow of E.Icon widgets (one category → one group). No textures, no native-frame
 -- contact. It carries a CACHED size (GetDefaultSize / SetDefaultSize) that the container measures
--- bottom-up, instead of reading the live GetWidth() while a SetSize is still in flight (the the reference engine
--- BaseLayout gotcha). Group.Release does NOT release its child icons — E.Icon.ReleaseAll owns that
+-- bottom-up, instead of reading the live GetWidth() while a SetSize is still in flight (the
+-- live-measure-during-resize gotcha). Group.Release does NOT release its child icons — E.Icon.ReleaseAll owns that
 -- teardown (single owner, avoids double-release).
 
 local _, ns = ...
@@ -32,9 +32,18 @@ function Group.Acquire()
     return g
 end
 
-function Group.Setup(g, spec)
+function Group.Setup(g, spec, catKey)
     g.spec = spec
-    g.catKey = spec and spec.key   -- stable string key ("Essential"/...) for per-group tab-driven positions
+    -- Per-group key "<dest>:<id>" ("essential:1") — the ONE handle every outside consumer resolves a group by:
+    -- the cast bar + resource-bar anchors (E.Layout.GroupFrame), the Fader's per-group fade scope
+    -- (CollectGroupFrames' "<dest>:" prefix) and the tab-driven posX/posY (GroupTabGet's "^(%a+):(%d+)$").
+    -- Taken as a PARAMETER, never stamped by the caller after we return: the fade snap at the bottom of this
+    -- function READS it, so a key written afterwards leaves that snap blind to the fade scope — with no id the
+    -- per-group exclusion check silently no-ops, and a raw SPEC key shaped like "TrackedBuff" misses even the
+    -- CATEGORY exclusion (it doesn't lower-case to a known dest), snapping an excluded group to the faded
+    -- alpha that nothing then drives back. Falls back to the raw SPEC key for a caller with no dest to key by
+    -- — nothing downstream matches that shape, so such a group simply stays inert.
+    g.catKey = catKey or (spec and spec.key)
     if g.children then wipe(g.children) else g.children = {} end
     if g.trackers then wipe(g.trackers) else g.trackers = {} end
     if g.nativeBuffs then wipe(g.nativeBuffs) else g.nativeBuffs = {} end
@@ -43,8 +52,11 @@ function Group.Setup(g, spec)
     g._relPos = nil   -- row cross-alignment hint; re-set by MaterializeHostGroup (never stale on a pooled group)
     g._spacing = nil  -- per-group spacing override; re-set by MaterializeHostGroup (never stale on a pooled group)
     g.w, g.h = 1, 1
-    g:SetAlpha(1)     -- clear any fade alpha carried over from a pooled/reused frame (the Fader fades group
-                      -- frames; a group released while faded must not come back dim once the fade is off)
+    -- Snap a pooled/reused group STRAIGHT to the live fade alpha. Blindly resetting to 1 (the old behaviour)
+    -- made every rebuild flash the group to full for a Fader tick before it re-faded — and rebuilds fire on
+    -- each cast, so a faded CDM flashed on every spell. F.CDMGroupAlpha returns 1 when the fade is off / this
+    -- group is fade-excluded, so a group released while faded still comes back clean once the fade is disabled.
+    g:SetAlpha((ns.Fader and ns.Fader.CDMGroupAlpha and ns.Fader.CDMGroupAlpha(g)) or 1)
     g:Show()
 end
 

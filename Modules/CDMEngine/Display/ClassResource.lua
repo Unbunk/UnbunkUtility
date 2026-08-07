@@ -54,9 +54,6 @@ local AURA_COLOR       = { 0.60, 0.80, 1.00 }
 
 local function Cfg(key) return E.Cfg and E.Cfg.GetResource(key) end                  -- master flag (.enable)
 local function Bar(specKey, i, key) return E.Cfg and E.Cfg.GetBar(specKey, i, key) end -- per-bar setting
-local function Say(msg)
-    if ns.Print then ns.Print(msg) else print("|cff338cff[UnbunkUtility]|r " .. tostring(msg)) end
-end
 
 -- ── State ─────────────────────────────────────────────────────────────────────────────────────
 local shown = false
@@ -92,8 +89,8 @@ local function ReleaseCell(c)
 end
 
 -- ── Value / percent text (continuous "bar" resources, e.g. mana) ─────────────────────────────────
--- We render the continuous VALUE text DEFENSIVELY C-side (never touching the number in Lua) — exactly like
--- the reference CDM addon's Tags.lua: AbbreviateNumbers(v) -> "250K" ; FontString:SetFormattedText(fmt, v) consumes v ;
+-- We render the continuous VALUE text DEFENSIVELY C-side (never touching the number in Lua) — the same
+-- native-safe tag pattern: AbbreviateNumbers(v) -> "250K" ; FontString:SetFormattedText(fmt, v) consumes v ;
 -- UnitPowerPercent(...) returns the % (we never divide cur/max ourselves). NOTE: plain UnitPower(...) COUNTS
 -- (combo points, holy power, soul shards, essence, runes) are NOT secret here — this widget runs on its OWN
 -- event frame (UNIT_POWER_*), not inside the CDM secure refresh — so the pip / essence families below do read
@@ -168,7 +165,7 @@ local function UpdateBarText(row, cur, mx)
     local fx = row.frame and row.frame.fx
     if not fx then return end
     if fx.valueFS and fx.valueFS:IsShown() then
-        -- "cur/max" abbreviated. cur may be SECRET: AbbreviateNumbers consumes it C-side (proven by the reference addon),
+        -- "cur/max" abbreviated. cur may be SECRET: AbbreviateNumbers consumes it C-side (proven safe),
         -- but feeding the resulting (secret) string through %s is NOT proven — so try it, and if it can't
         -- render, fall back to the proven %d/%d (SetFormattedText takes a secret number directly). Text
         -- always shows and a %s failure can never crash the rebuild.
@@ -245,6 +242,19 @@ Families.bar = {
     end,
 }
 
+-- A cell-count mismatch means the max resource changed (talent, spec swap, form) and the row has to be rebuilt
+-- with the right number of pips. That rebuild is queued for the NEXT frame, so a mismatch it doesn't resolve
+-- (a max read taken while the spec state is still settling) would rearm on EVERY resource event — and a rebuild
+-- tears down + re-acquires the whole engine layout and re-anchors every consumer, which the player sees as
+-- icons re-glowing and anchored frames flashing. One rearm per window: a REAL change is fixed by the first one.
+local CELL_MISS_WINDOW = 0.25
+local function RearmCellCount(row)
+    local t = GetTime()
+    if row._cellMissAt and (t - row._cellMissAt) < CELL_MISS_WINDOW then return end
+    row._cellMissAt = t
+    ScheduleSpecRebuild()
+end
+
 Families.pips = {
     setup = function(row, desc, cfg)
         row.power, row.divisor = desc.power, desc.divisor or 1
@@ -261,7 +271,7 @@ Families.pips = {
         if not row.power then return end
         local mx  = UnitPowerMax("player", row.power) or 0
         local cur = UnitPower("player", row.power, true) or 0
-        if math.max(mx, 1) ~= #row.cells then ScheduleSpecRebuild(); return end
+        if math.max(mx, 1) ~= #row.cells then RearmCellCount(row); return end
         local pips = mx
         local val  = cur / row.divisor
         local showEmpty = row.showEmpty ~= false
@@ -304,7 +314,7 @@ Families.essence = {
         if not row.power then return end
         local mx  = UnitPowerMax("player", row.power) or 0
         local cur = UnitPower("player", row.power) or 0
-        if math.max(mx, 1) ~= #row.cells then ScheduleSpecRebuild(); return end
+        if math.max(mx, 1) ~= #row.cells then RearmCellCount(row); return end
         local showEmpty = row.showEmpty ~= false
         for i, c in ipairs(row.cells) do
             c:SetScript("OnUpdate", nil)
@@ -469,6 +479,7 @@ local function ReleaseRow(row)
     if fam and fam.teardown then fam.teardown(row) end
     for _, c in ipairs(row.cells) do ReleaseCell(c) end
     wipe(row.cells)
+    row._cellMissAt = nil   -- rows are pooled with their bar frame: never carry a rearm timestamp into the next build
 end
 
 local function CellCountFor(desc)
@@ -566,13 +577,55 @@ local function AnchorFrameFor(dest)
     return GroupFrameFor(dest)
 end
 
+-- Named point of a frame in screen pixels (scale folded in).
+local function PointPx(frame, point)
+    if not (frame and frame.GetLeft) then return nil end
+    local l, b, w, h = frame:GetLeft(), frame:GetBottom(), frame:GetWidth(), frame:GetHeight()
+    local s = frame:GetEffectiveScale()
+    if not (l and b and s) then return nil end
+    local x = point:find("LEFT") and l or (point:find("RIGHT") and (l + w) or (l + w / 2))
+    local y = point:find("BOTTOM") and b or (point:find("TOP") and (b + h) or (b + h / 2))
+    return x * s, y * s
+end
+
+-- Where each bar's ANCHOR last was, in absolute screen px (the anchor's own placement point — NOT the bar's,
+-- so the configured posX/posY stay live on top of it). Keyed by spec + bar index (NOT by the bar frame: the
+-- frames are pooled, so a frame-scoped memory would be wiped by the very rebuild that needs it) and tagged
+-- with the anchor + placement it was measured under, so a settings change never re-imposes another target's spot.
+local lastAbs = {}   -- [specKey] = { [i] = { x, y, anchorTo = , placement = } }
+local function RememberAnchorPos(af, specKey, i, at, pl, rel)
+    local x, y = PointPx(af, rel[2])
+    if not x then return end   -- anchor has no rect this frame -> keep the previous memory
+    local t = lastAbs[specKey]; if not t then t = {}; lastAbs[specKey] = t end
+    local s = t[i];             if not s then s = {}; t[i] = s end
+    s[1], s[2], s.anchorTo, s.placement = x, y, at, pl
+end
+
 local function PositionBar(bf, specKey, i)
-    local af  = AnchorFrameFor(Bar(specKey, i, "anchorTo"))
-    local rel = REL_POINTS[Bar(specKey, i, "placement")] or REL_POINTS.above
+    local at, pl = Bar(specKey, i, "anchorTo"), Bar(specKey, i, "placement")
+    local af  = AnchorFrameFor(at)
+    if af == bf then af = nil end   -- a bar must NEVER anchor to itself (resbar:last after a shrink, or legacy bar<i>); WoW errors on self-SetPoint
+    local rel = REL_POINTS[pl] or REL_POINTS.above
     local px, py = Bar(specKey, i, "posX") or 0, Bar(specKey, i, "posY") or 0
-    bf:ClearAllPoints()
-    if af then bf:SetPoint(rel[1], af, rel[2], px, py)
-    else       bf:SetPoint("CENTER", UIParent, "CENTER", px, py) end   -- anchor absent -> screen centre
+    if af then
+        bf:ClearAllPoints()
+        bf:SetPoint(rel[1], af, rel[2], px, py)
+        RememberAnchorPos(af, specKey, i, at, pl, rel)
+        return
+    end
+    -- Anchor MOMENTARILY unresolvable: the CDM group frames are pooled and a rebuild releases (hides +
+    -- unpositions) every one of them, so any reposition landing mid-rebuild resolves to nothing. Pinning the
+    -- bar to the screen centre there teleports it to the middle of the screen for a frame and back — which
+    -- reads as a bar-shaped ghost flashing at the centre, once per rebuild. Ride the anchor's last known spot
+    -- instead; the next pass with a live anchor takes over (the engine pokes us after every build).
+    local s, sc = lastAbs[specKey] and lastAbs[specKey][i], bf:GetEffectiveScale()
+    if s and s[1] and s.anchorTo == at and s.placement == pl and sc and sc > 0 then
+        bf:ClearAllPoints()
+        bf:SetPoint(rel[1], UIParent, "BOTTOMLEFT", s[1] / sc + px, s[2] / sc + py)
+    elseif bf:GetNumPoints() == 0 then
+        bf:ClearAllPoints()
+        bf:SetPoint("CENTER", UIParent, "CENTER", px, py)   -- never anchored yet -> screen centre, as configured
+    end
 end
 
 -- The bar-family width, adapted to its "Adapt to" target's width when that target is present + sized.
@@ -596,11 +649,42 @@ local function HandleFrame(sub)
     if not h then h = CreateFrame("Frame", nil, UIParent); anchorHandles[sub] = h end
     return h
 end
+-- Park a handle where it currently IS, on absolute UIParent coordinates. A handle that is merely
+-- ClearAllPoints()-ed has no point at all and therefore renders at the exact CENTRE of the screen, dragging
+-- every consumer still anchored to it along with it; so does one left glued (SetAllPoints) to a bar frame the
+-- pool is about to unposition. Consumers are re-notified on the NEXT frame, so that gap is visible — parking
+-- makes it a no-op instead of a centre-screen flash.
+local function ParkHandle(h)
+    local x, y = PointPx(h, "BOTTOMLEFT")
+    local w, ht, s = h:GetWidth(), h:GetHeight(), h:GetEffectiveScale()
+    if not (x and s and s > 0) then return end   -- no rect this frame -> keep the points we have (never leave it point-less)
+    h:ClearAllPoints()
+    h:SetSize(math.max(w or 1, 1), math.max(ht or 1, 1))
+    h:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x / s, y / s)
+end
+local function ParkAllHandles()
+    for _, h in pairs(anchorHandles) do ParkHandle(h) end
+end
+-- Same idea one level up, for the BAR frames themselves: a bar anchored to a CDM group ("essential:1"…) holds a
+-- live SetPoint onto a POOLED frame, so the engine releasing its groups strands the bar (and every proxy handle
+-- glued to it) at the centre of the screen until R.Reposition runs. The engine calls this right before it
+-- releases, so the bars — and anything reading their rects during the rebuild — keep their last good position.
+function R.FreezeAnchors()
+    for _, bf in pairs(bars) do
+        local x, y = PointPx(bf, "BOTTOMLEFT")
+        local s = bf:GetEffectiveScale()
+        if x and s and s > 0 then
+            bf:ClearAllPoints()
+            bf:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x / s, y / s)
+        end
+    end
+    ParkAllHandles()
+end
 local function UpdateAnchorHandles()
-    for _, h in pairs(anchorHandles) do h:ClearAllPoints(); h:Hide() end
-    for i, bf in pairs(bars) do local h = HandleFrame(i); h:SetAllPoints(bf); h:Show() end
+    for _, h in pairs(anchorHandles) do ParkHandle(h); h:Hide() end
+    for i, bf in pairs(bars) do local h = HandleFrame(i); h:ClearAllPoints(); h:SetAllPoints(bf); h:Show() end
     local li = LastBarIndex()
-    if li then local h = HandleFrame("last"); h:SetAllPoints(bars[li]); h:Show() end
+    if li then local h = HandleFrame("last"); h:ClearAllPoints(); h:SetAllPoints(bars[li]); h:Show() end
 end
 local notifyQueued = false
 local function NotifyAnchorConsumers()   -- deferred + coalesced: off any co-fire, taint-safe
@@ -624,12 +708,31 @@ function R.AnchorFrameForKey(key)
     return nil
 end
 -- Ordered {key,label} anchor targets for the CURRENT spec ("Last bar" first, then "1: Name", "2: Name", ...).
+-- Cached in module-level scratch: the Fader hover driver calls this every tick, and the list only changes on
+-- spec / bar-count change. atSpec is force-invalidated from the spec-change path so a swap always rebuilds.
+-- Callers (Fader hover, ConfigWindow) copy .key/.label immediately, so handing back a reused table is safe.
+local atCache, atSpec = {}, nil
 function R.AnchorTargets()
-    local out, labels = {}, R.Detect()
-    if type(labels) ~= "table" or #labels == 0 then return out end
-    out[1] = { key = "resbar:last", label = (ns.L and ns.L["Last bar"]) or "Last bar" }
-    for i = 1, #labels do out[#out + 1] = { key = "resbar:" .. i, label = i .. ": " .. tostring(labels[i]) } end
-    return out
+    local spec, labels = R.GetSpecKey(), R.Detect()
+    local n = (type(labels) == "table") and #labels or 0
+    if n == 0 then
+        if #atCache > 0 then wipe(atCache) end
+        atSpec = spec
+        return atCache
+    end
+    if spec == atSpec and #atCache == n + 1 then return atCache end   -- unchanged -> reuse in place
+    atSpec = spec
+    for i = #atCache, n + 2, -1 do atCache[i] = nil end   -- shrank -> drop the tail
+    atCache[1] = atCache[1] or {}
+    atCache[1].key   = "resbar:last"
+    atCache[1].label = (ns.L and ns.L["Last bar"]) or "Last bar"
+    for i = 1, n do
+        local e = atCache[i + 1]
+        if not e then e = {}; atCache[i + 1] = e end   -- only allocate when the list grows
+        e.key   = "resbar:" .. i
+        e.label = i .. ": " .. tostring(labels[i])
+    end
+    return atCache
 end
 -- ns-level shims so other modules don't reach into E.Resource internals.
 ns.ResourceBarAnchorTargets = function() return R.AnchorTargets() end
@@ -637,19 +740,11 @@ ns.ResolveResourceBarFrame  = function(key) return R.AnchorFrameForKey(key) end
 ns.IsResourceBarAnchorKey   = function(key) return type(key) == "string" and key:match("^resbar:") ~= nil end
 
 -- ── Drag / unlock (per bar) ──────────────────────────────────────────────────────────────────────
--- Named point of a frame in screen pixels (scale folded in).
-local function PointPx(frame, point)
-    if not (frame and frame.GetLeft) then return nil end
-    local l, b, w, h = frame:GetLeft(), frame:GetBottom(), frame:GetWidth(), frame:GetHeight()
-    local s = frame:GetEffectiveScale()
-    if not (l and b and s) then return nil end
-    local x = point:find("LEFT") and l or (point:find("RIGHT") and (l + w) or (l + w / 2))
-    local y = point:find("BOTTOM") and b or (point:find("TOP") and (b + h) or (b + h / 2))
-    return x * s, y * s
-end
 -- After a drag, derive posX/posY so PositionBar reproduces where the bar was dropped (relative to its anchor).
 local function SaveDraggedPos(bf, specKey, i)
-    local af  = AnchorFrameFor(Bar(specKey, i, "anchorTo")) or UIParent
+    local af  = AnchorFrameFor(Bar(specKey, i, "anchorTo"))
+    if af == bf then af = nil end   -- mirror PositionBar: never measure the bar against itself
+    af = af or UIParent
     local rel = REL_POINTS[Bar(specKey, i, "placement")] or REL_POINTS.above
     local bx, by = PointPx(bf, rel[1])
     local ax, ay = PointPx(af, rel[2])
@@ -785,6 +880,7 @@ local function ReleaseBarFrame(bf)
     barPool[#barPool + 1] = bf
 end
 local function ReleaseAllBars()
+    ParkAllHandles()   -- cut the proxies loose BEFORE the pool unpositions the bars they are glued to
     for _, bf in pairs(bars) do ReleaseBarFrame(bf) end
     wipe(bars)
 end
@@ -802,14 +898,6 @@ function R.CollectBars(out, fg)
 end
 
 -- ── DATA event frame (own frame; IconExtras taint pattern) ───────────────────────────────────────
-local ev = CreateFrame("Frame")
-ev:SetScript("OnEvent", function()
-    for _, bf in pairs(bars) do
-        local row = bf.row
-        local fam = row and Families[row.family]
-        if fam then fam.update(row) end
-    end
-end)
 local registeredEvents = {}
 local UNIT_SCOPED = {
     UNIT_POWER_UPDATE = true, UNIT_POWER_FREQUENT = true, UNIT_MAXPOWER = true, UNIT_AURA = true,
@@ -822,6 +910,27 @@ local FAMILY_EVENTS = {
     auraBar  = { "UNIT_AURA" },
     auraPips = { "UNIT_AURA" },
 }
+-- Reverse index: event -> the families that asked for it. The frame carries the UNION of every drawn family's
+-- events, so without this a mana bar's UNIT_POWER_FREQUENT (several per second, and it fires for EVERY power
+-- type) also re-ran the pip families' update — and a pip update that reads a stale cell count rearms a full
+-- rebuild (see RearmCellCount). A row now only updates on the events ITS OWN family registered.
+local EVENT_FAMILIES = {}
+for fam, evs in pairs(FAMILY_EVENTS) do
+    for _, e in ipairs(evs) do
+        local t = EVENT_FAMILIES[e]; if not t then t = {}; EVENT_FAMILIES[e] = t end
+        t[fam] = true
+    end
+end
+
+local ev = CreateFrame("Frame")
+ev:SetScript("OnEvent", function(_, event)
+    local want = EVENT_FAMILIES[event]   -- unknown event -> update everything (safe default)
+    for _, bf in pairs(bars) do
+        local row = bf.row
+        local fam = row and Families[row.family]
+        if fam and (not want or want[row.family]) then fam.update(row) end
+    end
+end)
 local function RegisterFamilyEvents(family)
     local evs = FAMILY_EVENTS[family]
     if not evs then return end
@@ -846,6 +955,7 @@ local function DoSpecRebuild()
     Rebuild()
 end
 function ScheduleSpecRebuild()
+    atSpec = nil   -- force R.AnchorTargets to rebuild even if the label count is unchanged across the swap/talent change
     if specQueued then return end
     specQueued = true
     C_Timer.After(0, DoSpecRebuild)
@@ -864,7 +974,11 @@ Rebuild = function()
     if not shown then return end
     ReleaseAllBars()
     UnregisterData()
-    if not (Cfg("enable") == true) then return end   -- master OFF -> nothing
+    if not (Cfg("enable") == true) then                -- master OFF -> nothing
+        UpdateAnchorHandles()      -- ...but still hide the proxies, or "resbar:*" keeps resolving to a parked
+        NotifyAnchorConsumers()    --    handle sitting where the deleted bar used to be (silent, self-healing
+        return                     --    only on the next full build) instead of letting consumers fall back
+    end
 
     local specKey = R.GetSpecKey()
     local labels  = R.Detect()
@@ -1062,13 +1176,3 @@ function R.SetBarUnlocked(i, on)
     if bf then ApplyBarInteractivity(bf, R.GetSpecKey(), i) end
 end
 function R.IsBarUnlocked(i) return unlocked[i] == true end
-
--- ── Slash: /uucdmresources (toggle the master enable flag) ──────────────────────────────────────────
-SLASH_UUCDMRESOURCES1 = "/uucdmresources"
-SlashCmdList["UUCDMRESOURCES"] = function()
-    if not E.Cfg then return end
-    local on = not (E.Cfg.GetResource("enable") == true)
-    E.Cfg.SetResource("enable", on)
-    if shown then Rebuild() end
-    Say("CDM resources: " .. (on and "ON" or "OFF") .. (shown and "" or "  (enable widgets with /uucdmwidgets)"))
-end

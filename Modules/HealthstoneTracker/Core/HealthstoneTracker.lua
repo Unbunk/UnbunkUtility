@@ -582,7 +582,11 @@ local function TickerPass()
     -- instance, OR nothing to draw (no healthstone in bags, no sticky in-combat
     -- variant, and show-at-zero off). Skipping avoids a full relayout when the row
     -- is empty anyway. A bag/cast event flips it back on via the event ApplyAll.
-    if not IsActiveInCurrentInstance() then return end
+    -- Test-aware: let a running preview through even in a zone excluded by the
+    -- instance filter, so it still repaints + auto-stops via ApplyAll (mirrors the
+    -- `not HT.testMode` gate on the second short-circuit below). Steady-state
+    -- passes stay skipped outside eligible instances (behaviour unchanged).
+    if not HT.testMode and not IsActiveInCurrentInstance() then return end
     if not HT.testMode and #GetActiveItemIds() == 0 and not next(usedInCombatById)
        and not HT.CfgGet("showAtZero") then
         return

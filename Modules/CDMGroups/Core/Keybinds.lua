@@ -77,7 +77,7 @@ end
 -- id) lets the spell matcher use C_ActionBar.FindSpellActionButtons, which resolves a spell to its action
 -- slots OVERRIDE-AWARE: a cooldown tracked by its BASE spellId still finds the binding when the bar holds
 -- the talent/override form (and vice-versa). The old exact id-equality missed those, so some spells never
--- showed a keybind. (Approach mirrors the reference addon the reference CDM addon.)
+-- showed a keybind.
 local function ResolveByButtons(matchSlot)
     local shortest, raws
     for _, bar in ipairs(BARS) do
@@ -156,6 +156,21 @@ end
 -- ── Invalidation (debounced to next frame) ───────────────────────────────────
 -- Consumers hook ns.CDGKeybinds.onInvalidate (chained) to repaint immediately on a rebind / bar swap;
 -- otherwise the engine's / tracker's own ticker picks the change up within its interval.
+--
+-- REVERTED (2026-07-29): a "only call onInvalidate() when a tracked spell/item's resolved keybind text
+-- actually changed" optimization was tried here (avoids a needless CDM flash on keybind-adjacent events that
+-- don't change anything visible, e.g. ACTIONBAR_SLOT_CHANGED with no real rebind). In-game bisection proved
+-- it was incidentally responsible for a WORSE, unrelated bug: onInvalidate() also unconditionally bumps
+-- ns.StyleEpoch (Modules/CDMGroups/Core/Engine.lua), which the CDM engine folds into its rebuild-membership
+-- signature (Modules/CDMEngine/Core/Layout.lua ComputeSig) — so this function's frequent, UNCONDITIONAL firing
+-- was accidentally forcing frequent full engine rebuilds, which incidentally kept re-fixing a SEPARATE, older
+-- bug where a hosted native buff icon can be left stuck (invisible art, cooldown swipe still rendering) after
+-- an in-combat spell-override transition (Frostbolt -> Glacial Spike via Icicles). Several targeted fixes for
+-- that underlying gap in Layout.lua's rebuild-signature logic were tried and did not resolve it; reverting
+-- this optimization was the only change that reliably did, in-game. DO NOT re-add this debounce without also
+-- fixing the underlying CDM-engine gap (untraced beyond: BuffFrameKey's secret-value fallback can make the
+-- rebuild signature look unchanged across such a transition) — see git history around this comment for what
+-- was already tried and failed.
 local function Invalidate()
     wipe(textCache); wipe(rawCache); wipe(itemTextCache); wipe(itemRawCache)
     version = version + 1

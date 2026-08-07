@@ -1,6 +1,6 @@
 -- Modules/CastBar/Core/CastBar.lua
 -- A custom player cast bar (cast / channel / empower) plus an option to hide Blizzard's
--- native PlayerCastingBarFrame. Inspired by the reference CDM addon's PlayerCastBar: we watch the
+-- native PlayerCastingBarFrame. Modelled on the native player cast bar: we watch the
 -- UNIT_SPELLCAST_* events on "player", read UnitCastingInfo / UnitChannelInfo for the
 -- spell + castID, and hand the fill + countdown text to the 12.0 engine (SetTimerDuration +
 -- a Duration text binding) so there is NO per-frame OnUpdate — with a per-frame OnUpdate
@@ -209,6 +209,15 @@ local function ApplyLayout()
 
     -- Bar fill + background textures.
     bar:SetStatusBarTexture(ResolveTexture(C("barTexture")))
+    -- Re-seating the fill texture drops its vertex colour, so re-assert whatever colour the CURRENT state
+    -- wants. A relayout can land mid-cast or during the end-of-cast hold (the engine re-anchors us on every
+    -- rebuild); without this the bar would go plain white for the rest of that cast.
+    if cast.endHold and cast.endColor then
+        local ec = cast.endColor
+        bar:SetStatusBarColor(ec.r, ec.g, ec.b, ec.a or 1)
+    elseif cast.active then
+        ApplyColor()
+    end
     bg:SetTexture(ResolveTexture(C("bgTexture")))
     bg:SetVertexColor(0.12, 0.12, 0.12, 0.85)   -- darken so it reads as a background
 
@@ -250,7 +259,10 @@ local function ApplyLayout()
     timeFS:SetShown(C("showTimer") ~= false)
 
     spark:SetSize(C("sparkThickness") or 20, h * 1.8)
-    spark:SetShown(C("showSpark") ~= false)
+    -- ...but NOT during the end-of-cast feedback hold: EndCast hides the spark, and the bar is frozen full,
+    -- so re-showing it here would park a bright notch on the bar's right edge for the whole hold. StartCast
+    -- and the unlock preview re-show it themselves.
+    spark:SetShown(C("showSpark") ~= false and not cast.endHold)
 
     -- Border around the whole bar (icon + fill). Reuses the shared 4-edge helper; outset so it
     -- frames the bar from just outside instead of being painted over by the advancing fill.
@@ -263,17 +275,63 @@ local function ApplyLayout()
     if cast.active and cast.startKind == "empower" then ShowEmpowerPips(cast.numStages) end
 end
 
+-- Where the anchor last was, in absolute screen px (the anchor's own point, so posX/posY stay live on top of
+-- it), tagged with the anchor key + relative point it was measured under.
+local lastAbs
+local function RememberAnchorPos(af, at, ap, rel)
+    local x, y = PointAbs(af, ap)
+    if not x then return end   -- anchor has no rect this frame -> keep the previous memory
+    lastAbs = lastAbs or {}
+    lastAbs[1], lastAbs[2], lastAbs.anchorTo, lastAbs.rel = x, y, at, rel
+end
+
 function CB.ApplyPosition()
     if not container or CB.IsUnlocked() then return end
-    container:ClearAllPoints()
-    local af = AnchorDestFrame(C("anchorTo") or "essential")
+    local at = C("anchorTo") or "essential"
+    local af = AnchorDestFrame(at)
     local sp, ap = RelPoints()
     local px, py = C("posX") or 0, C("posY") or 0
     if af then
+        container:ClearAllPoints()
         container:SetPoint(sp, af, ap, px, py)
-    else
-        container:SetPoint(sp, UIParent, "CENTER", px, py)   -- CDM off / viewer absent
+        RememberAnchorPos(af, at, ap, C("positionRelative"))
+        return
     end
+    -- Anchor MOMENTARILY unresolvable: in engine mode the anchor is a POOLED group frame, and a rebuild
+    -- (they fire on every cast) hides + unpositions every one of them, so a reposition landing mid-rebuild
+    -- resolves to nothing. Jumping to the screen centre for that one frame and back is what reads as a
+    -- second cast bar flashing in the middle of the screen — ride the anchor's last known spot instead.
+    local cs = container:GetEffectiveScale()
+    if lastAbs and lastAbs.anchorTo == at and lastAbs.rel == C("positionRelative") and cs and cs > 0 then
+        container:ClearAllPoints()
+        container:SetPoint(sp, UIParent, "BOTTOMLEFT", lastAbs[1] / cs + px, lastAbs[2] / cs + py)
+    elseif container:GetNumPoints() == 0 then
+        container:ClearAllPoints()
+        container:SetPoint(sp, UIParent, "CENTER", px, py)   -- CDM off / viewer absent (never anchored yet)
+    end
+    -- Anything else (points already set, but the memory is tagged for another target): keep the current
+    -- SetPoint as-is. Staying put is always better than teleporting to the middle of the screen.
+end
+
+-- Pin the container to ABSOLUTE UIParent coordinates, dropping the live SetPoint onto its anchor frame.
+-- In engine mode that anchor is a POOLED group frame, and a rebuild releases every one of them (Hide +
+-- ClearAllPoints + SetParent(UIParent)); anything still anchored to one is dragged to the exact centre of the
+-- screen until it re-anchors, which is what reads as a second cast bar flashing in the middle. A consumer
+-- about to tear those frames down calls this FIRST, so nothing it does can move us; the next ApplyPosition
+-- reattaches to the live anchor. Idempotent, and deliberately NOT gated on IsUnlocked — the drag editor
+-- anchors to the same pooled frames, and an absolute pin is exactly what a movable frame wants.
+function CB.FreezePosition()
+    -- Gated on the container ONLY, never on `enabled`: the unlock editor and the preview both show + anchor the
+    -- container while the module is disabled, and skipping the freeze there would strand it at the centre for
+    -- good (ReanchorNow would skip too) instead of for a frame. It early-outs on a rectless frame anyway.
+    if not container then return end
+    if container.IsDragging and container:IsDragging() then return end   -- never fight an in-flight StartMoving
+    local sp = RelPoints()
+    local x, y = PointAbs(container, sp)   -- our OWN rect, so posX/posY are already folded in (never re-add them)
+    local cs = container:GetEffectiveScale()
+    if not (x and cs and cs > 0) then return end   -- no rect this frame -> leave the current point alone
+    container:ClearAllPoints()
+    container:SetPoint(sp, UIParent, "BOTTOMLEFT", x / cs, y / cs)
 end
 
 -- ── Follow Group 1's box size (fixes adapt-width / anchor not updating after a /reload) ──
@@ -300,6 +358,20 @@ end
 -- native Group 1 box it would otherwise hook is hidden in engine mode, so the engine calls this after every
 -- build to re-read the current engine group frame (anchor + adapt-width). Same coalesced re-apply.
 CB.NotifyAnchorChanged = OnAnchorSizeChanged
+
+-- Same re-adapt, but SYNCHRONOUS. The coalesced version above costs one rendered frame, and a caller that
+-- just released + rebuilt the pooled frames we are anchored to must not leave us dangling for that frame:
+-- our SetPoint would still name a released (hidden, unpositioned, reparented) frame, which parks us at the
+-- centre of the screen for exactly one frame — the "second cast bar" flash. Callers that finish a rebuild
+-- in one synchronous pass use this; everything else (a plain size change) can keep the cheap coalesced path.
+function CB.ReanchorNow()
+    if not container then return end
+    -- A disabled module still does zero work, EXCEPT while the container is on screen anyway (unlock editor /
+    -- preview) — that one must re-anchor or FreezePosition's absolute pin becomes permanent.
+    if not (enabled or container:IsShown()) then return end
+    ApplyLayout()        -- width/adapt read from the NEW group box (already laid out by the caller)
+    CB.ApplyPosition()
+end
 
 local hookedBoxes = {}
 local function HookGroupOneBoxes()
@@ -373,10 +445,12 @@ local function FreezeBar(value)
     if INTERP then bar:SetValue(value, INTERP) else bar:SetValue(value) end
 end
 
--- End-of-cast feedback hold timer.
+-- End-of-cast feedback hold timer. `cast.endHold` mirrors it on the shared cast state so ApplyLayout
+-- (declared above, out of this local's scope) can tell it must not re-show the spark mid-hold.
 local endTimer
 local function ClearEndFeedback()
     if endTimer then endTimer:Cancel(); endTimer = nil end
+    cast.endHold, cast.endColor = nil, nil
 end
 
 -- ── Start / stop a cast ───────────────────────────────────────────────────────
@@ -477,7 +551,7 @@ function CB.StopCast()
     end
 end
 
--- Soft end from a real cast event, with optional feedback (the reference engine-style): briefly hold the
+-- Soft end from a real cast event, with optional feedback: briefly hold the
 -- bar full in a success / interrupted colour before hiding. `complete` is derived from WHICH end
 -- event fired (STOP/CHANNEL_STOP/EMPOWER_STOP = success; FAILED/INTERRUPTED = not). Channels
 -- finish empty, so a held bar would look wrong — they never hold.
@@ -505,9 +579,12 @@ local function EndCast(complete)
     FreezeBar(1)          -- ease to full; the colour reads success vs interrupted
     timeFS:SetText("")
     spark:Hide()
+    cast.endHold  = true  -- a relayout landing during the hold must not put the spark back on the full bar
+    cast.endColor = col   -- ...nor drop the success/interrupted colour when it re-seats the fill texture
     container:Show()
     endTimer = C_Timer.NewTimer(hold, function()
         endTimer = nil
+        cast.endHold, cast.endColor = nil, nil
         if not cast.active and container and not CB.IsUnlocked() then container:Hide() end
     end)
 end
@@ -673,8 +750,12 @@ function CB.ApplyBlizzard()
             blizzHooked = true
             -- Keep it down even if another addon (or Blizzard) tries to revive it.
             hooksecurefunc(pcb, "Show", function(self) if blizzHidden then self:Hide() end end)
+            -- SetShown does NOT re-enter the Show post-hook C-side, and RegisterAllEvents bypasses the two
+            -- per-event hooks below, so both need their own guard or the native bar comes back for a frame.
+            hooksecurefunc(pcb, "SetShown", function(self, v) if blizzHidden and v then self:Hide() end end)
             hooksecurefunc(pcb, "RegisterEvent", function(self) if blizzHidden then self:UnregisterAllEvents() end end)
             hooksecurefunc(pcb, "RegisterUnitEvent", function(self) if blizzHidden then self:UnregisterAllEvents() end end)
+            hooksecurefunc(pcb, "RegisterAllEvents", function(self) if blizzHidden then self:UnregisterAllEvents() end end)
         end
     elseif blizzHidden then
         -- Best-effort restore (a /reload fully re-initialises Blizzard's own setup).
