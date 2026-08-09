@@ -252,6 +252,7 @@ L["Place the saved bar template onto this character now?"] = "Placer le modèle 
 L["Captured %d action-bar slots into the template."] = "%d slots de barres capturés dans le modèle."
 L["Imported: %d placed, %d skipped (unknown spell / missing macro)."] = "Import : %d placés, %d ignorés (sort inconnu / macro absente)."
 L["Can't do that in combat."] = "Impossible en combat."
+L["Couldn't bind that key."] = "Impossible d'assigner cette touche."
 L["Capture failed."] = "Échec de la capture."
 L["Edit template"] = "Modifier le modèle"
 L["Uncheck a slot to leave it out of the import."] = "Décoche un slot pour l'exclure de l'import."
@@ -412,6 +413,7 @@ L["Monochrome + Thick outline"] = "Monochrome + Contour épais"
 
 -- ── Pickers / inputs ─────────────────────────────────────────────────────────
 L["Button"] = "Bouton"
+L["Not bound"] = "Non assigné"
 L["(select...)"] = "(sélectionner...)"
 L["(select a font)"] = "(choisir une police)"
 L["(no icons available)"] = "(aucune icône disponible)"

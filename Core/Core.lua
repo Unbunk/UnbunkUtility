@@ -60,16 +60,25 @@ local BR, BG, BB = 0.20, 0.55, 1.0   -- brand blue
 local GITHUB_URL     = "https://github.com/Unbunk/UnbunkUtility"
 local CURSEFORGE_URL = "https://www.curseforge.com/wow/addons/unbunkutility"
 
--- WoW can't open a browser, so a clicked link pops a small dialog with the URL in a
--- pre-selected EditBox the user copies with Ctrl+C. A custom frame (not a Blizzard
--- StaticPopup) so it matches the addon's square style AND reliably shows the URL —
--- the StaticPopup `data` path stopped populating the edit box after Midnight's popup
+-- WoW can't open a browser, so a clicked link (or a companion addon's "copy these
+-- links" action) pops a small dialog with the text in a pre-selected, read-only
+-- EditBox the user copies with Ctrl+C. A custom frame (not a Blizzard StaticPopup)
+-- so it matches the addon's square style AND reliably shows the text — the
+-- StaticPopup `data` path stopped populating the edit box after Midnight's popup
 -- rework, which is why the link looked empty.
+--
+-- `input` is a single string, or an array of strings shown one per line (e.g. one
+-- link per bank item) in a scrollable multi-line box. Bridged as ns.ShowURL so
+-- companion addons can reuse the same dialog instead of building their own.
 local urlDialog
-local function ShowURL(url)
+local DIALOG_W, LINE_H, MAX_VISIBLE_LINES = 480, 14, 16
+local TOP_CHROME, BOTTOM_CHROME = 46, 52   -- title area / gap + close button + margin
+local function ShowURL(input, title)
+    local lines = type(input) == "table" and input or { input }
+    local text  = table.concat(lines, "\n")
+
     if not urlDialog then
         local f = CreateFrame("Frame", "UnbunkUtilityURLDialog", UIParent, "BackdropTemplate")
-        f:SetSize(440, 118)
         f:SetPoint("CENTER")
         f:SetFrameStrata("FULLSCREEN_DIALOG")
         f:SetToplevel(true)
@@ -84,23 +93,32 @@ local function ShowURL(url)
         f:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
         f:Hide()
 
-        local title = f:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
-        title:SetPoint("TOP", f, "TOP", 0, -14)
-        title:SetText(ns.L["Copy the link (Ctrl+C)"])
+        local titleFS = f:CreateFontString(nil, "OVERLAY", "UnbunkUtilityH2")
+        titleFS:SetPoint("TOP", f, "TOP", 0, -14)
+        f.titleFS = titleFS
 
-        -- Selectable EditBox holding the URL, with the inputs' dark sharp fill.
-        local eb = CreateFrame("EditBox", nil, f)
-        eb:SetSize(400, 24)
-        eb:SetPoint("TOP", f, "TOP", 0, -46)
+        -- Dark-filled scroll area holding a read-only, multi-line EditBox.
+        local box = CreateFrame("Frame", nil, f, "BackdropTemplate")
+        box:SetPoint("TOP", titleFS, "BOTTOM", 0, -10)
+        box:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
+        box:SetBackdropColor(0.12, 0.12, 0.12, 0.95)
+        f.box = box
+
+        local scroll = CreateFrame("ScrollFrame", nil, box, "UIPanelScrollFrameTemplate")
+        scroll:SetPoint("TOPLEFT", box, "TOPLEFT", 6, -6)
+        scroll:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -26, 6)
+
+        local eb = CreateFrame("EditBox", nil, scroll)
+        eb:SetMultiLine(true)
         eb:SetAutoFocus(false)
         eb:SetFontObject("UnbunkUtilityBody")
-        eb:SetTextInsets(6, 6, 0, 0)
-        local ebFill = eb:CreateTexture(nil, "BACKGROUND")
-        ebFill:SetAllPoints(eb)
-        ebFill:SetColorTexture(0.12, 0.12, 0.12, 0.95)
+        eb:SetTextInsets(0, 0, 0, 0)
+        eb:SetWidth(DIALOG_W - 32)
+        scroll:SetScrollChild(eb)
+        f.editBox = eb
+
         eb:SetScript("OnEscapePressed", function() f:Hide() end)
-        eb:SetScript("OnEnterPressed",  function() f:Hide() end)
-        -- Auto-close right after the link is copied (Ctrl+C). The client performs the
+        -- Auto-close right after the text is copied (Ctrl+C). The client performs the
         -- copy on this keypress, so defer the hide one frame so the clipboard write
         -- finishes before the dialog goes away.
         eb:SetScript("OnKeyDown", function(_, key)
@@ -108,14 +126,13 @@ local function ShowURL(url)
                 C_Timer.After(0, function() f:Hide() end)
             end
         end)
-        -- Effectively read-only: snap back to the URL if edited, so it stays correct.
+        -- Effectively read-only: snap back to the original text if edited.
         eb:SetScript("OnTextChanged", function(self)
-            if self.url and self:GetText() ~= self.url then
-                self:SetText(self.url)
+            if self.value and self:GetText() ~= self.value then
+                self:SetText(self.value)
                 self:HighlightText()
             end
         end)
-        f.editBox = eb
 
         local close = ns.ui.CreateButton({ parent = f, label = CLOSE or "Close", width = 110, height = 24 })
         close.frame:SetPoint("BOTTOM", f, "BOTTOM", 0, 14)
@@ -123,14 +140,25 @@ local function ShowURL(url)
 
         urlDialog = f
     end
-    local eb = urlDialog.editBox
-    eb.url = url
-    eb:SetText(url)
-    urlDialog:Show()
-    urlDialog:Raise()
+
+    local f  = urlDialog
+    local eb = f.editBox
+    f.titleFS:SetText(title or ns.L["Copy the link (Ctrl+C)"])
+    eb.value = text
+    eb:SetText(text)
+    eb:SetHeight(math.max(1, #lines) * LINE_H + 12)
+
+    local visible = math.max(1, math.min(#lines, MAX_VISIBLE_LINES))
+    local boxH = visible * LINE_H + 12
+    f.box:SetSize(DIALOG_W, boxH)
+    f:SetSize(DIALOG_W + 20, TOP_CHROME + boxH + BOTTOM_CHROME)
+
+    f:Show()
+    f:Raise()
     eb:SetFocus()
     eb:HighlightText()
 end
+ns.ShowURL = ShowURL
 
 -- ── Nav tree ──────────────────────────────────────────────────────────────────
 -- Built lazily (needs ns.L at runtime). A `panel` entry references a registered
