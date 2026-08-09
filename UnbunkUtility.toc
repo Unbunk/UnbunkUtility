@@ -29,6 +29,7 @@ Media/Media.lua
 UI/Shared/IconPicker.lua
 UI/Shared/ScrollBar.lua
 UI/Shared/Button.lua
+UI/Shared/KeybindButton.lua
 UI/Shared/TextInput.lua
 UI/Shared/ColorPicker.lua
 UI/Shared/Prompt.lua
