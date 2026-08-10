@@ -137,7 +137,7 @@ function BL.ApplyVisuals()
         blIcon.Hide()
         return
     end
-    if not BL.CfgGet("showIcon") then
+    if not BL.CfgGet("showIcon") or (ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled()) then
         blIcon.Hide()
     else
         -- "Always show" (default on): keep the icon up even with no lust active

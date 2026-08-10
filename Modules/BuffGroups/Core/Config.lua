@@ -309,6 +309,7 @@ ns.RegisterCfgInitHook(BG.CfgInit)
 -- (the always-running ticker re-pins within a pass; the mode-switch StyleEpoch bump busts its early-out).
 function BG.Enabled()
     if ns.CDMMode and ns.CDMMode.IsEngine and ns.CDMMode.IsEngine() then return false end
+    if ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() then return false end
     local s = Store(); return not s or s.enabled ~= false
 end
 function BG.SetEnabled(v) local s = Store(); if s then s.enabled = v and true or false end end

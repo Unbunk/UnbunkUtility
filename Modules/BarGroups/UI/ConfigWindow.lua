@@ -844,6 +844,7 @@ local function CreateBarsPanel(parent)
         { type = "label", font = "UnbunkUtilityH2", height = 26, text = L["Bars"] },
         { type = "checkbox", label = L["Enable custom CDM Bars"],
           shown = function() return not (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- native-only toggle: hidden in engine mode (the engine renders this category regardless)
+          disabled = function() return ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() end,
           get = function() return BR.Enabled() end,
           set = function(v)
               BR.SetEnabled(v)

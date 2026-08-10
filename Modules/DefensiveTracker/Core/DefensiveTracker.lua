@@ -309,7 +309,7 @@ local function ApplyOne(spellId)
     -- below still runs when hidden, so a sound-only (Show icon off) defensive alerts.
     local cur, maxc, cdStart, cdDur = GetCharges(spellId)
     local hideForZero = cur and maxc and maxc > 1 and cur == 0 and not e.showAtZero
-    if e.showIcon ~= false and not hideForZero then
+    if e.showIcon ~= false and not hideForZero and (not ns.IsCDMTakeoverEnabled or ns.IsCDMTakeoverEnabled()) then
         d.icon.Show()
         ApplyStack(spellId)
         ApplyTitle(spellId)   -- per-tick too, so the in-CDM suppression re-evaluates as the dest changes

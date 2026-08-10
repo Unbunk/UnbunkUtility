@@ -719,6 +719,7 @@ function ns.CDMAnchor.IsBelowUnlocked() return belowUnlocked end
 -- hide is enforced by the DoRefreshBody dispatch (immediate) + each tracker's own Show/ApplyVisuals
 -- gate (TimerIcon.ContextHidden, BResTracker.ApplyVisuals) so the owner can't re-show them.
 function ns.CDMAnchor.IsBelowEnabled()
+    if ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() then return false end
     local c = ns.db and ns.db.profile and ns.db.profile.cdmBelowRow
     return not c or c.enabled ~= false
 end
@@ -736,6 +737,7 @@ end
 -- BResTracker.ApplyVisuals, with the free icons' own ApplyPosition (run via the dispatch's d.apply)
 -- hiding them on a forced RefreshAll.
 function ns.CDMAnchor.IsFreeEnabled()
+    if ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() then return false end
     local p = ns.db and ns.db.profile
     return not p or p.cdmFreeEnabled ~= false
 end

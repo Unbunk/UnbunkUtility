@@ -21,6 +21,25 @@ local function CreateAddonSettingsPanel(parent)
 
         {
             type  = "group",
+            title = L["Cooldown Manager"],
+            build = function()
+                return {
+                    { type = "label", font = "UnbunkUtilityH6", height = 36,
+                      text = L["Turn this off to fully disengage from the Cooldown Manager: Essential, Utility, Buffs, Bars, Below player frame, Free icons, class resources, and every tracker icon (Defensive, Trinket, Potion, Healthstone, Racial, BL, PI) stop showing, in both engine and native mode."] },
+                    {
+                        type   = "checkbox",
+                        label  = L["Enable Cooldown Manager takeover"],
+                        get    = function() return ns.IsCDMTakeoverEnabled and ns.IsCDMTakeoverEnabled() end,
+                        set    = function(val)
+                            if ns.SetCDMTakeoverEnabled then ns.SetCDMTakeoverEnabled(val) end
+                        end,
+                    },
+                }
+            end,
+        },
+
+        {
+            type  = "group",
             title = L["Minimap icon"],
             build = function()
                 return {
@@ -564,6 +583,7 @@ local function CreateBelowPlayerPanel(parent)
         -- (you can still assign icons to the row, they just won't show); the forced RefreshAll
         -- hides them all at once.
         { type = "checkbox", label = L["Enable Below player frame"],
+          disabled = function() return ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() end,
           get = function() return ns.CDMAnchor and ns.CDMAnchor.IsBelowEnabled() end,
           set = function(v)
               if ns.CDMAnchor and ns.CDMAnchor.SetBelowEnabled then ns.CDMAnchor.SetBelowEnabled(v) end
@@ -954,6 +974,7 @@ local function CreateFreeIconsPanel(parent)
         -- free icon simply doesn't render (you can still add / configure them here). Same hide-when-off
         -- behaviour as the Below player frame toggle; RefreshAll(true) applies it at once.
         { type = "checkbox", label = L["Enable Free icons"],
+          disabled = function() return ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() end,
           get = function() return ns.CDMAnchor and ns.CDMAnchor.IsFreeEnabled() end,
           set = function(v)
               if ns.CDMAnchor and ns.CDMAnchor.SetFreeEnabled then ns.CDMAnchor.SetFreeEnabled(v) end

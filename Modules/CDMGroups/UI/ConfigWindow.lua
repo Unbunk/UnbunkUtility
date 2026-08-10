@@ -341,6 +341,7 @@ function ns.CDMGroups.TrackerIconGroup(b)
         build = function()
             local e = {
                 { type = "checkbox", ref = "showicon", label = L["Show icon"], height = b.showIconHeight,
+                  disabled = function() return ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() end,
                   get = function() return b.get("showIcon") ~= false end,
                   set = function(v) b.set("showIcon", v); if b.onShowIcon then b.onShowIcon() end end,
                   inline = b.showIconInline },
@@ -1256,6 +1257,7 @@ local function CreatePanel(I, titleText, enableLabel, cadreTitle)
             -- releases / re-takes the Essential viewer immediately.
             { type = "checkbox", label = enableLabel,
               shown = function() return not (ns.CDMMode and ns.CDMMode.IsEngine()) end,   -- native-only toggle: hidden in engine mode (the engine renders this dest regardless)
+              disabled = function() return ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() end,
               get = function() return I.Enabled() end,
               set = function(v)
                   I.SetEnabled(v)
