@@ -180,6 +180,9 @@ end
 
 local function BuildNavTree()
     local L = ns.L
+    -- Greys the 7 "Cooldown Manager" sub-tabs (still clickable) while the master takeover
+    -- switch (Addon settings) is off, matching the in-panel checkboxes it already disables.
+    local cdmOff = not (ns.IsCDMTakeoverEnabled and ns.IsCDMTakeoverEnabled())
     local tree = {
         { name = L["General Settings"], subs = {
             { panel = L["Addon settings"] },
@@ -192,13 +195,13 @@ local function BuildNavTree()
                 -- "Class resources" (engine-only widget) sits at the BOTTOM, after Free icons. The engine-mode
                 -- switch ("CDM Settings") lives under Debug Utilities.
                 local subs = {
-                    { panel = L["Essential"] },
-                    { panel = L["Utility"] },
-                    { panel = L["Buffs"] },
-                    { panel = L["Bars"] },
-                    { panel = L["Below player frame"] },
-                    { panel = L["Free icons"] },
-                    { panel = L["Class resources"] },
+                    { panel = L["Essential"], disabled = cdmOff },
+                    { panel = L["Utility"], disabled = cdmOff },
+                    { panel = L["Buffs"], disabled = cdmOff },
+                    { panel = L["Bars"], disabled = cdmOff },
+                    { panel = L["Below player frame"], disabled = cdmOff },
+                    { panel = L["Free icons"], disabled = cdmOff },
+                    { panel = L["Class resources"], disabled = cdmOff },
                 }
                 return subs
             end)() },
@@ -362,7 +365,13 @@ local function HighlightMenu()
     for _, row in ipairs(menuRows) do
         if row.panelName then
             local on = (row.panelName == activeSub)
-            if row.label then row.label:SetTextColor(on and BR or 1, on and BG or 1, on and BB or 1) end
+            if row.label then
+                if row.disabled then
+                    row.label:SetTextColor(0.5, 0.5, 0.5)
+                else
+                    row.label:SetTextColor(on and BR or 1, on and BG or 1, on and BB or 1)
+                end
+            end
             if row.accent then
                 if on then row.accent:Show() else row.accent:Hide() end
                 if row.accent.SetColorTexture then row.accent:SetColorTexture(BR, BG, BB, 1) end
@@ -493,10 +502,11 @@ end
 -- Each nesting level (an enclosing category) indents a row by this many px.
 local NEST_INDENT = 14
 
-local function MakeSubRow(panelName, ancestors)
+local function MakeSubRow(panelName, ancestors, disabled)
     local btn = MakeRow()
     btn.panelName = panelName
     btn.ancestors = ancestors            -- enclosing categories (folded => row hidden)
+    btn.disabled  = disabled and true or false   -- greyed but still clickable (HighlightMenu/OnEnter/OnLeave)
     local depth   = ancestors and #ancestors or 0
 
     -- Left accent bar: shown ONLY on the active sub-tab, so the selection stays
@@ -527,9 +537,14 @@ local function MakeSubRow(panelName, ancestors)
     end
     btn.label = lbl
 
-    btn:SetScript("OnEnter", function() lbl:SetTextColor(BR, BG, BB) end)
+    btn:SetScript("OnEnter", function()
+        if btn.disabled then return end
+        lbl:SetTextColor(BR, BG, BB)
+    end)
     btn:SetScript("OnLeave", function()
-        if activeSub == panelName then
+        if btn.disabled then
+            lbl:SetTextColor(0.5, 0.5, 0.5)
+        elseif activeSub == panelName then
             lbl:SetTextColor(BR, BG, BB)
         else
             lbl:SetTextColor(1, 1, 1)
@@ -608,7 +623,7 @@ local function BuildLeftMenu(mainIndex)
                     childAncestors[#childAncestors + 1] = item.cat
                     addItems(item.subs, childAncestors)
                 else
-                    table.insert(menuRows, MakeSubRow(item.panel, ancestors))
+                    table.insert(menuRows, MakeSubRow(item.panel, ancestors, item.disabled))
                 end
             end
         end

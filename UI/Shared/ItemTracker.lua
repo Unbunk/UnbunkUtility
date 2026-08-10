@@ -122,7 +122,7 @@ function ns.ui.CreateItemTracker(config)
         -- as an item id is known to draw (the favourite / configured / default one).
         local itemExists = itemId and (getCfg("showAtZero") or hasItem(itemId))
 
-        if not itemExists or not getCfg("showIcon") then
+        if not itemExists or not getCfg("showIcon") or (ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled()) then
             HideCached()
             return
         end
