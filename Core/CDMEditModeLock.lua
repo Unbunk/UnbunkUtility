@@ -9,11 +9,19 @@
 -- Cooldown Manager viewers are locked — Essential, Utility, Tracked Buffs (buff icons,
 -- owned by BuffGroups) and Tracked Bars (buff bars, owned by BarGroups). The below-player
 -- row is our own frame, not an Edit Mode system, so it is not listed here.
+--
+-- ALL of this is gated on the "Enable Cooldown Manager takeover" master switch
+-- (ns.IsCDMTakeoverEnabled): with it OFF the addon has fully ceded the CDM back to Blizzard, so the
+-- native viewers must be draggable in Edit Mode again like any other system. ns.CDMEditModeLock.Apply()
+-- re-syncs the lock/unlock state to the switch and is called from Mode.lua's M.Apply() (world enter,
+-- profile reload, and the switch itself), so a live toggle takes effect without a /reload.
 
 local ADDON, ns = ...
 -- NOTE: this file loads before the locale engine creates ns.L, so DON'T cache it here
 -- (`local L = ns.L` would capture nil). All strings are looked up via Loc() at runtime.
 local function Loc(key) return (ns.L and ns.L[key]) or key end
+
+local function TakeoverOn() return ns.IsCDMTakeoverEnabled and ns.IsCDMTakeoverEnabled() end
 
 -- The four native CooldownViewer Edit Mode systems whose layout UnbunkUtility owns
 -- (CDMGroups: Essential/Utility; BuffGroups: Tracked Buffs; BarGroups: Tracked Bars).
@@ -96,8 +104,11 @@ local function SetupHandlers(frame)
     local selection = frame.Selection
     if not selection or handlersSet[selection] then return end
     handlersSet[selection] = true
-    -- Flash the note on click, auto-hiding after 2s (token guards against overlap).
+    -- Flash the note on click, auto-hiding after 2s (token guards against overlap). HookScript is
+    -- permanent for the session, so re-check the takeover switch live on every click rather than only
+    -- at install time — with the switch OFF this viewer is no longer ours to annotate.
     selection:HookScript("OnMouseDown", function()
+        if not TakeoverOn() then return end
         ShowLockText(frame, true)
         local st = lockState[selection]
         local token = ((st and st.token) or 0) + 1
@@ -124,24 +135,64 @@ end
 -- the selection is a handler change (not a geometry/movable write on the system) -> taint-safe, and
 -- alone it stops the drag (no OnDragStart = no StartMoving). Re-applied on every SelectSystem in case
 -- Blizzard re-installs the handlers.
+--
+-- The native OnDragStart/OnDragStop are saved off the FIRST time a given selection is killed (per kill
+-- cycle — RestoreDrag clears the "killed" flag so a later re-kill re-captures fresh handlers, in case
+-- Blizzard re-installed new ones while we were unlocked), so RestoreDrag can hand them straight back
+-- when the takeover switch flips OFF and give Edit Mode its native dragging back.
+local dragState = setmetatable({}, { __mode = "k" })   -- selection -> { start, stop, killed }
+
 local function KillDrag(frame)
     local selection = frame and frame.Selection
     if not selection then return end
+    local st = dragState[selection]
+    if not st then st = {}; dragState[selection] = st end
+    if not st.killed then
+        st.start = selection:GetScript("OnDragStart")
+        st.stop = selection:GetScript("OnDragStop")
+        st.killed = true
+    end
     selection:SetScript("OnDragStart", nil)
     selection:SetScript("OnDragStop", nil)
 end
 
-local function LockFrames()
+-- Give the native drag handlers back — a plain handler swap, never protected, so it's safe in combat
+-- too. A no-op if this selection was never killed (nothing saved).
+local function RestoreDrag(frame)
+    local selection = frame and frame.Selection
+    local st = selection and dragState[selection]
+    if not st or not st.killed then return end
+    selection:SetScript("OnDragStart", st.start)
+    selection:SetScript("OnDragStop", st.stop)
+    st.killed = false
+end
+
+-- Lock/unlock every native viewer to match the live takeover switch. Called on setup, and again from
+-- Mode.lua's M.Apply() on every world enter / profile reload / takeover toggle, so a live flip takes
+-- effect immediately without a /reload.
+local didSetup = false   -- declared here (not below, next to TrySetup) so Apply can close over it: see guard below
+local function Apply()
+    -- Mode.lua's M.Apply() can reach us (PLAYER_ENTERING_WORLD, profile reload) before TrySetup() has ever
+    -- run, e.g. if Blizzard_EditMode hasn't loaded yet. Bail out then: IsLockedViewer would already no-op
+    -- via the missing frame.system, but bailing explicitly avoids KillDrag ever capturing a not-yet-wired
+    -- (nil) native drag handler as this selection's "killed" baseline.
+    if not didSetup then return end
+    local on = TakeoverOn()
     for _, name in ipairs(LOCK_NAMES) do
         local f = _G[name]
         if IsLockedViewer(f) then
-            KillDrag(f)
-            SetupHandlers(f)
+            if on then
+                KillDrag(f)
+                SetupHandlers(f)
+            else
+                RestoreDrag(f)
+                ShowLockText(f, false)
+            end
         end
     end
 end
+ns.CDMEditModeLock = { Apply = Apply }
 
-local didSetup = false
 local function TrySetup()
     local dialog = _G.EditModeSystemSettingsDialog
     if not (dialog and Enum and Enum.EditModeSystem and Enum.EditModeSystem.CooldownViewer) then
@@ -150,9 +201,11 @@ local function TrySetup()
     if didSetup then return true end
     didSetup = true
 
-    -- The settings dialog attaching to a locked viewer -> close it immediately.
+    -- The settings dialog attaching to a locked viewer -> close it immediately (takeover ON only: with
+    -- it OFF the addon has ceded this viewer, so the native dialog must be allowed to open normally).
     hooksecurefunc(dialog, "AttachToSystemFrame", function(dlg, systemFrame)
         if not IsLockedViewer(systemFrame) then return end
+        if not TakeoverOn() then return end
         dlg:Hide()
         SetupHandlers(systemFrame)
         ShowNotice()
@@ -162,6 +215,10 @@ local function TrySetup()
         local f = _G[name]
         if IsLockedViewer(f) then
             hooksecurefunc(f, "SelectSystem", function(sf)
+                -- Permanent hook (hooksecurefunc can't be removed): re-check the switch live on every
+                -- selection, not just at install time, so turning takeover OFF stops re-locking a
+                -- viewer the addon no longer owns.
+                if not TakeoverOn() then return end
                 KillDrag(sf)   -- taint-safe drag lock (NOT SetMovable — see KillDrag)
                 if dialog.attachedToSystem == sf then dialog:Hide() end
                 SetupHandlers(sf)
@@ -172,7 +229,7 @@ local function TrySetup()
         end
     end
 
-    LockFrames()
+    Apply()
     return true
 end
 
