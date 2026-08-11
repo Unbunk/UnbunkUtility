@@ -101,6 +101,11 @@ local lastAppliedSig
 function M.Apply()
     local takeoverOn = ns.IsCDMTakeoverEnabled()
     ApplyMask()
+    -- Edit Mode drag-lock (Level 0): keep the native viewers' Edit Mode lock in sync with the switch —
+    -- locked (KillDrag + "Managed by" overlay) while the addon owns them, restored to native Edit Mode
+    -- dragging the moment takeover is OFF. Independent of mode (native/engine): the lock covers ALL 4
+    -- native viewers regardless, so this runs unconditionally here rather than folded into ApplyMask.
+    if ns.CDMEditModeLock and ns.CDMEditModeLock.Apply then ns.CDMEditModeLock.Apply() end
     if E.Layout and E.Layout.SetShown then E.Layout.SetShown(M.IsEngine() and takeoverOn) end
     -- Re-route CDMAnchor (Level 2): owned() now returns the new value for essential/utility, so CDMAnchor
     -- stops pinning the CDM trackers to the (masked) native viewer and lets the engine host them — and
