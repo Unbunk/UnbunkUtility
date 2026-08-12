@@ -148,6 +148,7 @@ end
 -- ids. Defined HERE (above CollectTrackedSplit) because the split keys the pool frames by it.
 local function FrameSpellId(nf)
     if not nf then return nil end
+    if ns.CDMAnchor and ns.CDMAnchor.IsNativeItemFrame and ns.CDMAnchor.IsNativeItemFrame(nf) then return nil end
     local sid = ns.CDMAnchor and ns.CDMAnchor.NativeFrameSpellId and ns.CDMAnchor.NativeFrameSpellId(nf)
     if sid then return sid end
     if nf.GetSpellID then

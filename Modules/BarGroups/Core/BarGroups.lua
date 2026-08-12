@@ -120,6 +120,7 @@ end
 -- taints. Reuses ns.CDMAnchor's resolver, then the frame's own getters / linked ids.
 local function FrameSpellId(nf)
     if not nf then return nil end
+    if ns.CDMAnchor and ns.CDMAnchor.IsNativeItemFrame and ns.CDMAnchor.IsNativeItemFrame(nf) then return nil end
     local sid = ns.CDMAnchor and ns.CDMAnchor.NativeFrameSpellId and ns.CDMAnchor.NativeFrameSpellId(nf)
     if sid then return sid end
     if nf.GetSpellID then

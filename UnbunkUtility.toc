@@ -1,4 +1,4 @@
-## Interface: 120007
+## Interface: 120100
 ## Title: Unbunk Utility
 ## Notes: A comprehensive cooldown manager and combat utility addon.
 ## Author: Unbunk

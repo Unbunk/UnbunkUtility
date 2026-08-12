@@ -312,6 +312,39 @@ function ns.CDMAnchor.NativeFrameBaseSpellId(nf)
     return id
 end
 
+-- A native cooldown frame that represents an ITEM rather than a spell: an equipped trinket
+-- (cooldownInfo.equipSlot) or a generic consumable — combat/health potion, healthstone
+-- (cooldownInfo.spellCategoryID) — or one of 12.1.0's dedicated item buckets (category
+-- EquipSlotEssential=7 / EquipSlotTracked=8). Shared so every module that walks a native pool
+-- (CDMGroups, BuffGroups, BarGroups) can skip these consistently instead of re-deriving its own
+-- classifier. Secret-guarded and memoized on _uuIsItem; the OnAcquireItemFrame recycle hook
+-- above clears the cache when Blizzard reuses the frame for new content.
+local function ItemNum(x)
+    if x == nil then return nil end
+    if issecretvalue and issecretvalue(x) then return nil end
+    return x
+end
+function ns.CDMAnchor.IsNativeItemFrame(nf)
+    if not nf then return false end
+    local ci = nf.cooldownInfo
+    if type(ci) ~= "table" and nf.GetCooldownInfo then
+        local ok, info = pcall(nf.GetCooldownInfo, nf); if ok then ci = info end
+    end
+    if type(ci) ~= "table" then return nf._uuIsItem == true end
+    local cat = ItemNum(ci.category)
+    if ItemNum(ci.equipSlot) ~= nil or ItemNum(ci.spellCategoryID) ~= nil
+        or cat == 7 or cat == 8 then
+        nf._uuIsItem = true
+        return true
+    end
+    if not (issecretvalue and (issecretvalue(ci.equipSlot) or issecretvalue(ci.spellCategoryID)
+            or issecretvalue(ci.category))) then
+        nf._uuIsItem = false
+        return false
+    end
+    return nf._uuIsItem == true
+end
+
 -- The native BUFF cooldown viewer's icon frames (BuffIconCooldownViewer). The Buff-groups
 -- module redistributes these into its own movable group containers (reusing the real native
 -- frames so Blizzard keeps rendering their cooldown / charges / combat state).
@@ -2305,11 +2338,16 @@ local function HookViewers()
             -- a stale offset is never re-imposed before the next LayoutCDMRow.
             if v.OnAcquireItemFrame then
                 hooksecurefunc(v, "OnAcquireItemFrame", function(_, itemFrame)
-                    -- Drop our pin AND the CDMGroups engine's cached identity key (_uuLastGoodKey): the pool
-                    -- just recycled this frame for new content, so neither a stale offset nor a stale
-                    -- stable-key may survive into the next layout pass (the key is a private field the engine
-                    -- reads for its combat secret-value early-out; clearing it here is a no-op for other frames).
-                    if itemFrame then itemFrame._uuPin = nil; itemFrame._uuLastGoodKey = nil end
+                    -- Recycled frame: drop EVERYTHING we cached on it so nothing stale survives into the next
+                    -- layout pass -- our pin (_uuPin, stale offset), the CDMGroups item/spell classification
+                    -- (_uuIsItem, 12.1.0 IsNativeItemFrame verdict), and the engine's stable identity key
+                    -- (_uuLastGoodKey, read for its combat secret-value early-out). No-op for a frame that
+                    -- doesn't use a given field.
+                    if itemFrame then
+                        itemFrame._uuPin = nil
+                        itemFrame._uuIsItem = nil
+                        itemFrame._uuLastGoodKey = nil
+                    end
                 end)
             end
         end
@@ -2437,6 +2475,16 @@ local function RestoreViewerPoints(v)
 end
 
 local function ApplyEditModeOverlay()
+    -- DISABLED on 12.1.0 (commit 38b12ed, never shipped tested). Gluing a native CooldownViewer
+    -- onto its Group 1 block requires writing the *protected* viewer's anchors WHILE Edit Mode is
+    -- open. Under 12.1.0 the secure Edit Mode passes (RefreshEncounterEvents on enter,
+    -- HideSystemSelections on exit) read now-SECRET frame state from those registered system
+    -- frames; once our raw writes mark them addon-tainted, those reads throw "compare/arithmetic
+    -- on a secret value". This is the prime suspect for the two Edit Mode enter/exit LUA_WARNINGs.
+    -- It cannot be made taint-safe while it writes the registered system frame, so we bail. To
+    -- restore a Group-1 husk indicator taint-safely later, draw an addon-OWNED frame over Group 1
+    -- instead of re-anchoring the protected viewer.
+    do return end
     if InCombatLockdown() then return end
     for _, e in ipairs(EM_VIEWERS) do
         local v = e.name and _G[e.name]
@@ -2453,6 +2501,9 @@ end
 
 local emRestoreEv
 local function ClearEditModeOverlay()
+    do return end   -- DISABLED with ApplyEditModeOverlay (see above): the overlay never saves any
+                    -- viewer points, so there is nothing to restore; never write the protected
+                    -- viewers on exit (that is the HideSystemSelections secret-value taint path).
     -- Combat can force-close Edit Mode; the protected SetPoint restore must wait for safety.
     if InCombatLockdown() then
         emRestoreEv = emRestoreEv or CreateFrame("Frame")
