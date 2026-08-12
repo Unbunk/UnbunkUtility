@@ -61,7 +61,8 @@ end
 function PI.ApplyVisuals()
     -- Test mode bypasses the instance filter so the preview always works.
     if (not PI.testMode and (not PI.CfgGet("enabled") or not IsActiveInCurrentInstance()))
-        or not PI.CfgGet("showIcon") then
+        or not PI.CfgGet("showIcon")
+        or (ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled()) then
         piIcon.Hide()
         return
     end

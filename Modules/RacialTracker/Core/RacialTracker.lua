@@ -215,7 +215,8 @@ function RT.ApplyVisuals()
     end
 
     if (not RT.testMode and (not RT.CfgGet("enabled") or not IsActiveInCurrentInstance()))
-        or not RT.CfgGet("showIcon") then
+        or not RT.CfgGet("showIcon")
+        or (ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled()) then
         racialIcon.Hide()
         return
     end

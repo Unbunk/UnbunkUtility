@@ -39,12 +39,20 @@ function M.Get()
 end
 function M.IsEngine() return M.Get() == "engine" end   -- the gate the native-reuse will consult (Level 2)
 
--- Whether a given native viewer is currently HIDDEN + alpha-owned by the engine (engine mode + one of
--- the 3 viewers it covers). The native-reuse (the Fader now; CDMGroups/BuffGroups later) consults this
--- to leave that viewer alone instead of fighting the engine's SetAlpha(0) re-force hook.
+-- Master switch (Level 0): whether the addon takes over the Cooldown Manager at all — Essential, Utility,
+-- Buffs, Bars, Below player frame, Free icons, class resources, and every tracker icon. OFF means the addon
+-- fully cedes the CDM in both engine and native mode.
+function ns.IsCDMTakeoverEnabled()
+    local p = ns.db and ns.db.profile
+    return not p or p.cdmTakeoverEnabled ~= false
+end
+
+-- Whether a given native viewer is currently HIDDEN + alpha-owned by the engine (engine mode + takeover ON
+-- + one of the 3 viewers it covers). The native-reuse (the Fader now; CDMGroups/BuffGroups later) consults
+-- this to leave that viewer alone instead of fighting the engine's SetAlpha(0) re-force hook.
 local VIEWER_SET = {}
 for _, n in ipairs(VIEWERS) do VIEWER_SET[n] = true end
-function M.IsViewerMasked(name) return M.IsEngine() and VIEWER_SET[name] == true end
+function M.IsViewerMasked(name) return M.IsEngine() and ns.IsCDMTakeoverEnabled() and VIEWER_SET[name] == true end
 
 -- ── Native masking (SetAlpha 0, re-forced via a per-viewer hook) ──────────────────────────────────
 local maskForcing = false   -- recursion guard for our own SetAlpha inside the hook
@@ -61,15 +69,19 @@ local function EnsureHook(f)
     if hooked[f] then return end
     hooked[f] = true
     -- hooksecurefunc is flow-isolated (its taint is discarded on return), and SetAlpha is not a taint
-    -- vector — so re-forcing 0 here is safe. Guard our own re-set + only act in engine mode.
+    -- vector — so re-forcing 0 here is safe. Guard our own re-set + only act in engine mode WITH takeover
+    -- on — this hook is permanent for the session (hooksecurefunc can't be removed), so it must keep
+    -- re-checking the takeover switch live: a third-party addon re-parented onto these same native viewer
+    -- frames needs its own SetAlpha calls to go through untouched once the switch is off, even though the
+    -- stored mode preference itself stays "engine" (mode and takeover are independent, separately-persisted).
     hooksecurefunc(f, "SetAlpha", function(self, a)
         if maskForcing then return end
-        if M.IsEngine() and a ~= 0 then ForceMask(self); masked[self] = true end
+        if M.IsEngine() and ns.IsCDMTakeoverEnabled() and a ~= 0 then ForceMask(self); masked[self] = true end
     end)
 end
 
 local function ApplyMask()
-    local engine = M.IsEngine()
+    local engine = M.IsEngine() and ns.IsCDMTakeoverEnabled()
     for _, name in ipairs(VIEWERS) do
         local f = _G[name]
         if f and f.SetAlpha then   -- all 3 covered viewers alpha-masked (BuffIcon's frames are ADOPTED out)
@@ -85,10 +97,16 @@ local function ApplyMask()
 end
 
 -- ── Apply the whole mode: mask natives + show/hide the engine ─────────────────────────────────────
-local lastAppliedMode
+local lastAppliedSig
 function M.Apply()
+    local takeoverOn = ns.IsCDMTakeoverEnabled()
     ApplyMask()
-    if E.Layout and E.Layout.SetShown then E.Layout.SetShown(M.IsEngine()) end
+    -- Edit Mode drag-lock (Level 0): keep the native viewers' Edit Mode lock in sync with the switch —
+    -- locked (KillDrag + "Managed by" overlay) while the addon owns them, restored to native Edit Mode
+    -- dragging the moment takeover is OFF. Independent of mode (native/engine): the lock covers ALL 4
+    -- native viewers regardless, so this runs unconditionally here rather than folded into ApplyMask.
+    if ns.CDMEditModeLock and ns.CDMEditModeLock.Apply then ns.CDMEditModeLock.Apply() end
+    if E.Layout and E.Layout.SetShown then E.Layout.SetShown(M.IsEngine() and takeoverOn) end
     -- Re-route CDMAnchor (Level 2): owned() now returns the new value for essential/utility, so CDMAnchor
     -- stops pinning the CDM trackers to the (masked) native viewer and lets the engine host them — and
     -- re-anchors them back to the native viewer on switch to native. Coalesced inside CDMAnchor.
@@ -99,9 +117,10 @@ function M.Apply()
     -- early-out (which folds ns.StyleEpoch) would skip re-placing them and they'd stay orphaned (no point).
     -- Bumping the epoch busts that signature so the next 0.2s RefreshLayout tick re-folds them. Gated on a
     -- real change so a zone-change M.Apply (PLAYER_ENTERING_WORLD, same mode) doesn't churn a full re-style.
-    local m = M.Get()
-    if m ~= lastAppliedMode then
-        lastAppliedMode = m
+    local sig = M.Get() .. (takeoverOn and "1" or "0")
+    if sig ~= lastAppliedSig then
+        lastAppliedSig = sig
+        local ceded = M.IsEngine() or not takeoverOn
         if ns.BumpStyleEpoch then ns.BumpStyleEpoch() end
         -- BuffGroups cede/uncede (Level 2): its 0.2s ticker early-outs BEFORE RefreshLayout when disabled,
         -- so poke it once on a real mode change. Native return: re-pins the native buff frames immediately
@@ -111,7 +130,7 @@ function M.Apply()
         -- and they'd otherwise linger on screen over the engine's TrackedBuff widgets.
         if ns.BuffGroups then
             if ns.BuffGroups.RefreshLayout then ns.BuffGroups.RefreshLayout() end
-            if M.IsEngine() and ns.BuffGroups.HideAllCustomFrames then ns.BuffGroups.HideAllCustomFrames() end
+            if ceded and ns.BuffGroups.HideAllCustomFrames then ns.BuffGroups.HideAllCustomFrames() end
         end
         -- BarGroups cede/uncede (Level 2): engine mode is functionally "disabled", native is "enabled" —
         -- so mirror the module's own bring-up paths. Engine (cede): ApplyAll sets layoutDirty then
@@ -121,7 +140,7 @@ function M.Apply()
         -- HookNativeViewer never ran so viewerLaidOut stayed false, and a plain Rebuild would DEFER the seed
         -- forever (pendingSeed) -> bars stuck "Unused" -> pinned OFFSCREEN (-10000) = invisible on return.
         if ns.BarGroups then
-            if M.IsEngine() then
+            if ceded then
                 if ns.BarGroups.ApplyAll then ns.BarGroups.ApplyAll() end
             elseif ns.BarGroups.Activate then
                 ns.BarGroups.Activate()
@@ -165,6 +184,20 @@ function M.Set(mode)
 end
 
 function M.Toggle() M.Set(M.IsEngine() and "native" or "engine") end
+
+-- Master switch setter (Level 0): flips ns.IsCDMTakeoverEnabled() and re-applies + rebuilds nav so every
+-- mode-conditional / disabled-conditional UI entry re-evaluates (mirrors M.Set's own ReloadAll).
+function ns.SetCDMTakeoverEnabled(v)
+    local p = ns.db and ns.db.profile
+    if not p then return end
+    p.cdmTakeoverEnabled = v and true or false
+    M.Apply()
+    if ns.profiles and ns.profiles.ReloadAll then
+        ns.profiles.ReloadAll()
+    elseif ns.RefreshNav then
+        ns.RefreshNav()
+    end
+end
 
 -- ── Apply on world enter (viewers exist, past the loading screen) + on profile switch ─────────────
 local ev = CreateFrame("Frame")

@@ -416,6 +416,7 @@ local function CreateClassResourcesPanel(parent)
                 if E.Cfg then E.Cfg.SetResource("enable", v and true or false) end
                 ReRes()
             end,
+            disabled = function() return ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() end,
         },
     }
 

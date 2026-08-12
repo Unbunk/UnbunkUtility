@@ -146,6 +146,7 @@ function BR.Enabled()
     -- BuffBarCooldownViewer), so BarGroups must cede: return false here and every driver early-outs +
     -- RefreshLayout self-routes to HideAll (un-pins the bars for the engine to adopt). Mirrors BG.Enabled().
     if ns.CDMMode and ns.CDMMode.IsEngine and ns.CDMMode.IsEngine() then return false end
+    if ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() then return false end
     local s = Store(); return not s or s.enabled ~= false
 end
 function BR.SetEnabled(v) local s = Store(); if s then s.enabled = v and true or false end end

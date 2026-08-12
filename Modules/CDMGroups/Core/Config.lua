@@ -313,6 +313,7 @@ function CDG.Make(dest)
     -- instant the user returns to native mode; the always-running ticker re-folds within one 0.2s pass.
     function I.Enabled()
         if ns.CDMMode and ns.CDMMode.IsEngine and ns.CDMMode.IsEngine() then return false end
+        if ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() then return false end
         local s = Store(dest); return s and s.enabled == true or false
     end
     function I.SetEnabled(v) local s = Store(dest); if s then s.enabled = v and true or false end end
