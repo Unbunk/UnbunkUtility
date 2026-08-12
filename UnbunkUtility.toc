@@ -5,7 +5,7 @@
 ## X-Curse-Project-ID: 1619896
 ## X-Wago-ID: b6XeJjKp
 ## X-WoWI-ID: 27166
-## Version: 5.3
+## Version: @project-version@
 ## SavedVariables: HealerRangeDB, DeathAlertDB, BLTrackerDB, PotionTrackerDB, TrinketTrackerDB, UnbunkUtilityDB, PITrackerDB, PlayerDeathDB, BResTrackerDB, HealthstoneTrackerDB, UnbunkUtilityAceDB
 ## IconTexture: Interface\AddOns\UnbunkUtility\Media\Icons\UnbunkUtility.tga
 
