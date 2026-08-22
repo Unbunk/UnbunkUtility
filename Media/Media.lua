@@ -35,6 +35,7 @@ initMedia:SetScript("OnEvent", function(self, event, addonName)
             { key = "BRez Used",           file = "BRezUsed" },
             { key = "Combat Potion",       file = "CombatPotion" },
             { key = "Combat Potion Ready", file = "CombatPotionReady" },
+            { key = "Died",                file = "Died" },
             { key = "DPS Died",            file = "DPSDied" },
             { key = "Drink",               file = "Drink" },
             { key = "Healer Died",         file = "HealerDied" },
