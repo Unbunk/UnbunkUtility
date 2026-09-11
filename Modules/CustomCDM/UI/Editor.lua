@@ -572,7 +572,8 @@ end
 
 -- A profile switch / reset / import replaces every custom icon (CC.BuildAll) and may flip the takeover
 -- switch: an open editor would keep a stale icon id and a stale takeover greying, so close it. Hiding it
--- relocks any unlocked icon; CC.SetUnlocked is a no-op for an id that no longer exists.
+-- relocks any unlocked icon: CC.SetUnlocked only drops the drag state, a no-op for an id that is gone
+-- and harmless for an id the new profile happens to reuse.
 ns.RegisterReloadHook(function()
     for _, ed in pairs({ editor, buffEditor }) do
         if ed.frame:IsShown() then ed.frame:Hide() end
