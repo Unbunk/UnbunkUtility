@@ -27,6 +27,9 @@ initMedia:SetScript("OnEvent", function(self, event, addonName)
         -- select the High variant. (The legacy un-parenthesised keys are
         -- rewritten to this form by ns.MigrateSoundKeys.)
         local BASE_SOUNDS = {
+            { key = "ArcaneSoul",          file = "ArcaneSoul" },
+            { key = "ArcaneSurge",         file = "ArcaneSurge" },
+            { key = "ArcaneSurgeReady",    file = "ArcaneSurgeReady" },
             { key = "BL",                  file = "BL" },
             { key = "Bloodlust",           file = "Bloodlust" },
             { key = "Bloodlust Combo",     file = "BloodlustCombo" },
@@ -47,7 +50,12 @@ initMedia:SetScript("OnEvent", function(self, event, addonName)
             { key = "PI",                  file = "PI" },
             { key = "Potion Combo",        file = "PotionCombo" },
             { key = "Potion Ready",        file = "PotionReady" },
+            { key = "START",               file = "START" },
+            { key = "STOP",                file = "STOP" },
             { key = "Tank Died",           file = "TankDied" },
+            { key = "Touch",               file = "Touch" },
+            { key = "TouchOfTheMagi",      file = "TouchOfTheMagi" },
+            { key = "TouchReady",          file = "TouchReady" },
             { key = "Trinket",             file = "Trinket" },
             { key = "Trinket Combo",       file = "TrinketCombo" },
             { key = "Trinket Ready",       file = "TrinketReady" },
