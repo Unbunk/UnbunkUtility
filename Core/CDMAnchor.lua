@@ -2144,6 +2144,9 @@ local function ComputeSig()
     -- Whether the game's Cooldown Manager is on: toggling it in the options must
     -- change the signature so a (non-forced) refresh re-lays-out every icon.
     p[#p + 1] = ns.IsCDMEnabled() and "CDM1" or "CDM0"
+    -- Same for the master takeover switch (the flip itself forces a pass via Mode.Apply; folding it here
+    -- keeps a non-forced refresh honest should one land first).
+    p[#p + 1] = (ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled()) and "T0" or "T1"
     return table.concat(p, "|")
 end
 
@@ -2186,7 +2189,17 @@ local function DoRefreshBody(force)
     -- Cooldown Manager off in the options -> treat every icon as free (inc=false),
     -- so they all fall to the d.apply free-placement branch and any owned viewer is
     -- released below. Evaluated once per pass.
-    local cdmOn = ns.IsCDMEnabled()
+    -- Master takeover switch OFF (Level 0) folds in the same way: the addon cedes the CDM entirely, so
+    -- this old bucket system must neither route icons into the native viewers nor take a viewer over
+    -- for a placement override. Without this fold, in NATIVE mode owned() is false for essential/utility
+    -- (CDMGroups.OwnsDest folds the switch, EngineOwnsDest is engine-only), so the very descriptors the
+    -- switch hides would wake this bucket system up and re-glue the native viewers. With inc=false every
+    -- descriptor takes d.apply — whose ContextHidden gate (TimerIcon / BRes) just hides the frame, never
+    -- free-anchors it — and the release loop below hands back any viewer still glued (out of combat;
+    -- a flip mid-combat is completed by the PLAYER_REGEN_ENABLED forced pass). EngineOwnsDest is left
+    -- alone on purpose: in engine mode it must stay true so the first branch keeps skipping the
+    -- engine-hosted trackers instead of routing them back here.
+    local cdmOn = ns.IsCDMEnabled() and not (ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled())
     -- owned() (module-level): an icon destined for an owned dest falls through to free
     -- placement (d.apply), and the override-takeover below skips it. The release loop
     -- further down still gives a one-time clean handoff (UnpinNatives) the first time
@@ -2222,7 +2235,8 @@ local function DoRefreshBody(force)
     -- Take over essential/utility even with NO icons of ours when the user set a
     -- placement offset / per-row size (or unlocked it to drag) — so those overrides
     -- actually apply. With no override the viewer is left to Blizzard and released below.
-    -- Skipped for a dest the new groups engine owns (it manages that viewer itself).
+    -- Skipped for a dest the new groups engine owns (it manages that viewer itself), and
+    -- skipped entirely while the takeover switch is off (cdmOn folds it — see above).
     if cdmOn then
         for _, dest in ipairs({ "essential", "utility" }) do
             if not groups[dest] and not owned(dest) and ns.CDMAnchor.ViewerHasOverride(dest) then
@@ -2308,6 +2322,10 @@ local function OnNativeRelayout(viewer)
     -- so the old bucket re-pin is redundant — and the NativeSig + RefreshAll(true) below run a LOT of insecure
     -- work inside Blizzard's secure refresh, tainting its subsequent aura/totem secret reads ("tainted by
     -- UnbunkUtility"). Bail out for an owned dest so none of that heavy work runs in the secure path.
+    -- Takeover switch OFF: the addon has ceded the CDM, nothing of ours is pinned to any viewer, so there is
+    -- nothing to re-pin — bail BEFORE any work (owned() is false for essential/utility in native mode then,
+    -- so without this the whole insecure NativeSig + forced pass would run in the secure path for nothing).
+    if ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() then return end
     if ns.CDM_VIEWER then
         local nm = viewer.GetName and viewer:GetName()
         if nm then
