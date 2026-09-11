@@ -59,6 +59,8 @@ local function CreateBResTrackerPanel(parent)
                         label   = L["Test"],
                         width   = 80,
                         height  = 22,
+                        -- Greyed while the master takeover switch is off: the icon it previews is hidden.
+                        enabledBy = function() return not ns.IsCDMTakeoverEnabled or ns.IsCDMTakeoverEnabled() end,
                         onClick = function() BR.RunTest(15) end,
                     },
 
@@ -120,18 +122,24 @@ local function CreateBResTrackerPanel(parent)
         {
             type  = "group",
             title = L["Icon"],
-            enabledBy = function() return BR.CfgGet("enabled") ~= false end,
+            -- Greys + blocks with the module AND with the master takeover switch (stored prefs untouched).
+            enabledBy = function()
+                return BR.CfgGet("enabled") ~= false and (not ns.IsCDMTakeoverEnabled or ns.IsCDMTakeoverEnabled())
+            end,
             -- Unchecking "Show icon" greys the rest of the Icon box (placement / border /
             -- timer text) since there is no icon to configure; the checkbox stays live.
             gate      = { enabled = function() return BR.CfgGet("showIcon") ~= false end, master = "showicon" },
             build = function()
                 return {
                     -- ── Show icon checkbox ────────────────────────────────────────────────
+                    -- Also `disabled` under takeover OFF: a stored showIcon=false makes the gate raise
+                    -- this master checkbox, so it must read as inert on its own.
                     {
                         type   = "checkbox",
                         ref    = "showicon",
                         label  = L["Show icon"],
                         height = 24,
+                        disabled = function() return ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() end,
                         get    = function() return BR.CfgGet("showIcon") ~= false end,
                         set    = function(val)
                             BR.CfgSet("showIcon", val)

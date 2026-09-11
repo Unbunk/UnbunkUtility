@@ -197,6 +197,9 @@ function ns.SetCDMTakeoverEnabled(v)
     elseif ns.RefreshNav then
         ns.RefreshNav()
     end
+    -- The custom-icon editors are standalone DIALOG windows, not config panels, so ReloadAll doesn't reach
+    -- them: re-render any open one so its takeover-greyed Icon box follows the switch.
+    if ns.CustomCDM and ns.CustomCDM.RebuildOpenEditors then ns.CustomCDM.RebuildOpenEditors() end
 end
 
 -- ── Apply on world enter (viewers exist, past the loading screen) + on profile switch ─────────────

@@ -397,7 +397,13 @@ function ns.ui.CreateTimerIcon(config)
     --   free (out of CDM) -> ns.CDMAnchor.IsFreeEnabled()   (config: includeInCdm off)
     -- Config-based (NOT CDMActive): the toggle hides by how the icon is CONFIGURED, independent of the
     -- CM CVar. Default-true: a missing CDMAnchor / accessor keeps the icon visible (today's behaviour).
+    -- Master takeover switch OFF (Level 0): the addon cedes the WHOLE Cooldown Manager, every tracker icon
+    -- included — whatever its dest (essential / utility / below-player / free) and whatever the display
+    -- mode. Checked first so an essential/utility icon (CustomCDM spell/item, a tracker whose owner has no
+    -- takeover gate of its own) hides too, not only the below/free contexts (whose IsBelowEnabled /
+    -- IsFreeEnabled already fold the switch).
     local function ContextHidden()
+        if ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() then return true end
         if not ns.CDMAnchor then return false end
         if getCfg("includeInCdm") then
             if getCfg("cdmDest") == "belowPlayer" then
@@ -1265,7 +1271,10 @@ function ns.ui.CreateTimerIcon(config)
             })
             local _br, _bg, _bb = ns.GetBrandColor()
             frame:SetBackdropBorderColor(_br, _bg, _bb, 0.8)   -- brand blue (re-read on (re)build)
-            frame:Show()
+            -- Force-show for positioning — unless the icon's placement context is master-disabled
+            -- (takeover switch off / below-player row off / free icons off): the toggle wins over the
+            -- unlock, exactly as Show() and ApplyPosition() already let it win while unlocked.
+            if not ContextHidden() then frame:Show() end
         else
             frame:EnableMouse(false)
             frame:SetBackdrop(nil)

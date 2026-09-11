@@ -334,17 +334,36 @@ end
 function ns.CDMGroups.TrackerIconGroup(b)
     local function inCdm()   return ns.CDMIncludedVal(b.get("includeInCdm")) end
     local function curDest() return b.get("cdmDest") or b.defaultDest end
+    -- Master takeover switch OFF: the whole Icon box greys + blocks (enabledBy below); stored prefs are never
+    -- rewritten. A stored showIcon=false makes the gate raise its master host (Show icon + its inline extras),
+    -- so those controls also carry the takeover in their own `disabled` and read as inert, not just veiled.
+    local function takeoverOff() return ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() end
+    local showIconInline
+    if b.showIconInline then
+        showIconInline = {}
+        for i, child in ipairs(b.showIconInline) do
+            local c, own = {}, child.disabled
+            for k, v in pairs(child) do c[k] = v end
+            c.disabled = function()
+                if takeoverOff() then return true end
+                if type(own) == "function" then return own() and true or false end
+                return own == true
+            end
+            showIconInline[i] = c
+        end
+    end
     return {
-        type = "group", title = b.title or L["Icon"], enabledBy = b.enabledBy,
+        type = "group", title = b.title or L["Icon"],
+        enabledBy = function() return not takeoverOff() and (not b.enabledBy or b.enabledBy()) end,
         -- Unchecking "Show icon" greys the rest of the Icon box; the checkbox itself stays live.
         gate = { enabled = function() return b.get("showIcon") ~= false end, master = "showicon" },
         build = function()
             local e = {
                 { type = "checkbox", ref = "showicon", label = L["Show icon"], height = b.showIconHeight,
-                  disabled = function() return ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() end,
+                  disabled = takeoverOff,
                   get = function() return b.get("showIcon") ~= false end,
                   set = function(v) b.set("showIcon", v); if b.onShowIcon then b.onShowIcon() end end,
-                  inline = b.showIconInline },
+                  inline = showIconInline },
 
                 { type = "group", title = L["Placement"], build = function() return {
                     { type = "checkbox", label = L["Include in cdm"],
