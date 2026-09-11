@@ -10,6 +10,9 @@ local ADDON, ns = ...
 local L  = ns.L
 local CC = ns.CustomCDM
 
+-- Master takeover switch OFF greys + blocks each editor's whole Icon box (stored prefs untouched).
+local function TakeoverOn() return not ns.IsCDMTakeoverEnabled or ns.IsCDMTakeoverEnabled() end
+
 local editor      -- singleton { frame, scroll, content, sb, menu } for the Spell/Item editor
 local buffEditor  -- singleton for the dedicated Buff-icon editor (same scaffolding, buff option tree)
 local choiceWin   -- the Free-icons "+" chooser (Spell/Item vs Buff), built lazily
@@ -342,11 +345,13 @@ local function BuffEditorOptions(id, LSM, refresh, rebuild)
           text = L["A buff icon shows a fixed-duration swipe started by your own cast of the spell."] },
         BuffSpellGroup(id, rebuild),
         SoundGroup(id, LSM),
-        { type = "group", title = L["Icon"],
+        { type = "group", title = L["Icon"], enabledBy = TakeoverOn,
           gate = { enabled = function() return CC.Get(id, "showIcon") ~= false end, master = "showicon" },
           build = function()
             local e = {
+                -- `disabled` too: a stored showIcon=false makes the gate raise this master checkbox.
                 { type = "checkbox", ref = "showicon", label = L["Show icon"],
+                  disabled = function() return not TakeoverOn() end,
                   get = function() return CC.Get(id, "showIcon") ~= false end,
                   set = function(v) CC.Set(id, "showIcon", v) end },
                 { type = "checkbox", label = L["Only show when buff is active"],
@@ -399,11 +404,13 @@ local function EditorOptions(id, LSM, refresh, rebuild)
     return {
         SpellGroup(id, rebuild),
         SoundGroup(id, LSM),
-        { type = "group", title = L["Icon"],
+        { type = "group", title = L["Icon"], enabledBy = TakeoverOn,
           gate = { enabled = function() return CC.Get(id, "showIcon") ~= false end, master = "showicon" },
           build = function()
             local e = {
+                -- `disabled` too: a stored showIcon=false makes the gate raise this master checkbox.
                 { type = "checkbox", ref = "showicon", label = L["Show icon"],
+                  disabled = function() return not TakeoverOn() end,
                   get = function() return CC.Get(id, "showIcon") ~= false end,
                   set = function(v) CC.Set(id, "showIcon", v) end },
                 PlacementGroup(id, rebuild),
@@ -529,6 +536,7 @@ local function OpenEditorWindow(ed, id, optionsFn)
     end
     local function refresh() if ed.menu then ed.menu.Refresh() end end
     local function rebuild() if ed.menu then ed.menu.Rebuild() end; syncHeight() end
+    ed.rebuild = rebuild
 
     ClearMenu(ed)
     ed.menu = ns.ui.BuildMenu(ed.content, optionsFn(id, LSM, refresh, rebuild), {
@@ -546,10 +554,19 @@ end
 function CC.OpenEditor(id)     OpenEditorWindow(EnsureWindow(),     id, EditorOptions)     end
 function CC.OpenBuffEditor(id) OpenEditorWindow(EnsureBuffWindow(), id, BuffEditorOptions) end
 
--- Close whichever editor is currently showing the given icon (called when it is removed).
+-- Close whichever editor is currently showing the given icon (called when it is removed). pairs, not
+-- ipairs: either singleton may still be nil, and ipairs would stop at a nil `editor` before `buffEditor`.
 function CC.CloseEditorFor(id)
-    for _, ed in ipairs({ editor, buffEditor }) do
-        if ed and ed.currentId == id and ed.frame:IsShown() then ed.frame:Hide() end
+    for _, ed in pairs({ editor, buffEditor }) do
+        if ed.currentId == id and ed.frame:IsShown() then ed.frame:Hide() end
+    end
+end
+
+-- Re-render whichever editor is open (called on a master takeover switch flip): these DIALOG windows are
+-- not config panels, so ns.profiles.ReloadAll never rebuilds them and their takeover greying would go stale.
+function CC.RebuildOpenEditors()
+    for _, ed in pairs({ editor, buffEditor }) do
+        if ed.rebuild and ed.frame:IsShown() then ed.rebuild() end
     end
 end
 

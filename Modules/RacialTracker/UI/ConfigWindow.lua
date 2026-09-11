@@ -42,9 +42,11 @@ local function CreateRacialTrackerPanel(parent)
                     },
 
                     -- ── Test button (toggles Test / Stop Test) ────────────────────────────
+                    -- Greyed while the master takeover switch is off: the icon it previews is hidden.
                     {
                         type   = "custom",
                         height = 30,
+                        enabledBy = function() return not ns.IsCDMTakeoverEnabled or ns.IsCDMTakeoverEnabled() end,
                         build  = function(host)
                             local testBtn
                             local function RefreshTestBtn()

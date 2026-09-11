@@ -30,7 +30,8 @@ ns.ui = ns.ui or {}
 --   * blockerHost : a transparent click-eating overlay is laid over this frame while disabled.
 --   * master    : optional frame (the CONTROLLING checkbox, when it sits inside the
 --                 blocked region) raised above the overlay so it stays clickable.
-function ns.ui.MakeDisableGate(blockerHost)
+--   * levelOffset : optional overlay height above blockerHost (default 500; a master goes +10 above it).
+function ns.ui.MakeDisableGate(blockerHost, levelOffset)
     local blocker
     return function(enabled, dimFrames, master)
         if dimFrames then
@@ -43,7 +44,7 @@ function ns.ui.MakeDisableGate(blockerHost)
         if not blocker then
             blocker = CreateFrame("Frame", nil, blockerHost)
             blocker:SetAllPoints(blockerHost)
-            blocker:SetFrameLevel((blockerHost:GetFrameLevel() or 0) + 500)
+            blocker:SetFrameLevel((blockerHost:GetFrameLevel() or 0) + (levelOffset or 500))
             blocker:EnableMouse(true)          -- eat clicks on the inert controls
             blocker:EnableMouseWheel(true)     -- but forward the wheel so scrolling still works
             blocker:SetScript("OnMouseWheel", function(self, delta)
@@ -242,6 +243,9 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
     local lastFrame  = nil
     local totalHeight = 0
     local built      = {}   -- every host frame stacked this pass (for Rebuild teardown)
+    -- [host frame] = its entry.enabledBy predicate, so the panel gate below never re-lightens a host that
+    -- its own per-entry enabledBy is holding greyed (weak keys: Rebuild orphans the old hosts).
+    local entryEnabledBy = setmetatable({}, { __mode = "k" })
 
     -- Optional disable gate: greys + mouse-blocks every stacked control EXCEPT the
     -- `master` checkbox while `enabled()` is false — for a group/module whose leading
@@ -711,9 +715,13 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
             -- checkbox that gates a few sibling controls — e.g. "Show border" greying
             -- the border colour + thickness. The controlling checkbox's `set` must call
             -- menu.Refresh() so toggling it re-applies the gate.
+            -- The overlay sits far above the default gate height: enabledBy inerts the WHOLE entry, and a
+            -- nested `gate` that is itself off raises its master checkbox to (its own content + 510), which
+            -- would otherwise poke through a +500 overlay here and stay clickable under the grey veil.
             if entry.enabledBy and hostFrame then
-                local applyEntryGate = ns.ui.MakeDisableGate(hostFrame)
+                local applyEntryGate = ns.ui.MakeDisableGate(hostFrame, 1000)
                 local thisHost = hostFrame
+                entryEnabledBy[thisHost] = entry.enabledBy
                 local function applyEnabledBy()
                     applyEntryGate(entry.enabledBy() and true or false, { thisHost })
                 end
@@ -735,7 +743,10 @@ function ns.ui.BuildMenu(parent, options, panelOpts)
         ApplyDisableGate = function()
             local dim = {}
             for _, f in ipairs(built) do
-                if f ~= masterHost then dim[#dim + 1] = f end
+                -- Skip a host whose own enabledBy is off: it is already greyed + blocked, and an OPEN gate
+                -- would otherwise reset its alpha to 1 (this runs after the refreshers) = live-looking but inert.
+                local own = entryEnabledBy[f]
+                if f ~= masterHost and not (own and not own()) then dim[#dim + 1] = f end
             end
             applyGate(disableGate.enabled() and true or false, dim, masterHost)
         end

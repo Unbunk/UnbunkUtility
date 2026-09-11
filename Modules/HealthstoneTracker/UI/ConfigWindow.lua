@@ -47,9 +47,11 @@ local function CreateHealthstoneTrackerPanel(parent)
                     },
 
                     -- ── Test button (timed preview: a 2-charge stone with the cooldown
-                    -- recharging, auto-stops — not a toggle) ──────────────────────────────
+                    -- recharging, auto-stops — not a toggle). Greyed while the master takeover
+                    -- switch is off: the icon it previews is hidden. ──────────────────────
                     {
                         type       = "button",
+                        enabledBy  = function() return not ns.IsCDMTakeoverEnabled or ns.IsCDMTakeoverEnabled() end,
                         label      = L["Test"],
                         width      = 100,
                         height     = 22,
