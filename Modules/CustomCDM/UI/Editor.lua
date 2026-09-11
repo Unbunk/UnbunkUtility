@@ -570,6 +570,15 @@ function CC.RebuildOpenEditors()
     end
 end
 
+-- A profile switch / reset / import replaces every custom icon (CC.BuildAll) and may flip the takeover
+-- switch: an open editor would keep a stale icon id and a stale takeover greying, so close it. Hiding it
+-- relocks any unlocked icon; CC.SetUnlocked is a no-op for an id that no longer exists.
+ns.RegisterReloadHook(function()
+    for _, ed in pairs({ editor, buffEditor }) do
+        if ed.frame:IsShown() then ed.frame:Hide() end
+    end
+end)
+
 -- ── Free-icons "+" chooser: Spell/Item vs Buff ────────────────────────────────
 -- A small movable dialog (brand close cross + ESC) routing to the two free-icon templates.
 function CC.PromptAddFreeChoice()

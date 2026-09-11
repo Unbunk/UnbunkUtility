@@ -376,6 +376,24 @@ if ns.CDMAnchor then
     })
 end
 
+-- In the Cooldown Manager this icon occupies a slot only while visible, and its own show/hide triggers no
+-- relayout: nudge the owner on each transition, as TimerIcon's SlotRepack does for the other trackers.
+-- Without it, turning the takeover switch back ON in engine mode left BRes shown but unanchored: the engine
+-- rebuilt before this icon's next tick re-showed it, and nothing re-hosted it afterwards. RefreshAll is
+-- throttled and its signature tracks which opted-in frames are shown, so this costs nothing when idle.
+local function SlotRepack()
+    if not BR.CfgGet("includeInCdm") then return end
+    if BR.EngineOwns() then
+        local dest = BR.CfgGet("cdmDest") or "essential"
+        local I = ns.CDMGroups and ns.CDMGroups.instances and ns.CDMGroups.instances[dest]
+        if I and I.ScheduleRelayout then I.ScheduleRelayout() end
+        return
+    end
+    if ns.CDMAnchor and ns.CDMAnchor.RefreshAll then ns.CDMAnchor.RefreshAll() end
+end
+frame:HookScript("OnShow", SlotRepack)
+frame:HookScript("OnHide", SlotRepack)
+
 function BR.ApplySize()
     -- The NEW groups engine owns this dest: it sizes the frame via SetSlotSize (below) to the group's
     -- iconW/iconH. The module's own ApplySize must NOT impose the configured size (it would fight the

@@ -59,6 +59,8 @@ local function CreateBResTrackerPanel(parent)
                         label   = L["Test"],
                         width   = 80,
                         height  = 22,
+                        -- Greyed while the master takeover switch is off: the icon it previews is hidden.
+                        enabledBy = function() return not ns.IsCDMTakeoverEnabled or ns.IsCDMTakeoverEnabled() end,
                         onClick = function() BR.RunTest(15) end,
                     },
 
