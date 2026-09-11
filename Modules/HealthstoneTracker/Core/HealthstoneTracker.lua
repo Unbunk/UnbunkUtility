@@ -493,8 +493,10 @@ function HT.SetUnlocked(val)
         if t.InvalidateTimerCache then t.InvalidateTimerCache() end  -- unlock preview clears the timer outside ApplyVisuals' cache
         t.icon.ClearTimer()
         t.icon.ShowCheck()
+        -- TimerIcon.SetUnlocked force-shows the frame itself — unless its placement context is master-disabled
+        -- (takeover switch off / below-player row off / free icons off), where the toggle must win. No raw
+        -- GetFrame():Show() here: it would bypass that gate and leave the icon visible until re-locked.
         t.SetUnlocked(true)
-        t.GetFrame():Show()
         ApplyLayout()
     else
         t.SetUnlocked(false)

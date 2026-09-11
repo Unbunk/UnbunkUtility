@@ -126,9 +126,12 @@ function BR.IsContextActive()
 end
 
 -- Whether the icon is on screen. The player list is gated on this too, so there is
--- never a list without the icon.
+-- never a list without the icon (the list is parented to UIParent, not to the icon frame, so hiding
+-- the icon alone would leave it up) — hence the placement-context gate (ContextHidden: takeover switch
+-- off / below-player row off / free icons off) is folded in here as well.
 function BR.IconShouldShow()
-    return (BR.CfgGet("enabled") and BR.CfgGet("showIcon") and BR.IsContextActive()) and true or false
+    return (BR.CfgGet("enabled") and BR.CfgGet("showIcon") and BR.IsContextActive()
+        and not BR.ContextHidden()) and true or false
 end
 
 -- The BRes pool icon is constant for the session, so resolve it once and cache
@@ -147,6 +150,14 @@ end
 -- ── Apply visuals ────────────────────────────────────────────────────────────
 
 function BR.ApplyVisuals()
+    -- Master context toggle OFF (takeover switch / below-player row / free icons disabled) -> the icon
+    -- simply doesn't render, even when it would otherwise be active. Hidden BEFORE the unlocked
+    -- early-return so the toggle wins even while the icon is unlocked for drag (mirrors TimerIcon.Show).
+    -- It only governs the DRAW below (like "Show icon" off): the charge tracking, the ready/used sounds
+    -- and the cast attribution keep running — they are not CDM features, the other trackers keep theirs.
+    local ctxHidden = BR.ContextHidden()
+    if ctxHidden then frame:Hide() end
+
     -- While unlocked, keep the frame visible for positioning.
     if BR.IsUnlocked() then return end
 
@@ -161,9 +172,7 @@ function BR.ApplyVisuals()
     -- Show whenever we're in a relevant context (group + instance, per the filter)
     -- — NOT only when a charge pool is currently active. Outside that, hide and
     -- reset so the first later pool tick is adopted silently.
-    -- Master context toggle OFF (below-player row / free icons disabled) -> the icon simply doesn't
-    -- render, even when it would otherwise be active.
-    if BR.ContextHidden() or not BR.CfgGet("enabled") or not BR.IsContextActive() then
+    if not BR.CfgGet("enabled") or not BR.IsContextActive() then
         frame:Hide()
         lastCharges = nil
         lastMax     = nil
@@ -191,9 +200,9 @@ function BR.ApplyVisuals()
         end
     end
 
-    -- Draw the icon when showIcon is on. The charge-transition detection (sounds)
-    -- runs below regardless of showIcon, so the ready/used sounds stay independent.
-    if BR.CfgGet("showIcon") then
+    -- Draw the icon when showIcon is on and its placement context isn't master-disabled. The
+    -- charge-transition detection (sounds) runs below regardless, so the ready/used sounds stay independent.
+    if BR.CfgGet("showIcon") and not ctxHidden then
         frame:Show()
         local iconTexID = ResolveIcon()
         if iconTexID ~= lastIconTex then
@@ -312,7 +321,10 @@ end
 -- True when this tracker's PLACEMENT CONTEXT is master-disabled (below-player row off, or free icons
 -- off) -> it must not render. Config-based (raw includeInCdm), independent of the CM CVar; mirrors
 -- TimerIcon.ContextHidden for the other trackers. Default-true accessors keep it visible if absent.
+-- Master takeover switch OFF: the addon cedes the whole Cooldown Manager, this icon included whatever
+-- its dest (an essential/utility BRes has no other takeover gate) — checked first, like TimerIcon.
 function BR.ContextHidden()
+    if ns.IsCDMTakeoverEnabled and not ns.IsCDMTakeoverEnabled() then return true end
     if not ns.CDMAnchor then return false end
     if BR.CfgGet("includeInCdm") == true then
         if BR.CfgGet("cdmDest") == "belowPlayer" then
@@ -474,7 +486,10 @@ function BR.SetUnlocked(val)
         countText:SetText("1")
         countText:SetTextColor(0, 1, 0, 1)
         countText:Show()
-        frame:Show()
+        -- Force-show for positioning — unless the placement context is master-disabled (takeover
+        -- switch off / below-player row off / free icons off): the toggle wins over the unlock, as in
+        -- ApplyVisuals above (mirrors TimerIcon.SetUnlocked).
+        if not BR.ContextHidden() then frame:Show() end
     else
         frame:SetMovable(false)
         frame:EnableMouse(false)
