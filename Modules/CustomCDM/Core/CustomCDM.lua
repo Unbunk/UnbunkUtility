@@ -1181,9 +1181,13 @@ function CC.Remove(id)
 end
 
 -- Ask before deleting (the list crosses + the editor's "Delete Icon" both route here):
--- a small dialog showing the icon + its spell name with Yes/No.
+-- a small dialog showing the icon + its spell name with Yes/No. The dialog is not modal and ids are
+-- only unique within a profile, so it remembers the stored entry it was opened for and deletes only
+-- if the id still resolves to that same table: after a profile switch / import / reset, a Yes would
+-- otherwise delete whichever icon the new profile stores under the same id.
 function CC.ConfirmRemove(id)
     local e = EntryById(id)
+    local target = Entry(id)
     ns.ui.ShowConfirm({
         title      = L["Delete custom icon"],
         text       = L["Are you sure you want to delete this icon?"],
@@ -1191,7 +1195,13 @@ function CC.ConfirmRemove(id)
         name       = CC.SpellName(id),
         acceptText = L["Yes"],
         cancelText = L["No"],
-        onAccept   = function() CC.Remove(id) end,
+        onAccept   = function()
+            if Entry(id) ~= target then
+                ns.Print(L["The profile changed while this confirmation was open. Nothing was deleted."])
+                return
+            end
+            CC.Remove(id)
+        end,
     })
 end
 
